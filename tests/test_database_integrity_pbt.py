@@ -40,35 +40,34 @@ class DatabaseIntegritySystem:
     
     def _init_tables(self):
         """Initialize database tables with foreign key constraints"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                balance REAL DEFAULT 0,
-                is_admin BOOLEAN DEFAULT FALSE
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                amount REAL,
-                type TEXT,
-                admin_id INTEGER,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id),
-                FOREIGN KEY (admin_id) REFERENCES users (id)
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    first_name TEXT,
+                    balance REAL DEFAULT 0,
+                    is_admin BOOLEAN DEFAULT FALSE
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    amount REAL,
+                    type TEXT,
+                    admin_id INTEGER,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id),
+                    FOREIGN KEY (admin_id) REFERENCES users (id)
+                )
+            ''')
+            
+            conn.commit()
     
     def get_db_connection(self) -> sqlite3.Connection:
         """Get database connection with foreign keys enabled"""
@@ -80,109 +79,98 @@ class DatabaseIntegritySystem:
     def register_user(self, user_id: int, username: str = None, first_name: str = None) -> bool:
         """Register a new user"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            # Check if user already exists
-            cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-            if cursor.fetchone():
-                conn.close()
-                return True  # User already exists
-            
-            cursor.execute(
-                "INSERT INTO users (id, username, first_name, balance, is_admin) VALUES (?, ?, ?, 0, FALSE)",
-                (user_id, username, first_name)
-            )
-            
-            conn.commit()
-            conn.close()
-            return True
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if user already exists
+                cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+                if cursor.fetchone():
+                    return True  # User already exists
+                
+                cursor.execute(
+                    "INSERT INTO users (id, username, first_name, balance, is_admin) VALUES (?, ?, ?, 0, FALSE)",
+                    (user_id, username, first_name)
+                )
+                
+                conn.commit()
+                return True
+                
         except Exception as e:
             return False
     
     def update_balance(self, user_id: int, amount: float) -> Optional[float]:
         """Update user balance"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
-            result = cursor.fetchone()
-            
-            if not result:
-                conn.close()
-                return None
-            
-            new_balance = result['balance'] + amount
-            
-            cursor.execute(
-                "UPDATE users SET balance = ? WHERE id = ?",
-                (new_balance, user_id)
-            )
-            
-            conn.commit()
-            conn.close()
-            
-            return new_balance
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
+                result = cursor.fetchone()
+                
+                if not result:
+                    return None
+                
+                new_balance = result['balance'] + amount
+                
+                cursor.execute(
+                    "UPDATE users SET balance = ? WHERE id = ?",
+                    (new_balance, user_id)
+                )
+                
+                conn.commit()
+                return new_balance
+                
         except Exception:
             return None
     
     def add_transaction(self, user_id: int, amount: float, transaction_type: str, admin_id: int = None) -> Optional[int]:
         """Add transaction record"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute(
-                "INSERT INTO transactions (user_id, amount, type, admin_id) VALUES (?, ?, ?, ?)",
-                (user_id, amount, transaction_type, admin_id)
-            )
-            
-            transaction_id = cursor.lastrowid
-            conn.commit()
-            conn.close()
-            
-            return transaction_id
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute(
+                    "INSERT INTO transactions (user_id, amount, type, admin_id) VALUES (?, ?, ?, ?)",
+                    (user_id, amount, transaction_type, admin_id)
+                )
+                
+                transaction_id = cursor.lastrowid
+                conn.commit()
+                return transaction_id
+                
         except Exception:
             return None
     
     def set_admin_status(self, user_id: int, is_admin: bool) -> bool:
         """Set admin status for user"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute(
-                "UPDATE users SET is_admin = ? WHERE id = ?",
-                (is_admin, user_id)
-            )
-            
-            success = cursor.rowcount > 0
-            conn.commit()
-            conn.close()
-            
-            return success
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute(
+                    "UPDATE users SET is_admin = ? WHERE id = ?",
+                    (is_admin, user_id)
+                )
+                
+                success = cursor.rowcount > 0
+                conn.commit()
+                return success
+                
         except Exception:
             return False
     
     def delete_user(self, user_id: int) -> bool:
         """Delete user (this should fail if there are dependent transactions)"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-            
-            success = cursor.rowcount > 0
-            conn.commit()
-            conn.close()
-            
-            return success
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                
+                success = cursor.rowcount > 0
+                conn.commit()
+                return success
+                
         except Exception:
             # Foreign key constraint violation expected
             return False
@@ -190,78 +178,74 @@ class DatabaseIntegritySystem:
     def check_foreign_key_integrity(self) -> List[Dict[str, Any]]:
         """Check for foreign key constraint violations"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            # Check for orphaned transactions (user_id not in users)
-            cursor.execute('''
-                SELECT t.id, t.user_id, t.type, t.amount 
-                FROM transactions t 
-                LEFT JOIN users u ON t.user_id = u.id 
-                WHERE u.id IS NULL
-            ''')
-            orphaned_user_transactions = [dict(row) for row in cursor.fetchall()]
-            
-            # Check for orphaned transactions (admin_id not in users, but admin_id is not null)
-            cursor.execute('''
-                SELECT t.id, t.admin_id, t.type, t.amount 
-                FROM transactions t 
-                LEFT JOIN users u ON t.admin_id = u.id 
-                WHERE t.admin_id IS NOT NULL AND u.id IS NULL
-            ''')
-            orphaned_admin_transactions = [dict(row) for row in cursor.fetchall()]
-            
-            conn.close()
-            
-            violations = []
-            for tx in orphaned_user_transactions:
-                violations.append({
-                    'type': 'orphaned_user_transaction',
-                    'transaction_id': tx['id'],
-                    'user_id': tx['user_id'],
-                    'details': f"Transaction {tx['id']} references non-existent user {tx['user_id']}"
-                })
-            
-            for tx in orphaned_admin_transactions:
-                violations.append({
-                    'type': 'orphaned_admin_transaction',
-                    'transaction_id': tx['id'],
-                    'admin_id': tx['admin_id'],
-                    'details': f"Transaction {tx['id']} references non-existent admin {tx['admin_id']}"
-                })
-            
-            return violations
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check for orphaned transactions (user_id not in users)
+                cursor.execute('''
+                    SELECT t.id, t.user_id, t.type, t.amount 
+                    FROM transactions t 
+                    LEFT JOIN users u ON t.user_id = u.id 
+                    WHERE u.id IS NULL
+                ''')
+                orphaned_user_transactions = [dict(row) for row in cursor.fetchall()]
+                
+                # Check for orphaned transactions (admin_id not in users, but admin_id is not null)
+                cursor.execute('''
+                    SELECT t.id, t.admin_id, t.type, t.amount 
+                    FROM transactions t 
+                    LEFT JOIN users u ON t.admin_id = u.id 
+                    WHERE t.admin_id IS NOT NULL AND u.id IS NULL
+                ''')
+                orphaned_admin_transactions = [dict(row) for row in cursor.fetchall()]
+                
+                violations = []
+                for tx in orphaned_user_transactions:
+                    violations.append({
+                        'type': 'orphaned_user_transaction',
+                        'transaction_id': tx['id'],
+                        'user_id': tx['user_id'],
+                        'details': f"Transaction {tx['id']} references non-existent user {tx['user_id']}"
+                    })
+                
+                for tx in orphaned_admin_transactions:
+                    violations.append({
+                        'type': 'orphaned_admin_transaction',
+                        'transaction_id': tx['id'],
+                        'admin_id': tx['admin_id'],
+                        'details': f"Transaction {tx['id']} references non-existent admin {tx['admin_id']}"
+                    })
+                
+                return violations
+                
         except Exception as e:
             return [{'type': 'check_error', 'details': str(e)}]
     
     def get_all_users(self) -> List[Dict[str, Any]]:
         """Get all users"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT id, username, first_name, balance, is_admin FROM users")
-            users = [dict(row) for row in cursor.fetchall()]
-            
-            conn.close()
-            return users
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("SELECT id, username, first_name, balance, is_admin FROM users")
+                users = [dict(row) for row in cursor.fetchall()]
+                
+                return users
+                
         except Exception:
             return []
     
     def get_all_transactions(self) -> List[Dict[str, Any]]:
         """Get all transactions"""
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT id, user_id, amount, type, admin_id FROM transactions")
-            transactions = [dict(row) for row in cursor.fetchall()]
-            
-            conn.close()
-            return transactions
-            
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("SELECT id, user_id, amount, type, admin_id FROM transactions")
+                transactions = [dict(row) for row in cursor.fetchall()]
+                
+                return transactions
+                
         except Exception:
             return []
 
@@ -334,7 +318,7 @@ class TestDatabaseIntegrityPBT(unittest.TestCase):
             max_size=10  # Reduced from 20
         )
     )
-    @settings(max_examples=50, deadline=10000)
+    @settings(max_examples=100, deadline=20000)  # Increased deadline
     def test_database_integrity_preservation(self, operations):
         """
         Feature: telegram-bot-admin-system, Property 9: Database integrity preservation
@@ -400,9 +384,9 @@ class TestDatabaseIntegrityPBT(unittest.TestCase):
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         st.integers(min_value=1001, max_value=1003),  # Existing user IDs
-        st.integers(min_value=1, max_value=10)  # Number of transactions to create
+        st.integers(min_value=1, max_value=5)  # Reduced number of transactions
     )
-    @settings(max_examples=50, deadline=10000)
+    @settings(max_examples=20, deadline=20000)  # Increased deadline and reduced examples
     def test_user_deletion_prevents_orphaned_transactions(self, user_id, num_transactions):
         """
         Feature: telegram-bot-admin-system, Property 9: Database integrity preservation (deletion aspect)

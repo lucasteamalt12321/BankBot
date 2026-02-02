@@ -124,12 +124,12 @@
     - **Property 8: Error handling consistency**
     - **Validates: Requirements 2.4, 2.5, 5.6, 8.3, 8.4, 8.5**
   
-  - [-] 10.2 Написать property test для целостности базы данных
+  - [x] 10.2 Написать property test для целостности базы данных
     - **Property 9: Database integrity preservation**
     - **Validates: Requirements 7.3, 8.6**
 
 - [ ] 11. Добавить unit tests для конкретных случаев
-  - [~] 11.1 Написать unit tests для форматов сообщений
+  - [-] 11.1 Написать unit tests для форматов сообщений
     - Тестировать точные форматы команд /admin, /shop, подтверждений
     - Проверить корректность отображения статистики и товаров
     - _Requirements: 1.1, 4.1, 2.3, 3.2, 5.4, 5.5_
