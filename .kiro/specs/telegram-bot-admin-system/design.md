@@ -116,15 +116,40 @@ SHOP_ITEMS = {
 ### 4. Command Handlers
 
 #### Admin Commands
-- `/admin` - Панель администратора
-- `/add_points @username amount` - Начисление очков
-- `/add_admin @username` - Назначение администратора
+- `/admin` - Панель администратора с точным форматом:
+  ```
+  Админ-панель:
+  /add_points @username [число] - начислить очки
+  /add_admin @username - добавить администратора
+  Всего пользователей: [число]
+  ```
+- `/add_points @username [число]` - Начисление очков с подтверждением:
+  ```
+  Пользователю @username начислено [число] очков. Новый баланс: [новый_баланс]
+  ```
+- `/add_admin @username` - Назначение администратора с подтверждением:
+  ```
+  Пользователь @username теперь администратор
+  ```
 
 #### User Commands
-- `/start` - Приветствие и регистрация
-- `/balance` - Проверка баланса
-- `/shop` - Просмотр магазина
-- `/buy_contact` - Покупка контакта
+- `/start` - Приветствие и автоматическая регистрация
+- `/balance` - Проверка баланса пользователя
+- `/shop` - Просмотр магазина с точным форматом:
+  ```
+  Магазин:
+  1. Сообщение админу - 10 очков
+  Для покупки введите /buy_contact
+  ```
+- `/buy_contact` - Покупка контакта с подтверждениями:
+  - Пользователю: `Вы купили контакт. Администратор свяжется с вами.`
+  - Администраторам: `Пользователь @username купил контакт. Его баланс: [новый_баланс] очков`
+
+#### Error Handling Commands
+- Обработка неверных форматов команд с инструкциями
+- Обработка ошибок "пользователь не найден"
+- Обработка ошибок недостаточного баланса
+- Проверка прав доступа для административных команд
 
 ## Data Models
 
@@ -160,6 +185,52 @@ class ShopItem:
     price: int              # Цена в очках
     description: str        # Описание
 ```
+
+## Correctness Properties
+
+*A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+
+После анализа acceptance criteria, следующие свойства корректности были выделены для автоматического тестирования:
+
+### Property 1: Authorization consistency
+*For any* user and any admin-only command, the system should deny access if and only if the user's is_admin flag is False
+**Validates: Requirements 1.2, 2.6, 3.5, 8.2**
+
+### Property 2: Balance arithmetic correctness  
+*For any* user and any positive amount, adding points should increase the user's balance by exactly that amount
+**Validates: Requirements 2.1**
+
+### Property 3: Transaction logging completeness
+*For any* admin operation (add_points, add_admin), the system should create exactly one corresponding transaction record with correct type and admin_id
+**Validates: Requirements 2.2, 5.3**
+
+### Property 4: User count accuracy
+*For any* database state, the admin panel should display the exact count of users in the database
+**Validates: Requirements 1.4**
+
+### Property 5: Admin status persistence
+*For any* user, setting admin status should permanently update the is_admin flag in the database until changed again
+**Validates: Requirements 3.1, 3.4**
+
+### Property 6: Purchase balance validation
+*For any* purchase attempt, the system should allow the purchase if and only if the user's balance is greater than or equal to the item price
+**Validates: Requirements 5.1, 5.2**
+
+### Property 7: User registration idempotence
+*For any* user, multiple registration attempts should result in exactly one user record in the database
+**Validates: Requirements 6.2, 6.4**
+
+### Property 8: Error handling consistency
+*For any* invalid input (non-existent user, wrong format, insufficient balance), the system should return an appropriate error message without crashing
+**Validates: Requirements 2.4, 2.5, 5.6, 8.3, 8.4, 8.5**
+
+### Property 9: Database integrity preservation
+*For any* sequence of operations, foreign key constraints should remain valid and no orphaned records should exist
+**Validates: Requirements 7.3, 8.6**
+
+### Property 10: Shop accessibility universality
+*For any* registered user, the /shop command should be accessible and return the complete list of available items
+**Validates: Requirements 4.2, 4.3**
 
 ## Error Handling
 
@@ -204,22 +275,73 @@ def handle_command_error(func):
 
 ## Testing Strategy
 
+### Dual Testing Approach
+
+Система тестирования использует комбинацию unit тестов и property-based тестов для обеспечения полного покрытия:
+
+- **Unit tests**: Проверяют конкретные примеры, граничные случаи и условия ошибок
+- **Property tests**: Проверяют универсальные свойства на множестве входных данных
+- Оба подхода дополняют друг друга и необходимы для комплексного покрытия
+
 ### Unit Tests
 
 1. **Database Operations**
    - Тестирование CRUD операций для пользователей
    - Тестирование транзакций
    - Тестирование проверки прав администратора
+   - Конкретные примеры создания пользователей и обновления балансов
 
 2. **Business Logic**
    - Тестирование логики начисления очков
    - Тестирование логики покупок
    - Тестирование валидации команд
+   - Граничные случаи (нулевые балансы, максимальные значения)
 
 3. **Command Handlers**
    - Мокирование Telegram API
    - Тестирование обработки команд
    - Тестирование обработки ошибок
+   - Конкретные примеры форматирования сообщений
+
+### Property-Based Tests
+
+Используя библиотеку **Hypothesis** для Python, каждое свойство корректности должно быть реализовано как property-based тест:
+
+1. **Configuration**: Минимум 100 итераций на тест
+2. **Tagging**: Каждый тест помечается комментарием с ссылкой на свойство дизайна
+3. **Format**: **Feature: telegram-bot-admin-system, Property {number}: {property_text}**
+
+Примеры property-based тестов:
+
+```python
+from hypothesis import given, strategies as st
+import pytest
+
+@given(st.integers(min_value=1, max_value=1000000), 
+       st.integers(min_value=1, max_value=10000))
+def test_balance_arithmetic_correctness(user_id, amount):
+    """Feature: telegram-bot-admin-system, Property 2: Balance arithmetic correctness"""
+    # Arrange
+    initial_balance = get_user_balance(user_id)
+    
+    # Act
+    add_points(user_id, amount)
+    
+    # Assert
+    final_balance = get_user_balance(user_id)
+    assert final_balance == initial_balance + amount
+
+@given(st.integers(min_value=1, max_value=1000000))
+def test_user_registration_idempotence(user_id):
+    """Feature: telegram-bot-admin-system, Property 7: User registration idempotence"""
+    # Act
+    register_user(user_id, "test_user", "Test")
+    register_user(user_id, "test_user", "Test")  # Second registration
+    
+    # Assert
+    user_count = count_users_by_id(user_id)
+    assert user_count == 1
+```
 
 ### Integration Tests
 

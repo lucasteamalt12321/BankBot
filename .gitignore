@@ -45,6 +45,10 @@ ENV/
 # Backups
 backups/
 
+# Testing
+.hypothesis/
+.pytest_cache/
+
 # OS
 .DS_Store
 Thumbs.db

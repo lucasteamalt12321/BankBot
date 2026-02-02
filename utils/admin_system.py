@@ -171,6 +171,43 @@ class AdminSystem:
             logger.error(f"Error finding user by username {username}: {e}")
             return None
     
+    def get_user_by_id(self, user_id: int) -> Optional[dict]:
+        """
+        Поиск пользователя по ID
+        
+        Args:
+            user_id: Telegram ID пользователя
+            
+        Returns:
+            dict: Данные пользователя или None если не найден
+        """
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                "SELECT id, username, first_name, balance, is_admin FROM users WHERE id = ?",
+                (user_id,)
+            )
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                return {
+                    'id': result['id'],
+                    'username': result['username'],
+                    'first_name': result['first_name'],
+                    'balance': result['balance'],
+                    'is_admin': bool(result['is_admin'])
+                }
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error finding user by ID {user_id}: {e}")
+            return None
+    
     def update_balance(self, user_id: int, amount: float) -> Optional[float]:
         """
         Обновление баланса пользователя
