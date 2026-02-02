@@ -1,4 +1,4 @@
-# bot.py
+# bot.py - Объединенный Telegram-бот банк-аггрегатора LucasTeam
 import logging
 import os
 import sys
