@@ -49,10 +49,9 @@ class TelegramBot:
         self.error_handling_system = None
         
         # Инициализация административной системы
-        admin_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'admin_system.db')
+        admin_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bot.db')
         self.admin_system = AdminSystem(admin_db_path)
-        # Инициализируем базу данных административной системы
-        self.admin_system._init_admin_tables()
+        # База данных уже инициализирована, не нужно создавать отдельные таблицы
 
     def setup_handlers(self):
         """Настройка обработчиков команд"""
@@ -255,15 +254,68 @@ class TelegramBot:
     # ===== Основные команды =====
     async def welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start - интегрированная с новой системой регистрации"""
-        # Process automatic user registration first (admin system)
-        await auto_registration_middleware.process_message(update, context)
-        
         user = update.effective_user
+        
+        registration_status = "❌ Ошибка регистрации"
+        admin_status = "❌ Не администратор"
+        
+        # Принудительная регистрация в административной системе
+        try:
+            admin_user = self.admin_system.get_user_by_id(user.id)
+            if not admin_user:
+                # Регистрируем пользователя
+                success = self.admin_system.register_user(
+                    user.id, 
+                    user.username, 
+                    user.first_name
+                )
+                if success:
+                    logger.info(f"Force-registered user {user.id} in admin system")
+                    registration_status = "✅ Пользователь зарегистрирован"
+                    
+                    # Если это пользователь из конфига - делаем администратором
+                    if user.id == 2091908459:  # LucasTeamLuke
+                        admin_success = self.admin_system.set_admin_status(user.id, True)
+                        if admin_success:
+                            logger.info(f"Set admin status for user {user.id}")
+                            admin_status = "✅ Права администратора установлены"
+                        else:
+                            admin_status = "❌ Ошибка установки прав администратора"
+                    
+                    # Получаем пользователя снова для проверки
+                    admin_user = self.admin_system.get_user_by_id(user.id)
+                else:
+                    logger.error(f"Failed to register user {user.id} in admin system")
+                    registration_status = "❌ Ошибка регистрации"
+            else:
+                registration_status = "✅ Пользователь уже зарегистрирован"
+                if admin_user['is_admin']:
+                    admin_status = "✅ Права администратора активны"
+                else:
+                    admin_status = "❌ Нет прав администратора"
+                    
+                    # Если это пользователь из конфига - делаем администратором
+                    if user.id == 2091908459:  # LucasTeamLuke
+                        admin_success = self.admin_system.set_admin_status(user.id, True)
+                        if admin_success:
+                            admin_status = "✅ Права администратора установлены"
+                        
+        except Exception as e:
+            logger.error(f"Error in admin system registration: {e}")
+            registration_status = f"❌ Ошибка: {str(e)}"
+        
+        # Process automatic user registration (old system)
+        await auto_registration_middleware.process_message(update, context)
 
         welcome_text = f"""
 [BANK] Добро пожаловать в Мета-Игровую Платформу LucasTeam!
 
 [HELLO] Привет, {user.first_name}!
+
+[SYSTEM] <b>Статус регистрации:</b>
+{registration_status}
+{admin_status}
+Ваш Telegram ID: {user.id}
 
 Я автоматически отслеживаю вашу активность в играх и начисляю банковские монеты.
 
@@ -414,67 +466,117 @@ class TelegramBot:
     async def profile_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /profile - профиль пользователя"""
         user = update.effective_user
-
-        db = next(get_db())
+        
+        # Process automatic user registration first
+        await auto_registration_middleware.process_message(update, context)
+        
+        # Принудительная регистрация если пользователь не найден
+        admin_user = None
         try:
-            from database.database import User, Transaction, UserPurchase
-            from utils.user_manager import UserManager
-            
-            # Используем UserManager для идентификации/создания пользователя
-            user_manager = UserManager(db)
-            user_db = user_manager.identify_user(
-                user.username or user.first_name,
-                user.id
-            )
-            
-            # The identify_user method should always return a user object
-            # If there's still no user, something went wrong
-            if not user_db:
-                await update.message.reply_text("Polzovatel ne naiden")
+            admin_user = self.admin_system.get_user_by_id(user.id)
+            if not admin_user:
+                # Регистрируем пользователя
+                success = self.admin_system.register_user(
+                    user.id, 
+                    user.username, 
+                    user.first_name
+                )
+                if success:
+                    logger.info(f"Force-registered user {user.id} in profile command")
+                    
+                    # Если это пользователь из конфига - делаем администратором
+                    if user.id == 2091908459:  # LucasTeamLuke
+                        self.admin_system.set_admin_status(user.id, True)
+                        logger.info(f"Set admin status for user {user.id}")
+                    
+                    # Получаем пользователя снова
+                    admin_user = self.admin_system.get_user_by_id(user.id)
+                    
+                    # Если все еще не найден, создаем временный объект
+                    if not admin_user:
+                        admin_user = {
+                            'id': None,
+                            'telegram_id': user.id,
+                            'username': user.username,
+                            'first_name': user.first_name,
+                            'balance': 0,
+                            'is_admin': user.id == 2091908459
+                        }
+                        logger.warning(f"Created temporary user object for {user.id}")
+                else:
+                    # Создаем временный объект если регистрация не удалась
+                    admin_user = {
+                        'id': None,
+                        'telegram_id': user.id,
+                        'username': user.username,
+                        'first_name': user.first_name,
+                        'balance': 0,
+                        'is_admin': False
+                    }
+                    logger.warning(f"Registration failed, created fallback user object for {user.id}")
+        except Exception as e:
+            logger.error(f"Error in admin system registration: {e}")
+            # Создаем временный объект пользователя для отображения
+            admin_user = {
+                'id': None,
+                'telegram_id': user.id,
+                'username': user.username,
+                'first_name': user.first_name,
+                'balance': 0,
+                'is_admin': False
+            }
+            logger.warning(f"Created fallback user object for {user.id} due to error: {e}")
+
+        try:
+            if not admin_user:
+                await update.message.reply_text("❌ Критическая ошибка: пользователь не найден после регистрации")
                 return
 
-            # Статистика
-            total_transactions = db.query(Transaction).filter(
-                Transaction.user_id == user_db.id
-            ).count()
-
-            total_deposits = db.query(Transaction).filter(
-                Transaction.user_id == user_db.id,
-                Transaction.amount > 0
-            ).count()
-
-            total_purchases = db.query(UserPurchase).filter(
-                UserPurchase.user_id == user_db.id
-            ).count()
-
-            # Социальная статистика
-            social = SocialSystem(db)
-            social_stats = social.get_social_stats(user_db.id)
+            # Получаем количество транзакций из основной базы данных
+            conn = self.admin_system.get_db_connection()
+            cursor = conn.cursor()
+            
+            # Получаем внутренний ID для запросов к транзакциям
+            cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user.id,))
+            user_row = cursor.fetchone()
+            internal_id = user_row['id'] if user_row else None
+            
+            total_transactions = 0
+            total_deposits = 0
+            if internal_id:
+                cursor.execute("SELECT COUNT(*) as count FROM transactions WHERE user_id = ?", (internal_id,))
+                result = cursor.fetchone()
+                total_transactions = result['count'] if result else 0
+                
+                cursor.execute("SELECT COUNT(*) as count FROM transactions WHERE user_id = ? AND amount > 0", (internal_id,))
+                result = cursor.fetchone()
+                total_deposits = result['count'] if result else 0
+            
+            conn.close()
 
             text = f"""
 [USER] <b>Ваш профиль</b>
 
 [INFO] <b>Основная информация:</b>
-   • ID: {user_db.id}
-   • Имя: {user_db.first_name or 'Не указано'}
-   • Username: @{user_db.username or 'Не указан'}
-   • Баланс: {user_db.balance} монет
+   • ID: {user.id}
+   • Имя: {admin_user['first_name'] or 'Не указано'}
+   • Username: @{admin_user['username'] or 'Не указан'}
+   • Баланс: {int(admin_user['balance'])} очков
 
 [STATS] <b>Статистика:</b>
    • Всего транзакций: {total_transactions}
    • Пополнений: {total_deposits}
-   • Покупок: {total_purchases}
-   • Друзей: {social_stats['friends_count']}
-   • Отправлено подарков: {social_stats['gifts_sent']}
+   • Покупок: 0
+   • Друзей: 0
+   • Отправлено подарков: 0
 
 [SOCIAL] <b>Социальный статус:</b>
-   • В клане: {'YES' if social_stats['in_clan'] else 'NO'} {social_stats['clan_name'] or ''}
-   • Роль в клане: {social_stats['clan_role'] or 'Не состоит'}
-   • Входящих запросов: {social_stats['friend_requests_count']}
+   • В клане: NO 
+   • Роль в клане: Не состоит
+   • Входящих запросов: 0
 
-[DATE] <b>Активность:</b>
-   • В системе с: {user_db.created_at.strftime('%d.%m.%Y')}
-   • Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}
+[ADMIN] <b>Права доступа:</b>
+   • Статус: {'Администратор' if admin_user['is_admin'] else 'Пользователь'}
 
 [TIPS] <b>Советы:</b>
    • Используйте /daily для получения ежедневного бонуса
@@ -485,9 +587,7 @@ class TelegramBot:
             await update.message.reply_text(text, parse_mode='HTML')
         except Exception as e:
             logger.error("Error in profile command", error=str(e), user_id=user.id, username=user.username)
-            await update.message.reply_text(f"Oshibka: {str(e)}")
-        finally:
-            db.close()
+            await update.message.reply_text(f"❌ Произошла ошибка при получении профиля: {str(e)}")
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - персональная статистика"""
@@ -607,14 +707,14 @@ class TelegramBot:
                 return
             
             # Списываем 10 очков с баланса пользователя
-            new_balance = self.admin_system.update_balance(admin_user['id'], -required_amount)
+            new_balance = self.admin_system.update_balance(user.id, -required_amount)
             if new_balance is None:
                 await update.message.reply_text("❌ Не удалось обновить баланс")
                 return
             
             # Создаем транзакцию типа 'buy'
             transaction_id = self.admin_system.add_transaction(
-                admin_user['id'], -required_amount, 'buy'
+                user.id, -required_amount, 'buy'
             )
             
             # Отправляем подтверждение пользователю
@@ -626,8 +726,8 @@ class TelegramBot:
                 cursor = conn.cursor()
                 
                 # Получаем всех администраторов
-                cursor.execute("SELECT id FROM users WHERE is_admin = TRUE")
-                admin_ids = [row['id'] for row in cursor.fetchall()]
+                cursor.execute("SELECT telegram_id FROM users WHERE is_admin = TRUE")
+                admin_ids = [row['telegram_id'] for row in cursor.fetchall()]
                 conn.close()
                 
                 # Формируем сообщение для администраторов
@@ -1512,7 +1612,8 @@ ID сессии: {session_info['id']}
             if friends:
                 text += "✅ <b>Ваши друзья:</b>\n"
                 for friend in friends[:10]:  # Показываем первых 10
-                    text += f"• {friend['first_name'] or f'#{friend['id']}'}\n"
+                    friend_name = friend['first_name'] or f"#{friend['id']}"
+                    text += f"• {friend_name}\n"
                     text += f"  {'@' + friend['username'] if friend['username'] else ''}\n"
                     text += f"  💰 Баланс: {friend['balance']} монет\n"
                     text += f"  👥 Друзья с: {friend['friends_since'].strftime('%d.%m.%Y')}\n\n"
@@ -1670,7 +1771,8 @@ ID сессии: {session_info['id']}
                         'member': '👤'
                     }.get(member['role'], '👤')
 
-                    text += f"{role_icon} {member['first_name'] or f'#{member['id']}'}\n"
+                    member_name = member['first_name'] or f"#{member['id']}"
+                    text += f"{role_icon} {member_name}\n"
                     text += f"   {'@' + member['username'] if member['username'] else ''}\n"
                     text += f"   Роль: {member['role']}\n"
                     text += f"   Баланс: {member['balance']} монет\n"
@@ -1859,7 +1961,9 @@ ID клана: {result['clan_id']}
                 "Используйте: /add_points @username [число]\n\n"
                 "Примеры:\n"
                 "• /add_points @john_doe 100\n"
-                "• /add_points user123 50"
+                "• /add_points user123 50\n"
+                "• /add_points me 100 (для себя)\n"
+                f"• /add_points {user.id} 100 (по ID)"
             )
             return
         
@@ -1876,19 +1980,30 @@ ID клана: {result['clan_id']}
         try:
             # Находим пользователя по username
             target_user = self.admin_system.get_user_by_username(username)
+            
+            # Если не найден по username, попробуем найти по telegram_id (если это число)
+            if not target_user:
+                clean_username = username.lstrip('@')
+                if clean_username.isdigit():
+                    target_user = self.admin_system.get_user_by_id(int(clean_username))
+            
+            # Если все еще не найден, попробуем найти текущего пользователя (для самого себя)
+            if not target_user and (username.lower() in ['me', 'self'] or username.lstrip('@') == user.username):
+                target_user = self.admin_system.get_user_by_id(user.id)
+            
             if not target_user:
                 await update.message.reply_text(f"❌ Пользователь {username} не найден")
                 return
             
             # Обновляем баланс пользователя
-            new_balance = self.admin_system.update_balance(target_user['id'], amount)
+            new_balance = self.admin_system.update_balance(target_user['telegram_id'], amount)
             if new_balance is None:
                 await update.message.reply_text("❌ Не удалось обновить баланс пользователя")
                 return
             
             # Создаем транзакцию типа 'add'
             transaction_id = self.admin_system.add_transaction(
-                target_user['id'], amount, 'add', user.id
+                target_user['telegram_id'], amount, 'add', user.id
             )
             
             # Отправляем подтверждение в точном формате
@@ -1896,7 +2011,7 @@ ID клана: {result['clan_id']}
             text = f"Пользователю @{clean_username} начислено {int(amount)} очков. Новый баланс: {int(new_balance)}"
             
             await update.message.reply_text(text)
-            logger.info(f"Admin {user.id} added {amount} points to user {target_user['id']}")
+            logger.info(f"Admin {user.id} added {amount} points to user {target_user['telegram_id']}")
             
         except Exception as e:
             logger.error(f"Error in add_points command: {e}")
@@ -1947,7 +2062,7 @@ ID клана: {result['clan_id']}
                 return
             
             # Назначаем администратором
-            success = self.admin_system.set_admin_status(target_user['id'], True)
+            success = self.admin_system.set_admin_status(target_user['telegram_id'], True)
             if not success:
                 await update.message.reply_text("❌ Не удалось назначить пользователя администратором")
                 return
@@ -1957,7 +2072,7 @@ ID клана: {result['clan_id']}
             text = f"Пользователь @{clean_username} теперь администратор"
             
             await update.message.reply_text(text)
-            logger.info(f"Admin {user.id} granted admin rights to user {target_user['id']}")
+            logger.info(f"Admin {user.id} granted admin rights to user {target_user['telegram_id']}")
             
         except Exception as e:
             logger.error(f"Error in add_admin command: {e}")

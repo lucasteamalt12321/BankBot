@@ -4,7 +4,7 @@ import logging
 from typing import Callable, Any
 from telegram import Update
 from telegram.ext import ContextTypes
-from utils.simple_db import register_user, get_user_by_id, is_admin, init_database
+from utils.simple_db import register_user, get_user_by_id, is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +57,8 @@ class AutoRegistrationMiddleware:
     """Middleware class for automatic user registration"""
     
     def __init__(self):
-        # Initialize database on middleware creation
-        try:
-            init_database()
-        except Exception as e:
-            logger.error(f"Failed to initialize admin database: {e}")
+        # Database is already initialized, no need to call init_database
+        logger.info("AutoRegistrationMiddleware initialized")
     
     async def process_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Process any message/command for automatic user registration"""

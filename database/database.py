@@ -30,6 +30,7 @@ class User(Base):
     last_activity = Column(DateTime, default=datetime.utcnow)
     is_vip = Column(Boolean, default=False)
     vip_until = Column(DateTime, nullable=True)
+    is_admin = Column(Boolean, default=False)
 
     aliases = relationship("UserAlias", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")

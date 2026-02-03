@@ -4,13 +4,17 @@
 import psutil
 import os
 import time
+import sys
 
 def kill_existing_bot_processes():
     """Убивает все существующие процессы, связанные с ботом"""
     current_pid = os.getpid()
     killed_processes = []
     
-    print(f"Поиск старых процессов бота (текущий PID: {current_pid})...")
+    print(f"[KILL] Поиск старых процессов бота (текущий PID: {current_pid})...")
+    
+    # Список файлов, которые могут запускать бота
+    bot_files = ['main.py', 'run_bot.py', 'bot.py']
     
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
@@ -18,13 +22,28 @@ def kill_existing_bot_processes():
             cmdline = proc.info['cmdline']
             if cmdline and len(cmdline) > 1:  # Убедимся, что есть хотя бы exe и аргумент
                 cmdline_str = ' '.join(cmdline)
-                # Проверяем, содержит ли команда запуск main.py
-                if 'main.py' in cmdline_str and 'python' in cmdline_str.lower():
+                
+                # Проверяем, содержит ли команда запуск любого из файлов бота
+                is_bot_process = False
+                for bot_file in bot_files:
+                    if bot_file in cmdline_str and 'python' in cmdline_str.lower():
+                        is_bot_process = True
+                        break
+                
+                # Также проверяем по токену бота в командной строке
+                if 'BOT_TOKEN' in cmdline_str or '8005854770' in cmdline_str:
+                    is_bot_process = True
+                
+                if is_bot_process:
                     pid = proc.info['pid']
                     if pid != current_pid:
-                        print(f"Найден старый процесс бота с PID {pid}, убиваю...")
-                        proc.terminate()  # Плавное завершение
-                        killed_processes.append((pid, proc))
+                        print(f"[KILL] Найден старый процесс бота с PID {pid}: {cmdline_str[:100]}...")
+                        try:
+                            proc.terminate()  # Плавное завершение
+                            killed_processes.append((pid, proc))
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            print(f"[KILL] Не удалось завершить процесс {pid}")
+                            
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
     

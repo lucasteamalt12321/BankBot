@@ -14,45 +14,7 @@ class AdminSystem:
     
     def __init__(self, db_path: str = "data/bot.db"):
         self.db_path = db_path
-        self._init_admin_tables()
-    
-    def _init_admin_tables(self):
-        """Инициализация таблиц для административной системы"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Создаем упрощенную таблицу users если её нет
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY,
-                    username TEXT,
-                    first_name TEXT,
-                    balance REAL DEFAULT 0,
-                    is_admin BOOLEAN DEFAULT FALSE
-                )
-            ''')
-            
-            # Создаем таблицу transactions если её нет
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS transactions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    amount REAL,
-                    type TEXT,
-                    admin_id INTEGER,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id),
-                    FOREIGN KEY (admin_id) REFERENCES users (id)
-                )
-            ''')
-            
-            conn.commit()
-            conn.close()
-            logger.info("Admin system database tables initialized")
-            
-        except Exception as e:
-            logger.error(f"Error initializing admin tables: {e}")
+        # База данных уже инициализирована, не создаем отдельные таблицы
     
     def get_db_connection(self) -> sqlite3.Connection:
         """Получение соединения с базой данных"""
@@ -74,24 +36,35 @@ class AdminSystem:
             conn = self.get_db_connection()
             cursor = conn.cursor()
             
-            cursor.execute(
-                "SELECT is_admin FROM users WHERE id = ?",
-                (user_id,)
-            )
+            # Проверяем существует ли поле is_admin
+            cursor.execute("PRAGMA table_info(users)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            has_is_admin = 'is_admin' in column_names
             
-            result = cursor.fetchone()
-            conn.close()
-            
-            if result:
-                return bool(result['is_admin'])
+            if has_is_admin:
+                cursor.execute(
+                    "SELECT is_admin FROM users WHERE telegram_id = ?",
+                    (user_id,)
+                )
+                
+                result = cursor.fetchone()
+                conn.close()
+                
+                if result:
+                    return bool(result['is_admin'])
+                else:
+                    # Пользователь не найден в базе данных
+                    logger.warning(f"User {user_id} not found in database for admin check")
+                    return user_id == 2091908459  # Fallback для LucasTeamLuke
             else:
-                # Пользователь не найден в базе данных
-                logger.warning(f"User {user_id} not found in database for admin check")
-                return False
+                # Если поля is_admin нет, используем hardcoded проверку
+                conn.close()
+                return user_id == 2091908459  # LucasTeamLuke
                 
         except Exception as e:
             logger.error(f"Error checking admin status for user {user_id}: {e}")
-            return False
+            return user_id == 2091908459  # Fallback для LucasTeamLuke
     
     def register_user(self, user_id: int, username: str = None, first_name: str = None) -> bool:
         """
@@ -110,16 +83,33 @@ class AdminSystem:
             cursor = conn.cursor()
             
             # Проверяем, существует ли пользователь
-            cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user_id,))
             if cursor.fetchone():
                 conn.close()
                 return True  # Пользователь уже существует
             
-            # Создаем нового пользователя
-            cursor.execute(
-                "INSERT INTO users (id, username, first_name, balance, is_admin) VALUES (?, ?, ?, 0, FALSE)",
-                (user_id, username, first_name)
-            )
+            # Проверяем существует ли поле is_admin
+            cursor.execute("PRAGMA table_info(users)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            has_is_admin = 'is_admin' in column_names
+            
+            # Создаем нового пользователя с правильной структурой базы данных
+            from datetime import datetime
+            
+            if has_is_admin:
+                cursor.execute(
+                    """INSERT INTO users (telegram_id, username, first_name, balance, is_admin, created_at, last_activity) 
+                       VALUES (?, ?, ?, 0, FALSE, ?, ?)""",
+                    (user_id, username, first_name, datetime.now(), datetime.now())
+                )
+            else:
+                # Если поля is_admin нет, создаем без него
+                cursor.execute(
+                    """INSERT INTO users (telegram_id, username, first_name, balance, created_at, last_activity) 
+                       VALUES (?, ?, ?, 0, ?, ?)""",
+                    (user_id, username, first_name, datetime.now(), datetime.now())
+                )
             
             conn.commit()
             conn.close()
@@ -148,21 +138,50 @@ class AdminSystem:
             conn = self.get_db_connection()
             cursor = conn.cursor()
             
-            cursor.execute(
-                "SELECT id, username, first_name, balance, is_admin FROM users WHERE username = ?",
-                (clean_username,)
-            )
+            # Проверяем существует ли поле is_admin
+            cursor.execute("PRAGMA table_info(users)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            has_is_admin = 'is_admin' in column_names
+            
+            # Ищем пользователя по username или first_name
+            if has_is_admin:
+                cursor.execute(
+                    "SELECT id, telegram_id, username, first_name, balance, is_admin FROM users WHERE username = ? OR first_name = ?",
+                    (clean_username, clean_username)
+                )
+            else:
+                cursor.execute(
+                    "SELECT id, telegram_id, username, first_name, balance FROM users WHERE username = ? OR first_name = ?",
+                    (clean_username, clean_username)
+                )
             
             result = cursor.fetchone()
+            
+            # Если не найден, попробуем найти по частичному совпадению
+            if not result:
+                if has_is_admin:
+                    cursor.execute(
+                        "SELECT id, telegram_id, username, first_name, balance, is_admin FROM users WHERE username LIKE ? OR first_name LIKE ?",
+                        (f"%{clean_username}%", f"%{clean_username}%")
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT id, telegram_id, username, first_name, balance FROM users WHERE username LIKE ? OR first_name LIKE ?",
+                        (f"%{clean_username}%", f"%{clean_username}%")
+                    )
+                result = cursor.fetchone()
+            
             conn.close()
             
             if result:
                 return {
                     'id': result['id'],
+                    'telegram_id': result['telegram_id'],
                     'username': result['username'],
                     'first_name': result['first_name'],
                     'balance': result['balance'],
-                    'is_admin': bool(result['is_admin'])
+                    'is_admin': bool(result['is_admin']) if has_is_admin else (result['telegram_id'] == 2091908459)
                 }
             else:
                 return None
@@ -185,22 +204,36 @@ class AdminSystem:
             conn = self.get_db_connection()
             cursor = conn.cursor()
             
-            cursor.execute(
-                "SELECT id, username, first_name, balance, is_admin FROM users WHERE id = ?",
-                (user_id,)
-            )
+            # Проверяем существует ли поле is_admin
+            cursor.execute("PRAGMA table_info(users)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            has_is_admin = 'is_admin' in column_names
+            
+            if has_is_admin:
+                cursor.execute(
+                    "SELECT id, telegram_id, username, first_name, balance, is_admin FROM users WHERE telegram_id = ?",
+                    (user_id,)
+                )
+            else:
+                cursor.execute(
+                    "SELECT id, telegram_id, username, first_name, balance FROM users WHERE telegram_id = ?",
+                    (user_id,)
+                )
             
             result = cursor.fetchone()
             conn.close()
             
             if result:
-                return {
+                user_data = {
                     'id': result['id'],
+                    'telegram_id': result['telegram_id'],
                     'username': result['username'],
                     'first_name': result['first_name'],
                     'balance': result['balance'],
-                    'is_admin': bool(result['is_admin'])
+                    'is_admin': bool(result['is_admin']) if has_is_admin else (user_id == 2091908459)
                 }
+                return user_data
             else:
                 return None
                 
@@ -224,7 +257,7 @@ class AdminSystem:
             cursor = conn.cursor()
             
             # Получаем текущий баланс
-            cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
+            cursor.execute("SELECT balance FROM users WHERE telegram_id = ?", (user_id,))
             result = cursor.fetchone()
             
             if not result:
@@ -235,7 +268,7 @@ class AdminSystem:
             
             # Обновляем баланс
             cursor.execute(
-                "UPDATE users SET balance = ? WHERE id = ?",
+                "UPDATE users SET balance = ? WHERE telegram_id = ?",
                 (new_balance, user_id)
             )
             
@@ -263,8 +296,20 @@ class AdminSystem:
             conn = self.get_db_connection()
             cursor = conn.cursor()
             
+            # Проверяем существует ли поле is_admin
+            cursor.execute("PRAGMA table_info(users)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            has_is_admin = 'is_admin' in column_names
+            
+            if not has_is_admin:
+                # Если поля нет, добавляем его
+                cursor.execute("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE")
+                conn.commit()
+                logger.info("Added is_admin column to users table")
+            
             cursor.execute(
-                "UPDATE users SET is_admin = ? WHERE id = ?",
+                "UPDATE users SET is_admin = ? WHERE telegram_id = ?",
                 (is_admin, user_id)
             )
             
@@ -308,7 +353,7 @@ class AdminSystem:
         Добавление транзакции в базу данных
         
         Args:
-            user_id: ID пользователя
+            user_id: Telegram ID пользователя
             amount: Сумма транзакции
             transaction_type: Тип транзакции ('add', 'remove', 'buy')
             admin_id: ID администратора (если применимо)
@@ -320,9 +365,20 @@ class AdminSystem:
             conn = self.get_db_connection()
             cursor = conn.cursor()
             
+            # Get internal user ID from telegram_id
+            cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user_id,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                logger.error(f"User with telegram_id {user_id} not found")
+                conn.close()
+                return None
+            
+            internal_user_id = user_row['id']
+            
+            from datetime import datetime
             cursor.execute(
-                "INSERT INTO transactions (user_id, amount, type, admin_id) VALUES (?, ?, ?, ?)",
-                (user_id, amount, transaction_type, admin_id)
+                "INSERT INTO transactions (user_id, amount, transaction_type, description, created_at) VALUES (?, ?, ?, ?, ?)",
+                (internal_user_id, amount, transaction_type, f"Admin transaction: {transaction_type}", datetime.now())
             )
             
             transaction_id = cursor.lastrowid

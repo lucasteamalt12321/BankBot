@@ -3,7 +3,8 @@ import os
 from typing import List
 from dotenv import load_dotenv
 
-load_dotenv()
+# Загружаем .env файл из папки config
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', '.env'))
 
 class Settings:
     def __init__(self):
