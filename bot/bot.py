@@ -69,6 +69,9 @@ class TelegramBot:
             CommandHandler("shop", self.shop_command),
             CommandHandler("buy_contact", self.buy_contact_command),
             CommandHandler("buy", self.buy_command),
+            CommandHandler("buy_1", self.buy_1_command),
+            CommandHandler("buy_2", self.buy_2_command),
+            CommandHandler("buy_3", self.buy_3_command),
             CommandHandler("inventory", self.inventory_command),
 
             # Мини-игры
@@ -658,14 +661,28 @@ class TelegramBot:
         # Process automatic user registration first
         await auto_registration_middleware.process_message(update, context)
         
-        logger.info(f"Shop command from user {update.effective_user.id}")
+        user = update.effective_user
+        logger.info(f"Shop command from user {user.id}")
 
-        # Simple admin system shop format as per requirements
-        text = """Магазин:
-1. Сообщение админу - 10 очков
-Для покупки введите /buy_contact"""
+        try:
+            # Import ShopHandler
+            from core.shop_handler import ShopHandler
+            
+            # Create shop handler and generate display
+            shop_handler = ShopHandler()
+            shop_display = shop_handler.display_shop(user.id)
+            
+            await update.message.reply_text(shop_display)
+            
+        except Exception as e:
+            logger.error(f"Error in shop command: {e}")
+            # Fallback to simple display if there's an error
+            fallback_text = """🛒 МАГАЗИН
 
-        await update.message.reply_text(text)
+❌ Произошла ошибка при загрузке магазина. Попробуйте позже.
+
+Для связи с администратором используйте /buy_contact"""
+            await update.message.reply_text(fallback_text)
 
     async def buy_contact_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /buy_contact для покупки товаров"""
@@ -805,6 +822,60 @@ class TelegramBot:
             await update.message.reply_text(f"Oshibka: {str(e)}")
         finally:
             db.close()
+
+    async def buy_1_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_1 - покупка первого товара"""
+        await self._handle_purchase_command(update, context, 1)
+
+    async def buy_2_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_2 - покупка второго товара"""
+        await self._handle_purchase_command(update, context, 2)
+
+    async def buy_3_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_3 - покупка третьего товара"""
+        await self._handle_purchase_command(update, context, 3)
+
+    async def _handle_purchase_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, item_number: int):
+        """Обработчик команд покупки товаров из магазина"""
+        # Process automatic user registration first
+        await auto_registration_middleware.process_message(update, context)
+        
+        user = update.effective_user
+        logger.info(f"Purchase command /buy_{item_number} from user {user.id}")
+
+        try:
+            # Import and use PurchaseHandler
+            from core.purchase_handler import PurchaseHandler
+            
+            # Create purchase handler and process purchase
+            purchase_handler = PurchaseHandler()
+            result = purchase_handler.process_purchase(user.id, item_number)
+            
+            if result.success:
+                # Success message
+                text = f"""✅ <b>Покупка успешна!</b>
+
+{result.message}
+
+💳 Новый баланс: {result.new_balance} монет
+🛒 ID покупки: {result.purchase_id}
+
+Товар будет активирован в ближайшее время."""
+                
+                await update.message.reply_text(text, parse_mode='HTML')
+                logger.info(f"Purchase successful: user {user.id}, item {item_number}, purchase {result.purchase_id}")
+                
+            else:
+                # Error message
+                await update.message.reply_text(f"❌ {result.message}")
+                logger.warning(f"Purchase failed: user {user.id}, item {item_number}, error: {result.error_code}")
+            
+        except Exception as e:
+            logger.error(f"Error in buy_{item_number} command: {e}")
+            await update.message.reply_text(
+                "❌ Произошла ошибка при обработке покупки. "
+                "Попробуйте позже или обратитесь к администратору."
+            )
 
     async def inventory_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /inventory - инвентарь"""

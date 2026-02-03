@@ -47,6 +47,7 @@ class User(Base):
     received_gifts = relationship("Gift", foreign_keys="Gift.receiver_id", cascade="all, delete-orphan")
     owned_clans = relationship("Clan", back_populates="owner", cascade="all, delete-orphan")
     clan_memberships = relationship("ClanMember", back_populates="user", cascade="all, delete-orphan")
+    scheduled_tasks = relationship("ScheduledTask", cascade="all, delete-orphan")
 
 
 class UserAlias(Base):
@@ -122,6 +123,22 @@ class UserPurchase(Base):
 
     user = relationship("User", back_populates="purchases")
     item = relationship("ShopItem", back_populates="purchases")
+
+
+class ScheduledTask(Base):
+    __tablename__ = "scheduled_tasks"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    message_id = Column(Integer, nullable=True)
+    chat_id = Column(Integer, nullable=False)
+    task_type = Column(String(50), nullable=False)
+    execute_at = Column(DateTime, nullable=False)
+    task_data = Column(JSON, nullable=True)
+    is_completed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
 
 
 class GameSession(Base):
