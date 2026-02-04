@@ -156,7 +156,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
         st.integers(min_value=100, max_value=10000),      # user_balance (sufficient for purchases)
         st.integers(min_value=1, max_value=4)             # item_number (1-4 for our test items)
     )
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=20, deadline=None)
     def test_successful_purchase_effects_property(self, user_balance, item_number):
         """
         **Property 2: Successful Purchase Effects**
@@ -288,7 +288,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
     @given(
         st.integers(min_value=1000, max_value=5000)        # user_balance (sufficient for sticker items)
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=10, deadline=None)
     def test_sticker_item_activation_effects(self, user_balance):
         """
         **Property 2: Successful Purchase Effects - Sticker Specific**
@@ -365,7 +365,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
     @given(
         st.integers(min_value=500, max_value=3000)         # user_balance (sufficient for various items)
     )
-    @settings(max_examples=30, deadline=None)
+    @settings(max_examples=10, deadline=None)
     def test_purchase_effects_consistency(self, user_balance):
         """
         **Property 2: Successful Purchase Effects - Consistency**

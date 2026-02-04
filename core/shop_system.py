@@ -51,7 +51,7 @@ class EnhancedShopSystem:
                 "category_id": categories.get("Стикеры и медиа"),
                 "name": "Безлимитные стикеры (24ч)",
                 "description": "Неограниченное использование стикеров на 24 часа",
-                "price": 5000,
+                "price": 100,
                 "item_type": "sticker",
                 "meta_data": {"duration_hours": 24, "activation_type": "unlimited_stickers"},
                 "cooldown_hours": 24
@@ -60,7 +60,7 @@ class EnhancedShopSystem:
                 "category_id": categories.get("Стикеры и медиа"),
                 "name": "Премиум стикерпак",
                 "description": "Эксклюзивный набор премиум стикеров",
-                "price": 2500,
+                "price": 100,
                 "item_type": "sticker",
                 "meta_data": {"sticker_pack": "premium", "activation_type": "sticker_pack"},
                 "purchase_limit": 1
@@ -71,7 +71,7 @@ class EnhancedShopSystem:
                 "category_id": categories.get("Привилегии"),
                 "name": "Админка на день",
                 "description": "Права администратора чата на 24 часа",
-                "price": 10000,
+                "price": 100,
                 "item_type": "privilege",
                 "meta_data": {"privilege_type": "admin_day", "duration_hours": 24,
                               "activation_type": "admin_privileges"},
@@ -81,7 +81,7 @@ class EnhancedShopSystem:
                 "category_id": categories.get("Привилегии"),
                 "name": "VIP статус (неделя)",
                 "description": "Специальный статус и дополнительные возможности",
-                "price": 7500,
+                "price": 100,
                 "item_type": "privilege",
                 "meta_data": {"privilege_type": "vip_week", "duration_hours": 168, "activation_type": "vip_privileges"},
                 "cooldown_hours": 168
@@ -92,7 +92,7 @@ class EnhancedShopSystem:
                 "category_id": categories.get("Игровые бусты"),
                 "name": "Двойной опыт (2ч)",
                 "description": "Удвоение получаемого опыта в играх на 2 часа",
-                "price": 3000,
+                "price": 100,
                 "item_type": "boost",
                 "meta_data": {"boost_type": "xp_multiplier", "multiplier": 2.0, "duration_hours": 2,
                               "activation_type": "experience_boost"},
@@ -100,11 +100,11 @@ class EnhancedShopSystem:
             },
             {
                 "category_id": categories.get("Игровые бусты"),
-                "name": "Бонус к балансу (+1000)",
-                "description": "Мгновенное начисление 1000 банковских монет",
-                "price": 8000,
+                "name": "Бонус к балансу (+100)",
+                "description": "Мгновенное начисление 100 банковских монет",
+                "price": 100,
                 "item_type": "boost",
-                "meta_data": {"boost_type": "balance_bonus", "amount": 1000, "activation_type": "balance_bonus"}
+                "meta_data": {"boost_type": "balance_bonus", "amount": 100, "activation_type": "balance_bonus"}
             },
 
             # Кастомный контент
@@ -112,7 +112,7 @@ class EnhancedShopSystem:
                 "category_id": categories.get("Кастомный контент"),
                 "name": "Персональная команда",
                 "description": "Создание собственной команды для бота",
-                "price": 15000,
+                "price": 100,
                 "item_type": "custom",
                 "meta_data": {"custom_type": "personal_command", "activation_type": "custom_command"},
                 "purchase_limit": 1
@@ -121,7 +121,7 @@ class EnhancedShopSystem:
                 "category_id": categories.get("Кастомный контент"),
                 "name": "Кастомный заголовок",
                 "description": "Уникальный заголовок профиля",
-                "price": 12000,
+                "price": 100,
                 "item_type": "custom",
                 "meta_data": {"custom_type": "custom_title", "activation_type": "custom_title"},
                 "purchase_limit": 1

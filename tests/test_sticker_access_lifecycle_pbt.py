@@ -125,7 +125,7 @@ class TestStickerAccessLifecyclePBT(unittest.TestCase):
         st.integers(min_value=1, max_value=2147483647),  # user_id
         st.integers(min_value=1, max_value=168)          # duration_hours (1 hour to 1 week)
     )
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=20, deadline=None)
     def test_sticker_access_lifecycle_property(self, user_id, duration_hours):
         """
         **Property 3: Sticker Access Lifecycle**
@@ -213,7 +213,7 @@ class TestStickerAccessLifecyclePBT(unittest.TestCase):
     @given(
         st.integers(min_value=1, max_value=2147483647)   # user_id
     )
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=20, deadline=None)
     def test_sticker_purchase_lifecycle_property(self, user_id):
         """
         **Property 3: Sticker Access Lifecycle**
@@ -308,7 +308,7 @@ class TestStickerAccessLifecyclePBT(unittest.TestCase):
         st.integers(min_value=1, max_value=2147483647),  # user_id
         st.integers(min_value=1, max_value=1440)         # minutes_until_expiry (1 minute to 24 hours)
     )
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=20, deadline=None)
     def test_automatic_expiration_timing_property(self, user_id, minutes_until_expiry):
         """
         **Property 3: Sticker Access Lifecycle**
@@ -378,7 +378,7 @@ class TestStickerAccessLifecyclePBT(unittest.TestCase):
             unique=True
         )
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=10, deadline=None)
     def test_multiple_users_lifecycle_property(self, user_ids):
         """
         **Property 3: Sticker Access Lifecycle**

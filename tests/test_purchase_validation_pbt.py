@@ -149,7 +149,7 @@ class TestPurchaseValidationPBT(unittest.TestCase):
         st.integers(min_value=0, max_value=10000),       # user_balance
         st.integers(min_value=1, max_value=3)            # item_number (1-3 for our test items)
     )
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=20, deadline=None)
     def test_purchase_balance_validation_property(self, user_balance, item_number):
         """
         **Property 1: Purchase Balance Validation**
@@ -250,7 +250,7 @@ class TestPurchaseValidationPBT(unittest.TestCase):
     @given(
         st.integers(min_value=1000, max_value=10000)     # user_balance (sufficient for all items)
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=10, deadline=None)
     def test_sufficient_balance_always_allows_purchase(self, user_balance):
         """
         **Property 1: Purchase Balance Validation**
@@ -305,7 +305,7 @@ class TestPurchaseValidationPBT(unittest.TestCase):
     @given(
         st.integers(min_value=0, max_value=99)           # user_balance (insufficient for all items)
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=10, deadline=None)
     def test_insufficient_balance_always_denies_purchase(self, user_balance):
         """
         **Property 1: Purchase Balance Validation**

@@ -92,9 +92,9 @@ class ShopDatabaseManager:
             
             for name, price, description in default_items:
                 cursor.execute("""
-                INSERT INTO shop_items (name, price, description, is_active, created_at)
-                VALUES (?, ?, ?, TRUE, ?)
-                """, (name, price, description, datetime.utcnow().isoformat()))
+                INSERT INTO shop_items (name, price, description, is_active)
+                VALUES (?, ?, ?, TRUE)
+                """, (name, price, description))
             
             conn.commit()
         
@@ -106,7 +106,7 @@ class ShopDatabaseManager:
         cursor = conn.cursor()
         
         cursor.execute("""
-        SELECT id, name, price, description, is_active, created_at
+        SELECT id, name, price, description, is_active
         FROM shop_items
         WHERE is_active = TRUE
         ORDER BY id
@@ -114,14 +114,13 @@ class ShopDatabaseManager:
         
         items = []
         for row in cursor.fetchall():
-            created_at = datetime.fromisoformat(row['created_at']) if row['created_at'] else None
             items.append(ShopItem(
                 id=row['id'],
                 name=row['name'],
                 price=row['price'],
                 description=row['description'],
                 is_active=bool(row['is_active']),
-                created_at=created_at
+                created_at=None  # Set to None since column doesn't exist
             ))
         
         conn.close()
@@ -133,7 +132,7 @@ class ShopDatabaseManager:
         cursor = conn.cursor()
         
         cursor.execute("""
-        SELECT id, name, price, description, is_active, created_at
+        SELECT id, name, price, description, is_active
         FROM shop_items
         WHERE id = ? AND is_active = TRUE
         """, (item_id,))
@@ -142,14 +141,13 @@ class ShopDatabaseManager:
         conn.close()
         
         if row:
-            created_at = datetime.fromisoformat(row['created_at']) if row['created_at'] else None
             return ShopItem(
                 id=row['id'],
                 name=row['name'],
                 price=row['price'],
                 description=row['description'],
                 is_active=bool(row['is_active']),
-                created_at=created_at
+                created_at=None  # Set to None since column doesn't exist
             )
         return None
     

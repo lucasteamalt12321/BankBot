@@ -62,7 +62,7 @@ ADVANCED_CURRENCY_CONFIG = {
 
 # Безопасность транзакций
 TRANSACTION_SECURITY = {
-    'max_single_amount': 1000,
+    'max_single_amount': 100,
     'max_hourly_transactions': 50,
     'duplicate_window_hours': 1,    # Оставляем 1 час для более гибкой системы
     'suspicious_pattern_detection': True,
