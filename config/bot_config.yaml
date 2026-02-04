@@ -1,0 +1,23 @@
+# Advanced Telegram Bot Configuration
+# This file contains configuration settings for the advanced bot features
+# Note: Parsing rules are loaded from the database, not from this file
+
+# Administrator user IDs (comma-separated list or YAML array)
+admin_user_ids:
+  - 2091908459
+
+# Sticker management settings
+sticker_cleanup_interval: 300  # 5 minutes in seconds
+sticker_auto_delete_delay: 120  # 2 minutes in seconds
+
+# Broadcast system settings
+broadcast_batch_size: 50  # Number of users to process in each batch
+
+# Message parsing settings
+max_parsing_retries: 3  # Maximum number of retry attempts for failed parsing
+
+# Configuration notes:
+# - Parsing rules are managed through the database and admin commands
+# - Changes to this file will be hot-reloaded without restarting the bot
+# - Invalid configurations will fall back to defaults with error logging
+# - All timing values are in seconds unless otherwise specified

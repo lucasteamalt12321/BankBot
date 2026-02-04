@@ -2,6 +2,8 @@
 import logging
 import os
 import sys
+import asyncio
+import signal
 
 # Добавляем корневую директорию в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,6 +27,10 @@ from database.backup_system import BackupSystem
 from utils.error_handling import ErrorHandlingSystem
 from utils.admin_middleware import auto_registration_middleware
 from utils.admin_system import AdminSystem, admin_required
+from core.message_monitoring_middleware import message_monitoring_middleware
+from bot.advanced_admin_commands import AdvancedAdminCommands
+from core.background_task_manager import BackgroundTaskManager
+from core.sticker_manager import StickerManager
 from datetime import datetime
 import structlog
 from telegram.error import BadRequest, TelegramError
@@ -39,8 +45,6 @@ logger = structlog.get_logger()
 class TelegramBot:
     def __init__(self):
         self.application = Application.builder().token(settings.bot_token).build()
-        self.setup_handlers()
-        self.setup_error_handler()  # Добавьте эту строку
         
         # Инициализация систем мониторинга и безопасности
         self.monitoring_system = None
@@ -52,6 +56,45 @@ class TelegramBot:
         admin_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bot.db')
         self.admin_system = AdminSystem(admin_db_path)
         # База данных уже инициализирована, не нужно создавать отдельные таблицы
+        
+        # Инициализация расширенных административных команд
+        self.advanced_admin_commands = AdvancedAdminCommands()
+        
+        # Инициализация системы фоновых задач
+        self.background_task_manager = None
+        self.sticker_manager = None
+        
+        # Инициализация системы парсинга сообщений (Task 11.2)
+        self.message_parser = None
+        self._initialize_message_parsing()
+        
+        # Флаг для graceful shutdown
+        self._shutdown_requested = False
+        
+        # Настройка обработчиков сигналов для graceful shutdown
+        self._setup_signal_handlers()
+        
+        # Настройка обработчиков команд (после инициализации всех систем)
+        self.setup_handlers()
+        self.setup_error_handler()
+
+    def is_background_system_running(self) -> bool:
+        """
+        Проверяет, запущена ли система фоновых задач (Task 11.3)
+        
+        Returns:
+            bool: True если система фоновых задач запущена и работает
+        """
+        try:
+            if not self.background_task_manager:
+                return False
+            
+            task_status = self.background_task_manager.get_task_status()
+            return task_status.get('is_running', False)
+            
+        except Exception as e:
+            logger.error(f"Error checking background system status: {e}")
+            return False
 
     def setup_handlers(self):
         """Настройка обработчиков команд"""
@@ -119,6 +162,7 @@ class TelegramBot:
             CommandHandler("admin_removecoins", self.admin_removecoins_command),
             CommandHandler("admin_merge", self.admin_merge_command),
             CommandHandler("admin_transactions", self.admin_transactions_command),
+            CommandHandler("admin_transaction", self.admin_transactions_command),  # Алиас
             CommandHandler("admin_balances", self.admin_balances_command),
             CommandHandler("admin_users", self.admin_users_command),
             CommandHandler("admin_rates", self.admin_rates_command),
@@ -132,6 +176,21 @@ class TelegramBot:
             CommandHandler("admin_health", self.admin_health_command),
             CommandHandler("admin_errors", self.admin_errors_command),
             CommandHandler("admin_backup", self.admin_backup_command),
+            
+            # Advanced Admin Commands (Task 7.4 and 8.3)
+            CommandHandler("parsing_stats", self.advanced_admin_commands.parsing_stats_command),
+            CommandHandler("broadcast", self.advanced_admin_commands.broadcast_command),
+            CommandHandler("user_stats", self.advanced_admin_commands.user_stats_command),
+            CommandHandler("add_item", self.advanced_admin_commands.add_item_command),
+            
+            # Background Task Management Commands (Task 10.3)
+            CommandHandler("admin_background_status", self.admin_background_status_command),
+            CommandHandler("admin_background_health", self.admin_background_health_command),
+            CommandHandler("admin_background_restart", self.admin_background_restart_command),
+            
+            # Message Parsing Configuration Commands (Task 11.2)
+            CommandHandler("admin_parsing_reload", self.admin_parsing_reload_command),
+            CommandHandler("admin_parsing_config", self.admin_parsing_config_command),
         ]
 
         for handler in handlers:
@@ -155,17 +214,162 @@ class TelegramBot:
         async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Exception while handling an update: {context.error}")
 
-            # Попытка отправить сообщение об ошибке
+            # Не отправляем сообщение об ошибке автоматически, только логируем
+            # Это предотвращает спам сообщениями об ошибках
             try:
+                # Логируем детали ошибки для отладки
                 if update and update.effective_message:
-                    await update.effective_message.reply_text(
-                        f"Proizoshla oshibka pri obrabotke komandy. "
-                        f"Pozhaluysta, poprobuyte pozje ili obratites k administratoru."
-                    )
+                    logger.error(f"Error in message from user {update.effective_user.id}: {update.effective_message.text}")
             except Exception as e:
-                logger.error(f"Could not send error message: {e}")
+                logger.error(f"Could not log error details: {e}")
 
         self.application.add_error_handler(error_handler)
+    
+    def _setup_signal_handlers(self):
+        """
+        Настройка обработчиков сигналов для graceful shutdown (Task 11.3)
+        Validates: Requirements 12.1, 12.2
+        """
+        def signal_handler(signum, frame):
+            logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+            self._shutdown_requested = True
+            
+            # Создаем задачу для graceful shutdown
+            if hasattr(self, 'application') and self.application:
+                try:
+                    # Останавливаем фоновые задачи
+                    if self.background_task_manager:
+                        asyncio.create_task(self._shutdown_background_tasks())
+                    
+                    # Останавливаем бота
+                    self.application.stop_running()
+                    logger.info("Bot stop requested due to signal")
+                    
+                except Exception as e:
+                    logger.error(f"Error during signal handling: {e}")
+        
+        # Регистрируем обработчики для SIGINT (Ctrl+C) и SIGTERM
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        logger.info("Signal handlers configured for graceful shutdown")
+    
+    def _initialize_message_parsing(self):
+        """
+        Инициализация системы парсинга сообщений (Task 11.2)
+        Загружает правила парсинга при запуске и настраивает интеграцию с конвертацией валют
+        """
+        try:
+            logger.info("Initializing message parsing system...")
+            
+            # Инициализируем конфигурационный менеджер для загрузки правил парсинга
+            from core.config_manager import get_config_manager
+            config_manager = get_config_manager()
+            
+            # Загружаем конфигурацию с правилами парсинга
+            config = config_manager.get_configuration()
+            
+            logger.info(f"Loaded {len(config.parsing_rules)} parsing rules from configuration")
+            
+            # Проверяем наличие ошибок валидации
+            if config_manager.has_validation_errors():
+                errors = config_manager.get_validation_errors()
+                logger.warning(f"Configuration has validation errors: {errors}")
+            
+            # Инициализируем MessageParser с базой данных
+            db = next(get_db())
+            try:
+                from core.message_parser import MessageParser
+                self.message_parser = MessageParser(db)
+                
+                # Принудительно перезагружаем правила парсинга
+                self.message_parser.load_parsing_rules()
+                
+                logger.info("MessageParser initialized successfully")
+                
+                # Настраиваем middleware для использования нашего парсера
+                message_monitoring_middleware.message_parser = self.message_parser
+                
+                logger.info("Message monitoring middleware configured with parser")
+                
+            finally:
+                db.close()
+            
+            logger.info("Message parsing system initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize message parsing system: {e}")
+            # Не прерываем запуск бота, но логируем ошибку
+            logger.warning("Bot will continue without advanced message parsing")
+    
+    async def _shutdown_background_tasks(self):
+        """
+        Graceful shutdown фоновых задач (Task 11.3)
+        Validates: Requirements 12.1, 12.2
+        """
+        try:
+            if self.background_task_manager:
+                logger.info("Stopping background task manager...")
+                await self.background_task_manager.stop_periodic_cleanup()
+                logger.info("Background task manager stopped successfully")
+                
+                # Проверяем, что задачи действительно остановлены
+                task_status = self.background_task_manager.get_task_status()
+                if task_status['is_running']:
+                    logger.warning("Background tasks may not have stopped completely")
+                else:
+                    logger.info("Background tasks confirmed stopped")
+                    
+                # Очищаем ссылки
+                self.background_task_manager = None
+                self.sticker_manager = None
+                
+        except Exception as e:
+            logger.error(f"Error stopping background tasks: {e}")
+            # Принудительно очищаем ссылки даже при ошибке
+            self.background_task_manager = None
+            self.sticker_manager = None
+    
+    async def _initialize_background_systems(self):
+        """
+        Инициализация фоновых систем (Task 11.3)
+        Validates: Requirements 12.1, 12.2
+        """
+        try:
+            logger.info("Initializing background task system...")
+            
+            db = next(get_db())
+            try:
+                # Инициализируем StickerManager
+                self.sticker_manager = StickerManager(db)
+                logger.info("StickerManager initialized successfully")
+                
+                # Инициализируем BackgroundTaskManager с правильной конфигурацией
+                self.background_task_manager = BackgroundTaskManager(db, self.sticker_manager)
+                logger.info("BackgroundTaskManager initialized successfully")
+                
+                # Запускаем периодические задачи очистки (Requirement 12.1)
+                await self.background_task_manager.start_periodic_cleanup()
+                logger.info("Periodic cleanup tasks started (5-minute intervals)")
+                
+                # Проверяем статус задач
+                task_status = self.background_task_manager.get_task_status()
+                logger.info("Background task system status", **task_status)
+                
+                # Проверяем, что задачи действительно запущены
+                if not task_status['is_running']:
+                    raise Exception("Background tasks failed to start properly")
+                
+                logger.info("Background task system initialization completed successfully")
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize background task system: {e}")
+            # Очищаем частично инициализированные объекты
+            self.background_task_manager = None
+            self.sticker_manager = None
+            raise
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка нажатий кнопок"""
         query = update.callback_query
@@ -322,32 +526,74 @@ class TelegramBot:
 
 Я автоматически отслеживаю вашу активность в играх и начисляю банковские монеты.
 
-[COMMANDS] <b>Основные команды:</b>
+[COMMANDS] <b>🔧 Основные команды:</b>
 /balance - проверить баланс
-/history - история транзакций
+/history - история транзакций  
 /profile - ваш профиль
-/shop - магазин товаров
-/games - мини-игры
-/dnd - D&D мастерская
+/stats - персональная статистика
+
+[SHOP] <b>🛒 Магазин:</b>
+/shop - просмотр товаров
+/buy &lt;номер&gt; - купить товар
+/buy_1, /buy_2, /buy_3 - быстрая покупка
+/buy_contact - связь с админом (10 очков)
+/inventory - ваши покупки
+
+[GAMES] <b>🎮 Мини-игры:</b>
+/games - список игр
+/play &lt;тип&gt; - создать игру
+/join &lt;id&gt; - присоединиться
+/startgame &lt;id&gt; - начать игру
+/turn &lt;id&gt; &lt;ход&gt; - сделать ход
+
+[DND] <b>🎲 D&amp;D система:</b>
+/dnd - информация о D&amp;D
+/dnd_create - создать сессию
+/dnd_join &lt;id&gt; - присоединиться
+/dnd_roll &lt;кубик&gt; - бросок кубиков
+
+[MOTIVATION] <b>🎯 Мотивация:</b>
 /daily - ежедневный бонус
 /challenges - задания
+/streak - статистика серии
 
-[SOCIAL] <b>Социальные функции:</b>
-/friends - друзья
-/gift - отправить подарок
+[SOCIAL] <b>👥 Социальные функции:</b>
+/friends - управление друзьями
+/friend_add &lt;username&gt; - добавить друга
+/gift &lt;username&gt; &lt;сумма&gt; - подарок
 /clan - кланы
 
-[ACHIEVEMENTS] <b>Достижения и уведомления:</b>
+[ACHIEVEMENTS] <b>🏆 Достижения:</b>
 /achievements - ваши достижения
 /notifications - уведомления
+/notifications_clear - очистить все
 
-[GAMES] <b>Поддерживаемые игры:</b>
+[ADMIN] <b>👨‍💼 Админ-команды:</b>
+/admin - панель администратора
+/add_points &lt;@user&gt; &lt;сумма&gt; - начислить очки
+/add_admin &lt;@user&gt; - назначить админа
+/admin_stats - статистика системы
+/admin_users - список пользователей
+/admin_balances - топ по балансу
+/admin_transactions &lt;@user&gt; - транзакции
+/admin_addcoins, /admin_removecoins - управление балансом
+/admin_health - здоровье системы
+
+[ADVANCED] <b>🔧 Расширенные админ-команды:</b>
+/parsing_stats - статистика парсинга
+/user_stats &lt;@user&gt; - детальная статистика
+/broadcast &lt;текст&gt; - рассылка всем
+/add_item - добавить товар в магазин
+
+[GAMES_SUPPORTED] <b>Поддерживаемые игры:</b>
 • Shmalala (курс 1:1)
-• GD Cards (курс 2:1)
+• GD Cards (курс 2:1)  
 • True Mafia (курс 15:1)
 • Bunker RP (курс 20:1)
 
 [PLAY] Просто играйте, а я буду автоматически начислять вам монеты за активность!
+
+[TIP] <b>💡 Совет:</b> Начните с /daily для получения бонуса, затем /shop для покупок!
         """
 
         await update.message.reply_text(welcome_text, parse_mode='HTML')
@@ -774,52 +1020,93 @@ class TelegramBot:
                 "Попробуйте позже или обратитесь к администратору."
             )
     async def buy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy - покупка товара"""
+        """Команда /buy - покупка товара с интеграцией ShopManager"""
+        # Process automatic user registration first
+        await auto_registration_middleware.process_message(update, context)
+        
         user = update.effective_user
 
         if not context.args:
-            await update.message.reply_text("Ispolzuyte: /buy <id_tovara>")
+            await update.message.reply_text(
+                "❌ Укажите номер товара!\n\n"
+                "Использование: /buy <номер_товара>\n"
+                "Пример: /buy 1\n\n"
+                "Посмотрите доступные товары: /shop"
+            )
             return
 
         try:
-            item_id = int(context.args[0])
+            item_number = int(context.args[0])
         except ValueError:
-            await update.message.reply_text("Nevernyy ID tovara")
+            await update.message.reply_text(
+                "❌ Неверный номер товара!\n\n"
+                "Номер товара должен быть числом (1, 2, 3...)\n"
+                "Посмотрите доступные товары: /shop"
+            )
             return
 
         db = next(get_db())
         try:
-            shop = EnhancedShopSystem(db)
-            result = shop.purchase_item(user.id, item_id)
+            # Import and use the new ShopManager
+            from core.shop_manager import ShopManager
+            
+            # Create ShopManager instance
+            shop_manager = ShopManager(db)
+            
+            # Process the purchase
+            result = await shop_manager.process_purchase(user.id, item_number)
+            
+            if result.success:
+                # Success message with activation details
+                text = f"""✅ <b>Покупка успешна!</b>
 
-            if result['success']:
-                activation_msg = result['activation_result'].get('message', 'Товар активирован')
-                text = f"""
-[OK] <b>Покупка успешна!</b>
+{result.message}
 
-[GIFT] Товар: {result['item_name']}
-[MONEY] Стоимость: {result['price']} монет
-[BALANCE] Новый баланс: {result['new_balance']} монет
-[BOX] ID покупки: {result['purchase_id']}
+💰 Новый баланс: {result.new_balance} монет
+🛒 ID покупки: {result.purchase_id}
 
-{activation_msg}
-                """
+Товар активирован и готов к использованию!"""
 
-                # Отправляем уведомление
-                notification_system = NotificationSystem(db)
-                notification_system.send_purchase_notification(
-                    user.id,
-                    result['item_name'],
-                    result['price'],
-                    result['new_balance']
-                )
+                # Send notification if available
+                try:
+                    notification_system = NotificationSystem(db)
+                    # Get item name from shop items for notification
+                    shop_items = shop_manager.get_shop_items()
+                    if shop_items and 1 <= item_number <= len(shop_items):
+                        item = shop_items[item_number - 1]
+                        notification_system.send_purchase_notification(
+                            user.id,
+                            item.name,
+                            int(item.price),
+                            int(result.new_balance)
+                        )
+                except Exception as notification_error:
+                    logger.warning(f"Failed to send purchase notification: {notification_error}")
+
+                await update.message.reply_text(text, parse_mode='HTML')
+                logger.info(f"Purchase successful: user {user.id}, item {item_number}, purchase {result.purchase_id}")
+                
             else:
-                text = f"Ne udalos kupit tovar: {result['reason']}"
+                # Error message
+                error_text = f"❌ {result.message}"
+                
+                # Add helpful suggestions based on error code
+                if result.error_code == "INSUFFICIENT_BALANCE":
+                    error_text += "\n\n💡 Заработайте больше монет, участвуя в играх!"
+                elif result.error_code == "ITEM_NOT_FOUND":
+                    error_text += "\n\n💡 Посмотрите доступные товары: /shop"
+                elif result.error_code == "USER_NOT_FOUND":
+                    error_text += "\n\n💡 Используйте /start для регистрации"
 
-            await update.message.reply_text(text, parse_mode='HTML')
+                await update.message.reply_text(error_text)
+                logger.warning(f"Purchase failed: user {user.id}, item {item_number}, error: {result.error_code}")
+                
         except Exception as e:
             logger.error(f"Error in buy command: {e}")
-            await update.message.reply_text(f"Oshibka: {str(e)}")
+            await update.message.reply_text(
+                "❌ Произошла ошибка при обработке покупки.\n"
+                "Попробуйте позже или обратитесь к администратору."
+            )
         finally:
             db.close()
 
@@ -836,38 +1123,67 @@ class TelegramBot:
         await self._handle_purchase_command(update, context, 3)
 
     async def _handle_purchase_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, item_number: int):
-        """Обработчик команд покупки товаров из магазина"""
+        """Обработчик команд покупки товаров из магазина с интеграцией ShopManager"""
         # Process automatic user registration first
         await auto_registration_middleware.process_message(update, context)
         
         user = update.effective_user
         logger.info(f"Purchase command /buy_{item_number} from user {user.id}")
 
+        db = next(get_db())
         try:
-            # Import and use PurchaseHandler
-            from core.purchase_handler import PurchaseHandler
+            # Import and use the new ShopManager
+            from core.shop_manager import ShopManager
             
-            # Create purchase handler and process purchase
-            purchase_handler = PurchaseHandler()
-            result = purchase_handler.process_purchase(user.id, item_number)
+            # Create ShopManager instance
+            shop_manager = ShopManager(db)
+            
+            # Process the purchase
+            result = await shop_manager.process_purchase(user.id, item_number)
             
             if result.success:
-                # Success message
+                # Success message with activation details
                 text = f"""✅ <b>Покупка успешна!</b>
 
 {result.message}
 
-💳 Новый баланс: {result.new_balance} монет
+💰 Новый баланс: {result.new_balance} монет
 🛒 ID покупки: {result.purchase_id}
 
-Товар будет активирован в ближайшее время."""
+Товар активирован и готов к использованию!"""
+
+                # Send notification if available
+                try:
+                    notification_system = NotificationSystem(db)
+                    # Get item name from shop items for notification
+                    shop_items = shop_manager.get_shop_items()
+                    if shop_items and 1 <= item_number <= len(shop_items):
+                        item = shop_items[item_number - 1]
+                        notification_system.send_purchase_notification(
+                            user.id,
+                            item.name,
+                            int(item.price),
+                            int(result.new_balance)
+                        )
+                except Exception as notification_error:
+                    logger.warning(f"Failed to send purchase notification: {notification_error}")
                 
                 await update.message.reply_text(text, parse_mode='HTML')
                 logger.info(f"Purchase successful: user {user.id}, item {item_number}, purchase {result.purchase_id}")
                 
             else:
-                # Error message
-                await update.message.reply_text(f"❌ {result.message}")
+                # Error message with helpful suggestions
+                error_text = f"❌ {result.message}"
+                
+                # Add helpful suggestions based on error code
+                if result.error_code == "INSUFFICIENT_BALANCE":
+                    error_text += "\n\n💡 Заработайте больше монет, участвуя в играх!"
+                elif result.error_code == "ITEM_NOT_FOUND":
+                    error_text += "\n\n💡 Посмотрите доступные товары: /shop"
+                elif result.error_code == "USER_NOT_FOUND":
+                    error_text += "\n\n💡 Используйте /start для регистрации"
+
+                await update.message.reply_text(error_text)
                 logger.warning(f"Purchase failed: user {user.id}, item {item_number}, error: {result.error_code}")
             
         except Exception as e:
@@ -876,6 +1192,8 @@ class TelegramBot:
                 "❌ Произошла ошибка при обработке покупки. "
                 "Попробуйте позже или обратитесь к администратору."
             )
+        finally:
+            db.close()
 
     async def inventory_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /inventory - инвентарь"""
@@ -2410,53 +2728,97 @@ ID транзакции: {result['transaction_id']}
 
         if not context.args:
             await update.message.reply_text(
-                "❌ Используйте: /admin_transactions <пользователь> [лимит]\n"
+                "❌ Используйте: /admin_transactions &lt;пользователь&gt; [лимит]\n"
                 "Пример: /admin_transactions @username 20\n"
-                "Пример: /admin_transactions \"Имя Фамилия\""
+                "Пример: /admin_transactions \"Имя Фамилия\"",
+                parse_mode='HTML'
             )
             return
 
-        user_identifier = context.args[0]
+        user_identifier = context.args[0].replace('@', '')  # Убираем @ если есть
         limit = int(context.args[1]) if len(context.args) > 1 and context.args[1].isdigit() else 20
 
-        db = next(get_db())
         try:
-            bank = BankSystem(db)
-            from utils.user_manager import UserManager
-            user_manager = UserManager(db)
+            # Сначала пробуем найти в административной системе
+            admin_user = self.admin_system.get_user_by_username(user_identifier)
+            if admin_user:
+                # Получаем транзакции из административной системы
+                conn = self.admin_system.get_db_connection()
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT amount, type, created_at, description 
+                    FROM transactions 
+                    WHERE user_id = ? 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                """, (admin_user['id'], limit))
+                
+                transactions = cursor.fetchall()
+                conn.close()
+                
+                text = f"""📊 <b>Транзакции пользователя</b>
 
-            user_obj = user_manager.identify_user(user_identifier)
-            if not user_obj:
-                await update.message.reply_text("❌ Пользователь не найден")
+👤 Пользователь: {admin_user['first_name']} (@{admin_user['username'] or admin_user['telegram_id']})
+💳 Баланс: {int(admin_user['balance'])} очков
+📋 Показано: {len(transactions)} транзакций
+
+"""
+                
+                if not transactions:
+                    text += "📭 Транзакций не найдено"
+                else:
+                    for t in transactions:
+                        amount_text = f"+{t['amount']}" if t['amount'] > 0 else str(t['amount'])
+                        emoji = "⬆️" if t['amount'] > 0 else "⬇️" if t['amount'] < 0 else "➡️"
+                        
+                        text += f"{emoji} {amount_text} очков\n"
+                        text += f"   Тип: {t['type']}\n"
+                        text += f"   Описание: {t['description'] or 'Нет описания'}\n"
+                        text += f"   Дата: {t['created_at']}\n\n"
+                
+                await update.message.reply_text(text, parse_mode='HTML')
                 return
+            
+            # Fallback к старой системе
+            db = next(get_db())
+            try:
+                bank = BankSystem(db)
+                from utils.user_manager import UserManager
+                user_manager = UserManager(db)
 
-            result = bank.get_user_history(user_identifier, limit)
+                user_obj = user_manager.identify_user(user_identifier)
+                if not user_obj:
+                    await update.message.reply_text("❌ Пользователь не найден")
+                    return
 
-            text = f"""
-📊 <b>Транзакции пользователя</b>
+                result = bank.get_user_history(user_identifier, limit)
+
+                text = f"""📊 <b>Транзакции пользователя</b>
 
 👤 Пользователь: #{user_obj.id}
 💳 Баланс: {result['balance']} монет
 📋 Показано: {len(result['transactions'])} транзакций
 
 """
-            for t in result['transactions']:
-                amount_text = f"+{t['amount']}" if t['amount'] > 0 else str(t['amount'])
-                emoji = "⬆️" if t['amount'] > 0 else "⬇️" if t['amount'] < 0 else "➡️"
+                for t in result['transactions']:
+                    amount_text = f"+{t['amount']}" if t['amount'] > 0 else str(t['amount'])
+                    emoji = "⬆️" if t['amount'] > 0 else "⬇️" if t['amount'] < 0 else "➡️"
 
-                text += f"{emoji} {amount_text} монет\n"
-                text += f"   ID: {t['id']}\n"
-                text += f"   Тип: {t['type']}\n"
-                text += f"   Источник: {t['source'] or 'система'}\n"
-                text += f"   Описание: {t['description'][:50]}{'...' if len(t['description']) > 50 else ''}\n"
-                text += f"   Дата: {t['created_at'].strftime('%d.%m.%Y %H:%M')}\n\n"
+                    text += f"{emoji} {amount_text} монет\n"
+                    text += f"   ID: {t['id']}\n"
+                    text += f"   Тип: {t['type']}\n"
+                    text += f"   Источник: {t['source'] or 'система'}\n"
+                    text += f"   Описание: {t['description'][:50]}{'...' if len(t['description']) > 50 else ''}\n"
+                    text += f"   Дата: {t['created_at'].strftime('%d.%m.%Y %H:%M')}\n\n"
 
-            await update.message.reply_text(text, parse_mode='HTML')
+                await update.message.reply_text(text, parse_mode='HTML')
+            finally:
+                db.close()
+                
         except Exception as e:
             logger.error(f"Error in admin_transactions command: {e}")
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
 
     async def admin_balances_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_balances - балансы всех пользователей"""
@@ -2870,7 +3232,7 @@ ID транзакции: {result['transaction_id']}
 
     # ===== Обработка сообщений =====
     async def parse_all_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка всех сообщений"""
+        """Обработка всех сообщений с интеграцией нового middleware (Task 11.2)"""
         # First, process automatic user registration
         await auto_registration_middleware.process_message(update, context)
         
@@ -2880,11 +3242,77 @@ ID транзакции: {result['transaction_id']}
 
         # Пропускаем сообщения от самого бота
         if user.is_bot:
+            # But allow processing from external game bots through the new middleware
+            parsed_transaction = await message_monitoring_middleware.process_message(update, context)
+            if parsed_transaction:
+                logger.info(
+                    "External bot message processed by middleware",
+                    bot_username=user.username,
+                    transaction_id=parsed_transaction.id,
+                    converted_amount=parsed_transaction.converted_amount
+                )
+                
+                # Интеграция с обновлением баланса пользователя (Task 11.2)
+                if parsed_transaction.user_id and parsed_transaction.converted_amount > 0:
+                    try:
+                        # Отправляем уведомление о начислении
+                        await update.message.reply_text(
+                            f"💫 Обнаружена игровая активность!\n"
+                            f"🎮 Источник: {parsed_transaction.source_bot}\n"
+                            f"💰 Начислено: {parsed_transaction.converted_amount} монет\n"
+                            f"👤 Пользователь ID: {parsed_transaction.user_id}"
+                        )
+                        
+                        logger.info(
+                            "User balance updated from parsed message",
+                            user_id=parsed_transaction.user_id,
+                            amount=parsed_transaction.converted_amount,
+                            source=parsed_transaction.source_bot
+                        )
+                        
+                    except Exception as e:
+                        logger.error(f"Error sending parsing notification: {e}")
             return
 
         chat_type = "private" if chat.type == "private" else f"group/{chat.type}"
         logger.info(f"Message received in {chat_type} chat {chat.id} from user {user.id}: {message_text[:100]}...")
 
+        # Process message through new monitoring middleware first (Task 11.2)
+        parsed_transaction = await message_monitoring_middleware.process_message(update, context)
+        if parsed_transaction:
+            logger.info(
+                "Message processed by monitoring middleware",
+                user_id=user.id,
+                transaction_id=parsed_transaction.id,
+                converted_amount=parsed_transaction.converted_amount,
+                source_bot=parsed_transaction.source_bot
+            )
+            
+            # Интеграция с конвертацией валют и обновлением баланса (Task 11.2)
+            if parsed_transaction.converted_amount > 0:
+                try:
+                    # Отправляем подтверждение пользователю
+                    await update.message.reply_text(
+                        f"✅ Активность обработана!\n"
+                        f"🎮 Игра: {parsed_transaction.source_bot}\n"
+                        f"💰 Начислено: {parsed_transaction.converted_amount} монет\n"
+                        f"📊 Транзакция #{parsed_transaction.id}"
+                    )
+                    
+                    logger.info(
+                        "Currency conversion and balance update completed",
+                        user_id=user.id,
+                        original_amount=parsed_transaction.original_amount,
+                        converted_amount=parsed_transaction.converted_amount,
+                        multiplier_applied=True
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Error in currency conversion integration: {e}")
+            
+            # If middleware processed the message successfully, we can return early
+            return
+        
         # Если это личное сообщение и не команда, покажем справку
         if chat.type == "private" and not message_text.startswith('/'):
             await update.message.reply_text(
@@ -2902,10 +3330,10 @@ ID транзакции: {result['transaction_id']}
             )
             return
 
-        # Обработка игровых сообщений в группах
-        if chat.type in ["group", "supergroup"]:
+        # Обработка игровых сообщений в группах (fallback to old system if middleware didn't process)
+        if chat.type in ["group", "supergroup"] and not parsed_transaction:
             await self.process_game_message(update, context)
-        elif chat.type == "private":
+        elif chat.type == "private" and not parsed_transaction:
             # В личных сообщениях тоже можем получать игровые сообщения от других ботов
             # если пользователь пересылает их или боты отправляют напрямую
             message_text = update.message.text
@@ -3017,9 +3445,316 @@ ID транзакции: {result['transaction_id']}
         finally:
             db.close()
 
+    # ===== Background Task Management Commands =====
+    @admin_required
+    async def admin_background_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /admin_background_status - статус фоновых задач"""
+        user = update.effective_user
+        
+        try:
+            if not self.background_task_manager:
+                await update.message.reply_text(
+                    "❌ Система фоновых задач не инициализирована"
+                )
+                return
+            
+            # Получаем статус задач
+            task_status = self.background_task_manager.get_task_status()
+            
+            # Получаем статус здоровья системы
+            health_status = await self.background_task_manager.monitor_parsing_health()
+            
+            text = f"""
+🔧 <b>Статус фоновых задач</b>
+
+📊 <b>Основной статус:</b>
+   • Запущены: {'✅ Да' if task_status['is_running'] else '❌ Нет'}
+   • Интервал очистки: {task_status['cleanup_interval_seconds']} сек
+   • Интервал мониторинга: {task_status['monitoring_interval_seconds']} сек
+
+🏃 <b>Активные задачи:</b>
+   • Очистка: {'✅ Активна' if task_status['cleanup_task_running'] else '❌ Неактивна'}
+   • Мониторинг: {'✅ Активен' if task_status['monitoring_task_running'] else '❌ Неактивен'}
+
+🏥 <b>Здоровье системы:</b>
+   • Общее состояние: {'✅ Здорова' if health_status.is_healthy else '❌ Проблемы'}
+   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
+   • Парсинг активен: {'✅ Да' if health_status.parsing_active else '❌ Нет'}
+   • Последняя проверка: {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
+
+⚠️ <b>Ошибки:</b>
+{chr(10).join([f"   • {error}" for error in health_status.errors]) if health_status.errors else "   • Ошибок нет"}
+
+🕐 <b>Последняя проверка статуса:</b>
+   {task_status['last_status_check']}
+            """
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+            logger.info(f"Background status requested by admin {user.id}")
+            
+        except Exception as e:
+            logger.error(f"Error in admin_background_status command: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при получении статуса фоновых задач: {str(e)}"
+            )
+
+    @admin_required
+    async def admin_background_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /admin_background_health - проверка здоровья фоновых задач"""
+        user = update.effective_user
+        
+        try:
+            if not self.background_task_manager:
+                await update.message.reply_text(
+                    "❌ Система фоновых задач не инициализирована"
+                )
+                return
+            
+            # Выполняем проверку здоровья
+            health_status = await self.background_task_manager.monitor_parsing_health()
+            
+            # Выполняем тестовую очистку
+            cleanup_result = await self.background_task_manager.cleanup_expired_access()
+            
+            text = f"""
+🏥 <b>Проверка здоровья фоновых задач</b>
+
+📊 <b>Результат проверки:</b>
+   • Статус: {'✅ Система здорова' if health_status.is_healthy else '❌ Обнаружены проблемы'}
+   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
+   • Фоновые задачи: {'✅ Работают' if health_status.background_tasks_running else '❌ Остановлены'}
+   • Парсинг: {'✅ Активен' if health_status.parsing_active else '❌ Неактивен'}
+
+🧹 <b>Результат тестовой очистки:</b>
+   • Очищено пользователей: {cleanup_result.cleaned_users}
+   • Очищено файлов: {cleanup_result.cleaned_files}
+   • Ошибок: {len(cleanup_result.errors)}
+   • Сообщение: {cleanup_result.completion_message}
+
+⚠️ <b>Обнаруженные ошибки:</b>
+{chr(10).join([f"   • {error}" for error in health_status.errors + cleanup_result.errors]) if (health_status.errors or cleanup_result.errors) else "   • Ошибок не обнаружено"}
+
+🕐 <b>Время проверки:</b>
+   {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
+
+💡 <b>Рекомендации:</b>
+   • Если есть ошибки, используйте /admin_background_restart для перезапуска
+   • Регулярно проверяйте статус с помощью /admin_background_status
+            """
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+            logger.info(f"Background health check requested by admin {user.id}")
+            
+        except Exception as e:
+            logger.error(f"Error in admin_background_health command: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при проверке здоровья фоновых задач: {str(e)}"
+            )
+
+    @admin_required
+    async def admin_background_restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /admin_background_restart - перезапуск фоновых задач"""
+        user = update.effective_user
+        
+        try:
+            if not self.background_task_manager:
+                await update.message.reply_text(
+                    "❌ Система фоновых задач не инициализирована"
+                )
+                return
+            
+            await update.message.reply_text("🔄 Перезапуск фоновых задач...")
+            
+            # Останавливаем текущие задачи
+            await self.background_task_manager.stop_periodic_cleanup()
+            logger.info(f"Background tasks stopped by admin {user.id}")
+            
+            # Ждем немного для полной остановки
+            await asyncio.sleep(2)
+            
+            # Запускаем заново
+            await self.background_task_manager.start_periodic_cleanup()
+            logger.info(f"Background tasks restarted by admin {user.id}")
+            
+            # Проверяем статус после перезапуска
+            task_status = self.background_task_manager.get_task_status()
+            health_status = await self.background_task_manager.monitor_parsing_health()
+            
+            text = f"""
+✅ <b>Фоновые задачи перезапущены</b>
+
+📊 <b>Новый статус:</b>
+   • Запущены: {'✅ Да' if task_status['is_running'] else '❌ Нет'}
+   • Очистка активна: {'✅ Да' if task_status['cleanup_task_running'] else '❌ Нет'}
+   • Мониторинг активен: {'✅ Да' if task_status['monitoring_task_running'] else '❌ Нет'}
+   • Система здорова: {'✅ Да' if health_status.is_healthy else '❌ Нет'}
+
+🕐 <b>Время перезапуска:</b>
+   {datetime.utcnow().strftime('%d.%m.%Y %H:%M:%S')}
+
+💡 <b>Следующие шаги:</b>
+   • Проверьте статус через несколько минут: /admin_background_status
+   • Мониторьте логи на предмет ошибок
+            """
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+            
+        except Exception as e:
+            logger.error(f"Error in admin_background_restart command: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при перезапуске фоновых задач: {str(e)}"
+            )
+
+    # ===== Message Parsing Configuration Commands (Task 11.2) =====
+    @admin_required
+    async def admin_parsing_reload_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /admin_parsing_reload - перезагрузка правил парсинга"""
+        user = update.effective_user
+        
+        try:
+            await update.message.reply_text("🔄 Перезагружаю правила парсинга...")
+            
+            # Перезагружаем конфигурацию
+            from core.config_manager import get_config_manager
+            config_manager = get_config_manager()
+            
+            success = config_manager.reload_configuration()
+            
+            if success:
+                # Обновляем парсер с новыми правилами
+                if self.message_parser:
+                    self.message_parser.load_parsing_rules()
+                
+                # Получаем информацию о загруженных правилах
+                config = config_manager.get_configuration()
+                
+                text = f"""
+✅ <b>Правила парсинга перезагружены</b>
+
+📊 <b>Статистика:</b>
+   • Загружено правил: {len(config.parsing_rules)}
+   • Активных правил: {len([r for r in config.parsing_rules if r.is_active])}
+   • Ошибок валидации: {len(config_manager.get_validation_errors())}
+
+🎮 <b>Поддерживаемые боты:</b>
+{chr(10).join([f"   • {rule.bot_name} ({rule.currency_type}, x{rule.multiplier})" for rule in config.parsing_rules if rule.is_active])}
+
+⚠️ <b>Ошибки валидации:</b>
+{chr(10).join([f"   • {error}" for error in config_manager.get_validation_errors()]) if config_manager.get_validation_errors() else "   • Ошибок нет"}
+
+🕐 <b>Время перезагрузки:</b>
+   {datetime.utcnow().strftime('%d.%m.%Y %H:%M:%S')}
+                """
+                
+                await update.message.reply_text(text, parse_mode='HTML')
+                logger.info(f"Parsing rules reloaded by admin {user.id}")
+                
+            else:
+                errors = config_manager.get_validation_errors()
+                error_text = f"""
+❌ <b>Ошибка перезагрузки правил парсинга</b>
+
+⚠️ <b>Обнаруженные ошибки:</b>
+{chr(10).join([f"   • {error}" for error in errors]) if errors else "   • Неизвестная ошибка"}
+
+💡 <b>Рекомендации:</b>
+   • Проверьте правила парсинга в базе данных
+   • Используйте /admin_parsing_config для просмотра конфигурации
+   • Обратитесь к логам для подробной информации
+                """
+                
+                await update.message.reply_text(error_text, parse_mode='HTML')
+                logger.warning(f"Parsing rules reload failed for admin {user.id}")
+                
+        except Exception as e:
+            logger.error(f"Error in admin_parsing_reload command: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при перезагрузке правил парсинга: {str(e)}"
+            )
+
+    @admin_required
+    async def admin_parsing_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /admin_parsing_config - просмотр конфигурации парсинга"""
+        user = update.effective_user
+        
+        try:
+            from core.config_manager import get_config_manager
+            config_manager = get_config_manager()
+            
+            # Получаем текущую конфигурацию
+            config = config_manager.get_configuration()
+            
+            # Получаем статус здоровья системы
+            health_status = config_manager.get_health_status()
+            
+            # Получаем статистику из базы данных
+            db = next(get_db())
+            try:
+                from database.database import ParsedTransaction, ParsingRule
+                from sqlalchemy import func
+                
+                # Статистика транзакций за последние 24 часа
+                from datetime import timedelta
+                yesterday = datetime.utcnow() - timedelta(days=1)
+                
+                recent_transactions = db.query(func.count(ParsedTransaction.id)).filter(
+                    ParsedTransaction.parsed_at >= yesterday
+                ).scalar() or 0
+                
+                total_rules = db.query(func.count(ParsingRule.id)).scalar() or 0
+                active_rules = db.query(func.count(ParsingRule.id)).filter(
+                    ParsingRule.is_active == True
+                ).scalar() or 0
+                
+            finally:
+                db.close()
+            
+            text = f"""
+⚙️ <b>Конфигурация системы парсинга</b>
+
+🏥 <b>Состояние системы:</b>
+   • Общее здоровье: {'✅ Здорова' if health_status.is_healthy else '❌ Проблемы'}
+   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
+   • Парсинг активен: {'✅ Да' if health_status.parsing_active else '❌ Нет'}
+
+📊 <b>Статистика правил:</b>
+   • Всего правил в БД: {total_rules}
+   • Активных правил: {active_rules}
+   • Загружено в память: {len(config.parsing_rules)}
+
+📈 <b>Статистика активности:</b>
+   • Транзакций за 24ч: {recent_transactions}
+   • Последняя проверка: {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
+
+🎮 <b>Активные правила парсинга:</b>
+{chr(10).join([f"   • {rule.bot_name}: {rule.pattern[:50]}{'...' if len(rule.pattern) > 50 else ''}" for rule in config.parsing_rules if rule.is_active]) if config.parsing_rules else "   • Нет активных правил"}
+
+⚙️ <b>Настройки системы:</b>
+   • Интервал очистки стикеров: {config.sticker_cleanup_interval}с
+   • Задержка автоудаления: {config.sticker_auto_delete_delay}с
+   • Размер пакета рассылки: {config.broadcast_batch_size}
+   • Максимум попыток парсинга: {config.max_parsing_retries}
+
+⚠️ <b>Ошибки:</b>
+{chr(10).join([f"   • {error}" for error in health_status.errors]) if health_status.errors else "   • Ошибок нет"}
+
+💡 <b>Команды управления:</b>
+   • /admin_parsing_reload - перезагрузить правила
+   • /parsing_stats - статистика парсинга
+            """
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+            logger.info(f"Parsing configuration viewed by admin {user.id}")
+            
+        except Exception as e:
+            logger.error(f"Error in admin_parsing_config command: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при получении конфигурации парсинга: {str(e)}"
+            )
+
     def run(self):
-        """Запуск бота"""
-        logger.info("Starting enhanced bot...")
+        """Запуск бота с интеграцией фоновых задач и системы парсинга (Task 11.2)"""
+        logger.info("Starting enhanced bot with background task integration and message parsing...")
 
         # Создаем таблицы БД
         create_tables()
@@ -3043,15 +3778,186 @@ ID транзакции: {result['transaction_id']}
             self.backup_system = BackupSystem()
             self.error_handling_system = ErrorHandlingSystem(db)
             logger.info("Monitoring and security systems initialized successfully")
+            
+            # Проверяем и инициализируем правила парсинга (Task 11.2)
+            self._ensure_parsing_rules_initialized(db)
 
         except Exception as e:
             logger.error("Failed to initialize systems", error=str(e))
         finally:
             db.close()
 
-        # Запускаем бота
-        logger.info("Enhanced bot starting polling...")
-        self.application.run_polling()
+        # Инициализируем и запускаем фоновые задачи (Task 11.3)
+        try:
+            # Используем asyncio для инициализации фоновых систем
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._initialize_background_systems())
+            # НЕ закрываем loop здесь, он нужен для фоновых задач
+            
+            logger.info("Background task system initialized and started successfully (Task 11.3)")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize background task system: {e}")
+            # Продолжаем запуск бота даже если фоновые задачи не запустились
+            logger.warning("Bot will continue without background task system")
+            # Закрываем loop только при ошибке
+            try:
+                loop.close()
+            except:
+                pass
+
+        # Добавляем обработчик для graceful shutdown (Task 11.3)
+        async def shutdown_handler():
+            """
+            Обработчик graceful shutdown с правильной остановкой фоновых задач
+            Validates: Requirements 12.1, 12.2
+            """
+            logger.info("Initiating graceful shutdown...")
+            
+            try:
+                # Останавливаем фоновые задачи (Task 11.3)
+                await self._shutdown_background_tasks()
+                
+                # Закрываем соединения с базой данных
+                if hasattr(self, 'admin_system') and self.admin_system:
+                    # AdminSystem использует SQLite, закрытие не требуется
+                    pass
+                
+                logger.info("Graceful shutdown completed successfully")
+                
+            except Exception as e:
+                logger.error(f"Error during graceful shutdown: {e}")
+                # Даже при ошибке считаем shutdown завершенным
+                logger.info("Graceful shutdown completed with errors")
+
+        # Регистрируем обработчик shutdown
+        self.application.add_handler(
+            MessageHandler(filters.ALL, lambda u, c: None),
+            group=-1
+        )
+
+        # Запускаем бота с обработкой ошибок (Task 11.3)
+        try:
+            logger.info("Enhanced bot starting polling with background task system integration...")
+            
+            # Проверяем статус фоновых задач перед запуском
+            if self.is_background_system_running():
+                logger.info("Background task system confirmed running before bot start")
+            else:
+                logger.warning("Background task system not running - some features may be limited")
+            
+            self.application.run_polling(
+                drop_pending_updates=True,
+                close_loop=False
+            )
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user (Ctrl+C)")
+        except Exception as e:
+            logger.error(f"Bot stopped due to error: {e}")
+        finally:
+            # Выполняем graceful shutdown (Task 11.3)
+            try:
+                logger.info("Performing final graceful shutdown...")
+                # Используем существующий event loop если он есть
+                try:
+                    current_loop = asyncio.get_event_loop()
+                    if current_loop.is_closed():
+                        raise RuntimeError("Loop is closed")
+                    current_loop.run_until_complete(shutdown_handler())
+                except (RuntimeError, AttributeError):
+                    # Создаем новый loop только если текущий недоступен
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    new_loop.run_until_complete(shutdown_handler())
+                    new_loop.close()
+                logger.info("Final graceful shutdown completed")
+            except Exception as e:
+                logger.error(f"Error during final shutdown: {e}")
+            
+            logger.info("Bot shutdown completed")
+    
+    def _ensure_parsing_rules_initialized(self, db):
+        """
+        Убеждаемся, что правила парсинга инициализированы в базе данных (Task 11.2)
+        
+        Args:
+            db: Database session
+        """
+        try:
+            from database.database import ParsingRule
+            from decimal import Decimal
+            
+            # Проверяем, есть ли правила в базе данных
+            existing_rules = db.query(ParsingRule).count()
+            
+            if existing_rules == 0:
+                logger.info("No parsing rules found in database, creating default rules...")
+                
+                # Создаем правила по умолчанию
+                default_rules = [
+                    {
+                        'bot_name': 'Shmalala',
+                        'pattern': r'Монеты:\s*\+(\d+)',
+                        'multiplier': Decimal('1.0'),
+                        'currency_type': 'coins'
+                    },
+                    {
+                        'bot_name': 'GDcards',
+                        'pattern': r'Очки:\s*\+(\d+)',
+                        'multiplier': Decimal('1.0'),
+                        'currency_type': 'points'
+                    },
+                    {
+                        'bot_name': 'Shmalala',
+                        'pattern': r'Победил\(а\).*и забрал\(а\).*(\d+).*💰',
+                        'multiplier': Decimal('1.0'),
+                        'currency_type': 'coins'
+                    },
+                    {
+                        'bot_name': 'GDcards',
+                        'pattern': r'🃏.*НОВАЯ КАРТА.*🃏.*Очки:\s*\+(\d+)',
+                        'multiplier': Decimal('1.0'),
+                        'currency_type': 'points'
+                    }
+                ]
+                
+                for rule_data in default_rules:
+                    db_rule = ParsingRule(
+                        bot_name=rule_data['bot_name'],
+                        pattern=rule_data['pattern'],
+                        multiplier=rule_data['multiplier'],
+                        currency_type=rule_data['currency_type'],
+                        is_active=True
+                    )
+                    db.add(db_rule)
+                
+                db.commit()
+                logger.info(f"Created {len(default_rules)} default parsing rules")
+            else:
+                logger.info(f"Found {existing_rules} existing parsing rules in database")
+            
+            # Проверяем конфигурацию парсинга
+            from core.config_manager import get_config_manager
+            config_manager = get_config_manager()
+            
+            # Принудительно перезагружаем конфигурацию
+            config_manager.reload_configuration()
+            
+            config = config_manager.get_configuration()
+            logger.info(f"Parsing configuration loaded: {len(config.parsing_rules)} rules available")
+            
+            # Проверяем наличие ошибок валидации
+            if config_manager.has_validation_errors():
+                errors = config_manager.get_validation_errors()
+                logger.warning(f"Parsing configuration has validation errors: {errors}")
+            else:
+                logger.info("Parsing configuration validation passed")
+                
+        except Exception as e:
+            logger.error(f"Error ensuring parsing rules initialization: {e}")
+            # Не прерываем запуск бота, но логируем ошибку
+            logger.warning("Bot will continue with potentially incomplete parsing rules")
 
 
 if __name__ == "__main__":

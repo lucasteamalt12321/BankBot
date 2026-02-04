@@ -12,25 +12,30 @@ def ensure_user_registered(func: Callable) -> Callable:
     """Decorator to ensure user is registered before processing any command/message"""
     @functools.wraps(func)
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user = update.effective_user
-        
-        # Skip if user is a bot
-        if user.is_bot:
-            return await func(self, update, context, *args, **kwargs)
-        
-        # Check if user exists in admin system
-        existing_user = get_user_by_id(user.id)
-        
-        if not existing_user:
-            # Register new user transparently
-            username = user.username
-            first_name = user.first_name
+        try:
+            user = update.effective_user
             
-            success = register_user(user.id, username, first_name)
-            if success:
-                logger.info(f"Auto-registered user {user.id} (@{username}, {first_name})")
-            else:
-                logger.error(f"Failed to auto-register user {user.id}")
+            # Skip if user is a bot
+            if user.is_bot:
+                return await func(self, update, context, *args, **kwargs)
+            
+            # Check if user exists in admin system
+            existing_user = get_user_by_id(user.id)
+            
+            if not existing_user:
+                # Register new user transparently
+                username = user.username
+                first_name = user.first_name
+                
+                success = register_user(user.id, username, first_name)
+                if success:
+                    logger.info(f"Auto-registered user {user.id} (@{username}, {first_name})")
+                else:
+                    logger.warning(f"Failed to auto-register user {user.id}, but continuing...")
+            
+        except Exception as e:
+            # Не прерываем выполнение команды из-за ошибки в декораторе
+            logger.error(f"Error in ensure_user_registered decorator: {e}")
         
         # Continue with original function
         return await func(self, update, context, *args, **kwargs)
@@ -62,25 +67,31 @@ class AutoRegistrationMiddleware:
     
     async def process_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Process any message/command for automatic user registration"""
-        user = update.effective_user
-        
-        # Skip if user is a bot
-        if user.is_bot:
-            return
-        
-        # Check if user exists in admin system
-        existing_user = get_user_by_id(user.id)
-        
-        if not existing_user:
-            # Register new user transparently
-            username = user.username
-            first_name = user.first_name
+        try:
+            user = update.effective_user
             
-            success = register_user(user.id, username, first_name)
-            if success:
-                logger.info(f"Auto-registered user {user.id} (@{username}, {first_name})")
-            else:
-                logger.error(f"Failed to auto-register user {user.id}")
+            # Skip if user is a bot
+            if user.is_bot:
+                return
+            
+            # Check if user exists in admin system
+            existing_user = get_user_by_id(user.id)
+            
+            if not existing_user:
+                # Register new user transparently
+                username = user.username
+                first_name = user.first_name
+                
+                success = register_user(user.id, username, first_name)
+                if success:
+                    logger.info(f"Auto-registered user {user.id} (@{username}, {first_name})")
+                else:
+                    logger.warning(f"Failed to auto-register user {user.id}, but continuing...")
+                    
+        except Exception as e:
+            # Не прерываем выполнение команды из-за ошибки в middleware
+            logger.error(f"Error in auto-registration middleware: {e}")
+            # Продолжаем выполнение без регистрации
 
 # Global middleware instance
 auto_registration_middleware = AutoRegistrationMiddleware()
