@@ -1,6 +1,0 @@
-@echo off
-echo Останавливаем бота...
-taskkill /f /im python.exe >nul 2>&1
-timeout /t 2 >nul
-echo Запускаем исправленного бота...
-python run_bot.py

@@ -12,10 +12,10 @@ from unittest.mock import Mock, AsyncMock
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.broadcast_system import BroadcastSystem
-from core.shop_manager import ShopManager
+from core.systems.broadcast_system import BroadcastSystem
+from core.managers.shop_manager import ShopManager
 from database.database import User, ShopItem
-from core.advanced_models import NotificationResult
+from core.models.advanced_models import NotificationResult
 
 
 async def demonstrate_admin_notification_system():

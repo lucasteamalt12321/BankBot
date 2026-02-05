@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import create_engine, text, Column, Integer, String, DateTime, Boolean, Text, DECIMAL, ForeignKey
 from sqlalchemy.orm import sessionmaker
 from database.database import Base
-from utils.config import settings
+from utils.core.config import settings
 
 
 def log_info(message):

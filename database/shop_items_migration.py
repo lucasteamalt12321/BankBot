@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from database.database import Base, ShopItem, ShopCategory
-from utils.config import settings
+from utils.core.config import settings
 
 
 def initialize_shop_items():

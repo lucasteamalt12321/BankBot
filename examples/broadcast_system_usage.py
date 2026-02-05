@@ -7,8 +7,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from sqlalchemy.orm import Session
 from database.database import get_db
-from core.broadcast_system import BroadcastSystem
-from utils.admin_system import AdminSystem
+from core.systems.broadcast_system import BroadcastSystem
+from utils.admin.admin_system import AdminSystem
 import logging
 
 logger = logging.getLogger(__name__)

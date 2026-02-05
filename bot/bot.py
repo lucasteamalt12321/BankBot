@@ -12,25 +12,23 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from sqlalchemy.orm import Session
 from database.database import create_tables, get_db
-from core.bank_system import BankSystem
-from core.shop_system import EnhancedShopSystem
-from core.games_system import GamesSystem
-from core.dnd_system import DndSystem
-from core.motivation_system import MotivationSystem
-from utils.notification_system import NotificationSystem
-from core.achievements import AchievementSystem
-from core.social_system import SocialSystem
-from utils.user_manager import UserManager
+from core.systems.shop_system import EnhancedShopSystem
+from core.systems.games_system import GamesSystem
+from core.systems.dnd_system import DndSystem
+from core.systems.motivation_system import MotivationSystem
+from utils.monitoring.notification_system import NotificationSystem
+from core.systems.achievements import AchievementSystem
+from core.systems.social_system import SocialSystem
+from utils.core.user_manager import UserManager
 from utils.config import settings, update_currency_rate, get_currency_config
-from utils.monitoring_system import MonitoringSystem, AlertSystem
+from utils.monitoring.monitoring_system import MonitoringSystem, AlertSystem
 from database.backup_system import BackupSystem
-from utils.error_handling import ErrorHandlingSystem
-from utils.admin_middleware import auto_registration_middleware
-from utils.admin_system import AdminSystem, admin_required
-from core.message_monitoring_middleware import message_monitoring_middleware
-from bot.advanced_admin_commands import AdvancedAdminCommands
-from core.background_task_manager import BackgroundTaskManager
-from core.sticker_manager import StickerManager
+from utils.core.error_handling import ErrorHandlingSystem
+from utils.admin.admin_middleware import auto_registration_middleware
+from utils.admin.admin_system import AdminSystem, admin_required
+from bot.commands.advanced_admin_commands import AdvancedAdminCommands
+from core.managers.background_task_manager import BackgroundTaskManager
+from core.managers.sticker_manager import StickerManager
 from datetime import datetime
 import structlog
 from telegram.error import BadRequest, TelegramError
@@ -63,10 +61,6 @@ class TelegramBot:
         # Инициализация системы фоновых задач
         self.background_task_manager = None
         self.sticker_manager = None
-        
-        # Инициализация системы парсинга сообщений (Task 11.2)
-        self.message_parser = None
-        self._initialize_message_parsing()
         
         # Флаг для graceful shutdown
         self._shutdown_requested = False
@@ -200,7 +194,7 @@ class TelegramBot:
         # Обработка колбэков
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
-        # Обработка всех сообщений для парсинга
+        # Обработка всех сообщений
         self.application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             self.parse_all_messages
@@ -252,54 +246,6 @@ class TelegramBot:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         logger.info("Signal handlers configured for graceful shutdown")
-    
-    def _initialize_message_parsing(self):
-        """
-        Инициализация системы парсинга сообщений (Task 11.2)
-        Загружает правила парсинга при запуске и настраивает интеграцию с конвертацией валют
-        """
-        try:
-            logger.info("Initializing message parsing system...")
-            
-            # Инициализируем конфигурационный менеджер для загрузки правил парсинга
-            from core.config_manager import get_config_manager
-            config_manager = get_config_manager()
-            
-            # Загружаем конфигурацию с правилами парсинга
-            config = config_manager.get_configuration()
-            
-            logger.info(f"Loaded {len(config.parsing_rules)} parsing rules from configuration")
-            
-            # Проверяем наличие ошибок валидации
-            if config_manager.has_validation_errors():
-                errors = config_manager.get_validation_errors()
-                logger.warning(f"Configuration has validation errors: {errors}")
-            
-            # Инициализируем MessageParser с базой данных
-            db = next(get_db())
-            try:
-                from core.message_parser import MessageParser
-                self.message_parser = MessageParser(db)
-                
-                # Принудительно перезагружаем правила парсинга
-                self.message_parser.load_parsing_rules()
-                
-                logger.info("MessageParser initialized successfully")
-                
-                # Настраиваем middleware для использования нашего парсера
-                message_monitoring_middleware.message_parser = self.message_parser
-                
-                logger.info("Message monitoring middleware configured with parser")
-                
-            finally:
-                db.close()
-            
-            logger.info("Message parsing system initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize message parsing system: {e}")
-            # Не прерываем запуск бота, но логируем ошибку
-            logger.warning("Bot will continue without advanced message parsing")
     
     async def _shutdown_background_tasks(self):
         """
@@ -539,29 +485,7 @@ class TelegramBot:
 /buy_contact - связь с админом (10 очков)
 /inventory - ваши покупки
 
-[GAMES] <b>🎮 Мини-игры:</b>
-/games - список игр
-/play &lt;тип&gt; - создать игру
-/join &lt;id&gt; - присоединиться
-/startgame &lt;id&gt; - начать игру
-/turn &lt;id&gt; &lt;ход&gt; - сделать ход
 
-[DND] <b>🎲 D&amp;D система:</b>
-/dnd - информация о D&amp;D
-/dnd_create - создать сессию
-/dnd_join &lt;id&gt; - присоединиться
-/dnd_roll &lt;кубик&gt; - бросок кубиков
-
-[MOTIVATION] <b>🎯 Мотивация:</b>
-/daily - ежедневный бонус
-/challenges - задания
-/streak - статистика серии
-
-[SOCIAL] <b>👥 Социальные функции:</b>
-/friends - управление друзьями
-/friend_add &lt;username&gt; - добавить друга
-/gift &lt;username&gt; &lt;сумма&gt; - подарок
-/clan - кланы
 
 [ACHIEVEMENTS] <b>🏆 Достижения:</b>
 /achievements - ваши достижения
@@ -593,7 +517,7 @@ class TelegramBot:
 
 [PLAY] Просто играйте, а я буду автоматически начислять вам монеты за активность!
 
-[TIP] <b>💡 Совет:</b> Начните с /daily для получения бонуса, затем /shop для покупок!
+[TIP] <b>💡 Совет:</b> Начните с /shop для покупок!
         """
 
         await update.message.reply_text(welcome_text, parse_mode='HTML')
@@ -649,23 +573,25 @@ class TelegramBot:
                 await update.message.reply_text(text, parse_mode='HTML')
                 return
             
-            # Fallback to old system if user not found in admin system
+            # Fallback to main database if user not found in admin system
             db = next(get_db())
             try:
-                bank = BankSystem(db)
-                result = bank.get_user_balance(user.username or user.first_name, user.id)
-
-                text = f"""
+                from database.database import User
+                user_db = db.query(User).filter(User.telegram_id == user.id).first()
+                
+                if user_db:
+                    text = f"""
 [MONEY] <b>Ваш баланс</b>
 
-[USER] Пользователь: {result.get('first_name', '')} {result.get('last_name', '')}
-[BALANCE] Баланс: {result['balance']} банковских монет
-[TIME] Последняя активность: {result['last_activity'].strftime('%d.%m.%Y %H:%M') if result['last_activity'] else 'Нет данных'}
+[USER] Пользователь: {user_db.first_name or ''} {user_db.last_name or ''}
+[BALANCE] Баланс: {user_db.balance} банковских монет
+[TIME] Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}
 
 [TIP] Используйте /history для просмотра транзакций
-                """
-
-                await update.message.reply_text(text, parse_mode='HTML')
+                    """
+                    await update.message.reply_text(text, parse_mode='HTML')
+                else:
+                    await update.message.reply_text("❌ Пользователь не найден. Используйте /start для регистрации.")
             finally:
                 db.close()
                 
@@ -680,30 +606,38 @@ class TelegramBot:
 
         db = next(get_db())
         try:
-            bank = BankSystem(db)
-            result = bank.get_user_history(user.username or user.first_name, limit, user.id)
+            from database.database import User, Transaction
+            from sqlalchemy import desc
+            
+            user_db = db.query(User).filter(User.telegram_id == user.id).first()
+            if not user_db:
+                await update.message.reply_text("📭 Пользователь не найден. Используйте /start для регистрации.")
+                return
 
-            if not result['transactions']:
+            transactions = db.query(Transaction).filter(
+                Transaction.user_id == user_db.id
+            ).order_by(desc(Transaction.created_at)).limit(limit).all()
+
+            if not transactions:
                 await update.message.reply_text("📭 У вас пока нет транзакций")
                 return
 
             text = f"""
 [STATS] <b>История транзакций</b>
 
-[USER] Пользователь: {result.get('first_name', '')} {result.get('last_name', '')}
-[BALANCE] Текущий баланс: {result['balance']} монет
-[LIST] Показано последних: {len(result['transactions'])} транзакций
+[USER] Пользователь: {user_db.first_name or ''} {user_db.last_name or ''}
+[BALANCE] Текущий баланс: {user_db.balance} монет
+[LIST] Показано последних: {len(transactions)} транзакций
 
 """
-            for t in result['transactions']:
-                amount_text = f"+{t['amount']}" if t['amount'] > 0 else str(t['amount'])
-                arrow = "UP" if t['amount'] > 0 else "DOWN" if t['amount'] < 0 else "EQUAL"
+            for t in transactions:
+                amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
+                arrow = "UP" if t.amount > 0 else "DOWN" if t.amount < 0 else "EQUAL"
 
                 text += f"[{arrow}] {amount_text} монет\n"
-                text += f"   Тип: {t['type']}\n"
-                text += f"   Источник: {t['source'] or 'система'}\n"
-                text += f"   Описание: {t['description'][:50]}...\n"
-                text += f"   Дата: {t['created_at'].strftime('%d.%m.%Y %H:%M')}\n\n"
+                text += f"   Тип: {t.transaction_type}\n"
+                text += f"   Описание: {t.description[:50]}...\n"
+                text += f"   Дата: {t.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
 
             await update.message.reply_text(text, parse_mode='HTML')
         except Exception as e:
@@ -911,11 +845,14 @@ class TelegramBot:
         logger.info(f"Shop command from user {user.id}")
 
         try:
-            # Import ShopHandler
-            from core.shop_handler import ShopHandler
+            # Get database session
+            db = next(get_db())
             
-            # Create shop handler and generate display
-            shop_handler = ShopHandler()
+            # Import ShopHandler
+            from core.handlers.shop_handler import ShopHandler
+            
+            # Create shop handler with database session and generate display
+            shop_handler = ShopHandler(db)
             shop_display = shop_handler.display_shop(user.id)
             
             await update.message.reply_text(shop_display)
@@ -1048,7 +985,7 @@ class TelegramBot:
         db = next(get_db())
         try:
             # Import and use the new ShopManager
-            from core.shop_manager import ShopManager
+            from core.managers.shop_manager import ShopManager
             
             # Create ShopManager instance
             shop_manager = ShopManager(db)
@@ -1133,7 +1070,7 @@ class TelegramBot:
         db = next(get_db())
         try:
             # Import and use the new ShopManager
-            from core.shop_manager import ShopManager
+            from core.managers.shop_manager import ShopManager
             
             # Create ShopManager instance
             shop_manager = ShopManager(db)
@@ -2480,20 +2417,33 @@ ID клана: {result['clan_id']}
 
         db = next(get_db())
         try:
-            bank = BankSystem(db)
-            stats = bank.get_system_stats()
+            from database.database import User, Transaction
+            from sqlalchemy import func
+            from datetime import datetime, timedelta
+            
+            # Получаем статистику из основной базы данных
+            total_users = db.query(User).count()
+            total_balance = db.query(func.sum(User.balance)).scalar() or 0
+            
+            # Транзакции за сегодня
+            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_transactions = db.query(Transaction).filter(
+                Transaction.created_at >= today
+            ).count()
 
             text = f"""
 📊 <b>Статистика системы</b>
 
-👤 Пользователи: {stats['total_users']}
-💰 Общий баланс: {stats['total_balance']} монет
-📈 Транзакций сегодня: {stats['today_transactions']}
+👤 Пользователи: {total_users}
+💰 Общий баланс: {total_balance} монет
+📈 Транзакций сегодня: {today_transactions}
 
 💱 <b>Коэффициенты конвертации:</b>
+   • Shmalala: 1:1
+   • GD Cards: 2:1
+   • True Mafia: 15:1
+   • Bunker RP: 20:1
 """
-            for game, config in stats['currency_config'].items():
-                text += f"   • {game}: {config['base_rate']}x\n"
 
             await update.message.reply_text(text, parse_mode='HTML')
         except Exception as e:
@@ -2530,25 +2480,46 @@ ID клана: {result['clan_id']}
 
         db = next(get_db())
         try:
-            bank = BankSystem(db)
-            result = bank.admin_adjust_balance(user_identifier, amount, reason, user.id)
+            from database.database import User, Transaction
+            from utils.core.user_manager import UserManager
+            
+            user_manager = UserManager(db)
+            user_obj = user_manager.identify_user(user_identifier)
+            
+            if not user_obj:
+                await update.message.reply_text("❌ Пользователь не найден")
+                return
+            
+            # Обновляем баланс
+            old_balance = user_obj.balance
+            user_obj.balance += amount
+            
+            # Создаем транзакцию
+            transaction = Transaction(
+                user_id=user_obj.id,
+                amount=amount,
+                transaction_type='admin_adjustment',
+                description=reason,
+                metadata={'admin_id': user.id, 'admin_username': user.username}
+            )
+            
+            db.add(transaction)
+            db.commit()
 
-            if result['success']:
-                text = f"""
+            text = f"""
 ✅ <b>Баланс скорректирован</b>
 
-Пользователь: #{result['user_id']}
+Пользователь: #{user_obj.id}
 Изменение: {amount} монет
-Новый баланс: {result['new_balance']} монет
+Новый баланс: {user_obj.balance} монет
 Причина: {reason}
-ID транзакции: {result['transaction_id']}
-                """
+ID транзакции: {transaction.id}
+            """
 
-                await update.message.reply_text(text, parse_mode='HTML')
-            else:
-                await update.message.reply_text(f"❌ Ошибка при корректировке баланса")
+            await update.message.reply_text(text, parse_mode='HTML')
         except Exception as e:
             logger.error(f"Error in admin_adjust command: {e}")
+            db.rollback()
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
         finally:
             db.close()
@@ -2581,25 +2552,46 @@ ID транзакции: {result['transaction_id']}
 
         db = next(get_db())
         try:
-            bank = BankSystem(db)
-            result = bank.admin_adjust_balance(user_identifier, amount, reason, user.id)
+            from database.database import User, Transaction
+            from utils.core.user_manager import UserManager
+            
+            user_manager = UserManager(db)
+            user_obj = user_manager.identify_user(user_identifier)
+            
+            if not user_obj:
+                await update.message.reply_text("Пользователь не найден")
+                return
+            
+            # Обновляем баланс
+            old_balance = user_obj.balance
+            user_obj.balance += amount
+            
+            # Создаем транзакцию
+            transaction = Transaction(
+                user_id=user_obj.id,
+                amount=amount,
+                transaction_type='admin_add_coins',
+                description=reason,
+                metadata={'admin_id': user.id, 'admin_username': user.username}
+            )
+            
+            db.add(transaction)
+            db.commit()
 
-            if result['success']:
-                text = f"""
+            text = f"""
 [COINS] <b>Монеты успешно добавлены</b>
 
-ID пользователя: #{result['user_id']}
+ID пользователя: #{user_obj.id}
 Добавлено: {amount} монет
-Новый баланс: {result['new_balance']} монет
+Новый баланс: {user_obj.balance} монет
 Причина: {reason}
-ID транзакции: {result['transaction_id']}
-                """
+ID транзакции: {transaction.id}
+            """
 
-                await update.message.reply_text(text, parse_mode='HTML')
-            else:
-                await update.message.reply_text(f"Ошибка при добавлении монет пользователю")
+            await update.message.reply_text(text, parse_mode='HTML')
         except Exception as e:
             logger.error(f"Error in admin_addcoins command: {e}")
+            db.rollback()
             await update.message.reply_text(f"Ошибка: {str(e)}")
         finally:
             db.close()
@@ -2638,25 +2630,46 @@ ID транзакции: {result['transaction_id']}
 
         db = next(get_db())
         try:
-            bank = BankSystem(db)
-            result = bank.admin_adjust_balance(user_identifier, amount, reason, user.id)
+            from database.database import User, Transaction
+            from utils.core.user_manager import UserManager
+            
+            user_manager = UserManager(db)
+            user_obj = user_manager.identify_user(user_identifier)
+            
+            if not user_obj:
+                await update.message.reply_text("Пользователь не найден")
+                return
+            
+            # Обновляем баланс
+            old_balance = user_obj.balance
+            user_obj.balance += amount  # amount is already negative
+            
+            # Создаем транзакцию
+            transaction = Transaction(
+                user_id=user_obj.id,
+                amount=amount,
+                transaction_type='admin_remove_coins',
+                description=reason,
+                metadata={'admin_id': user.id, 'admin_username': user.username}
+            )
+            
+            db.add(transaction)
+            db.commit()
 
-            if result['success']:
-                text = f"""
+            text = f"""
 [COINS] <b>Монеты успешно удалены</b>
 
-ID пользователя: #{result['user_id']}
+ID пользователя: #{user_obj.id}
 Удалено: {abs(amount)} монет
-Новый баланс: {result['new_balance']} монет
+Новый баланс: {user_obj.balance} монет
 Причина: {reason}
-ID транзакции: {result['transaction_id']}
-                """
+ID транзакции: {transaction.id}
+            """
 
-                await update.message.reply_text(text, parse_mode='HTML')
-            else:
-                await update.message.reply_text(f"Ошибка при удалении монет у пользователя")
+            await update.message.reply_text(text, parse_mode='HTML')
         except Exception as e:
             logger.error(f"Error in admin_removecoins command: {e}")
+            db.rollback()
             await update.message.reply_text(f"Ошибка: {str(e)}")
         finally:
             db.close()
@@ -2682,7 +2695,7 @@ ID транзакции: {result['transaction_id']}
 
         db = next(get_db())
         try:
-            from utils.user_manager import UserManager
+            from utils.core.user_manager import UserManager
             user_manager = UserManager(db)
 
             primary_user = user_manager.identify_user(primary_identifier)
@@ -2780,37 +2793,40 @@ ID транзакции: {result['transaction_id']}
                 await update.message.reply_text(text, parse_mode='HTML')
                 return
             
-            # Fallback к старой системе
+            # Fallback к основной системе
             db = next(get_db())
             try:
-                bank = BankSystem(db)
-                from utils.user_manager import UserManager
+                from database.database import User, Transaction
+                from utils.core.user_manager import UserManager
+                from sqlalchemy import desc
+                
                 user_manager = UserManager(db)
-
                 user_obj = user_manager.identify_user(user_identifier)
                 if not user_obj:
                     await update.message.reply_text("❌ Пользователь не найден")
                     return
 
-                result = bank.get_user_history(user_identifier, limit)
+                # Получаем транзакции пользователя
+                transactions = db.query(Transaction).filter(
+                    Transaction.user_id == user_obj.id
+                ).order_by(desc(Transaction.created_at)).limit(limit).all()
 
                 text = f"""📊 <b>Транзакции пользователя</b>
 
 👤 Пользователь: #{user_obj.id}
-💳 Баланс: {result['balance']} монет
-📋 Показано: {len(result['transactions'])} транзакций
+💳 Баланс: {user_obj.balance} монет
+📋 Показано: {len(transactions)} транзакций
 
 """
-                for t in result['transactions']:
-                    amount_text = f"+{t['amount']}" if t['amount'] > 0 else str(t['amount'])
-                    emoji = "⬆️" if t['amount'] > 0 else "⬇️" if t['amount'] < 0 else "➡️"
+                for t in transactions:
+                    amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
+                    emoji = "⬆️" if t.amount > 0 else "⬇️" if t.amount < 0 else "➡️"
 
                     text += f"{emoji} {amount_text} монет\n"
-                    text += f"   ID: {t['id']}\n"
-                    text += f"   Тип: {t['type']}\n"
-                    text += f"   Источник: {t['source'] or 'система'}\n"
-                    text += f"   Описание: {t['description'][:50]}{'...' if len(t['description']) > 50 else ''}\n"
-                    text += f"   Дата: {t['created_at'].strftime('%d.%m.%Y %H:%M')}\n\n"
+                    text += f"   ID: {t.id}\n"
+                    text += f"   Тип: {t.transaction_type}\n"
+                    text += f"   Описание: {t.description[:50]}{'...' if len(t.description) > 50 else ''}\n"
+                    text += f"   Дата: {t.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
 
                 await update.message.reply_text(text, parse_mode='HTML')
             finally:
@@ -3232,88 +3248,51 @@ ID транзакции: {result['transaction_id']}
 
     # ===== Обработка сообщений =====
     async def parse_all_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка всех сообщений с интеграцией нового middleware (Task 11.2)"""
-        # First, process automatic user registration
-        await auto_registration_middleware.process_message(update, context)
-        
+        """Обработка всех сообщений"""
         message_text = update.message.text
         user = update.effective_user
         chat = update.effective_chat
 
-        # Пропускаем сообщения от самого бота
+        # Пропускаем сообщения от ботов, КРОМЕ игровых ботов
         if user.is_bot:
-            # But allow processing from external game bots through the new middleware
-            parsed_transaction = await message_monitoring_middleware.process_message(update, context)
-            if parsed_transaction:
-                logger.info(
-                    "External bot message processed by middleware",
-                    bot_username=user.username,
-                    transaction_id=parsed_transaction.id,
-                    converted_amount=parsed_transaction.converted_amount
-                )
-                
-                # Интеграция с обновлением баланса пользователя (Task 11.2)
-                if parsed_transaction.user_id and parsed_transaction.converted_amount > 0:
-                    try:
-                        # Отправляем уведомление о начислении
-                        await update.message.reply_text(
-                            f"💫 Обнаружена игровая активность!\n"
-                            f"🎮 Источник: {parsed_transaction.source_bot}\n"
-                            f"💰 Начислено: {parsed_transaction.converted_amount} монет\n"
-                            f"👤 Пользователь ID: {parsed_transaction.user_id}"
-                        )
-                        
-                        logger.info(
-                            "User balance updated from parsed message",
-                            user_id=parsed_transaction.user_id,
-                            amount=parsed_transaction.converted_amount,
-                            source=parsed_transaction.source_bot
-                        )
-                        
-                    except Exception as e:
-                        logger.error(f"Error sending parsing notification: {e}")
-            return
+            # Список игровых ботов, сообщения от которых мы обрабатываем
+            game_bot_keywords = [
+                'shmalala', 'шмалала', 'шмала',  # Shmalala bot
+                'gdcards', 'gd', 'cards',        # GD Cards bot
+                'truemafia', 'mafia', 'мафия',   # True Mafia bot
+                'bunkerrp', 'bunker', 'бункер'   # Bunker RP bot
+            ]
+            
+            # Проверяем, является ли это игровым ботом
+            username = user.username.lower() if user.username else ""
+            first_name = user.first_name.lower() if user.first_name else ""
+            
+            is_game_bot = any(
+                keyword in username or keyword in first_name 
+                for keyword in game_bot_keywords
+            )
+            
+            # Если это не игровой бот, пропускаем сообщение
+            if not is_game_bot:
+                logger.debug(f"Skipping message from non-game bot: {user.first_name} (@{user.username})")
+                return
+            
+            # Если это игровой бот, продолжаем обработку
+            logger.info(f"Processing message from game bot: {user.first_name} (@{user.username})")
+
+        # First, process automatic user registration (только для обычных пользователей)
+        if not user.is_bot:
+            await auto_registration_middleware.process_message(update, context)
 
         chat_type = "private" if chat.type == "private" else f"group/{chat.type}"
         logger.info(f"Message received in {chat_type} chat {chat.id} from user {user.id}: {message_text[:100]}...")
 
-        # Process message through new monitoring middleware first (Task 11.2)
-        parsed_transaction = await message_monitoring_middleware.process_message(update, context)
-        if parsed_transaction:
-            logger.info(
-                "Message processed by monitoring middleware",
-                user_id=user.id,
-                transaction_id=parsed_transaction.id,
-                converted_amount=parsed_transaction.converted_amount,
-                source_bot=parsed_transaction.source_bot
-            )
-            
-            # Интеграция с конвертацией валют и обновлением баланса (Task 11.2)
-            if parsed_transaction.converted_amount > 0:
-                try:
-                    # Отправляем подтверждение пользователю
-                    await update.message.reply_text(
-                        f"✅ Активность обработана!\n"
-                        f"🎮 Игра: {parsed_transaction.source_bot}\n"
-                        f"💰 Начислено: {parsed_transaction.converted_amount} монет\n"
-                        f"📊 Транзакция #{parsed_transaction.id}"
-                    )
-                    
-                    logger.info(
-                        "Currency conversion and balance update completed",
-                        user_id=user.id,
-                        original_amount=parsed_transaction.original_amount,
-                        converted_amount=parsed_transaction.converted_amount,
-                        multiplier_applied=True
-                    )
-                    
-                except Exception as e:
-                    logger.error(f"Error in currency conversion integration: {e}")
-            
-            # If middleware processed the message successfully, we can return early
+        # Если это сообщение от игрового бота, всегда обрабатываем как игровое
+        if user.is_bot:
+            await self.process_game_message(update, context)
             return
-        
-        # Если это личное сообщение и не команда, покажем справку
+
+        # Если это личное сообщение от пользователя и не команда, покажем справку
         if chat.type == "private" and not message_text.startswith('/'):
             await update.message.reply_text(
                 "🤖 Я бот банк-аггрегатор LucasTeam!\n\n"
@@ -3330,16 +3309,14 @@ ID транзакции: {result['transaction_id']}
             )
             return
 
-        # Обработка игровых сообщений в группах (fallback to old system if middleware didn't process)
-        if chat.type in ["group", "supergroup"] and not parsed_transaction:
+        # Обработка игровых сообщений в группах
+        if chat.type in ["group", "supergroup"]:
             await self.process_game_message(update, context)
-        elif chat.type == "private" and not parsed_transaction:
-            # В личных сообщениях тоже можем получать игровые сообщения от других ботов
-            # если пользователь пересылает их или боты отправляют напрямую
+        elif chat.type == "private":
+            # В личных сообщениях тоже можем получать игровые сообщения от пользователей
             message_text = update.message.text
-            # Проверяем, содержит ли сообщение игровые ключевые слова и обрабатываем его
-            # Добавляем больше ключевых слов для разных игр, включая русские варианты
             lower_text = message_text.lower()
+            
             # Русские ключевые слова
             russian_keywords = [
                 'рыбалка', 'рыбак', 'карта', 'новая карта', 'game', 'игр',
@@ -3373,73 +3350,39 @@ ID транзакции: {result['transaction_id']}
         user = update.effective_user
         chat = update.effective_chat
 
-        logger.info("Processing game message", chat_id=chat.id, message_preview=message_text[:200])
+        logger.info("Processing game message", chat_id=chat.id, message_preview=message_text[:100])
 
+        # Используем новую простую систему парсинга
         db = next(get_db())
         try:
-            bank = BankSystem(db)
-            results = bank.process_message(message_text)
+            from core.simple_bank import SimpleBankSystem
+            bank = SimpleBankSystem(db)
+            result = bank.process_message(message_text)
             
-            # Логируем все результаты для отладки
-            logger.info("Message processing results", result_count=len(results), chat_id=chat.id)
-            for result in results:
-                if result.get('success'):
-                    logger.info(
-                        "Activity processed successfully",
-                        user=result['user_name'],
-                        amount=result['converted_amount'],
-                        new_balance=result['new_balance'],
-                        chat_id=chat.id
-                    )
-                else:
-                    logger.warning(
-                        "Failed to process activity",
-                        error=result.get('error'),
-                        activity_type=result.get('activity', {}).activity_type if result.get('activity') else 'unknown',
-                        chat_id=chat.id
-                    )
-
-            # Логируем результаты парсинга
-            for result in results:
-                if result.get('success'):
-                    logger.info(
-                        "Activity parsed successfully",
-                        user_id=result['user_id'],
-                        activity_type=result['activity'].activity_type,
-                        amount=result['converted_amount']
-                    )
-
-                    # Отправляем уведомление о начислении
-                    if result['converted_amount'] > 0:
-                        await update.message.reply_text(
-                            f"💫 {result['user_name']} получил(а) {result['converted_amount']} банковских монет!\n"
-                            f"💳 Новый баланс: {result['new_balance']} монет"
-                        )
-
-                        # Отправляем уведомление пользователю
-                        notification_system = NotificationSystem(db)
-                        notification_system.send_transaction_notification(
-                            result['user_id'],
-                            result['converted_amount'],
-                            'game_reward',
-                            f"Активность в {result['activity'].game_source}: {result['activity'].activity_type}"
-                        )
-
-                        # Проверяем достижения
-                        achievement_system = AchievementSystem(db)
-                        achievement_system.check_achievements(
-                            result['user_id'],
-                            'game_activity',
-                            {'game': result['activity'].game_source}
-                        )
-                else:
-                    logger.warning(
-                        "Failed to parse activity",
-                        error=result.get('error'),
-                        user_identifier=result.get('activity', {}).user_identifier if result.get(
-                            'activity') else 'unknown'
-                    )
-
+            if result and result.get('success'):
+                # Отправляем уведомление о начислении
+                await update.message.reply_text(
+                    f"🎣 {result['fisher_name']} поймал рыбу!\n"
+                    f"💰 Начислено: {result['coins']} монет\n"
+                    f"💳 Новый баланс: {result['new_balance']} монет"
+                )
+                
+                logger.info(
+                    "Fishing reward processed successfully",
+                    user_id=result['user_id'],
+                    fisher_name=result['fisher_name'],
+                    coins=result['coins'],
+                    new_balance=result['new_balance']
+                )
+            elif result and not result.get('success'):
+                logger.warning(
+                    "Failed to process fishing message",
+                    error=result.get('error'),
+                    fisher_name=result.get('fisher_name')
+                )
+            else:
+                logger.debug("Message not recognized as fishing activity")
+                
         except Exception as e:
             logger.error("Error processing game message", error=str(e), chat_id=chat.id)
         finally:
@@ -3615,7 +3558,7 @@ ID транзакции: {result['transaction_id']}
             await update.message.reply_text("🔄 Перезагружаю правила парсинга...")
             
             # Перезагружаем конфигурацию
-            from core.config_manager import get_config_manager
+            from core.managers.config_manager import get_config_manager
             config_manager = get_config_manager()
             
             success = config_manager.reload_configuration()
@@ -3678,7 +3621,7 @@ ID транзакции: {result['transaction_id']}
         user = update.effective_user
         
         try:
-            from core.config_manager import get_config_manager
+            from core.managers.config_manager import get_config_manager
             config_manager = get_config_manager()
             
             # Получаем текущую конфигурацию
@@ -3938,7 +3881,7 @@ ID транзакции: {result['transaction_id']}
                 logger.info(f"Found {existing_rules} existing parsing rules in database")
             
             # Проверяем конфигурацию парсинга
-            from core.config_manager import get_config_manager
+            from core.managers.config_manager import get_config_manager
             config_manager = get_config_manager()
             
             # Принудительно перезагружаем конфигурацию
