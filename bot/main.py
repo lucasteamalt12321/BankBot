@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bot.bot import TelegramBot
 from database.database import create_tables
-from utils.config import settings
+from utils.core.config import settings
 
 logger = structlog.get_logger()
 

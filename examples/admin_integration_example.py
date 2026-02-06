@@ -19,8 +19,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.admin_system import AdminSystem, admin_required
-from bot.admin_commands import AdminCommands
+from utils.admin.admin_system import AdminSystem, admin_required
+from bot.commands.admin_commands import AdminCommands
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

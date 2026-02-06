@@ -5,11 +5,11 @@ import sys
 # Добавляем корневую директорию в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey, func
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey, func, DECIMAL
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
-from utils.config import settings
+from utils.core.config import settings
 
 Base = declarative_base()
 
@@ -30,6 +30,11 @@ class User(Base):
     last_activity = Column(DateTime, default=datetime.utcnow)
     is_vip = Column(Boolean, default=False)
     vip_until = Column(DateTime, nullable=True)
+    is_admin = Column(Boolean, default=False)
+    # New columns for advanced features
+    sticker_unlimited = Column(Boolean, default=False)
+    sticker_unlimited_until = Column(DateTime, nullable=True)
+    total_purchases = Column(Integer, default=0)
 
     aliases = relationship("UserAlias", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
@@ -46,6 +51,7 @@ class User(Base):
     received_gifts = relationship("Gift", foreign_keys="Gift.receiver_id", cascade="all, delete-orphan")
     owned_clans = relationship("Clan", back_populates="owner", cascade="all, delete-orphan")
     clan_memberships = relationship("ClanMember", back_populates="user", cascade="all, delete-orphan")
+    scheduled_tasks = relationship("ScheduledTask", cascade="all, delete-orphan")
 
 
 class UserAlias(Base):
@@ -121,6 +127,22 @@ class UserPurchase(Base):
 
     user = relationship("User", back_populates="purchases")
     item = relationship("ShopItem", back_populates="purchases")
+
+
+class ScheduledTask(Base):
+    __tablename__ = "scheduled_tasks"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    message_id = Column(Integer, nullable=True)
+    chat_id = Column(Integer, nullable=False)
+    task_type = Column(String(50), nullable=False)
+    execute_at = Column(DateTime, nullable=False)
+    task_data = Column(JSON, nullable=True)
+    is_completed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
 
 
 class GameSession(Base):
@@ -335,6 +357,46 @@ class ClanMember(Base):
 
     clan = relationship("Clan", back_populates="members")
     user = relationship("User", back_populates="clan_memberships")
+
+
+class ParsingRule(Base):
+    __tablename__ = "parsing_rules"
+
+    id = Column(Integer, primary_key=True)
+    bot_name = Column(String(50), nullable=False)
+    pattern = Column(String(200), nullable=False)
+    multiplier = Column(DECIMAL(10, 4), nullable=False)
+    currency_type = Column(String(20), nullable=False)
+    is_active = Column(Boolean, default=True)
+
+
+class ParsedTransaction(Base):
+    __tablename__ = "parsed_transactions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    source_bot = Column(String(50), nullable=False)
+    original_amount = Column(DECIMAL(10, 2), nullable=False)
+    converted_amount = Column(DECIMAL(10, 2), nullable=False)
+    currency_type = Column(String(20), nullable=False)
+    parsed_at = Column(DateTime, default=datetime.utcnow)
+    message_text = Column(Text)
+
+    user = relationship("User")
+
+
+class PurchaseRecord(Base):
+    __tablename__ = "purchase_records"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    item_id = Column(Integer, ForeignKey("shop_items.id", ondelete="CASCADE"))
+    price_paid = Column(DECIMAL(10, 2), nullable=False)
+    purchased_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+    item = relationship("ShopItem")
 
 
 engine = create_engine(settings.database_url)

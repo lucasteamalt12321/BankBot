@@ -163,8 +163,8 @@ async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYP
 ✅ Очки успешно начислены!
 
 👤 Пользователь: @john_doe
-💰 Начислено: 100 очков
-💳 Новый баланс: 150 очков
+💰 Начислено: 100 монет
+💳 Новый баланс: 200 монет
 📝 ID транзакции: 42
 ```
 
