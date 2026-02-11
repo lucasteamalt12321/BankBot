@@ -16,7 +16,7 @@ def update_achievements():
     """Обновить достижения в базе данных"""
     
     # Подключение к базе данных
-    engine = create_engine('sqlite:///bot.db')
+    engine = create_engine('sqlite:///data/bot.db')
     Base.metadata.create_all(engine)
     
     Session = sessionmaker(bind=engine)

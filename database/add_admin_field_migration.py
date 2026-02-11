@@ -9,7 +9,7 @@ import sys
 def add_admin_field():
     """Добавляет поле is_admin в таблицу users если его нет"""
     
-    db_path = 'bot.db'
+    db_path = 'data/bot.db'
     if not os.path.exists(db_path):
         print(f"База данных {db_path} не найдена")
         return False

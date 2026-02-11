@@ -9,7 +9,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', '
 class Settings:
     def __init__(self):
         self.bot_token = os.getenv("BOT_TOKEN", "")
-        self.database_url = os.getenv("DATABASE_URL", "sqlite:///bot.db")
+        self.database_url = os.getenv("DATABASE_URL", "sqlite:///data/bot.db")
         admin_ids_str = os.getenv("ADMIN_USER_IDS", "2091908459")
         self.admin_user_ids = [int(x.strip()) for x in admin_ids_str.split(",") if x.strip().isdigit()]
         self.debug = os.getenv("DEBUG", "False").lower() == "true"

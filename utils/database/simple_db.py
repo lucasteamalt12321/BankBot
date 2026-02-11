@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Database path - используем основную базу данных
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bot.db')
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'bot.db')
 
 def get_db_connection() -> sqlite3.Connection:
     """Get database connection with proper configuration"""

@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 class BackupSystem:
     """Система резервного копирования"""
     
-    def __init__(self, db_path: str = "bot.db", backup_dir: str = "backups"):
+    def __init__(self, db_path: str = "data/bot.db", backup_dir: str = "backups"):
         self.db_path = db_path
         self.backup_dir = backup_dir
         
@@ -233,7 +233,7 @@ class BackupSystem:
 
 
 # Функция для выполнения резервного копирования по расписанию
-def scheduled_backup(db_path: str = "bot.db", backup_dir: str = "backups"):
+def scheduled_backup(db_path: str = "data/bot.db", backup_dir: str = "backups"):
     """Функция для выполнения регулярного резервного копирования"""
     backup_system = BackupSystem(db_path, backup_dir)
     result = backup_system.create_backup()

@@ -2043,3 +2043,554 @@ class SavingsAccount(Base):
     user = relationship("User", back_populates="savings_account")
 ```
 
+
+
+## Correctness Properties
+
+*A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+
+### AI Parser Properties
+
+**Property 1: Classification Accuracy**
+*For any* test set of game messages with known classifications, the AI_Parser should achieve at least 95% classification accuracy.
+**Validates: Requirements 1.1**
+
+**Property 2: Entity Extraction Completeness**
+*For any* game message containing currency information, the AI_Parser should extract both the currency amount and currency type.
+**Validates: Requirements 1.2**
+
+**Property 3: Low Confidence Fallback**
+*For any* message where the AI_Parser returns confidence < 0.8, the message should be flagged for manual review.
+**Validates: Requirements 1.3**
+
+**Property 4: Response Structure Consistency**
+*For any* message sent to AI_Parser_Service, the response should contain game_type, confidence score, and entities fields in valid JSON format.
+**Validates: Requirements 1.1.4**
+
+**Property 5: Cache Hit Performance**
+*For any* message sent to AI_Parser_Service twice, the second request should be served from cache and complete faster than the first.
+**Validates: Requirements 1.1.5, 10.1, 24.6**
+
+### Game System Properties
+
+**Property 6: Cities Game Rule Enforcement**
+*For any* Cities game move, if the city name is invalid or already used or doesn't start with the required letter, the move should be rejected with a clear error message.
+**Validates: Requirements 4.1, 4.7**
+
+**Property 7: Dice Roll Distribution**
+*For any* dice notation (e.g., "d20", "2d6+3"), rolling 1000 times should produce a distribution that matches the expected probability distribution within statistical bounds.
+**Validates: Requirements 5.2**
+
+**Property 8: Tournament Bracket Structure**
+*For any* number of participants N, the generated single-elimination bracket should have exactly ceil(log2(N)) rounds and 2^ceil(log2(N)) - 1 total matches.
+**Validates: Requirements 6.1**
+
+**Property 9: Tournament Winner Advancement**
+*For any* completed tournament match, the winner should appear in the next round's bracket and the loser should not.
+**Validates: Requirements 6.2**
+
+### Social System Properties
+
+**Property 10: Friendship Bidirectionality**
+*For any* accepted friend request between users A and B, both A should be in B's friends list and B should be in A's friends list.
+**Validates: Requirements 8.2**
+
+**Property 11: Gift Item Conservation**
+*For any* gift transaction, the total number of items across sender and recipient inventories should remain constant (sender loses 1, recipient gains 1).
+**Validates: Requirements 8.3**
+
+**Property 12: Clan Membership Consistency**
+*For any* user who joins a clan, the user should appear in the clan's member list and the user's clan_id should match the clan's id.
+**Validates: Requirements 9.2**
+
+**Property 13: Clan Size Limit**
+*For any* clan with 50 members, attempting to add a 51st member should be rejected.
+**Validates: Requirements 9.6**
+
+### Economy Properties
+
+**Property 14: Dynamic Pricing Bounds**
+*For any* price adjustment, the new price should not differ from the old price by more than 20%.
+**Validates: Requirements 13.1, 13.4**
+
+**Property 15: Trade Atomicity**
+*For any* trade between users A and B, either both item transfers and both currency transfers complete successfully, or none of them do (all-or-nothing).
+**Validates: Requirements 14.3**
+
+**Property 16: Trade Scam Detection**
+*For any* trade where one side's value is less than 10% of the other side's value, the trade should be flagged as a potential scam.
+**Validates: Requirements 14.8**
+
+**Property 17: Savings Interest Accrual**
+*For any* savings account with balance B, after N days, the balance should be B * (1.02)^N (2% daily compound interest).
+**Validates: Requirements 15.1**
+
+**Property 18: Loan Payment Deduction**
+*For any* active loan, on each payment date, the user's balance should decrease by the daily payment amount plus interest.
+**Validates: Requirements 15.3**
+
+**Property 19: Auction Currency Conservation**
+*For any* completed auction, the sum of (winner's payment + seller's received amount + platform fee) should equal the winning bid amount.
+**Validates: Requirements 16.3, 16.4**
+
+### Gamification Properties
+
+**Property 20: Challenge Reward Distribution**
+*For any* completed challenge, the user's balance should increase by the challenge's reward amount immediately.
+**Validates: Requirements 18.2**
+
+**Property 21: Quest Objective Progression**
+*For any* quest with multiple objectives, completing objective N should unlock objective N+1 if it exists.
+**Validates: Requirements 19.2**
+
+**Property 22: Login Streak Behavior**
+*For any* user, logging in on consecutive days should increment the streak counter, and missing a day should reset it to zero.
+**Validates: Requirements 20.1, 20.3**
+
+**Property 23: Battle Pass Level Progression**
+*For any* user earning X experience points, if X >= xp_per_level, the user's battle pass level should increase by floor(X / xp_per_level).
+**Validates: Requirements 21.2**
+
+**Property 24: Referral Linking**
+*For any* new user registering with a valid referral code, the new user's referred_by field should point to the referrer, and the referrer's referral_count should increment by 1.
+**Validates: Requirements 22.2**
+
+### Infrastructure Properties
+
+**Property 25: Data Migration Completeness**
+*For any* data in SQLite before migration, equivalent data should exist in PostgreSQL after migration with identical values.
+**Validates: Requirements 23.1**
+
+**Property 26: Leaderboard Update Latency**
+*For any* user stat change, the corresponding leaderboard should reflect the change within 5 seconds.
+**Validates: Requirements 7.2**
+
+**Property 27: Notification Delivery Latency**
+*For any* notification sent to an online user, the notification should be delivered within 1 second.
+**Validates: Requirements 25.4**
+
+**Property 28: API Rate Limiting**
+*For any* user or API key, the 101st request within a 60-second window should be rejected with a rate limit error.
+**Validates: Requirements 26.3, 32.1**
+
+**Property 29: A/B Test Random Assignment**
+*For any* A/B test with 50/50 allocation, assigning 1000 users should result in approximately 500 users in each variant (within 10% margin).
+**Validates: Requirements 28.1**
+
+**Property 30: Feature Flag Rollout Percentage**
+*For any* feature flag with X% rollout, checking 1000 random users should result in approximately X% enabled (within 10% margin).
+**Validates: Requirements 29.2**
+
+**Property 31: Backup Integrity Verification**
+*For any* created backup, restoring the backup should produce a database state identical to the state at backup time.
+**Validates: Requirements 30.1, 30.5**
+
+**Property 32: Audit Log Completeness**
+*For any* authentication attempt, an audit log entry should be created with user_id, IP address, timestamp, and result.
+**Validates: Requirements 31.1**
+
+**Property 33: Real-Time Dashboard Sync**
+*For any* action performed in the Telegram bot, the web dashboard should reflect the change within 2 seconds for connected users.
+**Validates: Requirements 33.7**
+
+**Property 34: Mobile Load Performance**
+*For any* web dashboard page load on a simulated 3G connection, the page should be fully loaded and interactive within 3 seconds.
+**Validates: Requirements 35.3**
+
+
+
+## Error Handling
+
+### Error Categories
+
+**1. User Input Errors**
+- Invalid commands or parameters
+- Malformed data in API requests
+- Constraint violations (e.g., insufficient funds, item not found)
+- **Handling**: Return clear error messages, log for analytics, do not retry
+
+**2. Business Logic Errors**
+- Rule violations (e.g., clan size limit, rate limits)
+- State conflicts (e.g., already in a game, auction already ended)
+- Permission denied errors
+- **Handling**: Return specific error codes, suggest corrective actions, log for monitoring
+
+**3. External Service Errors**
+- AI/ML service unavailable
+- Telegram API failures
+- Database connection issues
+- **Handling**: Implement fallback mechanisms, retry with exponential backoff, alert admins
+
+**4. System Errors**
+- Out of memory, disk space
+- Unhandled exceptions
+- Data corruption
+- **Handling**: Log with full context, alert admins immediately, attempt graceful degradation
+
+### Error Response Format
+
+```python
+@dataclass
+class ErrorResponse:
+    error_code: str  # Machine-readable code (e.g., "INSUFFICIENT_FUNDS")
+    message: str  # Human-readable message
+    details: Optional[Dict[str, Any]]  # Additional context
+    retry_after: Optional[int]  # Seconds to wait before retry (for rate limits)
+    timestamp: datetime
+```
+
+### Fallback Strategies
+
+**AI Parser Fallback**:
+```python
+def parse_message_with_fallback(text: str) -> ParseResult:
+    try:
+        # Try AI parser first
+        result = ai_parser.parse(text)
+        if result.confidence >= 0.8:
+            return result
+    except AIServiceUnavailable:
+        logger.warning("AI service unavailable, using rule-based parser")
+    
+    # Fallback to rule-based parser
+    return rule_based_parser.parse(text)
+```
+
+**Database Fallback**:
+```python
+def get_user_with_fallback(user_id: int) -> User:
+    try:
+        # Try primary database
+        return primary_db.query(User).get(user_id)
+    except DatabaseConnectionError:
+        logger.error("Primary database unavailable, trying replica")
+        return replica_db.query(User).get(user_id)
+```
+
+**Cache Fallback**:
+```python
+def get_leaderboard_with_fallback(name: str) -> List[LeaderboardEntry]:
+    try:
+        # Try cache first
+        return cache.get_leaderboard(name)
+    except RedisConnectionError:
+        logger.warning("Cache unavailable, querying database")
+        return db.query_leaderboard(name)
+```
+
+### Circuit Breaker Pattern
+
+```python
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5, timeout: int = 60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failures = 0
+        self.last_failure_time = None
+        self.state = "closed"  # closed, open, half_open
+    
+    def call(self, func: Callable, *args, **kwargs):
+        if self.state == "open":
+            if datetime.now() - self.last_failure_time > timedelta(seconds=self.timeout):
+                self.state = "half_open"
+            else:
+                raise CircuitBreakerOpen("Service temporarily unavailable")
+        
+        try:
+            result = func(*args, **kwargs)
+            if self.state == "half_open":
+                self.state = "closed"
+                self.failures = 0
+            return result
+        except Exception as e:
+            self.failures += 1
+            self.last_failure_time = datetime.now()
+            
+            if self.failures >= self.failure_threshold:
+                self.state = "open"
+            
+            raise e
+```
+
+### Retry Logic
+
+```python
+def retry_with_backoff(func: Callable, max_retries: int = 3, base_delay: float = 1.0):
+    """Retry function with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except RetryableError as e:
+            if attempt == max_retries - 1:
+                raise
+            
+            delay = base_delay * (2 ** attempt)
+            logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay}s: {e}")
+            time.sleep(delay)
+```
+
+### Transaction Rollback
+
+```python
+def execute_trade_with_rollback(trade: Trade):
+    """Execute trade with automatic rollback on failure."""
+    savepoint = db.begin_nested()
+    
+    try:
+        # Transfer items
+        transfer_items(trade.initiator, trade.recipient, trade.initiator_items)
+        transfer_items(trade.recipient, trade.initiator, trade.recipient_items)
+        
+        # Transfer currency
+        transfer_currency(trade.initiator, trade.recipient, trade.initiator_currency)
+        transfer_currency(trade.recipient, trade.initiator, trade.recipient_currency)
+        
+        # Deduct fee
+        deduct_fee(trade.initiator, calculate_fee(trade))
+        
+        trade.status = "completed"
+        savepoint.commit()
+        
+    except Exception as e:
+        logger.error(f"Trade failed, rolling back: {e}")
+        savepoint.rollback()
+        trade.status = "failed"
+        raise TradeExecutionError("Trade could not be completed") from e
+```
+
+
+
+## Testing Strategy
+
+### Dual Testing Approach
+
+The platform requires both **unit testing** and **property-based testing** for comprehensive coverage:
+
+- **Unit Tests**: Validate specific examples, edge cases, error conditions, and integration points
+- **Property Tests**: Verify universal properties across all inputs through randomization
+- **Complementary Nature**: Unit tests catch concrete bugs, property tests verify general correctness
+
+### Property-Based Testing Configuration
+
+**Library Selection**: Use **Hypothesis** (already in use) for Python property-based testing
+
+**Test Configuration**:
+- Minimum 100 iterations per property test (due to randomization)
+- Each property test must reference its design document property
+- Tag format: `# Feature: ultimate-platform-upgrade, Property {number}: {property_text}`
+
+**Example Property Test**:
+```python
+from hypothesis import given, strategies as st
+import hypothesis
+
+@given(
+    balance=st.integers(min_value=0, max_value=1000000),
+    days=st.integers(min_value=1, max_value=365)
+)
+@hypothesis.settings(max_examples=100)
+def test_savings_interest_accrual(balance, days):
+    """
+    Feature: ultimate-platform-upgrade, Property 17: Savings Interest Accrual
+    For any savings account with balance B, after N days, 
+    the balance should be B * (1.02)^N
+    """
+    account = SavingsAccount(balance=balance)
+    
+    for _ in range(days):
+        account.apply_daily_interest()
+    
+    expected = int(balance * (1.02 ** days))
+    assert abs(account.balance - expected) <= 1  # Allow 1 unit rounding error
+```
+
+### Unit Testing Strategy
+
+**Focus Areas for Unit Tests**:
+1. **Specific Examples**: Concrete scenarios that demonstrate correct behavior
+2. **Edge Cases**: Boundary conditions (empty lists, zero values, maximum limits)
+3. **Error Conditions**: Invalid inputs, constraint violations, permission errors
+4. **Integration Points**: Service interactions, database transactions, API contracts
+
+**Example Unit Tests**:
+```python
+def test_clan_size_limit_edge_case():
+    """Test that exactly 50 members are allowed, but 51 is rejected."""
+    clan = create_clan("TestClan")
+    
+    # Add 50 members successfully
+    for i in range(50):
+        user = create_user(f"user{i}")
+        clan.add_member(user)
+    
+    assert len(clan.members) == 50
+    
+    # 51st member should be rejected
+    user51 = create_user("user51")
+    with pytest.raises(ClanFullError):
+        clan.add_member(user51)
+
+def test_trade_atomicity_on_failure():
+    """Test that trade rolls back completely on failure."""
+    user_a = create_user_with_balance(1000)
+    user_b = create_user_with_balance(500)
+    item = create_item("Sword")
+    user_a.inventory.add(item)
+    
+    # Create trade that will fail (insufficient funds for fee)
+    trade = Trade(
+        initiator=user_a,
+        recipient=user_b,
+        initiator_items=[item],
+        initiator_currency=1000,  # All of user_a's money
+        recipient_currency=0
+    )
+    
+    with pytest.raises(InsufficientFunds):
+        execute_trade(trade)
+    
+    # Verify rollback: user_a still has item and money
+    assert item in user_a.inventory
+    assert user_a.balance == 1000
+    assert user_b.balance == 500
+
+def test_ai_parser_fallback_on_low_confidence():
+    """Test that low confidence triggers manual review."""
+    ambiguous_message = "maybe won something?"
+    
+    result = ai_parser.parse(ambiguous_message)
+    
+    assert result.confidence < 0.8
+    assert result.flagged_for_review == True
+    
+    # Verify message added to review queue
+    review_queue = get_manual_review_queue()
+    assert ambiguous_message in [msg.text for msg in review_queue]
+```
+
+### Integration Testing
+
+**Test Scenarios**:
+1. **End-to-End Flows**: Complete user journeys (register → play game → earn currency → purchase item)
+2. **Service Integration**: Multiple services working together (AI Parser → Game Service → Economy Service)
+3. **Real-Time Features**: WebSocket notifications, leaderboard updates, cache synchronization
+4. **External Dependencies**: Telegram API, ML model API, database replication
+
+**Example Integration Test**:
+```python
+@pytest.mark.integration
+def test_complete_game_flow():
+    """Test complete mini-game flow from start to reward."""
+    user1 = create_user("player1")
+    user2 = create_user("player2")
+    
+    # Start game
+    game = game_service.start_cities_game([user1, user2])
+    assert game.status == "active"
+    
+    # Play moves
+    result1 = game.make_move(user1, "Moscow")
+    assert result1.valid == True
+    
+    result2 = game.make_move(user2, "Warsaw")
+    assert result2.valid == True
+    
+    # Invalid move (doesn't start with 'W')
+    result3 = game.make_move(user1, "Berlin")
+    assert result3.valid == False
+    
+    # Valid move
+    result4 = game.make_move(user1, "Washington")
+    assert result4.valid == True
+    
+    # End game
+    game.end_game(winner=user1)
+    
+    # Verify rewards
+    assert user1.balance > 0
+    assert game.status == "completed"
+    
+    # Verify leaderboard update
+    leaderboard = leaderboard_service.get_leaderboard("cities_wins")
+    assert user1.id in [entry.user_id for entry in leaderboard]
+```
+
+### Performance Testing
+
+**Key Metrics**:
+- API response time: p95 < 200ms, p99 < 500ms
+- Database query time: p95 < 50ms
+- Cache hit rate: > 90% for frequently accessed data
+- WebSocket message delivery: < 1 second
+- Concurrent users: Support 10,000+ simultaneous connections
+
+**Load Testing**:
+```python
+from locust import HttpUser, task, between
+
+class PlatformUser(HttpUser):
+    wait_time = between(1, 3)
+    
+    @task(3)
+    def view_leaderboard(self):
+        self.client.get("/api/leaderboards/currency")
+    
+    @task(2)
+    def view_shop(self):
+        self.client.get("/api/shop/items")
+    
+    @task(1)
+    def purchase_item(self):
+        self.client.post("/api/shop/purchase", json={"item_id": 1})
+```
+
+### Test Coverage Goals
+
+- **Unit Test Coverage**: > 80% line coverage
+- **Property Test Coverage**: All 34 correctness properties implemented
+- **Integration Test Coverage**: All major user flows covered
+- **Performance Test Coverage**: All critical endpoints load tested
+
+### Continuous Testing
+
+**CI/CD Pipeline**:
+1. **On Commit**: Run unit tests and fast property tests (10 examples)
+2. **On PR**: Run full test suite including integration tests
+3. **Nightly**: Run comprehensive property tests (1000 examples), performance tests
+4. **Pre-Deploy**: Run smoke tests against staging environment
+
+**Test Automation**:
+```yaml
+# .github/workflows/test.yml
+name: Test Suite
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run unit tests
+        run: pytest tests/unit -v --cov
+  
+  property-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run property tests
+        run: pytest tests/properties -v --hypothesis-profile=ci
+  
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+      redis:
+        image: redis:7
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run integration tests
+        run: pytest tests/integration -v
+```
+

@@ -15,7 +15,7 @@ def initialize_shop():
     """Initialize shop with default items using direct SQLite"""
     
     # Use relative path from root
-    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bot.db")
+    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.db")
     
     try:
         conn = sqlite3.connect(db_path)

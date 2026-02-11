@@ -51,8 +51,7 @@ class TelegramBot:
         self.error_handling_system = None
         
         # Инициализация административной системы
-        admin_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bot.db')
-        self.admin_system = AdminSystem(admin_db_path)
+        self.admin_system = AdminSystem("data/bot.db")
         # База данных уже инициализирована, не нужно создавать отдельные таблицы
         
         # Инициализация расширенных административных команд
@@ -3248,10 +3247,18 @@ ID транзакции: {transaction.id}
 
     # ===== Обработка сообщений =====
     async def parse_all_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка всех сообщений"""
+        """Обработка всех сообщений с интегрированным парсером"""
         message_text = update.message.text
         user = update.effective_user
         chat = update.effective_chat
+
+        # Проверяем, является ли это командой "парсинг" в ответ на сообщение
+        # Убираем упоминание бота если оно есть
+        if message_text:
+            clean_text = message_text.replace('@lt_lo_game_bot', '').strip().lower()
+            if clean_text == "парсинг" and update.message.reply_to_message:
+                await self.handle_manual_parsing(update, context)
+                return
 
         # Пропускаем сообщения от ботов, КРОМЕ игровых ботов
         if user.is_bot:
@@ -3292,6 +3299,16 @@ ID транзакции: {transaction.id}
             await self.process_game_message(update, context)
             return
 
+        # Проверяем, является ли сообщение игровым с помощью интегрированного парсера
+        from core.parsers.simple_parser import parse_game_message
+        parsed_result = parse_game_message(message_text)
+        
+        if parsed_result:
+            # Это игровое сообщение, обрабатываем его
+            logger.info(f"Detected game message type: {parsed_result['type']}")
+            await self.process_game_message(update, context)
+            return
+
         # Если это личное сообщение от пользователя и не команда, покажем справку
         if chat.type == "private" and not message_text.startswith('/'):
             await update.message.reply_text(
@@ -3305,86 +3322,262 @@ ID транзакции: {transaction.id}
                 "/dnd - D&D мастерская\n"
                 "/daily - ежедневный бонус\n"
                 "/challenges - задания\n\n"
-                "В группах я автоматически отслеживаю вашу игровую активность!"
+                "В группах я автоматически отслеживаю вашу игровую активность!\n"
+                "Поддерживаемые игры: 🎣 Shmalala, 🃏 GD Cards"
             )
             return
 
-        # Обработка игровых сообщений в группах
-        if chat.type in ["group", "supergroup"]:
-            await self.process_game_message(update, context)
-        elif chat.type == "private":
-            # В личных сообщениях тоже можем получать игровые сообщения от пользователей
-            message_text = update.message.text
-            lower_text = message_text.lower()
-            
-            # Русские ключевые слова
-            russian_keywords = [
-                'рыбалка', 'рыбак', 'карта', 'новая карта', 'game', 'игр',
-                'шмалала', 'шмала', 'battle', 'битва', 'battle_win', 'крокодил',
-                'угадал', 'слово', 'crocodile', 'fishing', 'fish', 'рыбка',
-                'gd cards', 'gdcards', 'card', 'карточка', 'gdcards',
-                'очки:', 'игрок:', 'шмал', 'mafia', 'мафия', 'бункер', 'bunker',
-                '🏆', '💰', 'монет', 'points', 'points:', '💎', '⭐', '🌟'
-            ]
-            
-            # Проверяем наличие ключевых слов или структуры игрового сообщения
-            has_keyword = any(keyword in lower_text for keyword in russian_keywords)
-            
-            # Также проверяем наличие типичной структуры игровых сообщений
-            has_game_structure = (
-                ('игрок:' in lower_text and ('очки:' in lower_text or 'монет' in lower_text)) or
-                ('рыбак:' in lower_text) or
-                ('победил' in lower_text and 'монетки' in lower_text) or
-                ('карта:' in lower_text) or
-                ('🏆' in message_text) or ('💰' in message_text) or ('💎' in message_text)
-            )
-            
-            if has_keyword or has_game_structure:
-                # Send immediate feedback to let user know we're processing
-                await update.message.reply_text("🔄 Обрабатываю игровое сообщение...")
-                await self.process_game_message(update, context)
-
     async def process_game_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка игровых сообщений в группах"""
+        """Обработка игровых сообщений в группах с интегрированным парсером"""
         message_text = update.message.text
         user = update.effective_user
         chat = update.effective_chat
 
         logger.info("Processing game message", chat_id=chat.id, message_preview=message_text[:100])
 
-        # Используем новую простую систему парсинга
+        # Используем интегрированную систему парсинга
         db = next(get_db())
         try:
-            from core.simple_bank import SimpleBankSystem
-            bank = SimpleBankSystem(db)
-            result = bank.process_message(message_text)
+            from core.parsers.simple_parser import parse_game_message
+            from database.database import User
             
-            if result and result.get('success'):
-                # Отправляем уведомление о начислении
-                await update.message.reply_text(
-                    f"🎣 {result['fisher_name']} поймал рыбу!\n"
-                    f"💰 Начислено: {result['coins']} монет\n"
-                    f"💳 Новый баланс: {result['new_balance']} монет"
+            # Парсим сообщение
+            parsed_result = parse_game_message(message_text)
+            
+            if not parsed_result:
+                logger.debug("Message not recognized as game activity")
+                return
+            
+            # Извлекаем данные
+            game_type = parsed_result['type']
+            username = parsed_result['user'].replace('@', '').strip()
+            amount = parsed_result['amount']
+            
+            logger.info(
+                "Game message parsed successfully",
+                type=game_type,
+                username=username,
+                amount=amount
+            )
+            
+            # Ищем или создаем пользователя
+            user_obj = db.query(User).filter(User.username == username).first()
+            
+            if not user_obj:
+                # Создаем нового пользователя
+                user_obj = User(
+                    telegram_id=0,  # Временный ID, будет обновлен при первом взаимодействии
+                    username=username,
+                    balance=0
                 )
-                
-                logger.info(
-                    "Fishing reward processed successfully",
-                    user_id=result['user_id'],
-                    fisher_name=result['fisher_name'],
-                    coins=result['coins'],
-                    new_balance=result['new_balance']
-                )
-            elif result and not result.get('success'):
-                logger.warning(
-                    "Failed to process fishing message",
-                    error=result.get('error'),
-                    fisher_name=result.get('fisher_name')
-                )
+                db.add(user_obj)
+                db.commit()
+                db.refresh(user_obj)
+                logger.info(f"Created new user from game message: {username}")
+            
+            # Начисляем монеты/очки
+            old_balance = user_obj.balance
+            user_obj.balance += amount
+            db.commit()
+            
+            new_balance = user_obj.balance
+            
+            # Формируем сообщение в зависимости от типа игры
+            if game_type == 'fishing':
+                emoji = "🎣"
+                activity = "поймал рыбу"
+                currency = "монет"
+            elif game_type == 'card':
+                emoji = "🃏"
+                activity = "получил новую карту"
+                currency = "очков"
             else:
-                logger.debug("Message not recognized as fishing activity")
+                emoji = "🎮"
+                activity = "заработал"
+                currency = "монет"
+            
+            # Отправляем уведомление о начислении
+            notification_text = (
+                f"{emoji} {username} {activity}!\n"
+                f"💰 Начислено: {amount} {currency}\n"
+                f"💳 Новый баланс: {new_balance} монет"
+            )
+            
+            await update.message.reply_text(notification_text)
+            
+            logger.info(
+                "Game reward processed successfully",
+                user_id=user_obj.id,
+                username=username,
+                game_type=game_type,
+                amount=amount,
+                old_balance=old_balance,
+                new_balance=new_balance
+            )
                 
         except Exception as e:
             logger.error("Error processing game message", error=str(e), chat_id=chat.id)
+            # Не показываем ошибку пользователю, чтобы не спамить в чате
+        finally:
+            db.close()
+
+    async def handle_manual_parsing(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Обработка ручного парсинга сообщения по команде "парсинг"
+        Пользователь отвечает на сообщение бота словом "парсинг" для его обработки
+        """
+        user = update.effective_user
+        original_message = update.message.reply_to_message
+        
+        # Проверяем, что это ответ на сообщение от бота
+        if not original_message or not original_message.from_user.is_bot:
+            await update.message.reply_text(
+                "❌ Команда 'парсинг' должна быть ответом на сообщение от игрового бота"
+            )
+            return
+        
+        # Получаем текст из text или caption
+        message_text = original_message.text or original_message.caption
+        bot_user = original_message.from_user
+        
+        logger.info(
+            "Manual parsing requested",
+            user_id=user.id,
+            bot_name=bot_user.first_name,
+            bot_username=bot_user.username,
+            message_preview=message_text[:100] if message_text else "No text"
+        )
+        
+        # Проверяем, что есть текст для парсинга
+        if not message_text:
+            await update.message.reply_text(
+                "❌ Сообщение не содержит текста для парсинга\n"
+                "Убедитесь, что сообщение содержит текстовую информацию."
+            )
+            return
+        
+        # Используем интегрированную систему парсинга
+        db = next(get_db())
+        try:
+            from core.parsers.simple_parser import parse_game_message
+            from database.database import User
+            
+            # Парсим сообщение
+            parsed_result = parse_game_message(message_text)
+            
+            if not parsed_result:
+                await update.message.reply_text(
+                    f"❌ Не удалось распознать сообщение от бота {bot_user.first_name}\n\n"
+                    f"Поддерживаемые форматы:\n"
+                    f"🎣 Shmalala - рыбалка\n"
+                    f"🃏 GD Cards - новые карты\n\n"
+                    f"Первые 100 символов сообщения:\n{message_text[:100]}..."
+                )
+                logger.debug("Manual parsing failed - message not recognized")
+                return
+            
+            # Извлекаем данные
+            game_type = parsed_result['type']
+            username = parsed_result['user'].replace('@', '').strip()
+            amount = parsed_result['amount']
+            
+            logger.info(
+                "Manual parsing successful",
+                type=game_type,
+                username=username,
+                amount=amount,
+                requester_id=user.id
+            )
+            
+            # Ищем пользователя по username или telegram_id
+            # Сначала пытаемся найти по telegram_id запросившего
+            user_obj = db.query(User).filter(User.telegram_id == user.id).first()
+            
+            if not user_obj:
+                # Если не найден по telegram_id, ищем по username
+                user_obj = db.query(User).filter(User.username == username).first()
+            
+            if not user_obj:
+                # Создаем нового пользователя с telegram_id
+                user_obj = User(
+                    telegram_id=user.id,
+                    username=username,
+                    first_name=user.first_name,
+                    balance=0
+                )
+                db.add(user_obj)
+                db.commit()
+                db.refresh(user_obj)
+                logger.info(f"Created new user from manual parsing: {username} (telegram_id: {user.id})")
+            else:
+                # Обновляем telegram_id если он не был установлен
+                if not user_obj.telegram_id or user_obj.telegram_id == 0:
+                    user_obj.telegram_id = user.id
+                    user_obj.first_name = user.first_name
+                    db.commit()
+                    logger.info(f"Updated telegram_id for user: {username} -> {user.id}")
+            
+            # Начисляем монеты/очки
+            old_balance = user_obj.balance
+            user_obj.balance += amount
+            
+            # Создаем транзакцию
+            from database.database import Transaction
+            transaction = Transaction(
+                user_id=user_obj.id,
+                amount=amount,
+                transaction_type='manual_parsing',
+                source_game=game_type,
+                description=f"Ручной парсинг: {game_type} от {bot_user.first_name}"
+            )
+            db.add(transaction)
+            
+            db.commit()
+            
+            new_balance = user_obj.balance
+            
+            # Формируем сообщение в зависимости от типа игры
+            if game_type == 'fishing':
+                emoji = "🎣"
+                activity = "поймал рыбу"
+                currency = "монет"
+            elif game_type == 'card':
+                emoji = "🃏"
+                activity = "получил новую карту"
+                currency = "очков"
+            else:
+                emoji = "🎮"
+                activity = "заработал"
+                currency = "монет"
+            
+            # Отправляем уведомление о начислении
+            notification_text = (
+                f"✅ Сообщение успешно обработано!\n\n"
+                f"{emoji} {username} {activity}!\n"
+                f"💰 Начислено: {amount} {currency}\n"
+                f"💳 Новый баланс: {new_balance} монет\n\n"
+                f"🤖 Бот: {bot_user.first_name} (@{bot_user.username or 'нет username'})"
+            )
+            
+            await update.message.reply_text(notification_text)
+            
+            logger.info(
+                "Manual parsing reward processed successfully",
+                user_id=user_obj.id,
+                username=username,
+                game_type=game_type,
+                amount=amount,
+                old_balance=old_balance,
+                new_balance=new_balance,
+                requested_by=user.id
+            )
+                
+        except Exception as e:
+            logger.error("Error in manual parsing", error=str(e), user_id=user.id)
+            await update.message.reply_text(
+                f"❌ Ошибка при обработке сообщения:\n{str(e)}\n\n"
+                f"Попробуйте еще раз или обратитесь к администратору"
+            )
         finally:
             db.close()
 

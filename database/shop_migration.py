@@ -23,7 +23,7 @@ def log_error(message):
 # Simple settings class
 class SimpleSettings:
     def __init__(self):
-        self.database_url = os.getenv("DATABASE_URL", "sqlite:///bot.db")
+        self.database_url = os.getenv("DATABASE_URL", "sqlite:///data/bot.db")
 
 settings = SimpleSettings()
 

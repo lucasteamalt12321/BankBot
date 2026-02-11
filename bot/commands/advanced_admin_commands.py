@@ -34,8 +34,7 @@ class AdvancedAdminCommands:
     def __init__(self):
         """Initialize the advanced admin commands handler"""
         # Initialize admin system for privilege checking
-        admin_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bot.db')
-        self.admin_system = AdminSystem(admin_db_path)
+        self.admin_system = AdminSystem("data/bot.db")
         
         logger.info("AdvancedAdminCommands initialized")
     

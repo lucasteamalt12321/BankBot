@@ -13,7 +13,7 @@ from core.models.shop_models import ShopItem, Purchase, ScheduledTask, User
 class ShopDatabaseManager:
     """Database manager for shop system operations"""
     
-    def __init__(self, db_path: str = "bot.db"):
+    def __init__(self, db_path: str = "data/bot.db"):
         self.db_path = db_path
         self.create_tables()
         self.initialize_default_items()
