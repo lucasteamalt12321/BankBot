@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.managers.admin_manager import AdminManager
 from database.database import Base, User, ParsedTransaction, ParsingRule, UserPurchase, ShopItem
 from utils.admin.admin_system import AdminSystem
+from src.config import settings
 
 
 class TestAdminManagerIntegration:
@@ -146,7 +147,7 @@ class TestAdminManagerIntegration:
         assert self.admin_manager.is_admin(123456) == False
         
         # Test fallback admin
-        assert self.admin_manager.is_admin(2091908459) == True
+        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID) == True
         
         # Test non-existent user
         assert self.admin_manager.is_admin(999999) == False
@@ -274,7 +275,7 @@ class TestAdminManagerIntegration:
         self.session.commit()
         
         admin_ids_fallback = self.admin_manager.get_admin_user_ids()
-        assert 2091908459 in admin_ids_fallback
+        assert settings.ADMIN_TELEGRAM_ID in admin_ids_fallback
     
     def test_get_system_stats_integration(self):
         """Test system statistics with real database"""

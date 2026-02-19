@@ -1,1 +1,1 @@
-# Property-based tests package
+"""Property-based tests for message parsing system."""

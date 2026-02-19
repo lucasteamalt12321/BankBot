@@ -1,0 +1,42 @@
+# Documentation Dependencies for LucasTeam Telegram Bot
+# Install with: pip install -r requirements-docs.txt
+
+# ============================================================================
+# Include Production Dependencies
+# ============================================================================
+-r requirements.txt
+
+# ============================================================================
+# Documentation Generation
+# ============================================================================
+sphinx==7.2.6
+# Documentation generator - creates HTML/PDF docs from docstrings and RST files
+# Version 7.2.6 pinned for stable API documentation generation
+
+sphinx-rtd-theme==2.0.0
+# Read the Docs theme for Sphinx - provides clean, professional documentation layout
+# Popular theme with responsive design and good navigation
+
+sphinx-autodoc-typehints==1.25.2
+# Type hints support for Sphinx autodoc - automatically documents type annotations
+# Essential for documenting Pydantic models and typed Python code
+
+# ============================================================================
+# Sphinx Extensions
+# ============================================================================
+sphinxcontrib-napoleon==0.7
+# Google/NumPy style docstring support - allows natural docstring formatting
+# Required for parsing Google-style docstrings used in the codebase
+
+myst-parser==2.0.0
+# Markdown support for Sphinx - allows writing documentation in Markdown
+# Enables using .md files alongside .rst files
+
+# ============================================================================
+# Notes:
+# - Sphinx is the standard Python documentation tool
+# - sphinx-rtd-theme provides professional appearance
+# - sphinx-autodoc-typehints ensures type hints are documented
+# - sphinxcontrib-napoleon enables Google-style docstrings (per design.md)
+# - myst-parser allows mixing Markdown with RST documentation
+# ============================================================================

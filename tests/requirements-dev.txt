@@ -1,0 +1,45 @@
+# Development Dependencies for LucasTeam Telegram Bot
+# Install with: pip install -r requirements-dev.txt
+
+# ============================================================================
+# Include Production Dependencies
+# ============================================================================
+-r requirements.txt
+
+# ============================================================================
+# Testing Framework
+# ============================================================================
+pytest==7.4.3
+# Testing framework
+pytest-cov==4.1.0
+# Coverage plugin for pytest
+pytest-asyncio==0.23.2
+# Async support for pytest
+hypothesis==6.92.1
+# Property-based testing framework
+
+# ============================================================================
+# Code Quality & Formatting
+# ============================================================================
+black==23.12.1
+# Code formatter
+mypy==1.8.0
+# Static type checker
+flake8==7.0.0
+# Linting tool
+isort==5.13.2
+# Import sorting
+
+# ============================================================================
+# Development Tools
+# ============================================================================
+ipython==8.18.1
+# Enhanced interactive Python shell
+ipdb==0.13.13
+# IPython-enabled debugger
+
+# ============================================================================
+# Notes:
+# - All versions are pinned for consistent development environment
+# - Includes all production dependencies via -r requirements.txt
+# ============================================================================

@@ -42,7 +42,7 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         self.temp_db.close()
         
         # Override DB_PATH for testing
-        import utils.simple_db
+        import utils.database.simple_db
         self.original_db_path = utils.simple_db.DB_PATH
         utils.simple_db.DB_PATH = self.temp_db.name
         
@@ -52,7 +52,7 @@ class TestAutoRegistrationPBT(unittest.TestCase):
     def tearDown(self):
         """Clean up after tests"""
         # Restore original DB_PATH
-        import utils.simple_db
+        import utils.database.simple_db
         utils.simple_db.DB_PATH = self.original_db_path
         
         # Remove temporary database

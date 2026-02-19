@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from core.systems.broadcast_system import BroadcastSystem
 from core.models.advanced_models import BroadcastResult, NotificationResult
 from database.database import User
+from src.config import settings
 
 
 class TestBroadcastSystem:
@@ -134,7 +135,7 @@ class TestBroadcastSystem:
         # Setup - no admin users, fallback to hardcoded admin
         mock_db.query.return_value.filter.return_value.all.side_effect = [
             [],  # First call returns no admins
-            [User(id=1, telegram_id=2091908459, first_name="FallbackAdmin")]  # Fallback call
+            [User(id=1, telegram_id=settings.ADMIN_TELEGRAM_ID, first_name="FallbackAdmin")]  # Fallback call
         ]
         
         # Execute
@@ -266,7 +267,7 @@ class TestBroadcastSystem:
         admin_ids = broadcast_system.get_admin_user_ids()
         
         # Verify fallback admin ID is returned
-        assert 2091908459 in admin_ids
+        assert settings.ADMIN_TELEGRAM_ID in admin_ids
     
     def test_add_admin_user_success(self, broadcast_system, mock_db):
         """Test adding admin user successfully"""

@@ -76,11 +76,25 @@ class TestBotParserIntegration:
         from bot.bot import TelegramBot
         
         # Setup fishing message
-        mock_update.message.text = """🎣 [Рыбалка] 🎣
+        fishing_message = """🎣 [Рыбалка] 🎣
 Рыбак: @fisher_user
 Улов: Золотая рыбка
 Монеты: +250 (1500)💰
 Опыт: +10"""
+        
+        # Setup reply to bot message
+        mock_bot_user = Mock()
+        mock_bot_user.is_bot = True
+        mock_bot_user.first_name = "Shmalala Bot"
+        mock_bot_user.username = "shmalala_bot"
+        
+        mock_reply_message = Mock()
+        mock_reply_message.from_user = mock_bot_user
+        mock_reply_message.text = fishing_message
+        mock_reply_message.caption = None
+        
+        mock_update.message.reply_to_message = mock_reply_message
+        mock_update.message.text = "парсинг"
         
         # Mock database
         with patch('bot.bot.get_db') as mock_get_db:
@@ -92,12 +106,13 @@ class TestBotParserIntegration:
             mock_user_obj.id = 1
             mock_user_obj.username = "fisher_user"
             mock_user_obj.balance = 1000
+            mock_user_obj.telegram_id = mock_update.effective_user.id
             
             mock_db_session.query.return_value.filter.return_value.first.return_value = mock_user_obj
             
-            # Create bot and process message
+            # Create bot and process manual parsing
             bot = TelegramBot()
-            await bot.process_game_message(mock_update, mock_context)
+            await bot.handle_manual_parsing(mock_update, mock_context)
             
             # Verify user balance was updated
             assert mock_user_obj.balance == 1250
@@ -111,15 +126,29 @@ class TestBotParserIntegration:
     
     @pytest.mark.asyncio
     async def test_parse_card_message(self, mock_update, mock_context, mock_db_session):
-        """Test parsing card message"""
+        """Test parsing card message via manual parsing"""
         from bot.bot import TelegramBot
         
         # Setup card message
-        mock_update.message.text = """🃏 НОВАЯ КАРТА 🃏
+        card_message = """🃏 НОВАЯ КАРТА 🃏
 Игрок: @card_player
 Карта: Легендарная
 Очки: +150
 Редкость: Epic"""
+        
+        # Setup reply to bot message
+        mock_bot_user = Mock()
+        mock_bot_user.is_bot = True
+        mock_bot_user.first_name = "GDCards Bot"
+        mock_bot_user.username = "gdcards_bot"
+        
+        mock_reply_message = Mock()
+        mock_reply_message.from_user = mock_bot_user
+        mock_reply_message.text = card_message
+        mock_reply_message.caption = None
+        
+        mock_update.message.reply_to_message = mock_reply_message
+        mock_update.message.text = "парсинг"
         
         # Mock database
         with patch('bot.bot.get_db') as mock_get_db:
@@ -131,12 +160,13 @@ class TestBotParserIntegration:
             mock_user_obj.id = 2
             mock_user_obj.username = "card_player"
             mock_user_obj.balance = 500
+            mock_user_obj.telegram_id = mock_update.effective_user.id
             
             mock_db_session.query.return_value.filter.return_value.first.return_value = mock_user_obj
             
-            # Create bot and process message
+            # Create bot and process manual parsing
             bot = TelegramBot()
-            await bot.process_game_message(mock_update, mock_context)
+            await bot.handle_manual_parsing(mock_update, mock_context)
             
             # Verify user balance was updated
             assert mock_user_obj.balance == 650
@@ -149,14 +179,28 @@ class TestBotParserIntegration:
             assert "🃏" in call_args
     
     @pytest.mark.asyncio
-    async def test_create_new_user_from_game_message(self, mock_update, mock_context, mock_db_session):
-        """Test creating new user from game message"""
+    async def test_create_new_user_from_manual_parsing(self, mock_update, mock_context, mock_db_session):
+        """Test creating new user from manual parsing"""
         from bot.bot import TelegramBot
         
         # Setup message
-        mock_update.message.text = """🎣 [Рыбалка] 🎣
+        fishing_message = """🎣 [Рыбалка] 🎣
 Рыбак: @new_fisher
 Монеты: +100 (100)💰"""
+        
+        # Setup reply to bot message
+        mock_bot_user = Mock()
+        mock_bot_user.is_bot = True
+        mock_bot_user.first_name = "Shmalala Bot"
+        mock_bot_user.username = "shmalala_bot"
+        
+        mock_reply_message = Mock()
+        mock_reply_message.from_user = mock_bot_user
+        mock_reply_message.text = fishing_message
+        mock_reply_message.caption = None
+        
+        mock_update.message.reply_to_message = mock_reply_message
+        mock_update.message.text = "парсинг"
         
         # Mock database - user doesn't exist
         with patch('bot.bot.get_db') as mock_get_db:
@@ -173,43 +217,47 @@ class TestBotParserIntegration:
                 user.id = 3
                 user.username = "new_fisher"
                 user.balance = 100
+                user.telegram_id = mock_update.effective_user.id
                 return user
             
             with patch('database.database.User', side_effect=create_user):
-                # Create bot and process message
+                # Create bot and process manual parsing
                 bot = TelegramBot()
-                await bot.process_game_message(mock_update, mock_context)
+                await bot.handle_manual_parsing(mock_update, mock_context)
                 
                 # Verify user was created
-                mock_db_session.add.assert_called_once()
+                mock_db_session.add.assert_called()
                 mock_db_session.commit.assert_called()
     
     @pytest.mark.asyncio
-    async def test_ignore_non_game_message(self, mock_update, mock_context, mock_db_session):
-        """Test that non-game messages are ignored"""
+    async def test_reject_non_bot_reply(self, mock_update, mock_context, mock_db_session):
+        """Test that manual parsing rejects non-bot replies"""
         from bot.bot import TelegramBot
         
-        # Setup non-game message
-        mock_update.message.text = "Hello, this is just a regular message"
+        # Setup reply to regular user message (not bot)
+        mock_user = Mock()
+        mock_user.is_bot = False
+        mock_user.first_name = "Regular User"
         
-        # Mock database
-        with patch('bot.bot.get_db') as mock_get_db:
-            mock_get_db.return_value = iter([mock_db_session])
-            
-            # Create bot and process message
-            bot = TelegramBot()
-            await bot.process_game_message(mock_update, mock_context)
-            
-            # Verify no database operations were performed
-            mock_db_session.add.assert_not_called()
-            mock_db_session.commit.assert_not_called()
-            
-            # Verify no notification was sent
-            mock_update.message.reply_text.assert_not_called()
+        mock_reply_message = Mock()
+        mock_reply_message.from_user = mock_user
+        mock_reply_message.text = "Some message"
+        
+        mock_update.message.reply_to_message = mock_reply_message
+        mock_update.message.text = "парсинг"
+        
+        # Create bot and process manual parsing
+        bot = TelegramBot()
+        await bot.handle_manual_parsing(mock_update, mock_context)
+        
+        # Verify error message was sent
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args[0][0]
+        assert "игрового бота" in call_args
     
     @pytest.mark.asyncio
-    async def test_parse_all_messages_detects_game_message(self, mock_update, mock_context):
-        """Test that parse_all_messages correctly detects game messages"""
+    async def test_parse_all_messages_ignores_automatic_parsing(self, mock_update, mock_context):
+        """Test that parse_all_messages ignores automatic parsing (only manual parsing enabled)"""
         from bot.bot import TelegramBot
         
         # Setup fishing message
@@ -218,14 +266,13 @@ class TestBotParserIntegration:
 Монеты: +50 (500)💰"""
         
         mock_update.effective_chat.type = "group"
+        mock_update.message.reply_to_message = None  # Not a reply
         
-        # Mock process_game_message
-        with patch.object(TelegramBot, 'process_game_message', new_callable=AsyncMock) as mock_process:
-            bot = TelegramBot()
-            await bot.parse_all_messages(mock_update, mock_context)
-            
-            # Verify process_game_message was called
-            mock_process.assert_called_once_with(mock_update, mock_context)
+        bot = TelegramBot()
+        await bot.parse_all_messages(mock_update, mock_context)
+        
+        # Verify no processing happened (automatic parsing disabled)
+        mock_update.message.reply_text.assert_not_called()
     
     @pytest.mark.asyncio
     async def test_parse_all_messages_shows_help_for_non_game(self, mock_update, mock_context):
@@ -235,6 +282,7 @@ class TestBotParserIntegration:
         # Setup non-game message in private chat
         mock_update.message.text = "Hello bot"
         mock_update.effective_chat.type = "private"
+        mock_update.message.reply_to_message = None
         
         bot = TelegramBot()
         await bot.parse_all_messages(mock_update, mock_context)
@@ -244,6 +292,7 @@ class TestBotParserIntegration:
         call_args = mock_update.message.reply_text.call_args[0][0]
         assert "банк-аггрегатор" in call_args
         assert "/start" in call_args
+        assert "парсинг" in call_args  # Should mention manual parsing
 
 
 class TestParserDetection:

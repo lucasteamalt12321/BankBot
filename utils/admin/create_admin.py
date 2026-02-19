@@ -3,10 +3,15 @@
 Скрипт для создания первого администратора
 """
 
-import sqlite3
 import sys
+import os
 
-DB_PATH = 'telegram_bot.db'
+# Добавляем корневую директорию в путь
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+from database.connection import get_connection
+
+DB_PATH = 'data/bot.db'
 
 def create_admin():
     """Создание первого администратора"""
@@ -18,23 +23,23 @@ def create_admin():
         username = input("Введите username (без @): ")
         first_name = input("Введите имя: ")
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_connection(DB_PATH)
         cursor = conn.cursor()
         
         # Проверяем, существует ли пользователь
-        cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+        cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (user_id,))
         if cursor.fetchone():
             # Обновляем существующего пользователя
             cursor.execute('''
                 UPDATE users 
                 SET is_admin = TRUE, username = ?, first_name = ?
-                WHERE id = ?
+                WHERE telegram_id = ?
             ''', (username, first_name, user_id))
             print(f"✅ Пользователь {user_id} обновлен и назначен администратором")
         else:
             # Создаем нового пользователя-администратора
             cursor.execute('''
-                INSERT INTO users (id, username, first_name, balance, is_admin)
+                INSERT INTO users (telegram_id, username, first_name, balance, is_admin)
                 VALUES (?, ?, ?, 0, TRUE)
             ''', (user_id, username, first_name))
             print(f"✅ Создан новый пользователь-администратор: {user_id}")

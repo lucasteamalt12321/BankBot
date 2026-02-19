@@ -1,6 +1,8 @@
 """
 Example demonstrating the Admin Notification System
 Shows how admin notifications work when users purchase admin items
+
+UPDATED: Uses centralized database connection from database.connection
 """
 
 import asyncio
@@ -12,6 +14,7 @@ from unittest.mock import Mock, AsyncMock
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from database.connection import get_connection
 from core.systems.broadcast_system import BroadcastSystem
 from core.managers.shop_manager import ShopManager
 from database.database import User, ShopItem

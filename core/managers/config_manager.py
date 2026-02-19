@@ -248,10 +248,11 @@ class ConfigurationManager:
     def _get_default_admin_ids(self) -> List[int]:
         """Get default admin user IDs from environment or config"""
         try:
-            from utils.core.config import settings
-            return settings.admin_user_ids if settings.admin_user_ids else [2091908459]
+            from src.config import settings
+            return settings.admin_user_ids if settings.admin_user_ids else [settings.ADMIN_TELEGRAM_ID]
         except Exception:
-            return [2091908459]  # Fallback admin ID
+            from src.config import settings
+            return [settings.ADMIN_TELEGRAM_ID]  # Fallback admin ID
     
     def reload_configuration(self) -> bool:
         """

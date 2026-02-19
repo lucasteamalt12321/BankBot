@@ -6,6 +6,9 @@ from typing import Optional, Callable, Any
 from telegram import Update
 from telegram.ext import ContextTypes
 
+# Используем централизованное подключение к БД
+from database.connection import get_connection
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,9 +21,7 @@ class AdminSystem:
     
     def get_db_connection(self) -> sqlite3.Connection:
         """Получение соединения с базой данных"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # Для доступа к колонкам по имени
-        return conn
+        return get_connection(self.db_path)
     
     def is_admin(self, user_id: int) -> bool:
         """
@@ -56,15 +57,18 @@ class AdminSystem:
                 else:
                     # Пользователь не найден в базе данных
                     logger.warning(f"User {user_id} not found in database for admin check")
-                    return user_id == 2091908459  # Fallback для LucasTeamLuke
+                    from src.config import settings
+                    return user_id == settings.ADMIN_TELEGRAM_ID  # Fallback для LucasTeamLuke
             else:
                 # Если поля is_admin нет, используем hardcoded проверку
                 conn.close()
-                return user_id == 2091908459  # LucasTeamLuke
+                from src.config import settings
+                return user_id == settings.ADMIN_TELEGRAM_ID  # LucasTeamLuke
                 
         except Exception as e:
             logger.error(f"Error checking admin status for user {user_id}: {e}")
-            return user_id == 2091908459  # Fallback для LucasTeamLuke
+            from src.config import settings
+            return user_id == settings.ADMIN_TELEGRAM_ID  # Fallback для LucasTeamLuke
     
     def register_user(self, user_id: int, username: str = None, first_name: str = None) -> bool:
         """
@@ -175,13 +179,14 @@ class AdminSystem:
             conn.close()
             
             if result:
+                from src.config import settings
                 return {
                     'id': result['id'],
                     'telegram_id': result['telegram_id'],
                     'username': result['username'],
                     'first_name': result['first_name'],
                     'balance': result['balance'],
-                    'is_admin': bool(result['is_admin']) if has_is_admin else (result['telegram_id'] == 2091908459)
+                    'is_admin': bool(result['is_admin']) if has_is_admin else (result['telegram_id'] == settings.ADMIN_TELEGRAM_ID)
                 }
             else:
                 return None
@@ -225,13 +230,14 @@ class AdminSystem:
             conn.close()
             
             if result:
+                from src.config import settings
                 user_data = {
                     'id': result['id'],
                     'telegram_id': result['telegram_id'],
                     'username': result['username'],
                     'first_name': result['first_name'],
                     'balance': result['balance'],
-                    'is_admin': bool(result['is_admin']) if has_is_admin else (user_id == 2091908459)
+                    'is_admin': bool(result['is_admin']) if has_is_admin else (user_id == settings.ADMIN_TELEGRAM_ID)
                 }
                 return user_data
             else:

@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
-from utils.core.config import settings
+from src.config import settings
 
 Base = declarative_base()
 
@@ -142,7 +142,7 @@ class ScheduledTask(Base):
     is_completed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    user = relationship("User")
+    user = relationship("User", back_populates="scheduled_tasks")
 
 
 class GameSession(Base):
@@ -399,7 +399,30 @@ class PurchaseRecord(Base):
     item = relationship("ShopItem")
 
 
-engine = create_engine(settings.database_url)
+class BotBalance(Base):
+    """
+    Таблица для хранения балансов игроков в различных играх/ботах.
+    Используется для отслеживания дельт при парсинге профилей.
+    """
+    __tablename__ = "bot_balances"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game = Column(String(50), nullable=False)  # Название игры: gdcards, shmalala, truemafia, bunkerrp
+    last_balance = Column(Float, default=0.0)  # Последний известный баланс в игре (для профилей)
+    current_bot_balance = Column(Float, default=0.0)  # Текущий баланс бота (накопленные начисления)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+
+    # Уникальный индекс: один пользователь - одна запись на игру
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
+
+engine = create_engine(settings.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

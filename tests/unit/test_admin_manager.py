@@ -19,6 +19,7 @@ from core.models.advanced_models import UserStats, ParsingStats, BroadcastResult
 from database.database import User, ParsedTransaction, ParsingRule, UserPurchase, ShopItem
 from utils.admin.admin_system import AdminSystem
 from core.systems.broadcast_system import BroadcastSystem
+from src.config import settings
 
 
 class TestAdminManager:
@@ -41,7 +42,7 @@ class TestAdminManager:
         assert self.admin_manager.db == self.mock_db
         assert self.admin_manager.broadcast_system == self.mock_broadcast_system
         assert self.admin_manager.admin_system == self.mock_admin_system
-        assert 2091908459 in self.admin_manager.fallback_admin_ids
+        assert settings.ADMIN_TELEGRAM_ID in self.admin_manager.fallback_admin_ids
     
     def test_is_admin_with_admin_system(self):
         """Test admin verification using AdminSystem"""
@@ -58,7 +59,7 @@ class TestAdminManager:
     def test_is_admin_fallback(self):
         """Test admin verification with fallback admin IDs"""
         # Test with fallback admin ID (should return True regardless of AdminSystem)
-        assert self.admin_manager.is_admin(2091908459) == True
+        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID) == True
         
         # Test with non-admin ID (AdminSystem returns False)
         self.mock_admin_system.is_admin.return_value = False
@@ -86,7 +87,7 @@ class TestAdminManager:
         self.mock_admin_system.is_admin.side_effect = Exception("Database error")
         
         # Should fall back to hardcoded admin IDs
-        assert self.admin_manager.is_admin(2091908459) == True
+        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID) == True
         assert self.admin_manager.is_admin(999999) == False
     
     @pytest.mark.asyncio
@@ -306,7 +307,7 @@ class TestAdminManager:
         
         result = self.admin_manager.get_admin_user_ids()
         
-        assert 2091908459 in result
+        assert settings.ADMIN_TELEGRAM_ID in result
         assert len(result) == 1
     
     def test_add_admin_user_success(self):

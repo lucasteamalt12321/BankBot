@@ -180,7 +180,8 @@ class BroadcastSystem:
             ).all()
             
             # Fallback admin user IDs if no admins in database (Requirement 3.3)
-            fallback_admin_ids = [2091908459]  # LucasTeamLuke
+            from src.config import settings
+            fallback_admin_ids = [settings.ADMIN_TELEGRAM_ID]  # LucasTeamLuke
             
             if not admin_users:
                 # Try to get fallback admin users
@@ -483,7 +484,8 @@ class BroadcastSystem:
             admin_ids = [user.telegram_id for user in admin_users]
             
             # Add fallback admin IDs if no admins found in database
-            fallback_admin_ids = [2091908459]  # LucasTeamLuke
+            from src.config import settings
+            fallback_admin_ids = [settings.ADMIN_TELEGRAM_ID]  # LucasTeamLuke
             if not admin_ids:
                 admin_ids = fallback_admin_ids
             
@@ -492,7 +494,8 @@ class BroadcastSystem:
             
         except Exception as e:
             logger.error(f"Error getting admin user IDs: {e}")
-            return [2091908459]  # Fallback
+            from src.config import settings
+            return [settings.ADMIN_TELEGRAM_ID]  # Fallback
     
     def add_admin_user(self, user_id: int) -> bool:
         """

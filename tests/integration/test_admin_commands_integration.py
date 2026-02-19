@@ -20,6 +20,7 @@ from telegram import Update, User as TelegramUser, Message, Chat
 from telegram.ext import ContextTypes
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
+from src.config import settings
 import tempfile
 
 
@@ -55,7 +56,7 @@ class TestAdvancedAdminCommandsIntegration:
         """Create test data for integration tests"""
         # Create test users
         admin_user = User(
-            telegram_id=2091908459,  # Admin user
+            telegram_id=settings.ADMIN_TELEGRAM_ID,  # Admin user
             username="test_admin",
             first_name="Test Admin",
             balance=Decimal('1000.00'),
@@ -123,7 +124,7 @@ class TestAdvancedAdminCommandsIntegration:
         
         # Create mock update and context
         self.mock_user = Mock(spec=TelegramUser)
-        self.mock_user.id = 2091908459  # Admin user ID
+        self.mock_user.id = settings.ADMIN_TELEGRAM_ID  # Admin user ID
         self.mock_user.username = "test_admin"
         self.mock_user.first_name = "Test Admin"
         
@@ -218,7 +219,7 @@ class TestAdvancedAdminCommandsIntegration:
                 
                 # Verify broadcast was called
                 mock_admin_manager.broadcast_admin_message.assert_called_once_with(
-                    "Test broadcast message", 2091908459
+                    "Test broadcast message", settings.ADMIN_TELEGRAM_ID
                 )
                 
                 # Verify two messages were sent (confirmation + result)

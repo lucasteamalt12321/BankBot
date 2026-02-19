@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Скрипт для обновления достижений в базе данных
+
+UPDATED: Uses centralized database connection from database.connection
 """
 
 import sys
@@ -10,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from database.database import Base, Achievement
+from database.connection import get_connection
 from core.systems.achievements import AchievementSystem
 
 def update_achievements():

@@ -1,12 +1,15 @@
 """
 Example usage of BroadcastSystem in the Telegram bot
 This demonstrates how to integrate the BroadcastSystem with bot commands
+
+UPDATED: Uses centralized database connection from database.connection
 """
 
 from telegram import Update
 from telegram.ext import ContextTypes
 from sqlalchemy.orm import Session
 from database.database import get_db
+from database.connection import get_connection
 from core.systems.broadcast_system import BroadcastSystem
 from utils.admin.admin_system import AdminSystem
 import logging

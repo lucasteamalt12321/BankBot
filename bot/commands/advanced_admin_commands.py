@@ -193,8 +193,11 @@ class AdvancedAdminCommands:
         
         db = next(get_db())
         try:
+            # Get bot instance from context
+            bot = context.bot
+            
             # Create BroadcastSystem and AdminManager
-            broadcast_system = BroadcastSystem(db)
+            broadcast_system = BroadcastSystem(db, bot, self.admin_system)
             admin_manager = AdminManager(db, broadcast_system, self.admin_system)
             
             # Send confirmation to admin before broadcasting

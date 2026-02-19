@@ -43,7 +43,8 @@ class AdminManager:
         self.admin_system = admin_system  # Don't create default AdminSystem
         
         # Admin user IDs for fallback (Requirement 7.4, 8.2, 10.5)
-        self.fallback_admin_ids = [2091908459]  # LucasTeamLuke
+        from src.config import settings
+        self.fallback_admin_ids = [settings.ADMIN_TELEGRAM_ID]  # LucasTeamLuke
     
     async def get_user_stats(self, username: str) -> Optional[UserStats]:
         """

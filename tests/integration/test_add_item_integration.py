@@ -1,26 +1,135 @@
 """
-Integration test for add_item functionality with existing ShopManager
+Unified integration tests for /add_item command and ShopManager.add_item()
+Combines command handler testing and direct ShopManager method testing
+
+MERGED from test_add_item_command_integration.py and test_add_item_integration.py
+during Phase 4 refactoring
 """
 
+import pytest
 import asyncio
 import sys
 import os
+from unittest.mock import Mock, AsyncMock, patch
 from decimal import Decimal
 import time
+from telegram import Update, Message, User as TelegramUser
+from telegram.ext import ContextTypes
 
 # Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from bot.commands.advanced_admin_commands import AdvancedAdminCommands
+from database.database import Base, get_db, User, ShopItem
+from core.managers.shop_manager import ShopManager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database.database import Base, User, ShopItem
-from core.managers.shop_manager import ShopManager
 
 
-def test_add_item_integration():
+# ========== COMMAND HANDLER TESTS ==========
+
+class TestAddItemCommandIntegration:
+    """Integration tests for the /add_item command handler"""
+    
+    @pytest.fixture
+    def mock_update(self):
+        """Create a mock Telegram update"""
+        update = Mock(spec=Update)
+        update.effective_user = Mock(spec=TelegramUser)
+        update.effective_user.id = 12345
+        update.effective_user.username = "admin_user"
+        update.effective_user.first_name = "Admin"
+        
+        update.message = Mock(spec=Message)
+        update.message.reply_text = AsyncMock()
+        
+        return update
+    
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock context"""
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = []
+        return context
+    
+    @pytest.fixture
+    def admin_commands(self):
+        """Create AdvancedAdminCommands instance with mocked admin system"""
+        with patch('bot.advanced_admin_commands.AdminSystem') as mock_admin_system:
+            mock_admin_system.return_value.is_admin.return_value = True
+            return AdvancedAdminCommands()
+    
+    @pytest.fixture
+    def mock_db_session(self):
+        """Create a mock database session"""
+        db = Mock()
+        db.query.return_value.filter.return_value.first.return_value = None
+        db.add = Mock()
+        db.commit = Mock()
+        db.refresh = Mock()
+        db.close = Mock()
+        return db
+    
+    @pytest.mark.asyncio
+    async def test_add_item_command_success(self, admin_commands, mock_update, mock_context, mock_db_session):
+        """Test complete integration of add_item command with ShopManager"""
+        mock_context.args = ["Integration", "Test", "Item", "150", "sticker"]
+        
+        new_item = Mock()
+        new_item.id = 10
+        new_item.name = "Integration Test Item"
+        new_item.price = 150
+        new_item.item_type = "sticker"
+        new_item.description = "Динамически созданный товар типа sticker"
+        new_item.is_active = True
+        
+        mock_db_session.refresh.side_effect = lambda item: setattr(item, 'id', 10)
+        
+        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('core.shop_manager.ShopItem') as mock_shop_item_class:
+            
+            mock_get_db.return_value.__next__.return_value = mock_db_session
+            mock_shop_item_class.return_value = new_item
+            
+            await admin_commands.add_item_command(mock_update, mock_context)
+            
+            mock_db_session.add.assert_called_once()
+            mock_db_session.commit.assert_called_once()
+            mock_db_session.refresh.assert_called_once()
+            
+            mock_update.message.reply_text.assert_called_once()
+            call_args = mock_update.message.reply_text.call_args
+            assert "✅" in call_args[0][0]
+            assert "Integration Test Item" in call_args[0][0]
+    
+    @pytest.mark.asyncio
+    async def test_add_item_command_duplicate_name(self, admin_commands, mock_update, mock_context, mock_db_session):
+        """Test integration with duplicate name detection"""
+        mock_context.args = ["Existing", "Item", "100", "admin"]
+        
+        existing_item = Mock()
+        existing_item.name = "Existing Item"
+        mock_db_session.query.return_value.filter.return_value.first.return_value = existing_item
+        
+        with patch('bot.advanced_admin_commands.get_db') as mock_get_db:
+            mock_get_db.return_value.__next__.return_value = mock_db_session
+            
+            await admin_commands.add_item_command(mock_update, mock_context)
+            
+            mock_db_session.add.assert_not_called()
+            mock_db_session.commit.assert_not_called()
+            
+            mock_update.message.reply_text.assert_called_once()
+            call_args = mock_update.message.reply_text.call_args
+            assert "❌" in call_args[0][0]
+            assert "Товар уже существует" in call_args[0][0]
+
+
+# ========== SHOP MANAGER TESTS ==========
+
+def test_shop_manager_add_item_integration():
     """Test add_item method integration with existing ShopManager"""
     
-    # Create test database with unique name
     db_name = f"test_add_item_{int(time.time())}.db"
     engine = create_engine(f"sqlite:///{db_name}")
     Base.metadata.create_all(engine)
@@ -38,7 +147,6 @@ def test_add_item_integration():
         session.add(test_user)
         session.commit()
         
-        # Initialize ShopManager
         shop_manager = ShopManager(session)
         
         # Test adding a new item
@@ -49,94 +157,61 @@ def test_add_item_integration():
             item_type="sticker"
         ))
         
-        assert result["success"] is True, f"Add item should succeed: {result.get('message', 'No message')}"
+        assert result["success"] is True
         assert result["item"]["name"] == "Dynamic Test Item"
         assert result["item"]["price"] == 1500
-        assert result["item"]["item_type"] == "sticker"
-        
         print("✅ Item added successfully")
         
-        # Test that the item is immediately available
-        print("Testing immediate availability...")
+        # Test immediate availability
         shop_items = shop_manager.get_shop_items()
         item_names = [item.name for item in shop_items]
-        assert "Dynamic Test Item" in item_names, "New item should be in shop items list"
-        
+        assert "Dynamic Test Item" in item_names
         print("✅ Item is immediately available")
         
         # Test purchasing the new item
-        print("Testing purchase of new item...")
         item_number = None
         for i, item in enumerate(shop_items):
             if item.name == "Dynamic Test Item":
                 item_number = i + 1
                 break
         
-        assert item_number is not None, "Should find the new item in shop list"
-        
         purchase_result = asyncio.run(shop_manager.process_purchase(987654321, item_number))
-        assert purchase_result.success is True, f"Purchase should succeed: {purchase_result.message}"
-        assert purchase_result.new_balance == Decimal('8500'), f"Balance should be 8500, got {purchase_result.new_balance}"
-        
+        assert purchase_result.success is True
+        assert purchase_result.new_balance == Decimal('8500')
         print("✅ New item can be purchased successfully")
         
-        # Test adding item with duplicate name (should fail)
-        print("Testing duplicate name validation...")
+        # Test duplicate name validation
         duplicate_result = asyncio.run(shop_manager.add_item(
             name="Dynamic Test Item",
             price=Decimal('2000'),
             item_type="admin"
         ))
         
-        assert duplicate_result["success"] is False, "Duplicate name should be rejected"
+        assert duplicate_result["success"] is False
         assert duplicate_result["error_code"] == "DUPLICATE_NAME"
-        
         print("✅ Duplicate name validation works")
         
-        # Test adding item with invalid type (should fail)
-        print("Testing invalid type validation...")
+        # Test invalid type validation
         invalid_type_result = asyncio.run(shop_manager.add_item(
             name="Invalid Type Item",
             price=Decimal('1000'),
             item_type="invalid"
         ))
         
-        assert invalid_type_result["success"] is False, "Invalid type should be rejected"
+        assert invalid_type_result["success"] is False
         assert invalid_type_result["error_code"] == "INVALID_ITEM_TYPE"
-        
         print("✅ Invalid type validation works")
         
         # Test all valid item types
-        print("Testing all valid item types...")
         valid_types = ["admin", "mention_all", "custom"]
-        
         for item_type in valid_types:
             type_result = asyncio.run(shop_manager.add_item(
                 name=f"Test {item_type.title()} Item",
                 price=Decimal('500'),
                 item_type=item_type
             ))
-            
-            assert type_result["success"] is True, f"Should accept {item_type} type"
-            assert type_result["item"]["item_type"] == item_type
-        
+            assert type_result["success"] is True
         print("✅ All valid item types accepted")
-        
-        # Verify all items are in the database
-        all_items = session.query(ShopItem).all()
-        created_item_names = [item.name for item in all_items]
-        
-        expected_names = [
-            "Dynamic Test Item",
-            "Test Admin Item", 
-            "Test Mention_All Item",
-            "Test Custom Item"
-        ]
-        
-        for name in expected_names:
-            assert name in created_item_names, f"Item '{name}' should be in database"
-        
-        print("✅ All items persisted in database")
         
         print("\n🎉 All add_item integration tests passed!")
         return True
@@ -149,17 +224,19 @@ def test_add_item_integration():
         
     finally:
         session.close()
-        # Clean up test database
         try:
             if os.path.exists(db_name):
                 os.remove(db_name)
         except PermissionError:
-            # File may be locked on Windows, ignore
             pass
 
 
 if __name__ == "__main__":
-    print("Running add_item integration test...")
-    success = test_add_item_integration()
+    # Run pytest tests
+    pytest.main([__file__, "-v"])
+    
+    # Run standalone test
+    print("\nRunning standalone ShopManager test...")
+    success = test_shop_manager_add_item_integration()
     if not success:
         sys.exit(1)

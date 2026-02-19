@@ -1,97 +1,63 @@
-# admin_middleware.py - Admin system middleware and decorators
-import functools
+"""
+Admin Middleware - автоматическая регистрация пользователей
+"""
 import logging
-from typing import Callable, Any
 from telegram import Update
 from telegram.ext import ContextTypes
-from utils.database.simple_db import register_user, get_user_by_id, is_admin
 
 logger = logging.getLogger(__name__)
 
-def ensure_user_registered(func: Callable) -> Callable:
-    """Decorator to ensure user is registered before processing any command/message"""
-    @functools.wraps(func)
-    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        try:
-            user = update.effective_user
-            
-            # Skip if user is a bot
-            if user.is_bot:
-                return await func(self, update, context, *args, **kwargs)
-            
-            # Check if user exists in admin system
-            existing_user = get_user_by_id(user.id)
-            
-            if not existing_user:
-                # Register new user transparently
-                username = user.username
-                first_name = user.first_name
-                
-                success = register_user(user.id, username, first_name)
-                if success:
-                    logger.info(f"Auto-registered user {user.id} (@{username}, {first_name})")
-                else:
-                    logger.warning(f"Failed to auto-register user {user.id}, but continuing...")
-            
-        except Exception as e:
-            # Не прерываем выполнение команды из-за ошибки в декораторе
-            logger.error(f"Error in ensure_user_registered decorator: {e}")
-        
-        # Continue with original function
-        return await func(self, update, context, *args, **kwargs)
-    
-    return wrapper
-
-def admin_required(func: Callable) -> Callable:
-    """Decorator to require admin privileges for command execution"""
-    @functools.wraps(func)
-    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user = update.effective_user
-        
-        # Check admin status
-        if not is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора для выполнения этой команды.")
-            return
-        
-        # Continue with original function
-        return await func(self, update, context, *args, **kwargs)
-    
-    return wrapper
 
 class AutoRegistrationMiddleware:
-    """Middleware class for automatic user registration"""
+    """Middleware для автоматической регистрации пользователей"""
     
     def __init__(self):
-        # Database is already initialized, no need to call init_database
-        logger.info("AutoRegistrationMiddleware initialized")
+        self.registered_users = set()
     
     async def process_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Process any message/command for automatic user registration"""
+        """
+        Обрабатывает сообщение и автоматически регистрирует пользователя
+        
+        Args:
+            update: Telegram Update объект
+            context: Telegram Context объект
+        """
+        if not update.effective_user:
+            return
+        
+        user = update.effective_user
+        user_id = user.id
+        
+        # Если пользователь уже обработан в этой сессии, пропускаем
+        if user_id in self.registered_users:
+            return
+        
         try:
-            user = update.effective_user
+            # Импортируем здесь чтобы избежать циклических зависимостей
+            from database.database import get_db
+            from utils.core.user_manager import UserManager
             
-            # Skip if user is a bot
-            if user.is_bot:
-                return
-            
-            # Check if user exists in admin system
-            existing_user = get_user_by_id(user.id)
-            
-            if not existing_user:
-                # Register new user transparently
-                username = user.username
-                first_name = user.first_name
+            db = next(get_db())
+            try:
+                user_manager = UserManager(db)
                 
-                success = register_user(user.id, username, first_name)
-                if success:
-                    logger.info(f"Auto-registered user {user.id} (@{username}, {first_name})")
-                else:
-                    logger.warning(f"Failed to auto-register user {user.id}, but continuing...")
-                    
+                # Идентифицируем/регистрируем пользователя
+                db_user = user_manager.identify_user(
+                    user.username or user.first_name,
+                    user_id
+                )
+                
+                # Добавляем в кэш обработанных пользователей
+                self.registered_users.add(user_id)
+                
+                logger.info(f"Auto-registered user: {user_id} ({user.username or user.first_name})")
+                
+            finally:
+                db.close()
+                
         except Exception as e:
-            # Не прерываем выполнение команды из-за ошибки в middleware
             logger.error(f"Error in auto-registration middleware: {e}")
-            # Продолжаем выполнение без регистрации
 
-# Global middleware instance
+
+# Глобальный экземпляр middleware
 auto_registration_middleware = AutoRegistrationMiddleware()

@@ -123,7 +123,7 @@ class ShopManager:
                 try:
                     from core.systems.broadcast_system import BroadcastSystem
                     from telegram import Bot
-                    from utils.core.config import settings
+                    from src.config import settings
                     
                     bot = Bot(token=settings.telegram_token)
                     broadcast_system = BroadcastSystem(self.db, bot)
@@ -309,7 +309,7 @@ class ShopManager:
             # Import BroadcastSystem here to avoid circular imports
             from core.systems.broadcast_system import BroadcastSystem
             from telegram import Bot
-            from utils.core.config import settings
+            from src.config import settings
             
             # Create BroadcastSystem instance for notifications
             bot = Bot(token=settings.telegram_token)

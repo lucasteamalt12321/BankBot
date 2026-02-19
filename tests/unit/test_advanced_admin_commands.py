@@ -17,6 +17,7 @@ from bot.commands.advanced_admin_commands import AdvancedAdminCommands
 from core.models.advanced_models import ParsingStats, UserStats, BroadcastResult
 from telegram import Update, User, Message, Chat
 from telegram.ext import ContextTypes
+from src.config import settings
 
 
 class TestAdvancedAdminCommands:
@@ -31,7 +32,7 @@ class TestAdvancedAdminCommands:
         
         # Create mock update and context
         self.mock_user = Mock(spec=User)
-        self.mock_user.id = 2091908459  # Admin user ID
+        self.mock_user.id = settings.ADMIN_TELEGRAM_ID  # Admin user ID
         self.mock_user.username = "test_admin"
         self.mock_user.first_name = "Test Admin"
         
@@ -107,7 +108,7 @@ class TestAdvancedAdminCommands:
             await self.admin_commands.parsing_stats_command(self.mock_update, self.mock_context)
             
             # Verify
-            self.admin_commands.admin_system.is_admin.assert_called_once_with(2091908459)
+            self.admin_commands.admin_system.is_admin.assert_called_once_with(settings.ADMIN_TELEGRAM_ID)
             mock_admin_manager.get_parsing_stats.assert_called_once_with("24h")
             
             # Check that reply was sent with statistics
@@ -131,7 +132,7 @@ class TestAdvancedAdminCommands:
         await self.admin_commands.parsing_stats_command(self.mock_update, self.mock_context)
         
         # Verify
-        self.admin_commands.admin_system.is_admin.assert_called_once_with(2091908459)
+        self.admin_commands.admin_system.is_admin.assert_called_once_with(settings.ADMIN_TELEGRAM_ID)
         
         # Check that access denied message was sent
         self.mock_message.reply_text.assert_called_once()
@@ -158,9 +159,9 @@ class TestAdvancedAdminCommands:
             execution_time=2.5
         )
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.BroadcastSystem') as mock_broadcast_system_class, \
-             patch('bot.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.BroadcastSystem') as mock_broadcast_system_class, \
+             patch('bot.commands.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
             
             # Setup mocks
             mock_db = Mock()
@@ -177,9 +178,9 @@ class TestAdvancedAdminCommands:
             await self.admin_commands.broadcast_command(self.mock_update, self.mock_context)
             
             # Verify
-            self.admin_commands.admin_system.is_admin.assert_called_once_with(2091908459)
+            self.admin_commands.admin_system.is_admin.assert_called_once_with(settings.ADMIN_TELEGRAM_ID)
             mock_admin_manager.broadcast_admin_message.assert_called_once_with(
-                "Важное объявление для всех", 2091908459
+                "Важное объявление для всех", settings.ADMIN_TELEGRAM_ID
             )
             
             # Check that confirmation and result messages were sent
@@ -281,7 +282,7 @@ class TestAdvancedAdminCommands:
             await self.admin_commands.user_stats_command(self.mock_update, self.mock_context)
             
             # Verify
-            self.admin_commands.admin_system.is_admin.assert_called_once_with(2091908459)
+            self.admin_commands.admin_system.is_admin.assert_called_once_with(settings.ADMIN_TELEGRAM_ID)
             mock_admin_manager.get_user_stats.assert_called_once_with("@test_user")
             
             # Check that reply was sent with user statistics

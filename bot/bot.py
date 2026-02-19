@@ -20,7 +20,7 @@ from utils.monitoring.notification_system import NotificationSystem
 from core.systems.achievements import AchievementSystem
 from core.systems.social_system import SocialSystem
 from utils.core.user_manager import UserManager
-from utils.config import settings, update_currency_rate, get_currency_config
+from src.config import settings, update_currency_rate, get_currency_config
 from utils.monitoring.monitoring_system import MonitoringSystem, AlertSystem
 from database.backup_system import BackupSystem
 from utils.core.error_handling import ErrorHandlingSystem
@@ -29,6 +29,7 @@ from utils.admin.admin_system import AdminSystem, admin_required
 from bot.commands.advanced_admin_commands import AdvancedAdminCommands
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
+from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
 from datetime import datetime
 import structlog
 from telegram.error import BadRequest, TelegramError
@@ -42,7 +43,7 @@ logger = structlog.get_logger()
 
 class TelegramBot:
     def __init__(self):
-        self.application = Application.builder().token(settings.bot_token).build()
+        self.application = Application.builder().token(settings.BOT_TOKEN).build()
         
         # Инициализация систем мониторинга и безопасности
         self.monitoring_system = None
@@ -60,6 +61,9 @@ class TelegramBot:
         # Инициализация системы фоновых задач
         self.background_task_manager = None
         self.sticker_manager = None
+        
+        # NEW: Инициализация обработчика парсинга
+        self.parsing_handler = ParsingHandler()
         
         # Флаг для graceful shutdown
         self._shutdown_requested = False
@@ -108,6 +112,11 @@ class TelegramBot:
             CommandHandler("buy_1", self.buy_1_command),
             CommandHandler("buy_2", self.buy_2_command),
             CommandHandler("buy_3", self.buy_3_command),
+            CommandHandler("buy_4", self.buy_4_command),
+            CommandHandler("buy_5", self.buy_5_command),
+            CommandHandler("buy_6", self.buy_6_command),
+            CommandHandler("buy_7", self.buy_7_command),
+            CommandHandler("buy_8", self.buy_8_command),
             CommandHandler("inventory", self.inventory_command),
 
             # Мини-игры
@@ -426,7 +435,7 @@ class TelegramBot:
                     registration_status = "✅ Пользователь зарегистрирован"
                     
                     # Если это пользователь из конфига - делаем администратором
-                    if user.id == 2091908459:  # LucasTeamLuke
+                    if user.id == settings.ADMIN_TELEGRAM_ID:  # LucasTeamLuke
                         admin_success = self.admin_system.set_admin_status(user.id, True)
                         if admin_success:
                             logger.info(f"Set admin status for user {user.id}")
@@ -447,7 +456,7 @@ class TelegramBot:
                     admin_status = "❌ Нет прав администратора"
                     
                     # Если это пользователь из конфига - делаем администратором
-                    if user.id == 2091908459:  # LucasTeamLuke
+                    if user.id == settings.ADMIN_TELEGRAM_ID:  # LucasTeamLuke
                         admin_success = self.admin_system.set_admin_status(user.id, True)
                         if admin_success:
                             admin_status = "✅ Права администратора установлены"
@@ -649,8 +658,16 @@ class TelegramBot:
         """Команда /profile - профиль пользователя"""
         user = update.effective_user
         
-        # Process automatic user registration first
-        await auto_registration_middleware.process_message(update, context)
+        # Логируем вызов команды для отладки
+        logger.info(f"Profile command called by user {user.id} (@{user.username})")
+        
+        try:
+            # Process automatic user registration first
+            await auto_registration_middleware.process_message(update, context)
+            logger.info(f"Auto-registration middleware processed for user {user.id}")
+        except Exception as e:
+            logger.error(f"Error in auto-registration middleware: {e}")
+            # Продолжаем выполнение команды даже если middleware не сработал
         
         # Принудительная регистрация если пользователь не найден
         admin_user = None
@@ -667,7 +684,7 @@ class TelegramBot:
                     logger.info(f"Force-registered user {user.id} in profile command")
                     
                     # Если это пользователь из конфига - делаем администратором
-                    if user.id == 2091908459:  # LucasTeamLuke
+                    if user.id == settings.ADMIN_TELEGRAM_ID:  # LucasTeamLuke
                         self.admin_system.set_admin_status(user.id, True)
                         logger.info(f"Set admin status for user {user.id}")
                     
@@ -682,7 +699,7 @@ class TelegramBot:
                             'username': user.username,
                             'first_name': user.first_name,
                             'balance': 0,
-                            'is_admin': user.id == 2091908459
+                            'is_admin': user.id == settings.ADMIN_TELEGRAM_ID
                         }
                         logger.warning(f"Created temporary user object for {user.id}")
                 else:
@@ -1057,6 +1074,26 @@ class TelegramBot:
     async def buy_3_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /buy_3 - покупка третьего товара"""
         await self._handle_purchase_command(update, context, 3)
+
+    async def buy_4_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_4 - покупка четвертого товара"""
+        await self._handle_purchase_command(update, context, 4)
+
+    async def buy_5_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_5 - покупка пятого товара"""
+        await self._handle_purchase_command(update, context, 5)
+
+    async def buy_6_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_6 - покупка шестого товара"""
+        await self._handle_purchase_command(update, context, 6)
+
+    async def buy_7_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_7 - покупка седьмого товара"""
+        await self._handle_purchase_command(update, context, 7)
+
+    async def buy_8_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /buy_8 - покупка восьмого товара"""
+        await self._handle_purchase_command(update, context, 8)
 
     async def _handle_purchase_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, item_number: int):
         """Обработчик команд покупки товаров из магазина с интеграцией ShopManager"""
@@ -2261,9 +2298,58 @@ ID клана: {result['clan_id']}
         
         users_count = self.admin_system.get_users_count()
         
-        text = f"Админ-панель:\n/add_points @username [число] - начислить очки\n/add_admin @username - добавить администратора\nВсего пользователей: {users_count}"
+        text = f"""🔧 <b>Админ-панель</b>
+
+👥 <b>Управление пользователями:</b>
+/add_points @user [число] - начислить очки
+/add_admin @user - добавить администратора
+/user_stats @user - детальная статистика пользователя
+/admin_users - список всех пользователей
+/admin_balances - топ пользователей по балансу
+/admin_transactions @user - история транзакций
+
+💰 <b>Управление балансом:</b>
+/admin_addcoins @user [число] - добавить монеты
+/admin_removecoins @user [число] - снять монеты
+/admin_adjust @user [число] - корректировка баланса
+/admin_merge @user1 @user2 - объединить аккаунты
+
+📊 <b>Статистика и аналитика:</b>
+/parsing_stats [24h|7d|30d] - статистика парсинга
+/admin_stats - общая статистика системы
+/admin_games_stats - статистика по играм
+/admin_rates - коэффициенты конвертации
+
+📢 <b>Коммуникация:</b>
+/broadcast &lt;текст&gt; - рассылка всем пользователям
+
+🛒 <b>Управление магазином:</b>
+/add_item - добавить товар в магазин
+/admin_shop_add - добавить товар (альтернатива)
+/admin_shop_edit - редактировать товар
+
+🔧 <b>Системные команды:</b>
+/admin_health - здоровье системы
+/admin_backup - создать резервную копию
+/admin_cleanup - очистка системы
+/admin_errors - просмотр ошибок
+
+⚙️ <b>Настройки парсинга:</b>
+/admin_parsing_config - конфигурация парсинга
+/admin_parsing_reload - перезагрузить правила
+
+🎮 <b>Фоновые задачи:</b>
+/admin_background_status - статус задач
+/admin_background_health - здоровье задач
+/admin_background_restart - перезапуск задач
+
+📈 <b>Информация:</b>
+Всего пользователей: {users_count}
+
+💡 <b>Совет:</b> Используйте /user_stats @username для получения детальной информации о любом игроке
+"""
         
-        await update.message.reply_text(text)
+        await update.message.reply_text(text, parse_mode='HTML')
         logger.info(f"Admin panel accessed by user {user.id}")
 
     async def add_points_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2410,7 +2496,8 @@ ID клана: {result['clan_id']}
         """Команда /admin_stats - статистика системы"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        # Проверка прав через AdminSystem
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -2455,7 +2542,7 @@ ID клана: {result['clan_id']}
         """Команда /admin_adjust - корректировка баланса"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -2527,7 +2614,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_addcoins - добавление монет пользователю"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("У вас нет прав администратора для использования этой команды")
             return
 
@@ -2599,7 +2686,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_removecoins - удаление монет у пользователя"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("У вас нет прав администратора для использования этой команды")
             return
 
@@ -2677,7 +2764,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_merge - объединение аккаунтов"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -2734,7 +2821,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_transactions - транзакции пользователя"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -2836,12 +2923,8 @@ ID транзакции: {transaction.id}
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
     async def admin_balances_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /admin_balances - балансы всех пользователей"""
+        """Команда /admin_balances - балансы всех пользователей (доступно всем)"""
         user = update.effective_user
-
-        if user.id not in settings.admin_user_ids:
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
 
         db = next(get_db())
         try:
@@ -2881,7 +2964,8 @@ ID транзакции: {transaction.id}
         """Команда /admin_users - список пользователей"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        # Проверка прав через AdminSystem
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -2903,8 +2987,7 @@ ID транзакции: {transaction.id}
                 if user_db.first_name:
                     text += f"   {user_db.first_name} {user_db.last_name or ''}\n"
                 text += f"   Баланс: {user_db.balance} монет\n"
-                text += f"   Зарегистрирован: {user_db.created_at.strftime('%d.%m.%Y')}\n"
-                text += f"   Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}\n\n"
+                text += f"   Регистрация: {user_db.created_at.strftime('%d.%m.%Y')}\n\n"
 
             text += f"💡 Всего пользователей: {db.query(User).count()}"
 
@@ -2919,7 +3002,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_rates - коэффициенты конвертации"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -2944,7 +3027,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_rate - изменение коэффициента"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -2984,7 +3067,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_cleanup - очистка системы"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3023,7 +3106,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_shop_add - добавление товара (заглушка)"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3037,7 +3120,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_shop_edit - редактирование товара (заглушка)"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3051,7 +3134,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_games_stats - статистика игр"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3080,7 +3163,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_reset_game - сброс игры (заглушка)"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3094,7 +3177,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_ban_player - бан игрока (заглушка)"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3108,7 +3191,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_health - здоровье системы"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3180,7 +3263,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_errors - просмотр ошибок"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3217,7 +3300,7 @@ ID транзакции: {transaction.id}
         """Команда /admin_backup - резервное копирование"""
         user = update.effective_user
 
-        if user.id not in settings.admin_user_ids:
+        if not self.admin_system.is_admin(user.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
 
@@ -3247,7 +3330,7 @@ ID транзакции: {transaction.id}
 
     # ===== Обработка сообщений =====
     async def parse_all_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка всех сообщений с интегрированным парсером"""
+        """Обработка сообщений - только ручной парсинг по команде 'парсинг'"""
         message_text = update.message.text
         user = update.effective_user
         chat = update.effective_chat
@@ -3257,58 +3340,14 @@ ID транзакции: {transaction.id}
         if message_text:
             clean_text = message_text.replace('@lt_lo_game_bot', '').strip().lower()
             if clean_text == "парсинг" and update.message.reply_to_message:
-                await self.handle_manual_parsing(update, context)
+                # NEW: Use unified parsing handler
+                await self.parsing_handler.handle_manual_parsing(update, context)
                 return
 
-        # Пропускаем сообщения от ботов, КРОМЕ игровых ботов
-        if user.is_bot:
-            # Список игровых ботов, сообщения от которых мы обрабатываем
-            game_bot_keywords = [
-                'shmalala', 'шмалала', 'шмала',  # Shmalala bot
-                'gdcards', 'gd', 'cards',        # GD Cards bot
-                'truemafia', 'mafia', 'мафия',   # True Mafia bot
-                'bunkerrp', 'bunker', 'бункер'   # Bunker RP bot
-            ]
-            
-            # Проверяем, является ли это игровым ботом
-            username = user.username.lower() if user.username else ""
-            first_name = user.first_name.lower() if user.first_name else ""
-            
-            is_game_bot = any(
-                keyword in username or keyword in first_name 
-                for keyword in game_bot_keywords
-            )
-            
-            # Если это не игровой бот, пропускаем сообщение
-            if not is_game_bot:
-                logger.debug(f"Skipping message from non-game bot: {user.first_name} (@{user.username})")
-                return
-            
-            # Если это игровой бот, продолжаем обработку
-            logger.info(f"Processing message from game bot: {user.first_name} (@{user.username})")
-
-        # First, process automatic user registration (только для обычных пользователей)
-        if not user.is_bot:
-            await auto_registration_middleware.process_message(update, context)
-
-        chat_type = "private" if chat.type == "private" else f"group/{chat.type}"
-        logger.info(f"Message received in {chat_type} chat {chat.id} from user {user.id}: {message_text[:100]}...")
-
-        # Если это сообщение от игрового бота, всегда обрабатываем как игровое
-        if user.is_bot:
-            await self.process_game_message(update, context)
-            return
-
-        # Проверяем, является ли сообщение игровым с помощью интегрированного парсера
-        from core.parsers.simple_parser import parse_game_message
-        parsed_result = parse_game_message(message_text)
+        # Пропускаем все остальные сообщения - автоматический парсинг отключен
+        # Обработка только по команде "парсинг"
+        logger.debug(f"Message ignored (automatic parsing disabled): {message_text[:50] if message_text else 'No text'}...")
         
-        if parsed_result:
-            # Это игровое сообщение, обрабатываем его
-            logger.info(f"Detected game message type: {parsed_result['type']}")
-            await self.process_game_message(update, context)
-            return
-
         # Если это личное сообщение от пользователя и не команда, покажем справку
         if chat.type == "private" and not message_text.startswith('/'):
             await update.message.reply_text(
@@ -3322,264 +3361,18 @@ ID транзакции: {transaction.id}
                 "/dnd - D&D мастерская\n"
                 "/daily - ежедневный бонус\n"
                 "/challenges - задания\n\n"
-                "В группах я автоматически отслеживаю вашу игровую активность!\n"
+                "💡 Для начисления очков из игр:\n"
+                "Ответьте на сообщение игрового бота словом 'парсинг'\n\n"
                 "Поддерживаемые игры: 🎣 Shmalala, 🃏 GD Cards"
             )
             return
 
-    async def process_game_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка игровых сообщений в группах с интегрированным парсером"""
-        message_text = update.message.text
-        user = update.effective_user
-        chat = update.effective_chat
-
-        logger.info("Processing game message", chat_id=chat.id, message_preview=message_text[:100])
-
-        # Используем интегрированную систему парсинга
-        db = next(get_db())
-        try:
-            from core.parsers.simple_parser import parse_game_message
-            from database.database import User
-            
-            # Парсим сообщение
-            parsed_result = parse_game_message(message_text)
-            
-            if not parsed_result:
-                logger.debug("Message not recognized as game activity")
-                return
-            
-            # Извлекаем данные
-            game_type = parsed_result['type']
-            username = parsed_result['user'].replace('@', '').strip()
-            amount = parsed_result['amount']
-            
-            logger.info(
-                "Game message parsed successfully",
-                type=game_type,
-                username=username,
-                amount=amount
-            )
-            
-            # Ищем или создаем пользователя
-            user_obj = db.query(User).filter(User.username == username).first()
-            
-            if not user_obj:
-                # Создаем нового пользователя
-                user_obj = User(
-                    telegram_id=0,  # Временный ID, будет обновлен при первом взаимодействии
-                    username=username,
-                    balance=0
-                )
-                db.add(user_obj)
-                db.commit()
-                db.refresh(user_obj)
-                logger.info(f"Created new user from game message: {username}")
-            
-            # Начисляем монеты/очки
-            old_balance = user_obj.balance
-            user_obj.balance += amount
-            db.commit()
-            
-            new_balance = user_obj.balance
-            
-            # Формируем сообщение в зависимости от типа игры
-            if game_type == 'fishing':
-                emoji = "🎣"
-                activity = "поймал рыбу"
-                currency = "монет"
-            elif game_type == 'card':
-                emoji = "🃏"
-                activity = "получил новую карту"
-                currency = "очков"
-            else:
-                emoji = "🎮"
-                activity = "заработал"
-                currency = "монет"
-            
-            # Отправляем уведомление о начислении
-            notification_text = (
-                f"{emoji} {username} {activity}!\n"
-                f"💰 Начислено: {amount} {currency}\n"
-                f"💳 Новый баланс: {new_balance} монет"
-            )
-            
-            await update.message.reply_text(notification_text)
-            
-            logger.info(
-                "Game reward processed successfully",
-                user_id=user_obj.id,
-                username=username,
-                game_type=game_type,
-                amount=amount,
-                old_balance=old_balance,
-                new_balance=new_balance
-            )
-                
-        except Exception as e:
-            logger.error("Error processing game message", error=str(e), chat_id=chat.id)
-            # Не показываем ошибку пользователю, чтобы не спамить в чате
-        finally:
-            db.close()
-
-    async def handle_manual_parsing(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Обработка ручного парсинга сообщения по команде "парсинг"
-        Пользователь отвечает на сообщение бота словом "парсинг" для его обработки
-        """
-        user = update.effective_user
-        original_message = update.message.reply_to_message
-        
-        # Проверяем, что это ответ на сообщение от бота
-        if not original_message or not original_message.from_user.is_bot:
-            await update.message.reply_text(
-                "❌ Команда 'парсинг' должна быть ответом на сообщение от игрового бота"
-            )
-            return
-        
-        # Получаем текст из text или caption
-        message_text = original_message.text or original_message.caption
-        bot_user = original_message.from_user
-        
-        logger.info(
-            "Manual parsing requested",
-            user_id=user.id,
-            bot_name=bot_user.first_name,
-            bot_username=bot_user.username,
-            message_preview=message_text[:100] if message_text else "No text"
-        )
-        
-        # Проверяем, что есть текст для парсинга
-        if not message_text:
-            await update.message.reply_text(
-                "❌ Сообщение не содержит текста для парсинга\n"
-                "Убедитесь, что сообщение содержит текстовую информацию."
-            )
-            return
-        
-        # Используем интегрированную систему парсинга
-        db = next(get_db())
-        try:
-            from core.parsers.simple_parser import parse_game_message
-            from database.database import User
-            
-            # Парсим сообщение
-            parsed_result = parse_game_message(message_text)
-            
-            if not parsed_result:
-                await update.message.reply_text(
-                    f"❌ Не удалось распознать сообщение от бота {bot_user.first_name}\n\n"
-                    f"Поддерживаемые форматы:\n"
-                    f"🎣 Shmalala - рыбалка\n"
-                    f"🃏 GD Cards - новые карты\n\n"
-                    f"Первые 100 символов сообщения:\n{message_text[:100]}..."
-                )
-                logger.debug("Manual parsing failed - message not recognized")
-                return
-            
-            # Извлекаем данные
-            game_type = parsed_result['type']
-            username = parsed_result['user'].replace('@', '').strip()
-            amount = parsed_result['amount']
-            
-            logger.info(
-                "Manual parsing successful",
-                type=game_type,
-                username=username,
-                amount=amount,
-                requester_id=user.id
-            )
-            
-            # Ищем пользователя по username или telegram_id
-            # Сначала пытаемся найти по telegram_id запросившего
-            user_obj = db.query(User).filter(User.telegram_id == user.id).first()
-            
-            if not user_obj:
-                # Если не найден по telegram_id, ищем по username
-                user_obj = db.query(User).filter(User.username == username).first()
-            
-            if not user_obj:
-                # Создаем нового пользователя с telegram_id
-                user_obj = User(
-                    telegram_id=user.id,
-                    username=username,
-                    first_name=user.first_name,
-                    balance=0
-                )
-                db.add(user_obj)
-                db.commit()
-                db.refresh(user_obj)
-                logger.info(f"Created new user from manual parsing: {username} (telegram_id: {user.id})")
-            else:
-                # Обновляем telegram_id если он не был установлен
-                if not user_obj.telegram_id or user_obj.telegram_id == 0:
-                    user_obj.telegram_id = user.id
-                    user_obj.first_name = user.first_name
-                    db.commit()
-                    logger.info(f"Updated telegram_id for user: {username} -> {user.id}")
-            
-            # Начисляем монеты/очки
-            old_balance = user_obj.balance
-            user_obj.balance += amount
-            
-            # Создаем транзакцию
-            from database.database import Transaction
-            transaction = Transaction(
-                user_id=user_obj.id,
-                amount=amount,
-                transaction_type='manual_parsing',
-                source_game=game_type,
-                description=f"Ручной парсинг: {game_type} от {bot_user.first_name}"
-            )
-            db.add(transaction)
-            
-            db.commit()
-            
-            new_balance = user_obj.balance
-            
-            # Формируем сообщение в зависимости от типа игры
-            if game_type == 'fishing':
-                emoji = "🎣"
-                activity = "поймал рыбу"
-                currency = "монет"
-            elif game_type == 'card':
-                emoji = "🃏"
-                activity = "получил новую карту"
-                currency = "очков"
-            else:
-                emoji = "🎮"
-                activity = "заработал"
-                currency = "монет"
-            
-            # Отправляем уведомление о начислении
-            notification_text = (
-                f"✅ Сообщение успешно обработано!\n\n"
-                f"{emoji} {username} {activity}!\n"
-                f"💰 Начислено: {amount} {currency}\n"
-                f"💳 Новый баланс: {new_balance} монет\n\n"
-                f"🤖 Бот: {bot_user.first_name} (@{bot_user.username or 'нет username'})"
-            )
-            
-            await update.message.reply_text(notification_text)
-            
-            logger.info(
-                "Manual parsing reward processed successfully",
-                user_id=user_obj.id,
-                username=username,
-                game_type=game_type,
-                amount=amount,
-                old_balance=old_balance,
-                new_balance=new_balance,
-                requested_by=user.id
-            )
-                
-        except Exception as e:
-            logger.error("Error in manual parsing", error=str(e), user_id=user.id)
-            await update.message.reply_text(
-                f"❌ Ошибка при обработке сообщения:\n{str(e)}\n\n"
-                f"Попробуйте еще раз или обратитесь к администратору"
-            )
-        finally:
-            db.close()
+    # DEPRECATED: Автоматический парсинг отключен
+    # Используется только ручной парсинг по команде "парсинг"
+    # async def process_game_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    #     """Обработка игровых сообщений в группах с интегрированным парсером"""
+    #     # Эта функция больше не используется
+    #     pass
 
     # ===== Background Task Management Commands =====
     @admin_required

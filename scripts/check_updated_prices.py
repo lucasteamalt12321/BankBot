@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Скрипт для проверки обновленных цен товаров в магазине
+
+UPDATED: Uses centralized database connection from database.connection
 """
 
 import sys
@@ -10,6 +12,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import create_tables, get_db
+from database.connection import get_connection
 from core.systems.shop_system import EnhancedShopSystem
 
 def check_updated_prices():
@@ -55,7 +58,7 @@ def check_updated_prices():
     print()
     
     # Проверяем конфигурацию безопасности
-    from utils.core.config import TRANSACTION_SECURITY
+    from src.config import TRANSACTION_SECURITY
     print("🔒 Обновленные лимиты безопасности:")
     print(f"   • Максимальная сумма за транзакцию: {TRANSACTION_SECURITY['max_single_amount']} монет")
     print(f"   • Максимум транзакций в час: {TRANSACTION_SECURITY['max_hourly_transactions']}")

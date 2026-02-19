@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from database.database import Base, User, ShopItem
 from core.managers.shop_manager import ShopManager
-from utils.core.config import settings
+from src.config import settings
 
 
 def test_shop_manager_integration():
