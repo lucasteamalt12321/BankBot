@@ -81,7 +81,7 @@ class TestImportFixer:
         """Test fixing import statements (not from...import)."""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
             f.write('import utils.database.simple_db\n')
-            f.write('utils.simple_db.register_user("test")\n')
+            f.write('utils.database.simple_db.register_user("test")\n')
             temp_path = Path(f.name)
         
         try:

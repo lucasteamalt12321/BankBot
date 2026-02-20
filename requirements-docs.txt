@@ -1,0 +1,32 @@
+# Documentation Dependencies for LucasTeam Telegram Bot
+# Install with: pip install -r requirements.txt -r requirements-docs.txt
+# Last updated: 2024-01
+
+# ============================================================================
+# Documentation Generation
+# ============================================================================
+sphinx==7.2.6
+# Documentation generator - creates HTML/PDF docs from docstrings
+sphinx-rtd-theme==2.0.0
+# Read the Docs theme for Sphinx - professional documentation theme
+sphinx-autodoc-typehints==1.25.2
+# Type hints support for Sphinx autodoc - documents type annotations
+
+# ============================================================================
+# Markdown Support
+# ============================================================================
+myst-parser==2.0.0
+# Markdown parser for Sphinx - allows writing docs in Markdown
+
+# ============================================================================
+# Diagram Support
+# ============================================================================
+sphinxcontrib-mermaid==0.9.2
+# Mermaid diagram support - creates diagrams from text descriptions
+
+# ============================================================================
+# Notes:
+# - These dependencies are only needed for building documentation
+# - Not required for running the bot or tests
+# - Use 'make html' in docs/ directory to build documentation
+# ============================================================================

@@ -1,0 +1,52 @@
+# Development Dependencies for LucasTeam Telegram Bot
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+# Last updated: 2024-01
+
+# ============================================================================
+# Testing Framework & Tools
+# ============================================================================
+pytest==8.3.4
+# Testing framework - main test runner
+pytest-asyncio==0.24.0
+# Async support for pytest - required for testing async bot handlers
+pytest-cov==6.0.0
+# Coverage plugin for pytest - generates test coverage reports
+pytest-mock==3.14.0
+# Mock/stub support for pytest - simplifies mocking in tests
+hypothesis==6.122.3
+# Property-based testing - generates test cases automatically
+
+# ============================================================================
+# Code Quality & Linting
+# ============================================================================
+ruff==0.8.4
+# Fast Python linter and formatter - replaces flake8, black, isort
+mypy==1.13.0
+# Static type checker - validates type hints
+bandit==1.8.0
+# Security linter - finds common security issues
+
+# ============================================================================
+# Development Tools
+# ============================================================================
+ipython==8.31.0
+# Enhanced interactive Python shell - better REPL for debugging
+ipdb==0.13.13
+# IPython-enabled debugger - interactive debugging with IPython features
+
+# ============================================================================
+# Type Stubs
+# ============================================================================
+types-python-dateutil==2.8.19.14
+# Type stubs for python-dateutil
+types-pytz==2024.1.0.20240203
+# Type stubs for pytz
+types-PyYAML==6.0.12.12
+# Type stubs for PyYAML
+
+# ============================================================================
+# Notes:
+# - All testing libraries are here, not in main requirements.txt
+# - Linters and formatters are development-only
+# - Type stubs improve mypy accuracy
+# ============================================================================

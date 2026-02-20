@@ -24,12 +24,24 @@ import argparse
 # Import patterns to replace
 IMPORT_REPLACEMENTS = {
     # Pattern: (old_pattern, new_replacement)
+    # Utils reorganization
     r'from utils\.admin_system import': 'from utils.admin.admin_system import',
     r'import utils\.admin_system': 'import utils.admin.admin_system',
     r'from utils\.simple_db import': 'from utils.database.simple_db import',
     r'import utils\.simple_db': 'import utils.database.simple_db',
     r'from utils\.admin_middleware import': 'from utils.admin.admin_middleware import',
     r'import utils\.admin_middleware': 'import utils.admin.admin_middleware',
+    r'from utils\.core\.user_manager import': 'from utils.core.user_manager import',
+    r'import utils\.core\.user_manager': 'import utils.core.user_manager',
+    
+    # Config imports (old utils.config -> src.config)
+    r'from utils\.config import': 'from src.config import',
+    r'import utils\.config': 'import src.config',
+    r'from utils\.core\.config import': 'from src.config import',
+    r'import utils\.core\.config': 'import src.config',
+    
+    # Repository imports (if they exist)
+    r'from src\.repository\.user_repository import': 'from database.database import',
 }
 
 

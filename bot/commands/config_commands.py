@@ -33,7 +33,10 @@ class ConfigurationCommands:
     def __init__(self):
         """Initialize configuration commands"""
         self.config_manager = get_config_manager()
-        self.admin_manager = AdminManager()
+        # AdminManager требует db_session, создаем его через get_db
+        from database.database import get_db
+        self.db = next(get_db())
+        self.admin_manager = AdminManager(self.db)
     
     async def reload_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """

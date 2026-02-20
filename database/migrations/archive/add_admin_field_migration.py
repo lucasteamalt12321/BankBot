@@ -5,6 +5,7 @@
 import sqlite3
 import os
 import sys
+from src.config import settings
 
 def add_admin_field():
     """Добавляет поле is_admin в таблицу users если его нет"""
@@ -32,15 +33,15 @@ def add_admin_field():
         print("Добавляем поле is_admin...")
         cursor.execute("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE")
         
-        # Устанавливаем права администратора для пользователя 2091908459
-        cursor.execute("UPDATE users SET is_admin = TRUE WHERE telegram_id = ?", (2091908459,))
+        # Устанавливаем права администратора для пользователя из конфигурации
+        cursor.execute("UPDATE users SET is_admin = TRUE WHERE telegram_id = ?", (settings.ADMIN_TELEGRAM_ID,))
         
         conn.commit()
         print("Поле is_admin успешно добавлено")
-        print("Права администратора установлены для пользователя 2091908459")
+        print(f"Права администратора установлены для пользователя {settings.ADMIN_TELEGRAM_ID}")
         
         # Проверяем результат
-        cursor.execute("SELECT telegram_id, username, first_name, is_admin FROM users WHERE telegram_id = ?", (2091908459,))
+        cursor.execute("SELECT telegram_id, username, first_name, is_admin FROM users WHERE telegram_id = ?", (settings.ADMIN_TELEGRAM_ID,))
         user = cursor.fetchone()
         if user:
             print(f"Пользователь: ID={user[0]}, Username={user[1]}, Name={user[2]}, Admin={user[3]}")

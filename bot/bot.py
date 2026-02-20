@@ -27,6 +27,7 @@ from utils.core.error_handling import ErrorHandlingSystem
 from utils.admin.admin_middleware import auto_registration_middleware
 from utils.admin.admin_system import AdminSystem, admin_required
 from bot.commands.advanced_admin_commands import AdvancedAdminCommands
+from bot.commands import config_commands  # Configuration management commands
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
@@ -96,6 +97,17 @@ class TelegramBot:
     def setup_handlers(self):
         """Настройка обработчиков команд"""
         logger.info("Setting up enhanced handlers...")
+
+        # Добавляем middleware для отслеживания активности пользователей
+        from telegram.ext import TypeHandler
+        from core.middleware import track_user_activity
+        
+        # Middleware должен быть в группе -1, чтобы выполняться перед всеми остальными обработчиками
+        self.application.add_handler(
+            TypeHandler(Update, track_user_activity),
+            group=-1
+        )
+        logger.info("Added activity tracking middleware")
 
         # Основные команды
         handlers = [
@@ -193,6 +205,19 @@ class TelegramBot:
             # Message Parsing Configuration Commands (Task 11.2)
             CommandHandler("admin_parsing_reload", self.admin_parsing_reload_command),
             CommandHandler("admin_parsing_config", self.admin_parsing_config_command),
+            
+            # Configuration Management Commands (Full Set)
+            CommandHandler("reload_config", config_commands.reload_config_handler),
+            CommandHandler("config_status", config_commands.config_status_handler),
+            CommandHandler("list_parsing_rules", config_commands.list_parsing_rules_handler),
+            CommandHandler("add_parsing_rule", config_commands.add_parsing_rule_handler),
+            CommandHandler("update_parsing_rule", config_commands.update_parsing_rule_handler),
+            CommandHandler("export_config", config_commands.export_config_handler),
+            CommandHandler("import_config", config_commands.import_config_handler),
+            CommandHandler("backup_config", config_commands.backup_config_handler),
+            CommandHandler("restore_config", config_commands.restore_config_handler),
+            CommandHandler("list_backups", config_commands.list_backups_handler),
+            CommandHandler("validate_config", config_commands.validate_config_handler),
         ]
 
         for handler in handlers:
@@ -516,6 +541,19 @@ class TelegramBot:
 /user_stats &lt;@user&gt; - детальная статистика
 /broadcast &lt;текст&gt; - рассылка всем
 /add_item - добавить товар в магазин
+
+[CONFIG] <b>⚙️ Конфигурация системы:</b>
+/reload_config - перезагрузить конфигурацию
+/config_status - статус конфигурации
+/list_parsing_rules - правила парсинга
+/add_parsing_rule - добавить правило
+/update_parsing_rule - обновить правило
+/export_config - экспорт конфигурации
+/import_config - импорт конфигурации
+/backup_config - создать бэкап
+/restore_config - восстановить бэкап
+/list_backups - список бэкапов
+/validate_config - валидация конфигурации
 
 [GAMES_SUPPORTED] <b>Поддерживаемые игры:</b>
 • Shmalala (курс 1:1)

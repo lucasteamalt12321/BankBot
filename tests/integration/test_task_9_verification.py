@@ -35,8 +35,8 @@ class TestTask9Verification(unittest.TestCase):
         
         # Override DB_PATH for testing
         import utils.database.simple_db
-        self.original_db_path = utils.simple_db.DB_PATH
-        utils.simple_db.DB_PATH = self.temp_db.name
+        self.original_db_path = utils.database.simple_db.DB_PATH
+        utils.database.simple_db.DB_PATH = self.temp_db.name
         
         # Initialize test database
         init_database()
@@ -48,7 +48,7 @@ class TestTask9Verification(unittest.TestCase):
         """Cleanup test database"""
         # Restore original DB_PATH
         import utils.database.simple_db
-        utils.simple_db.DB_PATH = self.original_db_path
+        utils.database.simple_db.DB_PATH = self.original_db_path
         
         # Remove temporary database
         try:

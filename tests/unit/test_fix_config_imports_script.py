@@ -48,13 +48,13 @@ class TestImportFixer:
             assert 'venv' not in str(files[0])
     
     def test_fix_imports_utils_config(self):
-        """Test fixing imports from utils.config."""
+        """Test fixing imports from src.config."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             test_file = tmppath / 'test.py'
             
             # Write test content with OLD import
-            test_file.write_text('from utils.config import settings\n')
+            test_file.write_text('from src.config import settings\n')
             
             fixer = ImportFixer(dry_run=False)
             modified = fixer.fix_imports_in_file(test_file)
@@ -62,16 +62,16 @@ class TestImportFixer:
             assert modified is True
             content = test_file.read_text()
             assert 'from src.config import settings' in content
-            assert 'from utils.config import' not in content
+            assert 'from src.config import' not in content
     
     def test_fix_imports_utils_core_config(self):
-        """Test fixing imports from utils.core.config."""
+        """Test fixing imports from src.config."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             test_file = tmppath / 'test.py'
             
             # Write test content with OLD import
-            test_file.write_text('from utils.core.config import settings\n')
+            test_file.write_text('from src.config import settings\n')
             
             fixer = ImportFixer(dry_run=False)
             modified = fixer.fix_imports_in_file(test_file)
@@ -79,7 +79,7 @@ class TestImportFixer:
             assert modified is True
             content = test_file.read_text()
             assert 'from src.config import settings' in content
-            assert 'from utils.core.config import' not in content
+            assert 'from src.config import' not in content
     
     def test_no_changes_needed(self):
         """Test that files with correct imports are not modified."""
@@ -101,7 +101,7 @@ class TestImportFixer:
             tmppath = Path(tmpdir)
             test_file = tmppath / 'test.py'
             
-            original_content = 'from utils.config import settings\n'
+            original_content = 'from src.config import settings\n'
             test_file.write_text(original_content)
             
             fixer = ImportFixer(dry_run=True)
@@ -120,8 +120,8 @@ class TestImportFixer:
             
             # Write test content with multiple OLD imports
             test_file.write_text(
-                'from utils.config import settings\n'
-                'from utils.core.config import TRANSACTION_SECURITY\n'
+                'from src.config import settings\n'
+                'from src.config import TRANSACTION_SECURITY\n'
                 'from src.models import User\n'
             )
             
@@ -133,8 +133,8 @@ class TestImportFixer:
             assert 'from src.config import settings' in content
             assert 'from src.config import TRANSACTION_SECURITY' in content
             assert 'from src.models import User' in content
-            assert 'from utils.config import' not in content
-            assert 'from utils.core.config import' not in content
+            assert 'from src.config import' not in content
+            assert 'from src.config import' not in content
     
     def test_preserves_other_imports(self):
         """Test that other imports are not affected."""
@@ -144,7 +144,7 @@ class TestImportFixer:
             
             # Write test content with OLD config import
             test_file.write_text(
-                'from utils.config import settings\n'
+                'from src.config import settings\n'
                 'from utils.admin.admin_system import AdminManager\n'
                 'from database.database import get_session\n'
             )
@@ -165,9 +165,9 @@ class TestImportFixer:
             tmppath = Path(tmpdir)
             
             # Create multiple test files - some with old imports, some with new
-            (tmppath / 'test1.py').write_text('from utils.config import settings\n')
+            (tmppath / 'test1.py').write_text('from src.config import settings\n')
             (tmppath / 'test2.py').write_text('from src.config import settings\n')  # Already correct
-            (tmppath / 'test3.py').write_text('from utils.core.config import settings\n')
+            (tmppath / 'test3.py').write_text('from src.config import settings\n')
             
             fixer = ImportFixer(dry_run=False)
             stats = fixer.process_files(tmppath)

@@ -3,8 +3,10 @@
 # Note: Parsing rules are loaded from the database, not from this file
 
 # Administrator user IDs (comma-separated list or YAML array)
+# DEPRECATED: Use ADMIN_TELEGRAM_ID environment variable instead
+# This field is kept for backward compatibility only
 admin_user_ids:
-  - 2091908459
+  # Set via ADMIN_TELEGRAM_ID environment variable in config/.env
 
 # Sticker management settings
 sticker_cleanup_interval: 300  # 5 minutes in seconds
