@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bot.bot import TelegramBot
 from database.database import create_tables
 from src.config import settings
+from src.startup_validator import validate_startup
 
 logger = structlog.get_logger()
 
@@ -62,6 +63,13 @@ def main():
     """Основная функция запуска бота"""
     
     print("[START] Запуск Telegram-бота банк-аггрегатора LucasTeam...")
+    
+    # Валидация конфигурации перед запуском
+    print("[VALIDATE] Проверка конфигурации...")
+    if not validate_startup():
+        print("[ERROR] Валидация конфигурации не пройдена. Остановка бота.")
+        sys.exit(1)
+    print("[VALIDATE] Конфигурация валидна")
     
     # Убиваем старые процессы перед запуском
     kill_existing_bot_processes()

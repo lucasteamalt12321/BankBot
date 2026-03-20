@@ -43,8 +43,13 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         
         # Override DB_PATH for testing
         import utils.database.simple_db
+<<<<<<< HEAD
         self.original_db_path = utils.database.simple_db.DB_PATH
         utils.database.simple_db.DB_PATH = self.temp_db.name
+=======
+        self.original_db_path = utils.simple_db.DB_PATH
+        utils.simple_db.DB_PATH = self.temp_db.name
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
         
         # Initialize test database
         init_database()
@@ -53,7 +58,11 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         """Clean up after tests"""
         # Restore original DB_PATH
         import utils.database.simple_db
+<<<<<<< HEAD
         utils.database.simple_db.DB_PATH = self.original_db_path
+=======
+        utils.simple_db.DB_PATH = self.original_db_path
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
         
         # Remove temporary database
         try:

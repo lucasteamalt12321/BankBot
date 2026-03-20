@@ -3,7 +3,7 @@
 import hashlib
 from datetime import datetime
 
-from src.repository import DatabaseRepository
+from src.repository_impl import DatabaseRepository
 
 
 class IdempotencyChecker:

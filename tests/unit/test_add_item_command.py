@@ -44,7 +44,7 @@ class TestAddItemCommand:
     @pytest.fixture
     def admin_commands(self):
         """Create AdvancedAdminCommands instance with mocked dependencies"""
-        with patch('bot.advanced_admin_commands.AdminSystem') as mock_admin_system:
+        with patch('bot.commands.advanced_admin_commands.AdminSystem') as mock_admin_system:
             mock_admin_system.return_value.is_admin.return_value = True
             return AdvancedAdminCommands()
     
@@ -69,8 +69,8 @@ class TestAddItemCommand:
             }
         })
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
             
             mock_get_db.return_value.__next__.return_value = mock_db
             mock_shop_manager_class.return_value = mock_shop_manager
@@ -110,8 +110,8 @@ class TestAddItemCommand:
             }
         })
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
             
             mock_get_db.return_value.__next__.return_value = mock_db
             mock_shop_manager_class.return_value = mock_shop_manager
@@ -147,8 +147,8 @@ class TestAddItemCommand:
             }
         })
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
             
             mock_get_db.return_value.__next__.return_value = mock_db
             mock_shop_manager_class.return_value = mock_shop_manager
@@ -163,7 +163,7 @@ class TestAddItemCommand:
         """Test rejection of non-admin users"""
         mock_context.args = ["Test", "Item", "100", "sticker"]
         
-        with patch('bot.advanced_admin_commands.AdminSystem') as mock_admin_system:
+        with patch('bot.commands.advanced_admin_commands.AdminSystem') as mock_admin_system:
             mock_admin_system.return_value.is_admin.return_value = False
             admin_commands = AdvancedAdminCommands()
             
@@ -252,8 +252,8 @@ class TestAddItemCommand:
             "error_code": "DUPLICATE_NAME"
         })
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
             
             mock_get_db.return_value.__next__.return_value = mock_db
             mock_shop_manager_class.return_value = mock_shop_manager
@@ -276,8 +276,8 @@ class TestAddItemCommand:
         mock_shop_manager = Mock()
         mock_shop_manager.add_item = AsyncMock(side_effect=Exception("Database connection failed"))
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
             
             mock_get_db.return_value.__next__.return_value = mock_db
             mock_shop_manager_class.return_value = mock_shop_manager
@@ -315,8 +315,8 @@ class TestAddItemCommand:
                 }
             })
             
-            with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-                 patch('bot.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
+            with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+                 patch('bot.commands.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
                 
                 mock_get_db.return_value.__next__.return_value = mock_db
                 mock_shop_manager_class.return_value = mock_shop_manager
@@ -353,8 +353,8 @@ class TestAddItemCommand:
             }
         })
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.ShopManager') as mock_shop_manager_class:
             
             mock_get_db.return_value.__next__.return_value = mock_db
             mock_shop_manager_class.return_value = mock_shop_manager

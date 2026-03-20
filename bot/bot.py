@@ -236,21 +236,13 @@ class TelegramBot:
         logger.info("All enhanced handlers set up successfully")
 
     def setup_error_handler(self):
-        """Настройка обработчика ошибок"""
-
-        async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            logger.error(f"Exception while handling an update: {context.error}")
-
-            # Не отправляем сообщение об ошибке автоматически, только логируем
-            # Это предотвращает спам сообщениями об ошибках
-            try:
-                # Логируем детали ошибки для отладки
-                if update and update.effective_message:
-                    logger.error(f"Error in message from user {update.effective_user.id}: {update.effective_message.text}")
-            except Exception as e:
-                logger.error(f"Could not log error details: {e}")
-
-        self.application.add_error_handler(error_handler)
+        """Настройка обработчика ошибок через middleware"""
+        from bot.middleware.error_handler import error_handler
+        
+        # Добавляем middleware для обработки ошибок
+        self.application.middleware.register(error_handler)
+        
+        logger.info("Error handler middleware registered successfully")
     
     def _setup_signal_handlers(self):
         """

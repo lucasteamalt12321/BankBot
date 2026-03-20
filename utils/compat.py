@@ -1,4 +1,5 @@
 """
+<<<<<<< HEAD
 Compatibility layer for deprecated imports.
 
 This module provides backward compatibility for code that imports from old locations.
@@ -138,3 +139,90 @@ def __getattr__(name):
         return init_database
     
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+=======
+Compatibility layer for deprecated import paths.
+
+This module provides re-exports for old import paths to maintain backward
+compatibility while encouraging migration to the new module structure.
+
+## Deprecated Import Paths
+
+The following import paths are deprecated and will trigger DeprecationWarning:
+
+- `utils.admin_system` → Use `utils.admin.admin_system`
+- `utils.simple_db` → Use `utils.database.simple_db`
+- `utils.config` → Use `src.config`
+
+## Usage
+
+For backward compatibility, import from the old paths. You will receive a
+deprecation warning indicating the new import path to use.
+
+```python
+# Old (deprecated) - will trigger warning
+from utils.admin_system import AdminSystem
+
+# New (recommended)
+from utils.admin.admin_system import AdminSystem
+```
+
+## Migration Guide
+
+1. Update imports to use the new paths
+2. Run tests to ensure functionality
+3. Remove any remaining imports from old paths
+4. Delete compatibility shim files when all migrations complete
+"""
+
+import sys
+import warnings
+from pathlib import Path
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+
+# Re-export deprecated modules with warnings
+def __getattr__(name: str):
+    """Handle lazy imports with deprecation warnings."""
+    if name == "admin_system":
+        warnings.warn(
+            "Importing from utils.admin_system is deprecated. "
+            "Use utils.admin.admin_system instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        from utils.admin import admin_system
+        return admin_system
+    
+    if name == "simple_db":
+        warnings.warn(
+            "Importing from utils.simple_db is deprecated. "
+            "Use utils.database.simple_db instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        from utils.database import simple_db
+        return simple_db
+    
+    if name == "config":
+        warnings.warn(
+            "Importing from utils.config is deprecated. "
+            "Use src.config instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        from src import config
+        return config
+    
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+# Re-export everything from the new locations for backward compatibility
+# These will trigger warnings when imported through the old paths
+from utils.admin.admin_system import *  # noqa: F401, F403
+from utils.database.simple_db import *  # noqa: F401, F403
+from src.config import *  # noqa: F401, F403
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)

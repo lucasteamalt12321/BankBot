@@ -5,6 +5,10 @@ Script to automatically update deprecated imports to use the new module structur
 This script replaces imports from:
 - utils.admin_system -> utils.admin.admin_system
 - utils.simple_db -> utils.database.simple_db
+<<<<<<< HEAD
+=======
+- utils.config -> src.config
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
 
 Usage:
     python scripts/fix_imports.py [--dry-run] [--path PATH]
@@ -24,6 +28,7 @@ import argparse
 # Import patterns to replace
 IMPORT_REPLACEMENTS = {
     # Pattern: (old_pattern, new_replacement)
+<<<<<<< HEAD
     # Utils reorganization
     r'from utils\.admin_system import': 'from utils.admin.admin_system import',
     r'import utils\.admin_system': 'import utils.admin.admin_system',
@@ -42,6 +47,14 @@ IMPORT_REPLACEMENTS = {
     
     # Repository imports (if they exist)
     r'from src\.repository\.user_repository import': 'from database.database import',
+=======
+    r'from utils\.admin_system import': 'from utils.admin.admin_system import',
+    r'from utils\.simple_db import': 'from utils.database.simple_db import',
+    r'from utils\.config import': 'from src.config import',
+    r'import utils\.admin_system': 'import utils.admin.admin_system',
+    r'import utils\.simple_db': 'import utils.database.simple_db',
+    r'import utils\.config': 'import src.config',
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
 }
 
 
@@ -61,7 +74,11 @@ class ImportFixer:
         
         # Exclude certain directories
         exclude_dirs = {'.venv', 'venv', '__pycache__', '.git', '.pytest_cache', 
+<<<<<<< HEAD
                        '.hypothesis', 'node_modules', 'backups', '.kiro'}
+=======
+                       '.hypothesis', 'node_modules', 'backups'}
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
         
         python_files = []
         for py_file in path.rglob('*.py'):
@@ -81,17 +98,26 @@ class ImportFixer:
         try:
             content = file_path.read_text(encoding='utf-8')
             original_content = content
+<<<<<<< HEAD
             modified = False
+=======
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
             
             # Apply import replacements
             for old_pattern, new_replacement in IMPORT_REPLACEMENTS.items():
                 if re.search(old_pattern, content):
                     content = re.sub(old_pattern, new_replacement, content)
                     print(f"  ✓ Replaced: {old_pattern} -> {new_replacement}")
+<<<<<<< HEAD
                     modified = True
             
             # Check if file was modified
             if modified:
+=======
+            
+            # Check if file was modified
+            if content != original_content:
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
                 if not self.dry_run:
                     file_path.write_text(content, encoding='utf-8')
                 
@@ -193,7 +219,11 @@ Examples:
   python scripts/fix_imports.py --path tests/
   
   # Preview changes for specific file
+<<<<<<< HEAD
   python scripts/fix_imports.py --dry-run --path tests/unit/test_example.py
+=======
+  python scripts/fix_imports.py --dry-run --path tests/test_example.py
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
         """
     )
     

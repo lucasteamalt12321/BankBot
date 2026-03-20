@@ -93,8 +93,8 @@ class TestAdvancedAdminCommands:
             ]
         )
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
             
             # Setup mocks
             mock_db = Mock()
@@ -267,8 +267,8 @@ class TestAdvancedAdminCommands:
             daily_streak=3
         )
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
             
             # Setup mocks
             mock_db = Mock()
@@ -305,8 +305,8 @@ class TestAdvancedAdminCommands:
         self.admin_commands.admin_system.is_admin.return_value = True
         self.mock_context.args = ["@nonexistent_user"]
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
             
             # Setup mocks
             mock_db = Mock()

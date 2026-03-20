@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Development Dependencies for LucasTeam Telegram Bot
 # Install with: pip install -r requirements.txt -r requirements-dev.txt
 # Last updated: 2024-01
@@ -50,3 +51,13 @@ types-PyYAML==6.0.12.12
 # - Linters and formatters are development-only
 # - Type stubs improve mypy accuracy
 # ============================================================================
+=======
+-r requirements.txt
+pytest==7.4.3
+pytest-asyncio==0.23.2
+pytest-cov==4.1.0
+hypothesis==6.92.1
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)

@@ -24,11 +24,11 @@ class Settings(BaseSettings):
     ENV: str = Field(default="development")
     
     # Bot Configuration
-    BOT_TOKEN: str
-    ADMIN_TELEGRAM_ID: int
+    BOT_TOKEN: str = Field(default="")
+    ADMIN_TELEGRAM_ID: int = Field(default=0)
     
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = Field(default="sqlite:///data/bot.db")
     
     # Parsing
     PARSING_ENABLED: bool = Field(default=False)
@@ -37,17 +37,29 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field(default="INFO")
     LOG_FILE: Optional[str] = Field(default=None)
     
+    # Background Tasks
+    TASK_CHECK_INTERVAL: int = Field(default=300)
+    
+    # Bot Configuration
+    BOT_NAME: str = Field(default="LucasTeam Bot")
+    BOT_USERNAME: str = Field(default="")
+    
     @field_validator("BOT_TOKEN")
     @classmethod
     def validate_bot_token(cls, v):
-        """Validate that BOT_TOKEN is not empty."""
-        if not v or v == "":
-            raise ValueError("BOT_TOKEN cannot be empty")
-        return v
+        """Validate that BOT_TOKEN is not empty (unless in test mode)."""
+        # Allow empty token for testing
+        if v and v != "":
+            return v
+        # In test mode, empty token is allowed
+        if os.getenv("ENV") == "test":
+            return v
+        raise ValueError("BOT_TOKEN cannot be empty")
     
     @field_validator("ADMIN_TELEGRAM_ID")
     @classmethod
     def validate_admin_id(cls, v):
+<<<<<<< HEAD
         """
         Validate that ADMIN_TELEGRAM_ID is a positive integer within Telegram's valid range.
         
@@ -69,6 +81,16 @@ class Settings(BaseSettings):
             )
         
         return v
+=======
+        """Validate that ADMIN_TELEGRAM_ID is a positive integer (unless in test mode)."""
+        # Allow 0 for testing
+        if v > 0:
+            return v
+        # In test mode, 0 is allowed
+        if os.getenv("ENV") == "test":
+            return v
+        raise ValueError("ADMIN_TELEGRAM_ID must be a positive integer")
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
     
     @field_validator("DATABASE_URL")
     @classmethod

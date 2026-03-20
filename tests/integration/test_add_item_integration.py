@@ -55,7 +55,7 @@ class TestAddItemCommandIntegration:
     @pytest.fixture
     def admin_commands(self):
         """Create AdvancedAdminCommands instance with mocked admin system"""
-        with patch('bot.advanced_admin_commands.AdminSystem') as mock_admin_system:
+        with patch('bot.commands.advanced_admin_commands.AdminSystem') as mock_admin_system:
             mock_admin_system.return_value.is_admin.return_value = True
             return AdvancedAdminCommands()
     
@@ -85,7 +85,7 @@ class TestAddItemCommandIntegration:
         
         mock_db_session.refresh.side_effect = lambda item: setattr(item, 'id', 10)
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
              patch('core.shop_manager.ShopItem') as mock_shop_item_class:
             
             mock_get_db.return_value.__next__.return_value = mock_db_session
@@ -111,7 +111,7 @@ class TestAddItemCommandIntegration:
         existing_item.name = "Existing Item"
         mock_db_session.query.return_value.filter.return_value.first.return_value = existing_item
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
             mock_get_db.return_value.__next__.return_value = mock_db_session
             
             await admin_commands.add_item_command(mock_update, mock_context)

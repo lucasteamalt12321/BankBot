@@ -1,12 +1,20 @@
+<<<<<<< HEAD
 """User repository for specialized user data access operations."""
 
 from typing import Optional
+=======
+"""User repository with custom methods."""
+
+from typing import Optional, List
+from sqlalchemy.orm import Session
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
 from src.repository.base import BaseRepository
 from database.database import User
 
 
 class UserRepository(BaseRepository[User]):
     """
+<<<<<<< HEAD
     Repository for User model with specialized query methods.
     
     Extends BaseRepository to provide user-specific data access operations
@@ -82,12 +90,63 @@ class UserRepository(BaseRepository[User]):
             ... )
             >>> # If user exists, returns existing user
             >>> # If user doesn't exist, creates and returns new user
+=======
+    Репозиторий для работы с пользователями.
+    
+    Расширяет BaseRepository специфичными методами для User модели.
+    """
+    
+    def __init__(self, session: Session):
+        """
+        Инициализация репозитория пользователей.
+        
+        Args:
+            session: SQLAlchemy сессия
+        """
+        super().__init__(User, session)
+    
+    def get_by_telegram_id(self, telegram_id: int) -> Optional[User]:
+        """
+        Получить пользователя по Telegram ID.
+        
+        Args:
+            telegram_id: Telegram ID пользователя
+            
+        Returns:
+            User или None если не найден
+        """
+        return self.get_by(telegram_id=telegram_id)
+    
+    def get_by_username(self, username: str) -> Optional[User]:
+        """
+        Получить пользователя по username.
+        
+        Args:
+            username: Username пользователя
+            
+        Returns:
+            User или None если не найден
+        """
+        return self.get_by(username=username)
+    
+    def get_or_create(self, telegram_id: int, **kwargs) -> User:
+        """
+        Получить существующего пользователя или создать нового.
+        
+        Args:
+            telegram_id: Telegram ID пользователя
+            **kwargs: Дополнительные атрибуты для создания
+            
+        Returns:
+            User (существующий или созданный)
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
         """
         user = self.get_by_telegram_id(telegram_id)
         if not user:
             user = self.create(telegram_id=telegram_id, **kwargs)
         return user
     
+<<<<<<< HEAD
     def get_all_admins(self):
         """
         Get all users with admin privileges.
@@ -299,3 +358,30 @@ class UserRepository(BaseRepository[User]):
         )
         self.session.commit()
         return count
+=======
+    def get_all_by_balance(self, min_balance: int = 0) -> List[User]:
+        """
+        Получить всех пользователей с балансом >= min_balance.
+        
+        Args:
+            min_balance: Минимальный баланс
+            
+        Returns:
+            Список пользователей
+        """
+        return self.session.query(User).filter(User.balance >= min_balance).all()
+    
+    def search_by_name(self, name: str) -> List[User]:
+        """
+        Найти пользователей по имени (частичное совпадение).
+        
+        Args:
+            name: Имя для поиска
+            
+        Returns:
+            Список пользователей
+        """
+        return self.session.query(User).filter(
+            User.first_name.contains(name) | User.username.contains(name)
+        ).all()
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)

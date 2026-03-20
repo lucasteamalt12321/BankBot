@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """Repository package for database operations."""
 
 from src.repository.base import BaseRepository
@@ -28,3 +29,12 @@ else:
     SQLiteRepository = None
 
 __all__ = ["BaseRepository", "DatabaseRepository", "SQLiteRepository"]
+=======
+"""Repository layer for database access."""
+
+from src.repository.base import BaseRepository
+from src.repository.user_repository import UserRepository
+from src.repository_impl import DatabaseRepository, SQLiteRepository
+
+__all__ = ["BaseRepository", "UserRepository", "DatabaseRepository", "SQLiteRepository"]
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)

@@ -145,7 +145,7 @@ class TestAdvancedAdminCommandsIntegration:
     @pytest.mark.asyncio
     async def test_parsing_stats_integration(self):
         """Test parsing_stats command with real database"""
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
             mock_get_db.return_value.__next__.return_value = self.db
             
             # Execute command
@@ -167,7 +167,7 @@ class TestAdvancedAdminCommandsIntegration:
         """Test user_stats command with real database"""
         self.mock_context.args = ["test_user"]
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
             mock_get_db.return_value.__next__.return_value = self.db
             
             # Execute command
@@ -189,8 +189,8 @@ class TestAdvancedAdminCommandsIntegration:
         """Test broadcast command with real database"""
         self.mock_context.args = ["Test", "broadcast", "message"]
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.advanced_admin_commands.BroadcastSystem') as mock_broadcast_system_class:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
+             patch('bot.commands.advanced_admin_commands.BroadcastSystem') as mock_broadcast_system_class:
             
             mock_get_db.return_value.__next__.return_value = self.db
             
@@ -209,7 +209,7 @@ class TestAdvancedAdminCommandsIntegration:
                 execution_time=1.5
             )
             
-            with patch('bot.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
+            with patch('bot.commands.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
                 mock_admin_manager = Mock()
                 mock_admin_manager.broadcast_admin_message = AsyncMock(return_value=mock_result)
                 mock_admin_manager_class.return_value = mock_admin_manager
@@ -243,7 +243,7 @@ class TestAdvancedAdminCommandsIntegration:
         self.mock_user.id = 99999  # Non-admin ID
         self.admin_commands.admin_system.is_admin.return_value = False
         
-        with patch('bot.advanced_admin_commands.get_db') as mock_get_db:
+        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
             mock_get_db.return_value.__next__.return_value = self.db
             
             # Test parsing_stats command

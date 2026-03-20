@@ -254,6 +254,7 @@ pip install -r config/requirements-dev.txt
 
 2. Получите необходимые данные:
 
+<<<<<<< HEAD
    **Токен бота:**
    - Откройте [@BotFather](https://t.me/BotFather) в Telegram
    - Отправьте команду `/newbot`
@@ -291,6 +292,16 @@ pip install -r config/requirements-dev.txt
 📖 **Полный список всех доступных переменных окружения смотрите в разделе [Environment Variables](#-environment-variables) ниже.**
 
 #### Шаг 4: Инициализация базы данных
+=======
+**Опциональные переменные:**
+- `ENV` - окружение (development/test/staging/production, по умолчанию: development)
+- `PARSING_ENABLED` - включить автоматический парсинг (true/false, по умолчанию: false)
+- `LOG_LEVEL` - уровень логирования (DEBUG/INFO/WARNING/ERROR/CRITICAL, по умолчанию: INFO)
+- `LOG_FILE` - путь к файлу логов (опционально)
+- `TASK_CHECK_INTERVAL` - интервал проверки фоновых задач в секундах (по умолчанию: 300)
+- `BOT_NAME` - имя бота для отображения (по умолчанию: LucasTeam Bot)
+- `BOT_USERNAME` - username бота (опционально)
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
 
 ```bash
 python database/initialize_system.py

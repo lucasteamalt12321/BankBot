@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Production Dependencies for LucasTeam Telegram Bot
 # All versions are pinned for reproducible builds
 # Last updated: 2024-01
@@ -63,3 +64,38 @@ pyyaml==6.0.3
 # - All versions are pinned with == for reproducibility
 # - For development dependencies, see requirements-dev.txt
 # ============================================================================
+=======
+# Production Dependencies
+# ======================
+
+# Core framework
+# --------------
+# Telegram bot frameworks for handling Telegram API
+python-telegram-bot==20.7
+aiogram==3.4.1
+aiohttp==3.9.1
+
+# Database
+# --------
+# ORM and database migration tools
+sqlalchemy==2.0.25
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# Configuration and validation
+# ----------------------------
+# Settings management and data validation
+pydantic==2.5.3
+pydantic-settings==2.2.0
+python-dotenv==1.0.0
+
+# Utilities
+# ---------
+# Additional utilities for logging, timezone, YAML, process management, caching
+structlog==23.1.0
+pytz==2023.3
+python-dateutil==2.8.2
+pyyaml==6.0.1
+psutil==5.9.6
+redis==5.0.1
+>>>>>>> f1369b8 (chore: minor update, possibly buggy)
