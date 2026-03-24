@@ -1,49 +1,47 @@
-"""User commands module."""
+"""User commands for python-telegram-bot 20.x."""
 
-from aiogram import Router, types
-from aiogram.filters import Command
-from core.services.user_service import UserService
-from core.services.transaction_service import TransactionService
+import structlog
+from telegram import Update
+from telegram.ext import ContextTypes
 
-router = Router()
+from bot.middleware.dependency_injection import build_services
 
-
-@router.message(Command("profile"))
-async def profile_command(message: types.Message, user_service: UserService):
-    """Show user profile."""
-    user = user_service.get_user_by_telegram_id(message.from_user.id)
-    
-    if not user:
-        await message.answer("👤 Пользователь не найден")
-        return
-    
-    text = f"""👤 <b>Профиль пользователя</b>
-
-🆔 <b>ID:</b> {user.id}
-👤 <b>Имя:</b> {user.first_name or 'Не указано'}
-📝 <b>Username:</b> @{user.username or 'Не указан'}
-📅 <b>Дата регистрации:</b> {user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else 'Неизвестно'}
-:last_activity: <b>Последняя активность:</b> {user.last_activity.strftime('%Y-%m-%d %H:%M:%S') if user.last_activity else 'Неизвестно'}
-
-🏆 <b>Статус:</b>
-   • Дневная серия: {user.daily_streak} дней
-   • VIP статус: {'✅ Да' if user.is_vip else '❌ Нет'}
-
-💰 <b>Финансовая информация:</b>
-   • Текущий баланс: {user.balance} очков
-   • Всего заработано: {user.total_earned} очков
-   • Всего покупок: {user.total_purchases}"""
-
-    await message.answer(text, parse_mode='HTML')
+logger = structlog.get_logger()
 
 
-@router.message(Command("balance"))
-async def balance_command(message: types.Message, user_service: UserService):
-    """Show user balance."""
-    user = user_service.get_user_by_telegram_id(message.from_user.id)
-    
-    if not user:
-        await message.answer("💰 Пользователь не найден")
-        return
-    
-    await message.answer(f"💰 Ваш баланс: {user.balance} очков")
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /profile — профиль пользователя."""
+    with build_services() as svc:
+        user = svc.user_service.get_user_by_telegram_id(update.effective_user.id)
+
+        if not user:
+            await update.message.reply_text("👤 Пользователь не найден. Используйте /start.")
+            return
+
+        text = (
+            f"👤 <b>Профиль пользователя</b>\n\n"
+            f"🆔 <b>ID:</b> {user.id}\n"
+            f"👤 <b>Имя:</b> {user.first_name or 'Не указано'}\n"
+            f"📝 <b>Username:</b> @{user.username or 'Не указан'}\n"
+            f"📅 <b>Регистрация:</b> {user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'Неизвестно'}\n\n"
+            f"💰 <b>Финансы:</b>\n"
+            f"   • Баланс: {user.balance} очков\n"
+            f"   • Заработано: {user.total_earned} очков\n"
+            f"   • Покупок: {user.total_purchases}\n\n"
+            f"🏆 <b>Статус:</b>\n"
+            f"   • Дневная серия: {user.daily_streak} дней\n"
+            f"   • VIP: {'✅' if user.is_vip else '❌'}"
+        )
+        await update.message.reply_text(text, parse_mode="HTML")
+
+
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /balance — баланс пользователя."""
+    with build_services() as svc:
+        user = svc.user_service.get_user_by_telegram_id(update.effective_user.id)
+
+        if not user:
+            await update.message.reply_text("💰 Пользователь не найден. Используйте /start.")
+            return
+
+        await update.message.reply_text(f"💰 Ваш баланс: <b>{user.balance}</b> очков", parse_mode="HTML")

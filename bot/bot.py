@@ -236,13 +236,13 @@ class TelegramBot:
         logger.info("All enhanced handlers set up successfully")
 
     def setup_error_handler(self):
-        """Настройка обработчика ошибок через middleware"""
-        from bot.middleware.error_handler import error_handler
-        
-        # Добавляем middleware для обработки ошибок
-        self.application.middleware.register(error_handler)
-        
-        logger.info("Error handler middleware registered successfully")
+        """Настройка обработчика ошибок через PTB add_error_handler."""
+        from bot.middleware.error_handler import setup_error_handler as _setup
+        from bot.middleware.dependency_injection import setup_di
+
+        _setup(self.application)
+        setup_di(self.application)
+        logger.info("Error handler and DI registered successfully")
     
     def _setup_signal_handlers(self):
         """

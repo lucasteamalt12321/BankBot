@@ -1,182 +1,131 @@
-# admin_commands.py - Административные команды для Telegram бота
-import logging
-from aiogram import Router, types
-from aiogram.filters import Command
-from core.services.admin_service import AdminService
-from core.services.user_service import UserService
-from core.services.transaction_service import TransactionService
+# admin_commands.py — Административные команды для python-telegram-bot 20.x
+import structlog
+from telegram import Update
+from telegram.ext import ContextTypes
 
-logger = logging.getLogger(__name__)
+from bot.middleware.dependency_injection import build_services
 
-router = Router()
+logger = structlog.get_logger()
 
 
-@router.message(Command("admin"))
-async def admin_panel_command(message: types.Message, admin_service: AdminService, user_service: UserService):
-    """Команда /admin - панель администратора."""
-    user = user_service.get_user_by_telegram_id(message.from_user.id)
-    
-    if not user or not admin_service.is_admin(user.telegram_id):
-        await message.answer("🔒 У вас нет прав администратора для выполнения этой команды.")
-        return
-    
-    users_count = admin_service.get_users_count()
-    
-    text = f"""
-🔧 <b>Панель администратора</b>
+async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /admin — панель администратора."""
+    user = update.effective_user
 
-👋 Добро пожаловать, {message.from_user.first_name}!
-
-📊 <b>Статистика:</b>
-   • Всего пользователей: {users_count}
-
-🛠️ <b>Доступные команды:</b>
-   • /add_points @username [число] - начислить очки
-   • /add_admin @username - добавить администратора
-   • /admin - показать эту панель
-
-💡 <b>Примеры использования:</b>
-   • /add_points @john_doe 100
-   • /add_admin @new_admin
-
-⚠️ Будьте осторожны с административными командами!
-    """
-    
-    await message.answer(text, parse_mode='HTML')
-    logger.info(f"Admin panel accessed by user {message.from_user.id} (@{message.from_user.username})")
-
-
-@router.message(Command("add_points"))
-async def add_points_command(message: types.Message, admin_service: AdminService, transaction_service: TransactionService):
-    """Команда /add_points - начисление очков пользователю."""
-    user = message.from_user
-    
-    if not admin_service.is_admin(user.id):
-        await message.answer("🔒 У вас нет прав администратора для выполнения этой команды.")
-        return
-    
-    if not message.get_args() or len(message.get_args().split()) < 2:
-        await message.answer(
-            "❌ <b>Неверный формат команды</b>\n\n"
-            "Используйте: /add_points @username [количество]\n\n"
-            "<b>Примеры:</b>\n"
-            "• /add_points @john_doe 100\n"
-            "• /add_points user123 50",
-            parse_mode='HTML'
-        )
-        return
-    
-    args = message.get_args().split()
-    username = args[0]
-    
-    try:
-        amount = int(args[1])
-        if amount <= 0:
-            await message.answer("❌ Количество очков должно быть положительным числом")
+    with build_services() as svc:
+        if not svc.admin_service.is_admin(user.id):
+            await update.message.reply_text("🔒 У вас нет прав администратора.")
             return
-    except ValueError:
-        await message.answer("❌ Неверный формат количества очков")
-        return
-    
-    try:
-        # Находим пользователя
-        target_user = admin_service.get_user_by_username(username)
-        if not target_user:
-            await message.answer(f"❌ Пользователь {username} не найден")
-            return
-        
-        # Начисляем очки через сервис транзакций
-        updated_user = await transaction_service.add_points(
-            user_id=target_user.telegram_id,
-            amount=amount,
-            reason=f"Admin addition by {user.username or user.first_name}"
+
+        users_count = svc.admin_service.get_users_count()
+
+        text = (
+            f"🔧 <b>Панель администратора</b>\n\n"
+            f"👋 Добро пожаловать, {user.first_name}!\n\n"
+            f"📊 <b>Статистика:</b>\n"
+            f"   • Всего пользователей: {users_count}\n\n"
+            f"🛠️ <b>Команды:</b>\n"
+            f"   • /add_points @username [число]\n"
+            f"   • /add_admin @username\n"
+            f"   • /admin_stats — статистика системы"
         )
-        
-        if not updated_user:
-            await message.answer("❌ Не удалось обновить баланс пользователя")
+        await update.message.reply_text(text, parse_mode="HTML")
+        logger.info("Admin panel accessed", user_id=user.id)
+
+
+async def add_points_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /add_points — начисление очков пользователю."""
+    user = update.effective_user
+
+    with build_services() as svc:
+        if not svc.admin_service.is_admin(user.id):
+            await update.message.reply_text("🔒 У вас нет прав администратора.")
             return
-        
-        text = f"""
-✅ <b>Очки успешно начислены!</b>
 
-👤 Пользователь: @{target_user.username or target_user.telegram_id}
-💰 Начислено: {amount} очков
-💳 Новый баланс: {updated_user.balance} очков
-📝 ID транзакции: {updated_user.total_earned}
-
-Администратор: @{user.username or user.first_name}
-        """
-        
-        await message.answer(text, parse_mode='HTML')
-        logger.info(f"Admin {user.id} added {amount} points to user {target_user.telegram_id}")
-        
-    except Exception as e:
-        logger.error(f"Error in add_points command: {e}")
-        await message.answer(
-            "❌ Произошла ошибка при начислении очков. "
-            "Попробуйте позже или обратитесь к разработчику."
-        )
-
-
-@router.message(Command("add_admin"))
-async def add_admin_command(message: types.Message, admin_service: AdminService):
-    """Команда /add_admin - назначение администратора."""
-    user = message.from_user
-    
-    if not admin_service.is_admin(user.id):
-        await message.answer("🔒 У вас нет прав администратора для выполнения этой команды.")
-        return
-    
-    if not message.get_args():
-        await message.answer(
-            "❌ <b>Неверный формат команды</b>\n\n"
-            "Используйте: /add_admin @username\n\n"
-            "<b>Примеры:</b>\n"
-            "• /add_admin @john_doe\n"
-            "• /add_admin user123",
-            parse_mode='HTML'
-        )
-        return
-    
-    username = message.get_args().strip()
-    
-    try:
-        # Находим пользователя
-        target_user = admin_service.get_user_by_username(username)
-        if not target_user:
-            await message.answer(f"❌ Пользователь {username} не найден")
-            return
-        
-        # Проверяем, не является ли пользователь уже администратором
-        if admin_service.is_admin(target_user.telegram_id):
-            await message.answer(
-                f"ℹ️ Пользователь @{target_user.username or target_user.telegram_id} "
-                f"уже является администратором"
+        if not context.args or len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ <b>Неверный формат</b>\n\nИспользование: /add_points @username [количество]",
+                parse_mode="HTML",
             )
             return
-        
-        # Назначаем администратором
-        success = admin_service.set_admin_status(target_user.telegram_id, True)
-        if not success:
-            await message.answer("❌ Не удалось назначить пользователя администратором")
+
+        username = context.args[0]
+        try:
+            amount = int(context.args[1])
+            if amount <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("❌ Количество очков должно быть положительным числом.")
             return
-        
-        text = f"""
-✅ <b>Администратор назначен!</b>
 
-👤 Пользователь: @{target_user.username or target_user.telegram_id}
-🔧 Статус: Администратор
-👑 Назначен: @{user.username or user.first_name}
+        try:
+            target_user = svc.admin_service.get_user_by_username(username)
+            if not target_user:
+                await update.message.reply_text(f"❌ Пользователь {username} не найден.")
+                return
 
-Теперь пользователь имеет доступ к административным командам.
-        """
-        
-        await message.answer(text, parse_mode='HTML')
-        logger.info(f"Admin {user.id} granted admin rights to user {target_user.telegram_id}")
-        
-    except Exception as e:
-        logger.error(f"Error in add_admin command: {e}")
-        await message.answer(
-            "❌ Произошла ошибка при назначении администратора. "
-            "Попробуйте позже или обратитесь к разработчику."
-        )
+            updated_user = await svc.transaction_service.add_points(
+                user_id=target_user.telegram_id,
+                amount=amount,
+                reason=f"Admin addition by {user.username or user.first_name}",
+            )
+
+            await update.message.reply_text(
+                f"✅ <b>Очки начислены!</b>\n\n"
+                f"👤 Пользователь: @{target_user.username or target_user.telegram_id}\n"
+                f"💰 Начислено: {amount} очков\n"
+                f"💳 Новый баланс: {updated_user.balance} очков",
+                parse_mode="HTML",
+            )
+            logger.info("Points added", admin_id=user.id, target=target_user.telegram_id, amount=amount)
+
+        except Exception as e:
+            logger.error("Error in add_points command", error=str(e))
+            await update.message.reply_text("❌ Произошла ошибка при начислении очков.")
+
+
+async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /add_admin — назначение администратора."""
+    user = update.effective_user
+
+    with build_services() as svc:
+        if not svc.admin_service.is_admin(user.id):
+            await update.message.reply_text("🔒 У вас нет прав администратора.")
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "❌ <b>Неверный формат</b>\n\nИспользование: /add_admin @username",
+                parse_mode="HTML",
+            )
+            return
+
+        username = context.args[0].strip()
+
+        try:
+            target_user = svc.admin_service.get_user_by_username(username)
+            if not target_user:
+                await update.message.reply_text(f"❌ Пользователь {username} не найден.")
+                return
+
+            if svc.admin_service.is_admin(target_user.telegram_id):
+                await update.message.reply_text(
+                    f"ℹ️ Пользователь @{target_user.username or target_user.telegram_id} уже администратор."
+                )
+                return
+
+            success = svc.admin_service.set_admin_status(target_user.telegram_id, True)
+            if not success:
+                await update.message.reply_text("❌ Не удалось назначить администратора.")
+                return
+
+            await update.message.reply_text(
+                f"✅ <b>Администратор назначен!</b>\n\n"
+                f"👤 @{target_user.username or target_user.telegram_id}",
+                parse_mode="HTML",
+            )
+            logger.info("Admin granted", admin_id=user.id, target=target_user.telegram_id)
+
+        except Exception as e:
+            logger.error("Error in add_admin command", error=str(e))
+            await update.message.reply_text("❌ Произошла ошибка при назначении администратора.")
