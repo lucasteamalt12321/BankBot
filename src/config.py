@@ -59,38 +59,26 @@ class Settings(BaseSettings):
     @field_validator("ADMIN_TELEGRAM_ID")
     @classmethod
     def validate_admin_id(cls, v):
-<<<<<<< HEAD
         """
         Validate that ADMIN_TELEGRAM_ID is a positive integer within Telegram's valid range.
-        
+
         Telegram user IDs range from 1 to 0xffffffffff (1,099,511,627,775).
-        Reference: https://core.telegram.org/api/bots/ids
+        In test mode, 0 is allowed.
         """
+        # Allow 0 for testing
+        if os.getenv("ENV") == "test":
+            return v
         if v <= 0:
             raise ValueError(
-                "ADMIN_TELEGRAM_ID must be a positive integer. "
-                f"Received: {v}"
+                f"ADMIN_TELEGRAM_ID must be a positive integer. Received: {v}"
             )
-        
-        # Telegram's maximum user ID is 0xffffffffff (1,099,511,627,775)
-        max_telegram_id = 0xffffffffff
+        max_telegram_id = 0xFFFFFFFFFF
         if v > max_telegram_id:
             raise ValueError(
                 f"ADMIN_TELEGRAM_ID exceeds Telegram's maximum user ID ({max_telegram_id}). "
                 f"Received: {v}"
             )
-        
         return v
-=======
-        """Validate that ADMIN_TELEGRAM_ID is a positive integer (unless in test mode)."""
-        # Allow 0 for testing
-        if v > 0:
-            return v
-        # In test mode, 0 is allowed
-        if os.getenv("ENV") == "test":
-            return v
-        raise ValueError("ADMIN_TELEGRAM_ID must be a positive integer")
->>>>>>> f1369b8 (chore: minor update, possibly buggy)
     
     @field_validator("DATABASE_URL")
     @classmethod

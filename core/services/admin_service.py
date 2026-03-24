@@ -1,6 +1,6 @@
 """Admin service for business logic related to admin management."""
 
-from typing import Optional
+from typing import Optional, Union
 from sqlalchemy.orm import Session
 from database.database import User
 from src.repository.user_repository import UserRepository
@@ -13,14 +13,18 @@ class AdminService:
     Содержит бизнес-логику связанную с административными функциями.
     """
 
-    def __init__(self, user_repo: UserRepository):
+    def __init__(self, user_repo_or_session: Union[UserRepository, Session]):
         """
         Инициализация сервиса администраторов.
 
         Args:
-            user_repo: Репозиторий для работы с пользователями
+            user_repo_or_session: Репозиторий для работы с пользователями или Session
         """
-        self.user_repo = user_repo
+        if isinstance(user_repo_or_session, UserRepository):
+            self.user_repo = user_repo_or_session
+        else:
+            # Создаем UserRepository из Session
+            self.user_repo = UserRepository(user_repo_or_session)
 
     def is_admin(self, user_id: int) -> bool:
         """

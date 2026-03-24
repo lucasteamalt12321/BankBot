@@ -14,7 +14,6 @@ from aiogram.types import Message
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database.database import get_db
 from core.services.admin_service import AdminService
 from core.services.admin_stats_service import AdminStatsService
 from core.services.broadcast_service import BroadcastService
@@ -30,12 +29,14 @@ router = Router()
 
 
 @router.message(Command("parsing_stats"))
-async def parsing_stats_command(message: Message, db=next(get_db())):
+async def parsing_stats_command(
+    message: Message,
+    admin_service: AdminService,
+    admin_stats_service: AdminStatsService
+):
     """Command /parsing_stats - Display parsing statistics with time-based filtering."""
     user = message.from_user
     logger.info("Parsing stats command requested", user_id=user.id)
-    
-    admin_service = AdminService(db)
     
     if not admin_service.is_admin(user.id):
         await message.answer(
@@ -53,7 +54,6 @@ async def parsing_stats_command(message: Message, db=next(get_db())):
             timeframe = requested_timeframe
     
     try:
-        admin_stats_service = AdminStatsService(db)
         parsing_stats = await admin_stats_service.get_parsing_stats(timeframe)
         
         if not parsing_stats:
@@ -120,12 +120,14 @@ async def parsing_stats_command(message: Message, db=next(get_db())):
 
 
 @router.message(Command("broadcast"))
-async def broadcast_command(message: Message, db=next(get_db())):
+async def broadcast_command(
+    message: Message,
+    admin_service: AdminService,
+    broadcast_service: BroadcastService
+):
     """Command /broadcast - Broadcast message to all users with admin verification."""
     user = message.from_user
     logger.info("Broadcast command requested", user_id=user.id)
-    
-    admin_service = AdminService(db)
     
     if not admin_service.is_admin(user.id):
         await message.answer(
@@ -157,12 +159,6 @@ async def broadcast_command(message: Message, db=next(get_db())):
         return
     
     try:
-        from aiogram import Bot
-        bot = Bot.get_current()
-        
-        broadcast_service = BroadcastService(db, bot)
-        admin_stats_service = AdminStatsService(db)
-        
         await message.answer(
             f"📢 <b>Начинаю рассылку...</b>\n\n"
             f"<b>Сообщение:</b>\n{broadcast_message}\n\n"
@@ -224,12 +220,14 @@ async def broadcast_command(message: Message, db=next(get_db())):
 
 
 @router.message(Command("user_stats"))
-async def user_stats_command(message: Message, db=next(get_db())):
+async def user_stats_command(
+    message: Message,
+    admin_service: AdminService,
+    admin_stats_service: AdminStatsService
+):
     """Command /user_stats - Display detailed user statistics with username lookup."""
     user = message.from_user
     logger.info("User stats command requested", user_id=user.id)
-    
-    admin_service = AdminService(db)
     
     if not admin_service.is_admin(user.id):
         await message.answer(
@@ -255,7 +253,6 @@ async def user_stats_command(message: Message, db=next(get_db())):
     target_username = message.get_args().strip()
     
     try:
-        admin_stats_service = AdminStatsService(db)
         user_stats = await admin_stats_service.get_user_stats(target_username)
         
         if not user_stats:
@@ -344,12 +341,14 @@ async def user_stats_command(message: Message, db=next(get_db())):
 
 
 @router.message(Command("add_item"))
-async def add_item_command(message: Message, db=next(get_db())):
+async def add_item_command(
+    message: Message,
+    admin_service: AdminService,
+    shop_service: ShopService
+):
     """Command /add_item - Add new shop items dynamically with admin verification."""
     user = message.from_user
     logger.info("Add item command requested", user_id=user.id)
-    
-    admin_service = AdminService(db)
     
     if not admin_service.is_admin(user.id):
         await message.answer(
@@ -426,7 +425,6 @@ async def add_item_command(message: Message, db=next(get_db())):
         return
     
     try:
-        shop_service = ShopService(db)
         result = await shop_service.add_item(name, int(price), item_type)
         
         if result["success"]:

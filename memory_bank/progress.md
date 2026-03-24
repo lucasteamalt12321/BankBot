@@ -14,7 +14,7 @@
 | D08 | Middleware обработки ошибок | completed |
 | D09 | Graceful shutdown | completed |
 | D10 | ParserRegistry + конфигурация парсинга в БД | in_progress |
-| D11 | Блокировки балансов + Unit of Work | pending |
+| D11 | Блокировки балансов + Unit of Work | in_progress |
 | D12 | Connection pooling | pending |
 | D13 | Аудит SQL injection | pending |
 | D14 | Система алиасов пользователей | pending |
@@ -46,6 +46,14 @@
 - Исправлены веса в Project Deliverables (сумма теперь ровно 100)
 - Обновлён формат таблицы deliverables (Status вместо Статус, Deliverable вместо Название)
 - Пересчитан процент выполнения: 40%
+
+### 2026-03-24
+- Исправлены merge конфликты в `src/repository/base.py` и `src/repository/user_repository.py`
+- Исправлен merge конфликт в `src/config.py` (validator ADMIN_TELEGRAM_ID)
+- Исправлен merge конфликт в `src/repository/__init__.py`
+- Создан `src/repository/unit_of_work.py` — Unit of Work pattern (D11 → in_progress)
+- Обновлён AGENTS.md из актуального источника (github.com/Ravva/projects-tracker)
+- Добавлен `C:\Users\admin\.bun\bin` в PATH пользователя
 
 ### 2026-03-20
 - Инициализирован Memory Bank (`memory_bank/`)
