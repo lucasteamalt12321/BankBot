@@ -72,5 +72,5 @@
 ## Контроль изменений
 
 ```
-last_checked_commit: a7e2b22669cd60c15b217579ac2174d1b9d71dab
+last_checked_commit: f043ec941122d428d8e95ef1571750e130411912
 ```
