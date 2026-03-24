@@ -2,52 +2,62 @@
 
 ## Текущий фокус
 
-Фаза 3 — Безопасность и качество. Исправлены merge конфликты, создан Unit of Work. Следующий приоритет: DI контейнер (D15), аудит SQL injection (D13), система алиасов (D14).
+Завершён D06 (Service layer) — 47% проекта выполнено. Следующий приоритет: завершить D10 (ParserRegistry), интегрировать D11 (Unit of Work), создать DI контейнер (D15).
 
-## Что сделано (эта сессия — 2026-03-24)
+## Что сделано (2026-03-24)
 
-- [x] Исправлены merge конфликты в `src/repository/base.py`
-- [x] Исправлены merge конфликты в `src/repository/user_repository.py`
-- [x] Исправлен merge конфликт в `src/config.py`
-- [x] Исправлен merge конфликт в `src/repository/__init__.py`
-- [x] Создан `src/repository/unit_of_work.py` (Unit of Work pattern)
-- [x] Добавлен `C:\Users\admin\.bun\bin` в PATH пользователя
+### День: Завершение D06 (Service layer)
+- [x] Исправлен AdminService для поддержки Session и UserRepository
+- [x] Исправлен merge конфликт в bot/middleware/error_handler.py (оставлена aiogram версия)
+- [x] Создан bot/middleware/dependency_injection.py — DI middleware для инъекции сервисов
+- [x] Рефакторинг bot/commands/advanced_admin_commands.py: убраны прямые вызовы get_db()
+- [x] Все admin команды теперь получают сервисы через DI параметры
+- [x] D06 завершён полностью
+
+### Утро: Синхронизация Memory Bank
+- [x] Синхронизирован Memory Bank с актуальным AGENTS.md из репозитория
+- [x] Исправлены веса в Project Deliverables (сумма = 100)
+- [x] Обновлён формат таблицы deliverables (английские заголовки)
+- [x] Обновлён last_checked_commit в progress.md
+
+### Ранее (эта сессия)
+- [x] Исправлены merge конфликты в src/repository/base.py, user_repository.py
+- [x] Исправлен merge конфликт в src/config.py
+- [x] Создан src/repository/unit_of_work.py (Unit of Work pattern)
 - [x] Обновлён AGENTS.md из актуального источника
 
-## Ранее завершено
+## Завершённые deliverables (47%)
 
-- [x] Централизованная конфигурация (src/config.py, Pydantic Settings)
-- [x] Вынос конфиденциальных данных в переменные окружения
-- [x] Разделение requirements на prod/dev/docs
-- [x] Исправление импортов (scripts/fix_imports.py)
-- [x] Слой репозиториев (src/repository/)
-- [x] Middleware для обработки ошибок (bot/middleware/error_handler.py)
-- [x] Конфигурация парсинга в БД (ParsingConfigManager)
-- [x] StartupValidator (src/startup_validator.py)
-- [x] Graceful shutdown (src/process_manager.py)
-- [x] Рефакторинг bot.py → bot/commands/
-- [x] Service layer (user_service, transaction_service, shop_service)
-- [x] ParserRegistry (core/parsers/registry.py)
+- [x] D01: Централизованная конфигурация (7%)
+- [x] D02: Вынос конфиденциальных данных в env (5%)
+- [x] D03: Разделение requirements (4%)
+- [x] D04: Исправление импортов (3%)
+- [x] D05: Слой репозиториев (7%)
+- [x] D06: Service layer (7%)
+- [x] D07: Рефакторинг bot.py на модули (5%)
+- [x] D08: Middleware обработки ошибок (5%)
+- [x] D09: Graceful shutdown (4%)
 
 ## В работе
 
-- [ ] DI контейнер зависимостей (D15) — задача 11.3
-- [ ] Unit of Work — интеграция в TransactionService (D11)
-- [ ] Аудит SQL injection (D13) — задача 15.1
-- [ ] Система алиасов (D14) — задача 16.1
+- [ ] D10: ParserRegistry + конфигурация парсинга в БД (5%)
+- [ ] D11: Блокировки балансов + Unit of Work (6%)
 
 ## Следующие задачи (по приоритету)
 
-1. DI контейнер — создать `src/container.py` с wire-up сервисов
-2. Интегрировать UnitOfWork в TransactionService
-3. Аудит SQL injection в handlers и старых модулях
-4. Система алиасов пользователей
+1. Завершить ParserRegistry (D10)
+2. Интегрировать UnitOfWork в TransactionService (D11)
+3. Интегрировать DI middleware в bot.py
+4. Аудит SQL injection (D13)
+5. Система алиасов пользователей (D14)
+6. DI контейнер зависимостей (D15)
 
 ## Активные файлы
 
-- `AGENTS.md` — правила и план разработки
-- `memory_bank/` — Memory Bank проекта
-- `src/repository/unit_of_work.py` — новый UoW
-- `src/repository/base.py` — исправлен (merge конфликты)
-- `src/repository/user_repository.py` — исправлен (merge конфликты)
-- `src/config.py` — исправлен (merge конфликт в validator)
+- `memory_bank/projectbrief.md` — канонический источник процента выполнения (47%)
+- `core/services/` — service layer (user, admin, shop, transaction, broadcast, admin_stats)
+- `bot/middleware/dependency_injection.py` — DI middleware (создан, требует интеграции)
+- `bot/middleware/error_handler.py` — обработка ошибок (исправлен)
+- `bot/commands/advanced_admin_commands.py` — рефакторинг для DI (завершён)
+- `src/repository/unit_of_work.py` — Unit of Work (создан, требует интеграции)
+- `src/repository/` — слой репозиториев

@@ -9,7 +9,7 @@
 | D03 | Разделение зависимостей (requirements) | completed |
 | D04 | Исправление импортов | completed |
 | D05 | Слой репозиториев (Repository pattern) | completed |
-| D06 | Service layer (бизнес-логика из handlers) | in_progress |
+| D06 | Service layer (бизнес-логика из handlers) | completed |
 | D07 | Рефакторинг bot.py на модули | completed |
 | D08 | Middleware обработки ошибок | completed |
 | D09 | Graceful shutdown | completed |
@@ -27,27 +27,35 @@
 | D21 | Документация (README, DEPLOYMENT.md, диаграммы) | pending |
 | D22 | Docstrings Google style | pending |
 
-**Процент выполнения: 40%**
-(completed: D01-D05, D07-D09 = 40/100)
+**Процент выполнения: 47%**
+(completed: D01-D09 = 47/100)
 
 ## Known Issues
 
-- Часть handlers содержит бизнес-логику (не вынесена в services)
-- DI не настроен — зависимости создаются вручную
+- DI middleware создан, но требует интеграции в bot.py
 - Дублирующиеся парсеры не объединены
-- Unit of Work не реализован — транзакции не атомарны
+- Unit of Work создан, но не интегрирован в TransactionService
 - Временные тестовые БД создаются в корне проекта (мусор)
 - `docs/memory-bank/` — устаревший Memory Bank, заменён на `memory_bank/`
 
 ## Changelog
 
-### 2026-03-24
+### 2026-03-24 (День)
+- Завершён D06: Service layer — вся бизнес-логика вынесена из handlers в services
+- Исправлен AdminService для поддержки Session и UserRepository
+- Исправлен merge конфликт в bot/middleware/error_handler.py (оставлена aiogram версия)
+- Создан bot/middleware/dependency_injection.py — DI middleware для инъекции сервисов
+- Рефакторинг bot/commands/advanced_admin_commands.py: убраны прямые вызовы get_db()
+- Все admin команды теперь получают сервисы через DI параметры
+- Процент выполнения: 47% (D01-D09 completed)
+
+### 2026-03-24 (Утро)
 - Синхронизация Memory Bank с актуальным AGENTS.md
 - Исправлены веса в Project Deliverables (сумма теперь ровно 100)
 - Обновлён формат таблицы deliverables (Status вместо Статус, Deliverable вместо Название)
 - Пересчитан процент выполнения: 40%
 
-### 2026-03-24
+### 2026-03-24 (Ранее)
 - Исправлены merge конфликты в `src/repository/base.py` и `src/repository/user_repository.py`
 - Исправлен merge конфликт в `src/config.py` (validator ADMIN_TELEGRAM_ID)
 - Исправлен merge конфликт в `src/repository/__init__.py`
@@ -64,5 +72,5 @@
 ## Контроль изменений
 
 ```
-last_checked_commit: 410cd446ca726bc26becf372e81fe71509d9ec55
+last_checked_commit: a7e2b22669cd60c15b217579ac2174d1b9d71dab
 ```
