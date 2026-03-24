@@ -2,29 +2,31 @@
 
 ## Текущий фокус
 
-Завершён D06 (Service layer) — 47% проекта выполнено. Следующий приоритет: завершить D10 (ParserRegistry), интегрировать D11 (Unit of Work), создать DI контейнер (D15).
+Синхронизация Memory Bank завершена. Процент выполнения: 47% (D01-D09 completed). 
 
-## Что сделано (2026-03-24)
+**Критическая находка:** D10 (ParserRegistry) создан, но НЕ интегрирован в бот. Бот использует старую систему парсинга из `src/parsers`. Требуется полная интеграция ParserRegistry в `bot/handlers/parsing_handler.py`.
+
+## Что сделано (2026-03-24 10:35 UTC)
+
+### Синхронизация Memory Bank
+- [x] Обновлён last_checked_commit: a06555400b0eeae79df88cb025e8c6ed1c1846da
+- [x] Проведён аудит D10 (ParserRegistry)
+- [x] Обнаружено: ParserRegistry существует в `core/parsers/registry.py`, но не используется
+- [x] Обнаружено: Таблица `ParsingRule` существует в БД (database.py:362)
+- [x] Обнаружено: `ParsingConfigManager` работает с БД
+- [x] Обнаружено: `bot/handlers/parsing_handler.py` использует старые парсеры из `src/parsers`
+- [x] Обновлён activeContext.md с текущим состоянием
 
 ### День: Завершение D06 (Service layer)
 - [x] Исправлен AdminService для поддержки Session и UserRepository
-- [x] Исправлен merge конфликт в bot/middleware/error_handler.py (оставлена aiogram версия)
-- [x] Создан bot/middleware/dependency_injection.py — DI middleware для инъекции сервисов
-- [x] Рефакторинг bot/commands/advanced_admin_commands.py: убраны прямые вызовы get_db()
-- [x] Все admin команды теперь получают сервисы через DI параметры
+- [x] Исправлен merge конфликт в bot/middleware/error_handler.py
+- [x] Создан bot/middleware/dependency_injection.py — DI middleware
+- [x] Рефакторинг bot/commands/advanced_admin_commands.py
 - [x] D06 завершён полностью
 
 ### Утро: Синхронизация Memory Bank
-- [x] Синхронизирован Memory Bank с актуальным AGENTS.md из репозитория
+- [x] Синхронизирован Memory Bank с актуальным AGENTS.md
 - [x] Исправлены веса в Project Deliverables (сумма = 100)
-- [x] Обновлён формат таблицы deliverables (английские заголовки)
-- [x] Обновлён last_checked_commit в progress.md
-
-### Ранее (эта сессия)
-- [x] Исправлены merge конфликты в src/repository/base.py, user_repository.py
-- [x] Исправлен merge конфликт в src/config.py
-- [x] Создан src/repository/unit_of_work.py (Unit of Work pattern)
-- [x] Обновлён AGENTS.md из актуального источника
 
 ## Завершённые deliverables (47%)
 
@@ -38,26 +40,35 @@
 - [x] D08: Middleware обработки ошибок (5%)
 - [x] D09: Graceful shutdown (4%)
 
-## В работе
+## В работе (требуют завершения)
 
-- [ ] D10: ParserRegistry + конфигурация парсинга в БД (5%)
-- [ ] D11: Блокировки балансов + Unit of Work (6%)
+- [ ] D10: ParserRegistry + конфигурация парсинга в БД (5%) — **СОЗДАН, НЕ ИНТЕГРИРОВАН**
+  - ✅ ParserRegistry создан в `core/parsers/registry.py`
+  - ✅ Таблица ParsingRule в БД
+  - ✅ ParsingConfigManager работает
+  - ❌ Не интегрирован в bot handlers
+  - ❌ Бот использует старую систему `src/parsers`
+  
+- [ ] D11: Блокировки балансов + Unit of Work (6%) — **СОЗДАН, НЕ ИНТЕГРИРОВАН**
+  - ✅ UnitOfWork создан в `src/repository/unit_of_work.py`
+  - ✅ TransactionService имеет asyncio.Lock для блокировок
+  - ❌ UnitOfWork не используется в TransactionService
 
 ## Следующие задачи (по приоритету)
 
-1. Завершить ParserRegistry (D10)
-2. Интегрировать UnitOfWork в TransactionService (D11)
-3. Интегрировать DI middleware в bot.py
-4. Аудит SQL injection (D13)
-5. Система алиасов пользователей (D14)
-6. DI контейнер зависимостей (D15)
+1. **Завершить D10:** Интегрировать ParserRegistry в bot/handlers/parsing_handler.py
+2. **Завершить D11:** Интегрировать UnitOfWork в TransactionService
+3. Интегрировать DI middleware в bot.py (D15 частично)
+4. Connection pooling (D12)
+5. Аудит SQL injection (D13)
+6. Система алиасов пользователей (D14)
 
 ## Активные файлы
 
-- `memory_bank/projectbrief.md` — канонический источник процента выполнения (47%)
-- `core/services/` — service layer (user, admin, shop, transaction, broadcast, admin_stats)
-- `bot/middleware/dependency_injection.py` — DI middleware (создан, требует интеграции)
-- `bot/middleware/error_handler.py` — обработка ошибок (исправлен)
-- `bot/commands/advanced_admin_commands.py` — рефакторинг для DI (завершён)
-- `src/repository/unit_of_work.py` — Unit of Work (создан, требует интеграции)
-- `src/repository/` — слой репозиториев
+- `memory_bank/` — обновлён, синхронизирован с AGENTS.md
+- `core/parsers/registry.py` — ParserRegistry (создан, не интегрирован)
+- `core/managers/parsing_config_manager.py` — работает с БД
+- `bot/handlers/parsing_handler.py` — использует старую систему (требует рефакторинга)
+- `src/repository/unit_of_work.py` — UnitOfWork (создан, не интегрирован)
+- `core/services/transaction_service.py` — требует интеграции UnitOfWork
+- `bot/middleware/dependency_injection.py` — DI middleware (создан, не интегрирован)

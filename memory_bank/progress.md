@@ -32,13 +32,24 @@
 
 ## Known Issues
 
-- DI middleware создан, но требует интеграции в bot.py
-- Дублирующиеся парсеры не объединены
-- Unit of Work создан, но не интегрирован в TransactionService
+- **D10 (ParserRegistry):** создан в `core/parsers/registry.py`, но не интегрирован в `bot/handlers/parsing_handler.py`
+- **D11 (Unit of Work):** создан в `src/repository/unit_of_work.py`, но не используется в `core/services/transaction_service.py`
+- **DI middleware:** создан в `bot/middleware/dependency_injection.py`, но не подключен в `bot/main.py`
+- Бот использует старую систему парсинга из `src/parsers` вместо `core/parsers/registry`
+- Дублирующиеся парсеры не объединены (D17)
 - Временные тестовые БД создаются в корне проекта (мусор)
 - `docs/memory-bank/` — устаревший Memory Bank, заменён на `memory_bank/`
 
 ## Changelog
+
+### 2026-03-24 (10:35 UTC)
+- Синхронизация Memory Bank с AGENTS.md
+- Проведён аудит состояния D10 (ParserRegistry): создан, но не интегрирован в bot handlers
+- Обнаружено: bot использует старую систему парсинга из src/parsers
+- Таблица ParsingRule существует в БД (database.py:362)
+- ParsingConfigManager работает с БД
+- Требуется: интеграция ParserRegistry в bot/handlers/parsing_handler.py
+- Обновлён last_checked_commit: a06555400b0eeae79df88cb025e8c6ed1c1846da
 
 ### 2026-03-24 (День)
 - Завершён D06: Service layer — вся бизнес-логика вынесена из handlers в services
@@ -72,5 +83,5 @@
 ## Контроль изменений
 
 ```
-last_checked_commit: f043ec941122d428d8e95ef1571750e130411912
+last_checked_commit: a06555400b0eeae79df88cb025e8c6ed1c1846da
 ```
