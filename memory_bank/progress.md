@@ -27,8 +27,8 @@
 | D21 | Документация (README, DEPLOYMENT.md, диаграммы) | pending |
 | D22 | Docstrings Google style | pending |
 
-**Процент выполнения: ~43%**
-(completed: D01-D05, D07-D09 = 43% суммарного веса)
+**Процент выполнения: 40%**
+(completed: D01-D05, D07-D09 = 40/100)
 
 ## Known Issues
 
@@ -41,6 +41,12 @@
 
 ## Changelog
 
+### 2026-03-24
+- Синхронизация Memory Bank с актуальным AGENTS.md
+- Исправлены веса в Project Deliverables (сумма теперь ровно 100)
+- Обновлён формат таблицы deliverables (Status вместо Статус, Deliverable вместо Название)
+- Пересчитан процент выполнения: 40%
+
 ### 2026-03-20
 - Инициализирован Memory Bank (`memory_bank/`)
 - Созданы все 6 обязательных файлов: projectbrief, productContext, activeContext, systemPatterns, techContext, progress
@@ -50,5 +56,5 @@
 ## Контроль изменений
 
 ```
-last_checked_commit: b087247
+last_checked_commit: 410cd446ca726bc26becf372e81fe71509d9ec55
 ```
