@@ -308,11 +308,15 @@ class ParsingConfigManager:
         try:
             rules = self.get_rules_by_bot(bot_name)
             
-            coefficients = {
-                rule.pattern: rule.multiplier
-                for rule in rules
-                if rule.is_active
-            }
+            coefficients = {}
+            for rule in rules:
+                # Explicitly convert to Python types to satisfy type checker
+                pattern = str(getattr(rule, 'pattern', ''))
+                multiplier = Decimal(str(getattr(rule, 'multiplier', '0')))
+                is_active = bool(getattr(rule, 'is_active', False))
+                
+                if is_active and pattern:
+                    coefficients[pattern] = multiplier
             
             logger.debug(f"Retrieved {len(coefficients)} coefficients for {bot_name}")
             
@@ -340,13 +344,21 @@ class ParsingConfigManager:
             
             exported = []
             for rule in rules:
+                # Explicitly convert to Python types to satisfy type checker
+                rule_id = int(getattr(rule, 'id', 0))
+                bot_name_val = str(getattr(rule, 'bot_name', ''))
+                pattern_val = str(getattr(rule, 'pattern', ''))
+                multiplier_val = float(str(getattr(rule, 'multiplier', '1.0')))
+                currency_type_val = str(getattr(rule, 'currency_type', 'coins'))
+                is_active_val = bool(getattr(rule, 'is_active', False))
+                
                 exported.append({
-                    'id': rule.id,
-                    'bot_name': rule.bot_name,
-                    'pattern': rule.pattern,
-                    'multiplier': float(rule.multiplier),
-                    'currency_type': rule.currency_type,
-                    'is_active': rule.is_active
+                    'id': rule_id,
+                    'bot_name': bot_name_val,
+                    'pattern': pattern_val,
+                    'multiplier': multiplier_val,
+                    'currency_type': currency_type_val,
+                    'is_active': is_active_val
                 })
             
             logger.info(f"Exported {len(exported)} parsing rules")
