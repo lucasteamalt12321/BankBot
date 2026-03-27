@@ -1,84 +1,71 @@
 # Tech Context
 
-## Стек технологий
+## Технологический стек
 
-| Компонент | Технология | Версия |
-|-----------|-----------|--------|
-| Язык | Python | 3.x |
-| Telegram API | python-telegram-bot | 20.7 |
-| БД | SQLite через SQLAlchemy | >=2.0.36 |
-| Конфигурация | Pydantic Settings | — |
-| Планировщик | APScheduler | — |
-| Тесты | pytest + hypothesis | — |
-| Логирование | structlog | 23.1.0 |
-| Миграции | Alembic | >=1.13.0 |
-| Мониторинг | psutil | 5.9.6 |
+### Язык и фреймворки
+- **Python 3.10+** - основной язык разработки
+- **aiogram 3.x** - асинхронный фреймворк для Telegram Bot API
+- **SQLAlchemy 2.0+** - ORM для работы с базой данных
+- **Structlog** - структурированное логирование
 
-## Структура проекта
+### База данных
+- **SQLite** (разработка) / **PostgreSQL** (продакшн)
+- Миграции через Alembic
+- Connection Pooling (в разработке)
 
+### Управление зависимостями
+- **pip** - основной пакетный менеджер
+- **requirements.txt** - зависимости для продакшна
+- **requirements-dev.txt** - зависимости для разработки
+
+### Инструменты разработки
+- **Ruff** - линтер и форматтер кода
+- **Biome** - дополнительная проверка кода
+- **pytest** - фреймворк для тестирования
+- **hypothesis** - property-based testing
+
+### Архитектурные компоненты
+- **Parser Registry** - централизованная система парсинга игровых сообщений
+- **Balance Manager** - управление балансами и конвертацией валют
+- **Unit of Work** - атомарные транзакции с блокировками
+- **DI Container** - внедрение зависимостей (в разработке)
+
+### Тестирование
+- Unit tests - покрытие отдельных модулей
+- Integration tests - взаимодействие компонентов
+- E2E tests - сквозные сценарии (в разработке)
+- Security tests - защита от SQL-инъекций и race conditions (в разработке)
+
+### CI/CD
+- Локальная разработка с автоматической проверкой линтером
+- Docker контейнеризация (в разработке)
+- Автоматические миграции БД
+
+## Окружение разработки
+
+### Переменные окружения
+Конфигурация управляется через файл `.env` (не включается в репозиторий):
+- `TELEGRAM_BOT_TOKEN` - токен Telegram бота
+- `DATABASE_URL` - URL подключения к базе данных
+- `ADMIN_CHAT_ID` - ID чата администратора
+- `LOG_LEVEL` - уровень логирования
+
+### Структура проекта
 ```
 BankBot/
-├── AGENTS.md           # Правила и план разработки
-├── memory_bank/        # Memory Bank (этот файл)
-├── run_bot.py          # Точка входа
-├── bot/                # Telegram-бот
-│   ├── main.py         # Инициализация бота
-│   ├── router.py       # Регистрация роутеров
-│   ├── commands/       # Команды по группам
-│   ├── handlers/       # Обработчики сообщений
-│   └── middleware/     # Error handler
-├── core/               # Бизнес-логика
-│   ├── services/       # Service layer
-│   ├── managers/       # Менеджеры
-│   ├── parsers/        # Парсеры игр
-│   └── systems/        # Игровые системы
-├── src/                # Новая архитектура
-│   ├── config.py       # Pydantic Settings
-│   ├── repository/     # Репозитории
-│   ├── process_manager.py
-│   └── startup_validator.py
-├── database/           # SQLAlchemy модели и миграции
-├── config/             # .env файлы, bot_config.yaml
-├── tests/              # unit / integration / property
-│   ├── unit/
-│   ├── integration/
-│   └── property/
-└── docs/               # Документация
-    └── memory-bank/    # Старый Memory Bank (устарел)
+├── bot/                # Presentation Layer
+├── core/               # Application Layer  
+├── database/           # Database Layer
+├── src/                # Domain Layer и инфраструктурные компоненты
+├── utils/              # Вспомогательные утилиты
+├── tests/              # Тесты
+├── scripts/            # Вспомогательные скрипты
+├── memory_bank/        # Документация и контекст проекта
+└── requirements*.txt   # Зависимости
 ```
 
-## Конфигурация окружений
-
-```
-config/
-├── .env                    # Общие настройки
-├── .env.development        # Разработка
-├── .env.test               # Тесты
-├── .env.staging            # Стейджинг
-└── .env.production         # Продакшн
-```
-
-Обязательные переменные:
-- `BOT_TOKEN` — токен Telegram бота
-- `ADMIN_TELEGRAM_ID` — Telegram ID администратора
-- `DATABASE_URL` — путь к БД (default: `sqlite:///data/bot.db`)
-
-## Команды разработки
-
-```bash
-# Запуск бота
-python run_bot.py
-
-# Тесты (одиночный прогон)
-pytest --tb=short
-
-# Инициализация БД
-python database/initialize_system.py
-```
-
-## Ограничения и особенности
-
-- Windows-среда разработки (PowerShell)
-- SQLite — не поддерживает настоящий connection pooling
-- Нет CI/CD пайплайна
-- Тесты используют временные SQLite БД (создаются в корне проекта)
+## Текущие ограничения
+- Отсутствует полноценный DI контейнер
+- Нет connection pooling для БД
+- Требуется аудит SQL-запросов на уязвимости
+- Необходимо завершить реализацию Unit of Work с блокировками

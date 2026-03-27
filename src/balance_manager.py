@@ -6,21 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.audit_logger import AuditLogger
 
-<<<<<<< HEAD
-# Правильный импорт из src.repository (файл repository.py в папке src)
-import sys
-import os
-
-# Добавляем корневую директорию в путь, если её там нет
-root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if root_dir not in sys.path:
-    sys.path.insert(0, root_dir)
-
-# Теперь импортируем из src.repository (это файл src/repository.py)
-from src.repository import DatabaseRepository
-=======
 from src.repository_impl import DatabaseRepository
->>>>>>> f1369b8 (chore: minor update, possibly buggy)
 from src.coefficient_provider import CoefficientProvider
 from src.parsers import (
     ParsedProfile, ParsedAccrual, ParsedFishing, ParsedKarma,
