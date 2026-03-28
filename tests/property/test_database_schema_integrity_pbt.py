@@ -10,15 +10,14 @@ import os
 import tempfile
 import sqlite3
 import logging
-from typing import List, Tuple, Optional, Dict, Any
-from decimal import Decimal
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from hypothesis import given, strategies as st, settings, assume, HealthCheck
+    from hypothesis import given, strategies as st, settings
     HYPOTHESIS_AVAILABLE = True
 except ImportError:
     HYPOTHESIS_AVAILABLE = False
@@ -26,7 +25,7 @@ except ImportError:
     import subprocess
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "hypothesis"])
-        from hypothesis import given, strategies as st, settings, assume, HealthCheck
+        from hypothesis import given, strategies as st, settings
         HYPOTHESIS_AVAILABLE = True
     except Exception as e:
         print(f"Failed to install Hypothesis: {e}")
@@ -380,7 +379,7 @@ class DatabaseSchemaIntegritySystem:
                 tables = ['users', 'shop_items', 'parsing_rules', 'parsed_transactions', 'purchase_records']
                 
                 for table in tables:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                    cursor.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 - table names are hardcoded constants, not user input
                     counts[table] = cursor.fetchone()[0]
                 
                 return counts
@@ -426,7 +425,7 @@ class TestDatabaseSchemaIntegrityPBT(unittest.TestCase):
         """Clean up after tests"""
         try:
             os.unlink(self.temp_db.name)
-        except:
+        except OSError:
             pass
     
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
@@ -455,13 +454,13 @@ class TestDatabaseSchemaIntegrityPBT(unittest.TestCase):
         
         # Create a parsed transaction for the user
         if user_created:
-            transaction_id = self.db_system.create_parsed_transaction(
+            self.db_system.create_parsed_transaction(
                 user_id, 'TestBot', price, price, 'coins'
             )
         
         # Create a purchase record if both user and item exist
         if user_created and item_id:
-            purchase_id = self.db_system.create_purchase_record(user_id, item_id, price)
+            self.db_system.create_purchase_record(user_id, item_id, price)
         
         # Check database schema integrity after all operations
         violations = self.db_system.check_schema_integrity()

@@ -31,7 +31,7 @@ def get_db_info(db_path):
     
     for table in tables:
         table_name = table[0]
-        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")  # noqa: S608 - table name from sqlite_master, not user input
         count = cursor.fetchone()[0]
         info['tables'].append({'name': table_name, 'rows': count})
     
@@ -72,7 +72,8 @@ def merge_databases(source_db, target_db):
     target_cursor = target_conn.cursor()
     
     # Присоединить исходную БД
-    target_cursor.execute(f"ATTACH DATABASE '{source_db}' AS source")
+    # noqa: S608 - source_db is a validated file path, not user-controlled SQL
+    target_cursor.execute(f"ATTACH DATABASE '{source_db}' AS source")  # noqa: S608
     
     # Получить список таблиц из исходной БД
     target_cursor.execute("SELECT name FROM source.sqlite_master WHERE type='table'")
@@ -84,19 +85,21 @@ def merge_databases(source_db, target_db):
         try:
             # Проверить, существует ли таблица в целевой БД
             target_cursor.execute(
-                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
             )
             table_exists = target_cursor.fetchone() is not None
             
             if table_exists:
                 # Получить структуру таблицы
-                target_cursor.execute(f"PRAGMA table_info({table})")
+                # Table name from sqlite_master (system source), not user input
+                target_cursor.execute(f"PRAGMA table_info({table})")  # noqa: S608
                 columns = [row[1] for row in target_cursor.fetchall()]
                 columns_str = ', '.join(columns)
                 
-                # Объединить данные (INSERT OR IGNORE для избежания дубликатов)
+                # Table/column names from sqlite_master, not user input
                 target_cursor.execute(
-                    f"INSERT OR IGNORE INTO {table} ({columns_str}) "
+                    f"INSERT OR IGNORE INTO {table} ({columns_str}) "  # noqa: S608
                     f"SELECT {columns_str} FROM source.{table}"
                 )
                 
@@ -152,7 +155,7 @@ def main():
             print(f"📁 {db_path}")
             print(f"   Размер: {info['size']:,} байт")
             print(f"   Изменена: {info['modified']}")
-            print(f"   Таблицы:")
+            print("   Таблицы:")
             for table in info['tables']:
                 print(f"     - {table['name']}: {table['rows']} записей")
             print()

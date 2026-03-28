@@ -3,7 +3,6 @@
 """
 
 from typing import Optional
-from decimal import Decimal
 from .base import BaseParser, ProfileResult, GameEndResult, ParserError
 
 

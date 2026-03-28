@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from sqlalchemy.orm import Session
 from database.database import create_tables, get_db
 from core.systems.shop_system import EnhancedShopSystem
 from core.systems.games_system import GamesSystem
@@ -19,7 +18,6 @@ from core.systems.motivation_system import MotivationSystem
 from utils.monitoring.notification_system import NotificationSystem
 from core.systems.achievements import AchievementSystem
 from core.systems.social_system import SocialSystem
-from utils.core.user_manager import UserManager
 from src.config import settings, update_currency_rate, get_currency_config
 from utils.monitoring.monitoring_system import MonitoringSystem, AlertSystem
 from database.backup_system import BackupSystem
@@ -33,7 +31,6 @@ from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
 from datetime import datetime
 import structlog
-from telegram.error import BadRequest, TelegramError
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -564,6 +561,8 @@ class TelegramBot:
         # Это сохраняет существующий функционал согласно требованию 8.7
         db = next(get_db())
         try:
+            from utils.core.user_manager import UserManager
+            
             user_manager = UserManager(db)
             identified_user = user_manager.identify_user(
                 user.username or user.first_name,
@@ -2535,7 +2534,7 @@ ID клана: {result['clan_id']}
         try:
             from database.database import User, Transaction
             from sqlalchemy import func
-            from datetime import datetime, timedelta
+            from datetime import datetime
             
             # Получаем статистику из основной базы данных
             total_users = db.query(User).count()
@@ -2596,7 +2595,7 @@ ID клана: {result['clan_id']}
 
         db = next(get_db())
         try:
-            from database.database import User, Transaction
+            from database.database import Transaction
             from utils.core.user_manager import UserManager
             
             user_manager = UserManager(db)
@@ -2668,7 +2667,7 @@ ID транзакции: {transaction.id}
 
         db = next(get_db())
         try:
-            from database.database import User, Transaction
+            from database.database import Transaction
             from utils.core.user_manager import UserManager
             
             user_manager = UserManager(db)
@@ -2746,7 +2745,7 @@ ID транзакции: {transaction.id}
 
         db = next(get_db())
         try:
-            from database.database import User, Transaction
+            from database.database import Transaction
             from utils.core.user_manager import UserManager
             
             user_manager = UserManager(db)
@@ -2912,7 +2911,7 @@ ID транзакции: {transaction.id}
             # Fallback к основной системе
             db = next(get_db())
             try:
-                from database.database import User, Transaction
+                from database.database import Transaction
                 from utils.core.user_manager import UserManager
                 from sqlalchemy import desc
                 

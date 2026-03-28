@@ -17,7 +17,40 @@ class AdminSystem:
     
     def __init__(self, db_path: str = "data/bot.db"):
         self.db_path = db_path
-        # База данных уже инициализирована, не создаем отдельные таблицы
+        self._ensure_schema()
+    
+    def _ensure_schema(self) -> None:
+        """Создаёт необходимые таблицы, если они не существуют."""
+        try:
+            conn = get_connection(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id INTEGER UNIQUE NOT NULL,
+                    username TEXT,
+                    first_name TEXT,
+                    balance REAL DEFAULT 0,
+                    is_admin BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    amount REAL NOT NULL,
+                    transaction_type TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error ensuring schema: {e}")
     
     def get_db_connection(self) -> sqlite3.Connection:
         """Получение соединения с базой данных"""

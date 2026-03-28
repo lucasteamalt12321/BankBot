@@ -1,5 +1,7 @@
-"""
-Реестр и фабрика парсеров
+"""Реестр и фабрика парсеров.
+
+Конфигурация парсеров хранится в таблице `parsing_rules` БД.
+Поддерживает горячую перезагрузку без перезапуска бота через reload().
 """
 
 from typing import List, Optional
@@ -14,8 +16,12 @@ logger = structlog.get_logger()
 
 
 class ParserRegistry:
-    """Реестр всех парсеров"""
-    
+    """Реестр всех парсеров.
+
+    Конфигурация (коэффициенты, активность) хранится в таблице parsing_rules.
+    Вызов reload() применяет изменения из БД без перезапуска бота.
+    """
+
     def __init__(self):
         self.parsers: List[BaseParser] = []
         self._register_default_parsers()
@@ -93,6 +99,59 @@ class ParserRegistry:
         )
         return None
     
+    def reload(self) -> None:
+        """Перезагрузить конфигурацию парсеров из БД без перезапуска бота.
+
+        Читает активные правила из таблицы parsing_rules и обновляет
+        коэффициенты зарегистрированных парсеров.
+        """
+        try:
+            from database.database import get_db, ParsingRule
+            db = next(get_db())
+            try:
+                rules = db.query(ParsingRule).filter(
+                    ParsingRule.is_active == True  # noqa: E712
+                ).all()
+                rule_map = {r.bot_name: float(r.multiplier) for r in rules}
+                for parser in self.parsers:
+                    if parser.game_name in rule_map:
+                        parser.coefficient = rule_map[parser.game_name]
+                        logger.debug(
+                            "Parser coefficient updated from DB",
+                            parser=parser.__class__.__name__,
+                            coefficient=parser.coefficient,
+                        )
+                logger.info("ParserRegistry reloaded from DB", rules_loaded=len(rules))
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error("Failed to reload ParserRegistry from DB", error=str(e))
+
+    def get_config_from_db(self) -> dict:
+        """Получить текущую конфигурацию парсеров из БД.
+
+        Returns:
+            Словарь {bot_name: {multiplier, currency_type, is_active}}.
+        """
+        try:
+            from database.database import get_db, ParsingRule
+            db = next(get_db())
+            try:
+                rules = db.query(ParsingRule).all()
+                return {
+                    r.bot_name: {
+                        "multiplier": float(r.multiplier),
+                        "currency_type": r.currency_type,
+                        "is_active": r.is_active,
+                    }
+                    for r in rules
+                }
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error("Failed to get config from DB", error=str(e))
+            return {}
+
     def get_parsers_for_game(self, game: str) -> List[BaseParser]:
         """
         Возвращает все парсеры для конкретной игры

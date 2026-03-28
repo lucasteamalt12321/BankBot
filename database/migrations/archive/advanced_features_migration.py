@@ -7,15 +7,12 @@ Adds new columns to users table: sticker_unlimited, sticker_unlimited_until, tot
 
 import os
 import sys
-from datetime import datetime
 from decimal import Decimal
 
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import create_engine, text, Column, Integer, String, DateTime, Boolean, Text, DECIMAL, ForeignKey
-from sqlalchemy.orm import sessionmaker
-from database.database import Base
+from sqlalchemy import create_engine, text
 from src.config import settings
 
 
@@ -211,7 +208,10 @@ def verify_migration(engine):
         tables_to_check = ['parsing_rules', 'parsed_transactions', 'purchase_records']
         
         for table in tables_to_check:
-            result = conn.execute(text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"))
+            result = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name=:name"),
+                {"name": table},
+            )
             if result.fetchone():
                 log_info(f"✓ Table {table} exists")
             else:

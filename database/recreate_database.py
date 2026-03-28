@@ -22,10 +22,9 @@ from datetime import datetime
 import sqlite3
 import argparse
 
-from database.connection import get_connection
 from database.database import Base, create_engine, User
 from sqlalchemy.orm import Session
-from sqlalchemy import text, inspect
+from sqlalchemy import text
 
 
 def backup_database(db_path: Path) -> Path:
@@ -50,7 +49,7 @@ def backup_database(db_path: Path) -> Path:
     
     print(f"💾 Создание резервной копии: {backup_path}")
     shutil.copy2(db_path, backup_path)
-    print(f"✅ Резервная копия создана")
+    print("✅ Резервная копия создана")
     
     return backup_path
 
@@ -76,7 +75,7 @@ def drop_all_tables(engine):
     with engine.connect() as conn:
         for table in tables:
             try:
-                conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+                conn.execute(text(f"DROP TABLE IF EXISTS {table}"))  # noqa: S608 - table names are hardcoded, not user input
                 print(f"  ✓ Удалена таблица: {table}")
             except Exception as e:
                 print(f"  ⚠️  Не удалось удалить таблицу {table}: {e}")

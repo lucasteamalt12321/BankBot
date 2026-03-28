@@ -98,6 +98,8 @@ class TestKarmaParserProperties(unittest.TestCase):
         assume("пользователя" not in player_name)
         assume("Лайк!" not in player_name)
         assume(player_name.strip() != "")
+        # After rstrip('.') the name must remain non-empty (e.g. "." alone would become "")
+        assume(player_name.rstrip('.').strip() != "")
         
         # Construct message with any displayed rating (always > 1)
         message = f"""Лайк! Вы повысили рейтинг пользователя {player_name}.

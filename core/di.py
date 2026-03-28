@@ -5,10 +5,13 @@ from sqlalchemy.orm import Session
 
 from database.database import SessionLocal
 from core.repositories import UserRepository
+from core.repositories.balance_repository import BalanceRepository
+from core.repositories.transaction_repository import TransactionRepository
 from core.services import (
     UserService, TransactionService, AdminService, 
     ShopService, BroadcastService, AdminStatsService
 )
+from core.services.balance_service import BalanceService
 
 class DIContainer:
     """
@@ -29,7 +32,10 @@ class DIContainer:
         """Register default factories for core components."""
         self.register_factory(Session, self._create_session)
         self.register_factory(UserRepository, self._create_user_repository)
+        self.register_factory(BalanceRepository, self._create_balance_repository)
+        self.register_factory(TransactionRepository, self._create_transaction_repository)
         self.register_factory(UserService, self._create_user_service)
+        self.register_factory(BalanceService, self._create_balance_service)
         self.register_factory(TransactionService, self._create_transaction_service)
         self.register_factory(AdminService, self._create_admin_service)
         self.register_factory(ShopService, self._create_shop_service)
@@ -85,6 +91,16 @@ class DIContainer:
         session = self.get(Session)
         return UserRepository(session)
     
+    def _create_balance_repository(self) -> BalanceRepository:
+        """Create balance repository."""
+        session = self.get(Session)
+        return BalanceRepository(session)
+
+    def _create_transaction_repository(self) -> TransactionRepository:
+        """Create transaction repository."""
+        session = self.get(Session)
+        return TransactionRepository(session)
+
     def _create_user_service(self) -> UserService:
         """Create user service."""
         user_repo = self.get(UserRepository)
@@ -114,6 +130,11 @@ class DIContainer:
         """Create admin stats service."""
         session = self.get(Session)
         return AdminStatsService(session)
+
+    def _create_balance_service(self) -> BalanceService:
+        """Create balance service."""
+        session = self.get(Session)
+        return BalanceService(session)
 
 
 # Global container instance

@@ -9,7 +9,7 @@ ParsingConfigManager - управление конфигурацией парс�
 """
 
 import structlog
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -24,17 +24,37 @@ class ParsingConfigManager:
     Менеджер конфигурации парсинга.
     
     Предоставляет API для управления правилами парсинга в базе данных.
+    Поддерживает два режима:
+    - Старый: через SQLAlchemy session + старая модель ParsingRule (bot_name/pattern)
+    - Новый: через BaseRepository + новая модель ParsingRule (game_name/parser_class)
     """
     
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session_or_repository=None, *, session=None):
         """
         Инициализация менеджера.
         
         Args:
-            session: SQLAlchemy сессия (если None, создается новая)
+            session_or_repository: SQLAlchemy сессия или BaseRepository.
+                Если None, создается новая сессия.
+            session: Именованный аргумент для обратной совместимости.
         """
-        self.session = session or next(get_db())
-        self._session_created = session is None
+        # Поддержка именованного аргумента session (обратная совместимость)
+        if session is not None and session_or_repository is None:
+            session_or_repository = session
+        # Определяем режим работы
+        from src.repository.base import BaseRepository
+        if isinstance(session_or_repository, BaseRepository):
+            # Новый режим: через BaseRepository
+            self._repository = session_or_repository
+            self.session = session_or_repository.session
+            self._use_repository = True
+            self._session_created = False
+        else:
+            # Старый режим: через session
+            self.session = session_or_repository or next(get_db())
+            self._repository = None
+            self._use_repository = False
+            self._session_created = session_or_repository is None
     
     def __enter__(self):
         """Context manager entry"""
@@ -423,3 +443,256 @@ class ParsingConfigManager:
         except Exception as e:
             logger.error(f"Error importing parsing rules: {e}")
             return 0
+
+    # =========================================================================
+    # Новый API (через BaseRepository + новая модель ParsingRule с game_name)
+    # =========================================================================
+
+    def create_rule(
+        self,
+        game_name: str,
+        parser_class: str = "",
+        coefficient: float = 1.0,
+        enabled: bool = True,
+        config: Optional[Dict] = None,
+    ) -> Any:
+        """
+        Создать новое правило парсинга (новый API).
+
+        Args:
+            game_name: Уникальное имя игры
+            parser_class: Имя класса парсера
+            coefficient: Коэффициент умножения очков
+            enabled: Активно ли правило
+            config: Дополнительная JSON-конфигурация
+
+        Returns:
+            Созданный объект правила
+        """
+        if not self._use_repository:
+            raise RuntimeError("create_rule требует BaseRepository. Передайте repository в конструктор.")
+        return self._repository.create(
+            game_name=game_name,
+            parser_class=parser_class,
+            coefficient=coefficient,
+            enabled=enabled,
+            config=config if config is not None else {},
+        )
+
+    def get_rule(self, game_name_or_bot: str, pattern: Optional[str] = None) -> Optional[Any]:
+        """
+        Получить правило по имени игры (новый API) или по bot_name+pattern (старый API).
+
+        Args:
+            game_name_or_bot: Имя игры (новый API) или имя бота (старый API)
+            pattern: Regex паттерн (только для старого API)
+
+        Returns:
+            Объект правила или None
+        """
+        if self._use_repository:
+            return self._repository.get_by(game_name=game_name_or_bot)
+        # Старый API
+        try:
+            rule = self.session.query(ParsingRule).filter(
+                ParsingRule.bot_name == game_name_or_bot,
+                ParsingRule.pattern == pattern,
+            ).first()
+            return rule
+        except Exception as e:
+            logger.error(f"Error getting parsing rule: {e}")
+            return None
+
+    def get_all_rules(self, active_only: Optional[bool] = None) -> Any:
+        """
+        Получить все правила.
+
+        Args:
+            active_only: Если True — только активные; None — все (новый API возвращает dict)
+
+        Returns:
+            Новый API: dict {game_name: rule}; Старый API: list[ParsingRule]
+        """
+        if self._use_repository:
+            rules = self._repository.get_all()
+            if active_only is None:
+                return {r.game_name: r for r in rules}
+            return {r.game_name: r for r in rules if r.enabled == active_only}
+        # Старый API
+        try:
+            query = self.session.query(ParsingRule)
+            if active_only:
+                query = query.filter(ParsingRule.is_active == True)  # noqa: E712
+            return query.all()
+        except Exception as e:
+            logger.error(f"Error getting all parsing rules: {e}")
+            return []
+
+    def get_all_active_rules(self) -> Dict[str, Any]:
+        """
+        Получить все активные правила (новый API).
+
+        Returns:
+            dict {game_name: rule}
+        """
+        if not self._use_repository:
+            raise RuntimeError("get_all_active_rules требует BaseRepository.")
+        rules = self._repository.get_all_by(enabled=True)
+        return {r.game_name: r for r in rules}
+
+    def update_rule(self, game_name_or_id: Any = None, *, game_name: Optional[str] = None, **kwargs: Any) -> bool:
+        """
+        Обновить правило по имени игры (новый API) или по ID (старый API).
+
+        Args:
+            game_name_or_id: Имя игры (str, новый API) или ID (int, старый API)
+            game_name: Именованный аргумент для нового API (альтернатива game_name_or_id)
+            **kwargs: Поля для обновления
+
+        Returns:
+            True если успешно, False иначе
+        """
+        # Поддержка именованного аргумента game_name
+        if game_name is not None and game_name_or_id is None:
+            game_name_or_id = game_name
+        if self._use_repository:
+            target_name = game_name_or_id
+            rule = self._repository.get_by(game_name=target_name)
+            if not rule:
+                return False
+            updated = self._repository.update(rule.id, **kwargs)
+            return updated is not None
+        # Старый API (по ID)
+        try:
+            rule = self.get_rule_by_id(game_name_or_id)
+            if not rule:
+                logger.warning(f"Parsing rule with ID {game_name_or_id} not found")
+                return False
+            for key, value in kwargs.items():
+                if hasattr(rule, key):
+                    setattr(rule, key, value)
+            self.session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating parsing rule: {e}")
+            self.session.rollback()
+            return False
+
+    def delete_rule(self, game_name_or_id: Any) -> bool:
+        """
+        Удалить правило по имени игры (новый API) или по ID (старый API).
+
+        Args:
+            game_name_or_id: Имя игры (str, новый API) или ID (int, старый API)
+
+        Returns:
+            True если успешно, False иначе
+        """
+        if self._use_repository:
+            game_name = game_name_or_id
+            return self._repository.delete_by(game_name=game_name)
+        # Старый API (по ID)
+        try:
+            rule = self.get_rule_by_id(game_name_or_id)
+            if not rule:
+                return False
+            self.session.delete(rule)
+            self.session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting parsing rule: {e}")
+            self.session.rollback()
+            return False
+
+    def update_coefficient(self, game_name_or_id: Any, coefficient: Any) -> bool:
+        """
+        Обновить коэффициент правила.
+
+        Args:
+            game_name_or_id: Имя игры (str, новый API) или ID (int, старый API)
+            coefficient: Новый коэффициент
+
+        Returns:
+            True если успешно, False иначе
+        """
+        if self._use_repository:
+            return self.update_rule(game_name_or_id, coefficient=float(coefficient))
+        return self._legacy_update_rule(game_name_or_id, multiplier=Decimal(str(coefficient)))
+
+    def _legacy_update_rule(self, rule_id: int, **kwargs: Any) -> bool:
+        """Обновить правило по ID (старый API, внутренний метод)."""
+        try:
+            rule = self.get_rule_by_id(rule_id)
+            if not rule:
+                return False
+            for key, value in kwargs.items():
+                if hasattr(rule, key):
+                    setattr(rule, key, value)
+            self.session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating parsing rule: {e}")
+            self.session.rollback()
+            return False
+
+    def enable_rule(self, game_name: str) -> bool:
+        """
+        Активировать правило по имени игры (новый API).
+
+        Args:
+            game_name: Имя игры
+
+        Returns:
+            True если успешно, False иначе
+        """
+        if not self._use_repository:
+            raise RuntimeError("enable_rule требует BaseRepository.")
+        return self.update_rule(game_name, enabled=True)
+
+    def disable_rule(self, game_name: str) -> bool:
+        """
+        Деактивировать правило по имени игры (новый API).
+
+        Args:
+            game_name: Имя игры
+
+        Returns:
+            True если успешно, False иначе
+        """
+        if not self._use_repository:
+            raise RuntimeError("disable_rule требует BaseRepository.")
+        return self.update_rule(game_name, enabled=False)
+
+    def is_enabled(self, game_name: str) -> bool:
+        """
+        Проверить, активно ли правило (новый API).
+
+        Args:
+            game_name: Имя игры
+
+        Returns:
+            True если активно, False иначе
+        """
+        if not self._use_repository:
+            raise RuntimeError("is_enabled требует BaseRepository.")
+        rule = self._repository.get_by(game_name=game_name)
+        if rule is None:
+            return False
+        return bool(rule.enabled)
+
+    def get_coefficient(self, game_name: str) -> Optional[float]:
+        """
+        Получить коэффициент правила по имени игры (новый API).
+
+        Args:
+            game_name: Имя игры
+
+        Returns:
+            Коэффициент или None если правило не найдено
+        """
+        if not self._use_repository:
+            raise RuntimeError("get_coefficient требует BaseRepository.")
+        rule = self._repository.get_by(game_name=game_name)
+        if rule is None:
+            return None
+        return float(rule.coefficient)

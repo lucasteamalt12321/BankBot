@@ -48,6 +48,19 @@ backups/
 # Testing
 .hypothesis/
 .pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+test_*.db
+
+# Temporary virtual environments
+clean_install_test/
+clean_test_venv/
+
+# Build artifacts
+collect_errors.txt
+collect_output.txt
+test_results*.txt
 
 # OS
 .DS_Store

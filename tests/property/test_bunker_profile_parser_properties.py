@@ -269,8 +269,10 @@ class TestBunkerProfileParserProperties(unittest.TestCase):
         
         # Ensure invalid_money is truly invalid (not parseable as Decimal)
         try:
-            Decimal(invalid_money)
-            assume(False)  # Skip if it's actually valid
+            val = Decimal(invalid_money)
+            # Decimal('INF'), Decimal('NaN') etc. are valid Decimal but not valid money
+            assume(not val.is_finite())
+            assume(False)  # Skip if it's actually a finite valid number
         except:
             pass  # Good, it's invalid
         

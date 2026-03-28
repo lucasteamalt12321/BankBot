@@ -21,6 +21,7 @@ from bot.bridge.config import (
 from bot.bridge.telegram_forwarder import router as bridge_router
 from bot.bridge.vk_listener import VKListenerThread
 from config.settings import bot_settings
+from core.middleware import ErrorHandlingMiddleware
 
 logger = structlog.get_logger()
 
@@ -37,6 +38,15 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
+
+    # Регистрируем централизованный обработчик ошибок (BB-5)
+    admin_chat_id = (
+        bot_settings.BRIDGE_ADMIN_CHAT_ID
+        or (bot_settings.ADMIN_TELEGRAM_ID if bot_settings.ADMIN_TELEGRAM_ID else None)
+    )
+    dp.message.middleware(ErrorHandlingMiddleware(admin_chat_id=admin_chat_id))
+    dp.callback_query.middleware(ErrorHandlingMiddleware(admin_chat_id=admin_chat_id))
+    logger.info("ErrorHandlingMiddleware registered", admin_chat_id=admin_chat_id)
 
     vk_thread: VKListenerThread | None = None
 
