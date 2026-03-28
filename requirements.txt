@@ -1,101 +1,33 @@
-<<<<<<< HEAD
 # Production Dependencies for LucasTeam Telegram Bot
 # All versions are pinned for reproducible builds
-# Last updated: 2024-01
 
-# ============================================================================
 # Core Bot Framework
-# ============================================================================
 python-telegram-bot==20.7
-# Telegram bot API wrapper - provides async interface for Telegram Bot API
-# Version 20.7 pinned for API stability and compatibility with our handlers
-
-# ============================================================================
-# Database & ORM
-# ============================================================================
-sqlalchemy==2.0.36
-# SQL toolkit and ORM - provides database abstraction layer
-# Version 2.0.36 pinned for schema stability and migration compatibility
-alembic==1.13.0
-# Database migration tool - manages database schema versions
-# Version 1.13.0 pinned to ensure compatibility with SQLAlchemy 2.0.36
-
-# ============================================================================
-# Configuration & Settings Management
-# ============================================================================
-pydantic==2.12.0
-# Data validation using Python type annotations - validates settings at runtime
-pydantic-settings==2.0.0
-# Settings management for Pydantic - loads and validates environment variables
-python-dotenv==1.0.0
-# Environment variable management from .env files - loads config/.env at startup
-
-# ============================================================================
-# Logging & Monitoring
-# ============================================================================
-structlog==23.1.0
-# Structured logging for better observability
-
-# ============================================================================
-# System Utilities
-# ============================================================================
-psutil==5.9.6
-# System and process utilities - used for process management and monitoring
-# Required for safe bot restart functionality
-
-# ============================================================================
-# Date & Time Handling
-# ============================================================================
-pytz==2023.3
-# Timezone definitions for accurate time handling across different regions
-python-dateutil==2.8.2
-# Extensions to the standard datetime module - provides flexible date parsing
-
-# ============================================================================
-# Data Formats
-# ============================================================================
-pyyaml==6.0.3
-# YAML parser and emitter - used for reading configuration files
-# Version 6.0.3 includes important security fixes and Python 3.14 compatibility
-
-# ============================================================================
-# Notes:
-# - redis has been removed (not used in codebase - verified in task 3.1.1)
-# - All versions are pinned with == for reproducibility
-# - For development dependencies, see requirements-dev.txt
-# ============================================================================
-=======
-# Production Dependencies
-# ======================
-
-# Core framework
-# --------------
-# Telegram bot frameworks for handling Telegram API
-python-telegram-bot==20.7
-aiogram==3.4.1
+aiogram~=3.4
 aiohttp==3.9.1
 
-# Database
-# --------
-# ORM and database migration tools
-sqlalchemy==2.0.25
-alembic==1.13.1
+# Database & ORM
+sqlalchemy==2.0.36
+alembic==1.13.0
 psycopg2-binary==2.9.9
 
-# Configuration and validation
-# ----------------------------
-# Settings management and data validation
-pydantic==2.5.3
-pydantic-settings==2.2.0
+# Configuration & Settings Management
+pydantic==2.12.0
+pydantic-settings==2.0.0
 python-dotenv==1.0.0
 
-# Utilities
-# ---------
-# Additional utilities for logging, timezone, YAML, process management, caching
+# Logging & Monitoring
 structlog==23.1.0
+
+# System Utilities
+psutil==5.9.6
+
+# Date & Time Handling
 pytz==2023.3
 python-dateutil==2.8.2
-pyyaml==6.0.1
-psutil==5.9.6
-redis==5.0.1
->>>>>>> f1369b8 (chore: minor update, possibly buggy)
+
+# Data Formats
+pyyaml==6.0.3
+
+# VK API (Bridge-модуль)
+vk_api~=11.9

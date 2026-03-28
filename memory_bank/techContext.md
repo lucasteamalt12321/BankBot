@@ -28,7 +28,15 @@
 - **Parser Registry** - централизованная система парсинга игровых сообщений
 - **Balance Manager** - управление балансами и конвертацией валют
 - **Unit of Work** - атомарные транзакции с блокировками
-- **DI Container** - внедрение зависимостей (в разработке)
+- **DI Container** - внедрение зависимостей (`core/di.py`)
+- **Bridge Module** - двусторонняя пересылка TG ↔ VK (`bot/bridge/`)
+  - `loop_guard.py` — фильтрация циклов через метку `[BOT]`
+  - `message_queue.py` — FIFO очередь с rate limiting и exponential backoff
+  - `vk_sender.py` — отправка в VK через vk_api
+  - `telegram_forwarder.py` — aiogram handler TG → VK
+  - `vk_listener.py` — VKListenerThread (Long Poll)
+  - `media_handler.py` — загрузка медиа TG → VK
+  - `main_bridge.py` — точка входа aiogram с graceful shutdown
 
 ### Тестирование
 - Unit tests - покрытие отдельных модулей
@@ -45,17 +53,24 @@
 
 ### Переменные окружения
 Конфигурация управляется через файл `.env` (не включается в репозиторий):
-- `TELEGRAM_BOT_TOKEN` - токен Telegram бота
-- `DATABASE_URL` - URL подключения к базе данных
-- `ADMIN_CHAT_ID` - ID чата администратора
-- `LOG_LEVEL` - уровень логирования
+- `BOT_TOKEN` — токен Telegram бота
+- `DATABASE_URL` — URL подключения к базе данных
+- `ADMIN_TELEGRAM_ID` — Telegram ID администратора
+- `LOG_LEVEL` — уровень логирования
+- `BRIDGE_ENABLED` — включить Bridge TG ↔ VK (bool)
+- `BRIDGE_TG_CHAT_ID` — ID Telegram-чата для Bridge
+- `VK_TOKEN` — токен VK API (обязателен при BRIDGE_ENABLED=true)
+- `VK_PEER_ID` — peer_id VK-чата для Bridge
+- `APP_ENV` — окружение: dev / prod / test
 
 ### Структура проекта
 ```
 BankBot/
 ├── bot/                # Presentation Layer
+│   └── bridge/         # Bridge-модуль TG ↔ VK
 ├── core/               # Application Layer  
-├── database/           # Database Layer
+├── config/             # Конфигурация (settings.py)
+├── database/           # Database Layer + миграции
 ├── src/                # Domain Layer и инфраструктурные компоненты
 ├── utils/              # Вспомогательные утилиты
 ├── tests/              # Тесты
@@ -64,8 +79,6 @@ BankBot/
 └── requirements*.txt   # Зависимости
 ```
 
-## Текущие ограничения
-- Отсутствует полноценный DI контейнер
-- Нет connection pooling для БД
-- Требуется аудит SQL-запросов на уязвимости
-- Необходимо завершить реализацию Unit of Work с блокировками
+## Точки входа
+- `run_bot.py` → `bot/main.py` — основной бот (python-telegram-bot)
+- `python -m bot.bridge.main_bridge` — Bridge-бот (aiogram)
