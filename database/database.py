@@ -422,7 +422,9 @@ class BotBalance(Base):
     )
 
 
-engine = create_engine(settings.DATABASE_URL)
+from database.connection import get_pooled_engine
+
+engine = get_pooled_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

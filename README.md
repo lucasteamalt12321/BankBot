@@ -91,65 +91,68 @@ python run_bot.py
 BankBot/
 ├── .gitignore            # Git ignore
 ├── README.md             # Документация
+├── AGENTS.md             # План разработки
 ├── run_bot.py            # Запуск бота
 │
-├── bot/                  # Telegram-бот
-│   ├── bot.py           # Основной код бота (3000+ строк)
+├── bank_bot/             # Банковская система (pytelegrambotapi)
+│   ├── main.py
+│   ├── bot.py
+│   ├── handlers/
+│   ├── services/
+│   ├── repositories/
+│   └── di.py
+│
+├── bridge_bot/           # Мост TG → VK (aiogram)
+│   ├── main.py          # Точка входа
+│   ├── bot.py           # Инициализация
+│   ├── handlers.py      # Обработчики постов
+│   ├── vk_publisher.py  # Отправка в VK
+│   ├── media.py         # Медиафайлы
+│   └── queue.py         # Rate limiting
+│
+├── vk_bot/              # VK Bot (vk_api)
+│   ├── main.py          # Long Poll точка входа
+│   ├── bot.py           # Инициализация
+│   └── handlers.py      # Обработчики
+│
+├── common/              # Общие модули
+│   ├── config.py        # Pydantic Settings
+│   ├── database.py      # Re-export БД
+│   └── logging.py       # Логирование
+│
+├── bot/                  # Legacy Telegram-бот (python-telegram-bot)
+│   ├── bot.py           # Основной код (3000+ строк)
 │   ├── commands/        # Команды бота
-│   │   ├── admin_commands.py
-│   │   ├── advanced_admin_commands.py
-│   │   └── config_commands.py
-│   └── parsers/         # Парсеры
+│   ├── bridge/         # Bridge модуль
+│   └── handlers/        # Обработчики
 │
 ├── core/                 # Бизнес-логика
-│   ├── parsers/         # Система парсинга игровых сообщений
-│   │   └── simple_parser.py  # Парсер (NEW!)
-│   ├── database/        # Работа с БД
-│   ├── handlers/        # Обработчики
-│   ├── managers/        # Менеджеры
-│   ├── models/          # Модели данных
-│   └── systems/         # Игровые системы
+│   ├── repositories/    # Repository pattern
+│   ├── services/       # Service layer
+│   ├── parsers/        # Парсеры игровых сообщений
+│   ├── managers/       # Менеджеры
+│   └── di.py           # DI container
 │
 ├── database/            # База данных
-│   ├── database.py      # SQLAlchemy модели
-│   ├── initialize_system.py  # Инициализация
-│   ├── init_db.py       # Простая инициализация
-│   ├── simple_init.py   # Альтернативная инициализация
-│   ├── unify_databases.py  # Объединение БД (NEW!)
-│   ├── backup_system.py # Резервное копирование
-│   └── migrations/      # Миграции БД
+│   ├── database.py     # SQLAlchemy модели
+│   ├── connection.py   # Connection pooling
+│   └── migrations/     # Миграции БД
 │
-├── data/                # Данные
-│   └── bot.db          # Единая база данных
+├── tests/               # Тесты
+│   ├── unit/          # Unit-тесты (700+)
+│   ├── integration/   # Интеграционные тесты
+│   └── property/      # Property-based тесты
 │
-├── utils/               # Утилиты
-│   ├── admin/          # Административная система
-│   ├── core/           # Основные утилиты
-│   ├── database/       # Утилиты БД
-│   └── monitoring/     # Мониторинг
-│
-├── config/              # Конфигурация
-│   ├── bot_config.yaml
-│   ├── .env.example
-│   └── requirements.txt
-│
-├── tests/               # Тесты (100+ файлов)
-│   ├── unit/           # Unit-тесты
-│   ├── integration/    # Интеграционные тесты
-│   └── property/       # Property-based тесты
-│
-├── docs/                # Документация
-│   ├── PARSER_INTEGRATION.md  # Парсер (NEW!)
-│   ├── BOT_PARSER_INTEGRATION.md  # Интеграция (NEW!)
-│   ├── DATABASE_UNIFICATION.md  # Объединение БД (NEW!)
-│   └── ...
-│
-├── examples/            # Примеры
-│   └── parser_integration_example.py  # Пример парсера (NEW!)
-│
-└── scripts/             # Скрипты
-    └── ...
+└── docs/               # Документация
 ```
+
+## 🚀 Точки входа
+
+| Бот | Команда | Описание |
+|-----|---------|---------|
+| BankBot | `python run_bot.py` | Основной Telegram-бот |
+| BridgeBot | `python -m bridge_bot.main` | Мост TG → VK |
+| VK Bot | `python -m vk_bot.main` | VK Long Poll |
 
 ## ⚙️ Технические особенности
 

@@ -3,7 +3,6 @@
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from decimal import Decimal
 
 from database.database import User, BotBalance
 from .base import BaseRepository
@@ -16,7 +15,7 @@ class UserRepository(BaseRepository[User]):
         self.model = User
     
     def get(self, id: int) -> Optional[User]:
-        """Get user by ID."""
+        """Get user by ID (internal database ID)."""
         return self.session.query(self.model).filter(self.model.id == id).first()
     
     def get_all(self) -> List[User]:

@@ -1,10 +1,13 @@
 """Transaction service — финансовые операции с Unit of Work и per-user блокировками."""
 
 import asyncio
-from typing import Dict
+from typing import Callable, Dict, Optional, TYPE_CHECKING
 from database.database import User, Transaction
 from src.repository.user_repository import UserRepository
 from src.repository.unit_of_work import UnitOfWork
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 class TransactionService:
@@ -18,18 +21,35 @@ class TransactionService:
     asyncio.Lock на user_id предотвращает race conditions при параллельных запросах.
     """
 
-    def __init__(self, user_repo: UserRepository):
+    def __init__(
+        self,
+        user_repo: UserRepository,
+        session: Optional["Session"] = None,
+        uow_factory: Optional[Callable] = None,
+    ):
         """
         Args:
             user_repo: Репозиторий пользователей (для read-only запросов).
+            session: Опциональная сессия для тестов (перекрывает uow_factory).
+            uow_factory: Фабрика UnitOfWork (по умолчанию создаёт новый).
         """
         self.user_repo = user_repo
+        self._session = session
+        self._uow_factory = uow_factory
         self._locks: Dict[int, asyncio.Lock] = {}
 
     def _get_lock(self, user_id: int) -> asyncio.Lock:
         if user_id not in self._locks:
             self._locks[user_id] = asyncio.Lock()
         return self._locks[user_id]
+
+    def _create_uow(self) -> UnitOfWork:
+        """Create UnitOfWork with session override if provided."""
+        if self._session is not None:
+            return UnitOfWork(session=self._session)
+        if self._uow_factory is not None:
+            return self._uow_factory()
+        return UnitOfWork()
 
     async def add_points(
         self,
@@ -54,8 +74,8 @@ class TransactionService:
             ValueError: Если пользователь не найден.
         """
         async with self._get_lock(user_id):
-            with UnitOfWork() as uow:
-                user = uow.users.get_by_telegram_id(user_id)
+            with self._create_uow() as uow:
+                user = uow.users.get(user_id)
                 if not user:
                     raise ValueError(f"User {user_id} not found")
 
@@ -94,8 +114,8 @@ class TransactionService:
             ValueError: Если пользователь не найден или недостаточно средств.
         """
         async with self._get_lock(user_id):
-            with UnitOfWork() as uow:
-                user = uow.users.get_by_telegram_id(user_id)
+            with self._create_uow() as uow:
+                user = uow.users.get(user_id)
                 if not user:
                     raise ValueError(f"User {user_id} not found")
 
@@ -144,12 +164,12 @@ class TransactionService:
 
         async with lock1:
             async with lock2:
-                with UnitOfWork() as uow:
-                    sender = uow.users.get_by_telegram_id(from_user_id)
+                with self._create_uow() as uow:
+                    sender = uow.users.get(from_user_id)
                     if not sender:
                         raise ValueError(f"Sender {from_user_id} not found")
 
-                    receiver = uow.users.get_by_telegram_id(to_user_id)
+                    receiver = uow.users.get(to_user_id)
                     if not receiver:
                         raise ValueError(f"Receiver {to_user_id} not found")
 
