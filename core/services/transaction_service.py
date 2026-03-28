@@ -39,12 +39,32 @@ class TransactionService:
         self._locks: Dict[int, asyncio.Lock] = {}
 
     def _get_lock(self, user_id: int) -> asyncio.Lock:
+        """Get or create an asyncio.Lock for a specific user_id.
+
+        Prevents concurrent balance modifications for the same user.
+        Lazy initialization — lock is created on first access.
+
+        Args:
+            user_id: User ID to get lock for.
+
+        Returns:
+            asyncio.Lock instance for the given user.
+        """
         if user_id not in self._locks:
             self._locks[user_id] = asyncio.Lock()
         return self._locks[user_id]
 
     def _create_uow(self) -> UnitOfWork:
-        """Create UnitOfWork with session override if provided."""
+        """Create UnitOfWork with session override if provided.
+
+        Priority:
+        1. Use _session if provided (for testing)
+        2. Use _uow_factory if provided
+        3. Use default UnitOfWork with global SessionLocal
+
+        Returns:
+            UnitOfWork instance configured according to priority rules.
+        """
         if self._session is not None:
             return UnitOfWork(session=self._session)
         if self._uow_factory is not None:

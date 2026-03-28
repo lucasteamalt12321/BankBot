@@ -45,7 +45,7 @@ https://github.com/lucasteamalt12321/BankBot
 | D19 | Тесты безопасности (SQL injection, race conditions) | completed | 4 |
 | D20 | Coverage 80%+ | completed | 4 |
 | D21 | Документация (README, DEPLOYMENT.md, диаграммы) | completed | 3 |
-| D22 | Docstrings Google style | pending | 2 |
+| D22 | Docstrings Google style | completed | 2 |
 | D23 | Bridge-модуль: конфигурация + миграция bridge_state | completed | 3 |
 | D24 | Bridge-модуль: loop_guard, message_queue, vk_sender | completed | 4 |
 | D25 | Bridge-модуль: telegram_forwarder, vk_listener, main_bridge | completed | 4 |

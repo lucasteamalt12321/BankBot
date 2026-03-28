@@ -35,10 +35,14 @@
 - **D16 (Очистка неиспользуемого кода)**: Исправлены unused imports в bot/bot.py (6 шт)
 - **TransactionService fix**: Добавлен `session` параметр для тестов, исправлены методы для использования `get(id)` вместо `get_by_telegram_id`
 - **UserRepository fix**: Добавлен метод `get_all()` в `core/repositories/user_repository.py`
-- **Unit tests**: 713 passed (было 693), прогресс в стабильности
+- **Unit tests**: 713 passed, прогресс в стабильности
 - **D19 (Security tests)**: Созданы тесты SQL injection и race conditions
 - **D20 (Coverage)**: TransactionService 96%, ShopService 95%, UserService 94%, AliasService 91%
 - **D21 (Documentation)**: Обновлена архитектура README.md, добавлены точки входа
+- **D22 (Docstrings)**: Google style docstrings добавлены во все ключевые модули:
+  - core/repositories/ (BaseRepository, BalanceRepository, TransactionRepository, UnitOfWork)
+  - core/services/ (BalanceService, TransactionService)
+  - bridge_bot/, vk_bot/, bank_bot/ (re-exports + entry points)
 
 ### 2026-03-28
 - Реализован Bridge-модуль (ядро + медиа):
