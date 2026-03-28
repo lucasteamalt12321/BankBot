@@ -40,7 +40,7 @@ https://github.com/lucasteamalt12321/BankBot
 | D12 | Connection pooling | completed | 3 |
 | D13 | Аудит SQL injection | completed | 5 |
 | D16 | Аудит и очистка неиспользуемого кода | completed | 4 |
-| D17 | Объединение дублирующихся парсеров | pending | 3 |
+| D17 | Объединение дублирующихся парсеров | completed | 3 |
 | D18 | E2E тесты основных сценариев | completed | 4 |
 | D19 | Тесты безопасности (SQL injection, race conditions) | completed | 4 |
 | D20 | Coverage 80%+ | completed | 4 |

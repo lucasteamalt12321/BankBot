@@ -1,6 +1,15 @@
 """
 Простая система парсинга сообщений от Shmalala
 Основана на логике построчного анализа сообщений
+
+.. deprecated::
+    Этот модуль устарел. Используйте вместо него:
+    - core/parsers/shmalala.py (ShmalalaFishingParser, ShmalalaKarmaParser)
+    - core/parsers/gdcards.py (GDCardsProfileParser, GDCardsCardParser)
+    - core/parsers/registry.py (ParserRegistry)
+
+    Эти парсеры используют BaseParser интерфейс и AccrualResult,
+    обеспечивая консистентный API и лучшую тестируемость.
 """
 
 import structlog
@@ -45,7 +54,11 @@ class ParsedOrbDrop:
 
 
 class SimpleShmalalaParser:
-    """Простой парсер для сообщений Shmalala и GD Cards"""
+    """Простой парсер для сообщений Shmalala и GD Cards.
+
+    .. deprecated::
+        Используйте ShmalalaFishingParser и ShmalalaKarmaParser из core/parsers/shmalala.py
+    """
     
     def parse_profile_message(self, text: str) -> Optional[ParsedProfile]:
         """

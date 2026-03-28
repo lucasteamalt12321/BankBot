@@ -44,6 +44,11 @@
   - core/services/ (BalanceService, TransactionService)
   - bridge_bot/, vk_bot/, bank_bot/ (re-exports + entry points)
 
+### 2026-03-28 (финал)
+- **D17 (Parser unification)**: Добавлены deprecation warnings в simple_parser.py
+  - SimpleShmalalaParser отмечен как deprecated
+  - Рекомендуется использовать BaseParser из core/parsers/shmalala.py, gdcards.py
+
 ### 2026-03-28
 - Реализован Bridge-модуль (ядро + медиа):
   - `config/settings.py` — BotSettings с Bridge-полями и валидацией
