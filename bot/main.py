@@ -13,7 +13,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bot.bot import TelegramBot
-from database.database import create_tables, engine
+from database.database import create_tables
 from src.startup_validator import validate_startup
 from src.process_manager import ProcessManager
 
@@ -42,30 +42,69 @@ class BotApplication:
         3. Bot application
         4. PID file
         
+        Each step is isolated - errors in one step don't stop others.
+        PID file is always removed, even if other steps fail.
+        
         Returns:
             bool: True if all resources cleaned up successfully
         """
+        logger.info("Starting graceful shutdown", bot_running=self.bot is not None)
+        
+        errors = []
+        
+        # Step 1: Close database
         try:
-            logger.info("Starting graceful shutdown", bot_running=self.bot is not None)
-            
-            if self.bot is not None:
-                if hasattr(self.bot, 'background_task_manager'):
-                    btm = self.bot.background_task_manager
-                    if hasattr(btm, 'stop_periodic_cleanup'):
-                        btm.stop_periodic_cleanup()
-                
-                if hasattr(self.bot, 'application'):
-                    await self.bot.application.stop()
-            
+            logger.info("Shutting down database connections")
             import database.database
             database.database.engine.dispose()
-            ProcessManager.remove_pid()
-            
-            logger.info("Shutdown completed successfully")
-            return True
         except Exception as e:
-            logger.error("Shutdown failed", error=str(e))
+            errors.append(f"database: {e}")
+            logger.error("Database shutdown failed", error=str(e))
+        
+        # Step 2: Stop background tasks
+        if self.bot is not None:
+            try:
+                if hasattr(self.bot, 'background_task_manager'):
+                    btm = self.bot.background_task_manager
+                    if btm is not None and hasattr(btm, 'stop_periodic_cleanup'):
+                        logger.info("Stopping background tasks")
+                        if asyncio.iscoroutinefunction(btm.stop_periodic_cleanup):
+                            await btm.stop_periodic_cleanup()
+                        else:
+                            btm.stop_periodic_cleanup()
+            except Exception as e:
+                errors.append(f"background_tasks: {e}")
+                logger.error("Background task shutdown failed", error=str(e))
+        
+        # Step 3: Stop bot application
+        if self.bot is not None:
+            try:
+                if hasattr(self.bot, 'application'):
+                    app = self.bot.application
+                    if app is not None:
+                        if hasattr(app, 'running') and not app.running:
+                            logger.info("Bot application already stopped")
+                        else:
+                            logger.info("Stopping bot application")
+                            await app.stop()
+            except Exception as e:
+                errors.append(f"bot_application: {e}")
+                logger.error("Bot application shutdown failed", error=str(e))
+        
+        # Step 4: Always remove PID file (even on errors)
+        try:
+            logger.info("Removing PID file")
+            ProcessManager.remove_pid()
+        except Exception as e:
+            errors.append(f"pid_file: {e}")
+            logger.error("PID file removal failed", error=str(e))
+        
+        if errors:
+            logger.info("Shutdown completed with errors", errors=errors)
             return False
+        
+        logger.info("Shutdown completed successfully")
+        return True
 
 def kill_existing_bot_processes():
     """Убивает все существующие процессы, связанные с ботом"""
