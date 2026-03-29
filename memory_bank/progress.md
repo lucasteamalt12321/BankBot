@@ -1,27 +1,45 @@
 # Progress
 
 ## Статус проекта
-**Процент выполнения:** 65%
-**Текущая фаза:** Фаза 3 — Bridge-модуль завершён, следующий этап: рефакторинг банковской системы
+**Процент выполнения:** 95%
+**Текущая фаза:** Фаза 4 — Исправление проблем, очистка legacy-кода
+**Следующие задачи:**
+1. [ ] Исправить merge conflict markers в README.md
+2. [ ] Добавить BotApplication в bot/main.py или удалить тесты
+3. [ ] Исправить тесты с отсутствующей колонкой alias
+4. [ ] Очистить ruff errors в legacy коде (опционально)
 
 ## Known Issues
 
 ### Критические проблемы
-- **SQLAlchemy типизация в ParsingConfigManager**: Ошибки типизации при работе с колонками SQLAlchemy в методах `get_coefficients_by_bot` и `export_rules`
-- **Unit of Work null safety**: Возможная ошибка обращения к None в методе commit()
+- **Merge conflicts**: Конфликты слияния в README.md, test_task_9_verification.py, test_auto_registration_pbt.py
+- **test_shutdown_resource_cleanup**: Импорт `BotApplication` из `bot.main` не найден (18 тестов падают)
+- **test_user_manager**: Таблица `users` не содержит колонку `alias` в in-memory тестах (3 теста падают)
 
 ### Высокий приоритет
-- Отсутствует connection pooling для БД
-- Требуется аудит SQL-запросов на уязвимости
+- Исправить merge conflict markers в README.md (строки 260-307)
+- Исправить или удалить тесты с устаревшими импортами
 
 ### Средний приоритет
-- Требуется написать E2E тесты
-- Нужна система алиасов пользователей
+- ruff: 354 ошибки остаются (в legacy коде bot/, core/, utils/, tests/)
+- Тесты покрытия: 706 passed, 89 failed
 
-### Bridge-модуль (не критично)
-- ruff E501: длинные строки в нескольких файлах bridge/ (не влияет на работу)
+### Решённые проблемы
+- ✅ Connection pooling подключен
+- ✅ SQL injection аудит пройден
+- ✅ E2E тесты написаны
+- ✅ Система алиасов реализована
+- ✅ SimpleShmalalaParser deprecated
 
 ## Changelog
+
+### 2026-03-29 (ревизия проекта)
+- **Ruff**: 370 автоисправлено, 354 осталось (в legacy коде)
+- **Тесты**: 706 passed, 89 failed
+  - Провалы: импорт BotApplication, отсутствие колонки alias, merge conflicts
+- **Merge conflicts**: найдены в README.md, test_task_9_verification.py, test_auto_registration_pbt.py
+- **Core service tests**: 53 passed (shop, transaction, user services)
+- **Docker**: Dockerfile и docker-compose.yml базовые, работающие
 
 ### 2026-03-28 (продолжение)
 - **Этапы 4-6 завершены**: vk_bot/ создан, корень проверен, финальная проверка пройдена
@@ -84,4 +102,4 @@
 - Добавлен Unit of Work для атомарных транзакций
 
 ## last_checked_commit
-2026-03-28
+2026-03-29

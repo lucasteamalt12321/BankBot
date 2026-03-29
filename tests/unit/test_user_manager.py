@@ -19,9 +19,18 @@ class TestUserManager(unittest.TestCase):
     
     def setUp(self):
         """Setup test database"""
+        from sqlalchemy import text
         create_tables()
+        
+        # Ensure alias column exists (for databases created before migration)
         db_gen = get_db()
         self.db = next(db_gen)
+        try:
+            self.db.execute(text("ALTER TABLE users ADD COLUMN alias VARCHAR(32) DEFAULT NULL"))
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+        
         self.user_manager = UserManager(self.db)
         
     def tearDown(self):

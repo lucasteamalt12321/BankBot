@@ -21,11 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.database.simple_db import register_user, get_user_by_id, init_database, get_db_connection
 from utils.admin.admin_system import AdminSystem
-<<<<<<< HEAD
 from utils.admin.admin_middleware import auto_registration_middleware
-=======
-from utils.admin_middleware import auto_registration_middleware
->>>>>>> f1369b8 (chore: minor update, possibly buggy)
 
 
 class TestTask9Verification(unittest.TestCase):
@@ -39,13 +35,8 @@ class TestTask9Verification(unittest.TestCase):
         
         # Override DB_PATH for testing
         import utils.database.simple_db
-<<<<<<< HEAD
         self.original_db_path = utils.database.simple_db.DB_PATH
         utils.database.simple_db.DB_PATH = self.temp_db.name
-=======
-        self.original_db_path = utils.simple_db.DB_PATH
-        utils.simple_db.DB_PATH = self.temp_db.name
->>>>>>> f1369b8 (chore: minor update, possibly buggy)
         
         # Initialize test database
         init_database()
@@ -57,11 +48,7 @@ class TestTask9Verification(unittest.TestCase):
         """Cleanup test database"""
         # Restore original DB_PATH
         import utils.database.simple_db
-<<<<<<< HEAD
         utils.database.simple_db.DB_PATH = self.original_db_path
-=======
-        utils.simple_db.DB_PATH = self.original_db_path
->>>>>>> f1369b8 (chore: minor update, possibly buggy)
         
         # Remove temporary database
         try:

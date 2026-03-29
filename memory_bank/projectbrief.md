@@ -53,3 +53,17 @@ https://github.com/lucasteamalt12321/BankBot
 | D27 | vk_bot/: config, bot, handlers, main | completed | 3 |
 
 **Процент выполнения:** 100% (D01–D27 completed = 100/100)
+
+---
+
+## Next Tasks (Post-Review Cleanup)
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| T01 | Исправить merge conflict markers в README.md | P0 | pending |
+| T02 | Добавить BotApplication в bot/main.py или удалить тесты | P0 | pending |
+| T03 | Исправить test_user_manager.py — добавить миграцию alias | P0 | pending |
+| T04 | Исправить merge conflicts в тестах | P1 | pending |
+| T05 | Очистить ruff errors в legacy коде | P2 | pending |
+| T06 | Удалить лишние папки (backups/, data/, examples/) | P2 | pending |
+| T07 | Удалить test_*.db файлы | P2 | pending |

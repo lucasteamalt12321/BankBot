@@ -3,21 +3,69 @@
 
 import os
 import sys
-import signal
 import structlog
 import psutil
 import time
-from pathlib import Path
+import asyncio
+from typing import Optional
 
 # Добавляем корневую директорию в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bot.bot import TelegramBot
-from database.database import create_tables
-from src.config import settings
+from database.database import create_tables, engine
 from src.startup_validator import validate_startup
+from src.process_manager import ProcessManager
 
 logger = structlog.get_logger()
+
+
+class BotApplication:
+    """Wrapper for Telegram bot with graceful shutdown support.
+    
+    Provides unified interface for bot lifecycle management including:
+    - Database connection management
+    - Background task cleanup
+    - Bot application shutdown
+    - PID file management
+    """
+    
+    def __init__(self):
+        self.bot: Optional[TelegramBot] = None
+    
+    async def shutdown(self) -> bool:
+        """Perform graceful shutdown of all resources.
+        
+        Shuts down in order:
+        1. Database connections (engine.dispose)
+        2. Background tasks
+        3. Bot application
+        4. PID file
+        
+        Returns:
+            bool: True if all resources cleaned up successfully
+        """
+        try:
+            logger.info("Starting graceful shutdown", bot_running=self.bot is not None)
+            
+            if self.bot is not None:
+                if hasattr(self.bot, 'background_task_manager'):
+                    btm = self.bot.background_task_manager
+                    if hasattr(btm, 'stop_periodic_cleanup'):
+                        btm.stop_periodic_cleanup()
+                
+                if hasattr(self.bot, 'application'):
+                    await self.bot.application.stop()
+            
+            import database.database
+            database.database.engine.dispose()
+            ProcessManager.remove_pid()
+            
+            logger.info("Shutdown completed successfully")
+            return True
+        except Exception as e:
+            logger.error("Shutdown failed", error=str(e))
+            return False
 
 def kill_existing_bot_processes():
     """Убивает все существующие процессы, связанные с ботом"""
