@@ -13,7 +13,7 @@
 - Коммитить изменения на GitHub только в следующих случаях:
   - Ты закончил большой блок кода, запустил тесты и убедился, что все корректно работает
   - Пользователь попросил тебя закоммитить
-- Не создавать много файлов в корне! Должны быть только: .gitignore, AGENTS.md, bot.db, README.md, requirements.txt, run_bot.py
+- Не создавать много файлов в корне! Должны быть только: .gitignore, AGENTS.md, bot.db, README.md, requirements.txt, run_bot.py. Также должны быть вложенные папки
 
 
 ---
@@ -184,7 +184,7 @@ BankBot/                     # корень репозитория
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
-└── requirements-dev.txt
+├── run_bot.py - файл, запускающий ботов
 ```
 
 ### Требования (кратко)

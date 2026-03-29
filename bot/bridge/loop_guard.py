@@ -1,27 +1,5 @@
-"""Loop guard for Bridge module — prevents forwarding loops via [BOT] mark."""
+"""Shim: re-export из bridge_bot/loop_guard.py."""
 
-BOT_MARK = "[BOT]"
+from bridge_bot.loop_guard import BOT_MARK, has_bot_mark, add_bot_mark
 
-
-def has_bot_mark(text: str) -> bool:
-    """Check if text contains the bot mark indicating it was already forwarded.
-
-    Args:
-        text: Message text to check.
-
-    Returns:
-        True if text contains [BOT] mark, False otherwise.
-    """
-    return BOT_MARK in text
-
-
-def add_bot_mark(text: str) -> str:
-    """Add bot mark to text to prevent forwarding loops.
-
-    Args:
-        text: Original message text.
-
-    Returns:
-        Text with [BOT] mark appended.
-    """
-    return f"{text} {BOT_MARK}"
+__all__ = ["BOT_MARK", "has_bot_mark", "add_bot_mark"]

@@ -1,6 +1,27 @@
 """Loop guard — предотвращает циклы пересылки через метку [BOT]."""
 
-# Re-export из bot/bridge/loop_guard.py для обратной совместимости
-from bot.bridge.loop_guard import BOT_MARK, has_bot_mark, add_bot_mark
+BOT_MARK = "[BOT]"
 
-__all__ = ["BOT_MARK", "has_bot_mark", "add_bot_mark"]
+
+def has_bot_mark(text: str) -> bool:
+    """Check if text contains the bot mark indicating it was already forwarded.
+
+    Args:
+        text: Message text to check.
+
+    Returns:
+        True if text contains [BOT] mark, False otherwise.
+    """
+    return BOT_MARK in text
+
+
+def add_bot_mark(text: str) -> str:
+    """Add bot mark to text to prevent forwarding loops.
+
+    Args:
+        text: Original message text.
+
+    Returns:
+        Text with [BOT] mark appended.
+    """
+    return f"{text} {BOT_MARK}"

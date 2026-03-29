@@ -17,6 +17,9 @@ from .registry import (
     parse_message,
 )
 
+# Unified parser — единая точка входа для всех форматов
+from .unified import UnifiedParser, parse as parse_unified
+
 # Backward compatibility with old simple_parser
 from .simple_parser import (
     ParsedCard,
@@ -60,6 +63,9 @@ __all__ = [
     "ParserRegistry",
     "get_registry",
     "parse_message",
+    # Unified parser (single entry point)
+    "UnifiedParser",
+    "parse_unified",
     # Old simple_parser (backward compatibility)
     "ParsedCard",
     "ParsedOrbDrop",

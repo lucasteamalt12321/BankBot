@@ -1,102 +1,54 @@
 # Active Context
 
 ## Текущий фокус
-**Реструктуризация проекта под целевую архитектуру из AGENTS.md.**
+**Приведение структуры проекта к целевой по AGENTS.md: удаление лишних папок из корня, перенос реального кода в bank_bot/, bridge_bot/, vk_bot/, common/.**
 
-Целевая структура:
+## Целевая структура (AGENTS.md)
 ```
 BankBot/
-├── bridge_bot/      # BridgeBot (пересылка постов TG → VK)
-├── bank_bot/        # BankBot (банковская система)
-├── vk_bot/          # VK Bot (публикация в канал VK)
-├── common/          # общие модули (config, database, models, logging)
-├── tests/
+├── bridge_bot/    # BridgeBot — реальный код (уже готов)
+├── bank_bot/      # BankBot — нужно перенести реальный код из bot/, core/, database/
+├── vk_bot/        # VK Bot — реальный код (уже готов)
+├── common/        # общие модули — нужно перенести из config/, database/, src/
+├── tests/         # тесты (оставить)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
-└── requirements-dev.txt
+├── run_bot.py
 ```
 
-## План миграции (поэтапный)
+## Разрешённые файлы/папки в корне (AGENTS.md)
+.gitignore, AGENTS.md, bot.db, README.md, requirements.txt, run_bot.py
++ Dockerfile, docker-compose.yml, requirements-dev.txt, tests/, docs/, for_programmer/, scripts/
 
-### Этап 0: Подготовка ✅
-- Зафиксировать план в memory_bank
-- Убедиться что тесты проходят до начала
+## Лишние папки в корне (нужно убрать)
+- bot/           → код переносится в bank_bot/
+- core/          → код переносится в bank_bot/ и common/
+- database/      → код переносится в common/
+- config/        → код переносится в common/
+- src/           → код переносится в common/ или bank_bot/
+- utils/         → код переносится в bank_bot/ или common/
+- backups/       → убрать
+- data/          → убрать (bot.db в корне)
+- examples/      → убрать
+- test_*.db      → удалить (мусор)
+- __pycache__/   → удалить
 
-### Этап 1: Создать common/ [СЛЕДУЮЩИЙ]
-- `common/__init__.py`
-- `common/config.py` — перенести из `config/settings.py` (добавить re-export в старом месте)
-- `common/database.py` — re-export из `database/database.py`
-- `common/models.py` — re-export из `database/database.py` (модели)
-- `common/logging.py` — новый модуль логирования
-- Старые пути (`config/settings.py`, `database/`) оставить как shim-обёртки
+## Стратегия (безопасная миграция)
+1. Перенести реальный код из bot/main.py → bank_bot/main.py
+2. Перенести bot/bot.py → bank_bot/bot.py
+3. Перенести bot/handlers/ → bank_bot/handlers/
+4. Перенести core/di.py → bank_bot/di.py
+5. Перенести core/middleware/ → bank_bot/middleware.py
+6. Перенести database/database.py → common/database.py
+7. Перенести config/settings.py → common/config.py
+8. Обновить все импорты
+9. Удалить лишние папки из корня
 
-### Этап 2: Создать bridge_bot/ [ПОСЛЕ ЭТАПА 1]
-- Переместить `bot/bridge/` → `bridge_bot/`
-- `bridge_bot/main.py` ← `bot/bridge/main_bridge.py`
-- `bridge_bot/bot.py` ← инициализация
-- `bridge_bot/handlers.py` ← `bot/bridge/telegram_forwarder.py`
-- `bridge_bot/vk_publisher.py` ← `bot/bridge/vk_sender.py`
-- `bridge_bot/media.py` ← `bot/bridge/media_handler.py`
-- `bridge_bot/queue.py` ← `bot/bridge/message_queue.py`
-- `bridge_bot/config.py` ← `bot/bridge/config.py`
-- Обновить все импорты внутри bridge_bot/
-- Оставить `bot/bridge/` как shim с re-export
-
-### Этап 3: Создать bank_bot/ [ПОСЛЕ ЭТАПА 2]
-- `bank_bot/main.py` ← `bot/main.py`
-- `bank_bot/bot.py` ← `bot/bot.py`
-- `bank_bot/handlers/` ← `bot/handlers/` + `bot/commands/`
-- `bank_bot/services/` ← `core/services/`
-- `bank_bot/repositories/` ← `core/repositories/`
-- `bank_bot/middleware.py` ← `core/middleware/error_handling.py`
-- `bank_bot/di.py` ← `core/di.py`
-- Оставить `bot/`, `core/` как shim с re-export
-
-### Этап 4: Создать vk_bot/ [ПОСЛЕ ЭТАПА 3]
-- `vk_bot/main.py` — точка входа VK Long Poll
-- `vk_bot/bot.py` — инициализация
-- `vk_bot/handlers.py` — обработка входящих
-- `vk_bot/config.py` — конфигурация
-
-### Этап 5: Обновить run_bot.py и корень [ПОСЛЕ ЭТАПА 4]
-- `run_bot.py` → запуск bank_bot
-- Убрать лишние файлы из корня (оставить только разрешённые AGENTS.md)
-
-### Этап 6: Финальная проверка
-- Запустить тесты
-- Проверить ruff
-- Обновить docs/README.md
-
-## Принципы безопасной миграции
-1. **Shim-файлы**: старые пути остаются рабочими через re-export
-2. **Один этап за раз**: после каждого этапа — проверка импортов
-3. **Сохранение в memory_bank** после каждого этапа
-4. **Тесты не трогать** — они используют старые пути через shim
-
-## Текущий статус этапов
-- Этап 0: ✅ Готов
-- Этап 1: ✅ common/ создан (config, database, logging, utils) — импорты OK
-- Этап 2: ✅ bridge_bot/ создан (config, loop_guard, queue, vk_publisher, media, handlers, main) — импорты OK
-- Этап 3: ✅ bank_bot/ создан (repositories, services, di, middleware, handlers, bot, main) — импорты OK
-- Этап 4: ✅ vk_bot/ создан (config, bot, handlers, main) — импорты OK
-- Этап 5: ✅ run_bot.py и корень проверены — соответствуют AGENTS.md
-- Этап 6: ✅ Финальная проверка пройдена (ruff OK, импорты OK)
-
-## Новые точки входа (после миграции)
-- `python run_bot.py` → `bot/main.py` — основной бот (python-telegram-bot)
-- `python -m bot.bridge.main_bridge` — Bridge-модуль (aiogram)
-- `python -m bridge_bot.main` — BridgeBot (новый путь)
-- `python -m vk_bot.main` — VK Bot
-
-## Завершённые задачи (предыдущие сессии)
-- 1.1–1.3 Инфраструктура и конфигурация
-- 2.1, 2.3, 2.5–2.8 Bridge-модуль ядро
-- 4.1–4.3 Bridge медиа и надёжность
-- 7.1–7.4 Рефакторинг банковской системы: основа
-- 8.1–8.4 Рефакторинг банковской системы: безопасность
-- Очистка корня проекта
-- Исправление merge-конфликта utils/compat.py
-- Удаление stub-файлов bot/commands/admin.py, shop.py
-- Документирование legacy-слоёв src/, utils/
-- Этапы 4-6: Создание vk_bot/, проверка корня, финальная проверка
+## Статус этапов
+- [ ] Этап 1: bank_bot/ — реальный код (main, bot, handlers, di, middleware)
+- [ ] Этап 2: common/ — реальный код (config, database, models, logging)
+- [ ] Этап 3: Обновить импорты во всех модулях
+- [ ] Этап 4: Удалить лишние папки из корня
+- [ ] Этап 5: Проверка ruff + импортов
+- [ ] Этап 6: Обновить memory_bank

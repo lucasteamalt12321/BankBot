@@ -37,7 +37,7 @@ def run() -> None:
 
     session = create_vk_session()
     longpoll = create_longpoll(session)
-    vk = session.get_api()
+    vk = session.get_api()  # noqa: F841
 
     logger.info("VK Bot started", peer_id=VK_PEER_ID)
 

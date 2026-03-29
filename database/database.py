@@ -35,6 +35,7 @@ class User(Base):
     sticker_unlimited = Column(Boolean, default=False)
     sticker_unlimited_until = Column(DateTime, nullable=True)
     total_purchases = Column(Integer, default=0)
+    alias = Column(String(32), nullable=True)  # User-defined display alias (2-32 chars)
 
     aliases = relationship("UserAlias", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")

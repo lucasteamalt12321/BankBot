@@ -44,8 +44,16 @@
   - core/services/ (BalanceService, TransactionService)
   - bridge_bot/, vk_bot/, bank_bot/ (re-exports + entry points)
 
-### 2026-03-28 (финал)
-- **D17 (Parser unification)**: Добавлены deprecation warnings в simple_parser.py
+### 2026-03-29 (реструктуризация)
+- bridge_bot/ получил реальный код (queue, loop_guard, media, vk_publisher, handlers)
+- bot/bridge/ стал shim-обёртками на bridge_bot/
+- bank_bot/repositories/ получил реальный код из core/repositories/
+- bank_bot/services/ получил реальный код из core/services/
+- core/repositories/ стал shim-обёртками на bank_bot/repositories/
+- core/services/__init__.py стал shim на bank_bot/services/
+- Dockerfile и docker-compose.yml созданы
+- ruff: 0 ошибок в целевых модулях
+- Тесты: 991 passed, 168 failed (все провалы pre-existing)
   - SimpleShmalalaParser отмечен как deprecated
   - Рекомендуется использовать BaseParser из core/parsers/shmalala.py, gdcards.py
 

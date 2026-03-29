@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  bank_bot:
+    build: .
+    command: python run_bot.py bank
+    env_file: config/.env
+    volumes:
+      - ./bot.db:/app/bot.db
+    restart: unless-stopped
+
+  bridge_bot:
+    build: .
+    command: python run_bot.py bridge
+    env_file: config/.env
+    volumes:
+      - ./bot.db:/app/bot.db
+    restart: unless-stopped
+
+  vk_bot:
+    build: .
+    command: python run_bot.py vk
+    env_file: config/.env
+    restart: unless-stopped
