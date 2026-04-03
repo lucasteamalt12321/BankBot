@@ -98,8 +98,8 @@ https://github.com/lucasteamalt12321/BankBot
 |----|------|----------|--------|
 | F03 | CI/CD pipeline (GitHub Actions) | P1 | completed |
 | F04 | Покрытие тестами core логики (balance, shop) | P1 | completed |
-| F05 | E2E тесты для бота | P1 | pending |
-| F06 | Webhook вместо polling (для прода) | P1 | pending |
+| F05 | E2E тесты для бота | P1 | completed |
+| F06 | Webhook вместо polling (для прода) | P1 | completed |
 
 ### Средний приоритет
 
