@@ -2,7 +2,7 @@
 
 ## Статус проекта
 **Процент выполнения:** 97%
-**Текущая фаза:** F01 — Исправление unit тестов
+**Текущая фаза:** F03-F04 — CI/CD pipeline + покрытие тестами
 
 ## Known Issues
 
@@ -15,8 +15,17 @@
 - ✅ T15: Ruff cleanup завершён, ruff.toml создан
 - ✅ F01: Root cause найден — sys.path.insert в source файлах
 - ✅ F01: Исправлены импорты — 746 passed (было 0 с указанными ошибками)
+- ✅ F02: Merge conflict markers не найдены
+- ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
 
 ## Changelog
+
+### 2026-04-03 (F03 — CI/CD pipeline)
+- Создан `.github/workflows/ci.yml`:
+  - Lint (ruff)
+  - Unit tests (pytest)
+  - Integration tests
+  - Coverage (codecov)
 
 ### 2026-04-03 (F01 — исправление unit тестов)
 - **Root cause**: `sys.path.insert(0, 'core/')` в source файлах затенял корневой `database/` модуль

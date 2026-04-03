@@ -90,13 +90,13 @@ https://github.com/lucasteamalt12321/BankBot
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
 | F01 | Исправить сломанные unit тесты (sys.path.insert root cause) | P0 | completed |
-| F02 | Проверить и удалить merge conflict markers | P0 | pending |
+| F02 | Проверить и удалить merge conflict markers | P0 | completed |
 
 ### Высокий приоритет
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| F03 | CI/CD pipeline (GitHub Actions) | P1 | pending |
+| F03 | CI/CD pipeline (GitHub Actions) | P1 | completed |
 | F04 | Покрытие тестами core логики (balance, shop) | P1 | pending |
 | F05 | E2E тесты для бота | P1 | pending |
 | F06 | Webhook вместо polling (для прода) | P1 | pending |
