@@ -1,7 +1,7 @@
 # 🏗️ Архитектура проекта BankBot
 
-**Версия:** 2.0  
-**Дата:** 2026-02-20
+**Версия:** 3.0  
+**Дата:** 2026-04-03
 
 ---
 
@@ -92,9 +92,12 @@ BankBot построен на основе многослойной архите
 ```
 
 **Компоненты:**
-- `bot/commands/admin_commands.py` - Административные команды
+- `bot/commands/admin_commands.py` - Административные команды (aiogram)
+- `bot/commands/admin_commands_ptb.py` - Административные команды (PTB, 25 команд)
 - `bot/commands/advanced_admin_commands.py` - Расширенные админ-команды
 - `bot/commands/config_commands.py` - Конфигурационные команды
+- `bot/commands/core_commands.py` - Core команды (welcome, balance, history, profile, stats)
+- `bot/commands/shop_commands_ptb.py` - Shop команды (shop, buy, inventory)
 - `bot/handlers/parsing_handler.py` - Обработчик парсинга
 
 ### 3. Business Layer (Бизнес-слой)
@@ -473,5 +476,33 @@ class NotificationSystem:
 
 ---
 
-**Документ обновлен:** 2026-02-20  
-**Версия архитектуры:** 2.0
+**Документ обновлен:** 2026-04-03  
+**Версия архитектуры:** 3.0
+
+## Модули (BridgeBot, VK Bot)
+
+### BridgeBot (`bridge_bot/`)
+Telegram → VK ретранслятор постов.
+
+| Файл | Описание |
+|------|----------|
+| `main.py` | Точка входа BridgeBot |
+| `handlers.py` | Обработка постов из Telegram-канала |
+| `vk_publisher.py` | Публикация в VK API |
+| `media.py` | Скачивание/загрузка медиа |
+| `queue.py` | Очередь сообщений + rate limiting |
+| `loop_guard.py` | Защита от циклов пересылки |
+| `vk_listener.py` | VK Long Poll listener |
+
+### VK Bot (`vk_bot/`)
+VK сообщество для публикации постов.
+
+| Файл | Описание |
+|------|----------|
+| `main.py` | Точка входа VK Bot (Long Poll) |
+| `bot.py` | Инициализация VK API |
+| `handlers.py` | Обработка входящих сообщений |
+| `config.py` | Конфигурация |
+
+### Тесты
+- `tests/bridge/` — 43 теста для BridgeBot + VK Bot

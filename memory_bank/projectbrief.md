@@ -60,10 +60,23 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| T01 | Исправить merge conflict markers в README.md | P0 | pending |
-| T02 | Добавить BotApplication в bot/main.py или удалить тесты | P0 | pending |
-| T03 | Исправить test_user_manager.py — добавить миграцию alias | P0 | pending |
-| T04 | Исправить merge conflicts в тестах | P1 | pending |
-| T05 | Очистить ruff errors в legacy коде | P2 | pending |
-| T06 | Удалить лишние папки (backups/, data/, examples/) | P2 | pending |
-| T07 | Удалить test_*.db файлы | P2 | pending |
+| T01 | Исправить merge conflict markers в README.md | P0 | completed |
+| T02 | Добавить BotApplication в bot/main.py | P0 | completed |
+| T03 | Исправить test_user_manager.py — добавить BotApplication | P0 | completed |
+| T04 | Исправить merge conflicts в тестах | P1 | completed |
+| T05 | Ruff cleanup: 0 errors в продакшн коде | P2 | completed |
+| T06 | Удалить лишние папки (examples/, for_programmer/, docs/archive/) | P2 | completed |
+| T07 | Удалить test_*.db файлы | P2 | completed |
+
+## Additional Tasks (2026-04-03)
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| T08 | BridgeBot: VK Bot публикация в канал | P0 | completed |
+| T09 | Тесты BridgeBot + VK Bot (43 tests) | P0 | completed |
+| T10 | Unified конфигурация (Pydantic Settings) | P1 | completed |
+| T11 | Документация сокращена | P1 | completed |
+| T12 | vk_listener.py перенесён в bridge_bot/ | P1 | completed |
+| T13 | Рефакторинг bot/bot.py: извлечение команд | P1 | completed |
+| T14 | PARSING_ENABLED=true | P2 | completed |
+| T15 | Ruff cleanup, ruff.toml создан | P2 | completed |

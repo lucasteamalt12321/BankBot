@@ -16,6 +16,18 @@
 
 ## Changelog
 
+### 2026-04-03 (ревизия проекта)
+- **Git commit**: a5355a2 — Refactoring: extract commands from bot/bot.py, Ruff cleanup, Bridge/VK tests
+- **Статистика**: 109 files changed, 4735 insertions(+), 6657 deletions(-)
+- **bot/bot.py**: 3923 → 2112 строк (−44%)
+- **Ruff**: 0 errors в продакшн коде
+- **Tests**: BridgeBot + VK Bot — 43 passed
+- **T08–T15**: все completed
+
+## Known Issues
+- 55 errors при сборе тестов (unit tests с устаревшими импортами)
+- Основные тесты (bridge/vk_bot): работают ✅
+
 ### 2026-04-03 (завершение очистки)
 - **Git**: добавлены 8 новых файлов (extracted modules, tests, ruff.toml)
 - **Ruff**: продакшн код — 0 errors, тесты — 149 errors (в ruff.toml)
@@ -92,4 +104,4 @@
 - Добавлен Unit of Work для атомарных транзакций
 
 ## last_checked_commit
-2026-03-29
+a5355a2 (2026-04-03)
