@@ -114,6 +114,6 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| F11 | Микросервисы (разделение на сервисы) | P3 | pending |
-| F12 | GraphQL API | P3 | pending |
-| F13 | Kubernetes (autoscaling) | P3 | pending |
+| F11 | Микросервисы (разделение на сервисы) | P3 | completed |
+| F12 | GraphQL API | P3 | completed |
+| F13 | Kubernetes (autoscaling) | P3 | completed |
