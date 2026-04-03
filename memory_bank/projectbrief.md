@@ -80,3 +80,40 @@ https://github.com/lucasteamalt12321/BankBot
 | T13 | Рефакторинг bot/bot.py: извлечение команд | P1 | completed |
 | T14 | PARSING_ENABLED=true | P2 | completed |
 | T15 | Ruff cleanup, ruff.toml создан | P2 | completed |
+
+---
+
+## Future Improvements (Roadmap)
+
+### Критические (Known Issues)
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| F01 | Исправить сломанные unit тесты (55 errors при сборе) | P0 | pending |
+| F02 | Проверить и удалить merge conflict markers | P0 | pending |
+
+### Высокий приоритет
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| F03 | CI/CD pipeline (GitHub Actions) | P1 | pending |
+| F04 | Покрытие тестами core логики (balance, shop) | P1 | pending |
+| F05 | E2E тесты для бота | P1 | pending |
+| F06 | Webhook вместо polling (для прода) | P1 | pending |
+
+### Средний приоритет
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| F07 | Документация API | P2 | pending |
+| F08 | Мониторинг (метрики, алерты) | P2 | pending |
+| F09 | Кэширование (Redis для баланса, профиля) | P2 | pending |
+| F10 | Structured logging (JSON) | P2 | pending |
+
+### Низкий приоритет
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| F11 | Микросервисы (разделение на сервисы) | P3 | pending |
+| F12 | GraphQL API | P3 | pending |
+| F13 | Kubernetes (autoscaling) | P3 | pending |
