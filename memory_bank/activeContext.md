@@ -1,7 +1,7 @@
 # Active Context
 
 ## Текущий фокус
-**F11-F13: Низкий приоритет (микросервисы, GraphQL, Kubernetes)**
+**Все задачи Roadmap выполнены!**
 
 ## Статус проекта: 97%
 
@@ -11,24 +11,22 @@
 | bot/bot.py | 2112 строк |
 | ruff errors | 0 (продакшн) |
 | Тесты unit | 758 passed |
-| Git commit | d035ca3 |
+| Git commit | 98ac876 |
 
-## Выполнено
-- F01-F10: completed ✅
-- F01: sys.path.insert (746 → 758 tests)
-- F02: Merge markers (none found)
-- F03: CI/CD pipeline (.github/workflows/ci.yml)
-- F04: BalanceService tests (100% coverage)
-- F05: E2E tests (153 passed)
-- F06: Webhook support (bot/webhook.py)
-- F07: API docs (docs/API.md)
-- F08: Metrics endpoint (utils/monitoring/metrics_server.py)
-- F09: Cache module (utils/cache.py)
-- F10: JSON logging (common/logging.py)
+## Выполнено (F01-F13)
+- ✅ F01: sys.path.insert (746 → 758 tests)
+- ✅ F02: Merge markers (none found)
+- ✅ F03: CI/CD pipeline (.github/workflows/ci.yml)
+- ✅ F04: BalanceService tests (100% coverage)
+- ✅ F05: E2E tests (153 passed)
+- ✅ F06: Webhook support (bot/webhook.py)
+- ✅ F07: API docs (docs/API.md)
+- ✅ F08: Metrics endpoint (utils/monitoring/metrics_server.py)
+- ✅ F09: Cache module (utils/cache.py)
+- ✅ F10: JSON logging (common/logging.py)
+- ✅ F11: Microservices plan (docs/microservices.md)
+- ✅ F12: GraphQL API plan (docs/graphql_api.md)
+- ✅ F13: Kubernetes plan (docs/kubernetes.md)
 
 ## Known Issues
 - 62 failed tests (test-specific issues)
-
-## Roadmap (Future Improvements)
-- F01-F10: completed ✅
-- F11-F13: Низкий приоритет (микросервисы, GraphQL, Kubernetes)
