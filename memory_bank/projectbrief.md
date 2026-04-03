@@ -105,10 +105,10 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| F07 | Документация API | P2 | pending |
-| F08 | Мониторинг (метрики, алерты) | P2 | pending |
-| F09 | Кэширование (Redis для баланса, профиля) | P2 | pending |
-| F10 | Structured logging (JSON) | P2 | pending |
+| F07 | Документация API | P2 | completed |
+| F08 | Мониторинг (метрики, алерты) | P2 | completed |
+| F09 | Кэширование (Redis для баланса, профиля) | P2 | completed |
+| F10 | Structured logging (JSON) | P2 | completed |
 
 ### Низкий приоритет
 
