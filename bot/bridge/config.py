@@ -1,9 +1,11 @@
-"""Bridge module configuration."""
+"""Bridge module configuration (shim: re-export from bridge_bot)."""
 
-from config.settings import bot_settings
+from bridge_bot.config import (
+    BRIDGE_ENABLED,
+    BRIDGE_TG_CHAT_ID,
+    VK_TOKEN,
+    VK_PEER_ID,
+    BRIDGE_ADMIN_CHAT_ID,
+)
 
-BRIDGE_ENABLED = bot_settings.BRIDGE_ENABLED
-BRIDGE_TG_CHAT_ID = bot_settings.BRIDGE_TG_CHAT_ID
-VK_TOKEN = bot_settings.VK_TOKEN
-VK_PEER_ID = bot_settings.VK_PEER_ID
-BRIDGE_ADMIN_CHAT_ID = bot_settings.BRIDGE_ADMIN_CHAT_ID
+__all__ = ["BRIDGE_ENABLED", "BRIDGE_TG_CHAT_ID", "VK_TOKEN", "VK_PEER_ID", "BRIDGE_ADMIN_CHAT_ID"]

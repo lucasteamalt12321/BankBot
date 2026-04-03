@@ -41,14 +41,14 @@ else:
     for i, line in enumerate(lines):
         print(f"Строка {i}: '{line}'")
         if "ПРОФИЛЬ" in line:
-            print(f"  -> Найдена строка с ПРОФИЛЬ")
+            print("  -> Найдена строка с ПРОФИЛЬ")
             parts = line.split("ПРОФИЛЬ")
             print(f"  -> После split: {parts}")
         if "Ник:" in line:
-            print(f"  -> Найдена строка с Ник")
+            print("  -> Найдена строка с Ник")
         if "Орбы:" in line:
-            print(f"  -> Найдена строка с орбами")
+            print("  -> Найдена строка с орбами")
         if "Очки:" in line:
-            print(f"  -> Найдена строка с очками")
+            print("  -> Найдена строка с очками")
     
     print("\n❌ ТЕСТ НЕ ПРОЙДЕН")

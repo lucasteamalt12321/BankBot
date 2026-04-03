@@ -7,7 +7,7 @@ import os
 import sys
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 
 # Add root directory to path
@@ -237,7 +237,7 @@ class BackgroundTaskManager:
                 # Consider parsing active if there were transactions in the last 10 minutes
                 # or if there are active parsing rules
                 active_rules = self.db.query(ParsingRule).filter(
-                    ParsingRule.is_active == True
+                    ParsingRule.is_active
                 ).count()
                 
                 parsing_active = recent_transactions > 0 or active_rules > 0
@@ -380,7 +380,7 @@ class BackgroundTaskManager:
             
             # Find users with expired VIP access
             expired_vip_users = self.db.query(User).filter(
-                User.is_vip == True,
+                User.is_vip,
                 User.vip_until <= current_time
             ).all()
             

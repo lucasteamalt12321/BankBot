@@ -7,7 +7,6 @@ This handler bridges the Telegram bot with the advanced parsing infrastructure.
 import structlog
 import logging
 from datetime import datetime
-from decimal import Decimal
 from typing import Optional, Dict, Any
 
 from src.classifier import MessageClassifier
@@ -171,8 +170,6 @@ class ParsingHandler:
             update: Telegram update object
             context: Telegram context object
         """
-        from telegram import Update
-        from telegram.ext import ContextTypes
         from utils.admin.admin_system import AdminSystem
         
         # Get the message being replied to
@@ -201,12 +198,10 @@ class ParsingHandler:
                 
                 details = []
                 bank_coins = 0
-                player_name = None
                 
                 if msg_type_enum == MessageType.SHMALALA_FISHING:
                     parsed = self.fishing_parser.parse(message_text)
                     bank_coins = float(parsed.coins)
-                    player_name = parsed.player_name
                     details.append(f"🎣 Игрок: {parsed.player_name}")
                     details.append(f"💰 Монеты: +{parsed.coins}")
                     details.append(f"🏦 Начислено: +{bank_coins} банковских монет")
@@ -214,7 +209,6 @@ class ParsingHandler:
                 elif msg_type_enum == MessageType.SHMALALA_KARMA:
                     parsed = self.karma_parser.parse(message_text)
                     bank_coins = float(parsed.karma)
-                    player_name = parsed.player_name
                     details.append(f"❤️ Игрок: {parsed.player_name}")
                     details.append(f"⭐ Карма: +{parsed.karma}")
                     details.append(f"🏦 Начислено: +{bank_coins} банковских монет")
@@ -222,7 +216,6 @@ class ParsingHandler:
                 elif msg_type_enum == MessageType.GDCARDS_ACCRUAL:
                     parsed = self.accrual_parser.parse(message_text)
                     bank_coins = float(parsed.points) / 2  # Курс 2:1
-                    player_name = parsed.player_name
                     details.append(f"🃏 Игрок: {parsed.player_name}")
                     details.append(f"🎴 Очки: +{parsed.points}")
                     details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 2:1)")
@@ -230,7 +223,6 @@ class ParsingHandler:
                 elif msg_type_enum == MessageType.GDCARDS_PROFILE:
                     parsed = self.profile_parser.parse(message_text)
                     bank_coins = float(parsed.orbs) / 2  # Курс 2:1
-                    player_name = parsed.player_name
                     details.append(f"🃏 Игрок: {parsed.player_name}")
                     details.append(f"💎 Орбы: {parsed.orbs}")
                     details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 2:1)")
@@ -239,12 +231,11 @@ class ParsingHandler:
                     parsed = self.mafia_game_end_parser.parse(message_text)
                     bank_coins = 1  # Курс 15:1, но начисляем 1 монету
                     details.append(f"🎮 Победители: {', '.join(parsed.winners)}")
-                    details.append(f"🏦 Каждому начислено: +1 банковская монета (курс 15:1)")
+                    details.append("🏦 Каждому начислено: +1 банковская монета (курс 15:1)")
                     
                 elif msg_type_enum == MessageType.TRUEMAFIA_PROFILE:
                     parsed = self.mafia_profile_parser.parse(message_text)
                     bank_coins = float(parsed.money) / 15  # Курс 15:1
-                    player_name = parsed.player_name
                     details.append(f"🎮 Игрок: {parsed.player_name}")
                     details.append(f"💵 Деньги: {parsed.money}")
                     details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 15:1)")
@@ -253,12 +244,11 @@ class ParsingHandler:
                     parsed = self.bunker_game_end_parser.parse(message_text)
                     bank_coins = 1  # Курс 20:1, но начисляем 1 монету
                     details.append(f"🏚️ Выжившие: {', '.join(parsed.winners)}")
-                    details.append(f"🏦 Каждому начислено: +1 банковская монета (курс 20:1)")
+                    details.append("🏦 Каждому начислено: +1 банковская монета (курс 20:1)")
                     
                 elif msg_type_enum == MessageType.BUNKERRP_PROFILE:
                     parsed = self.bunker_profile_parser.parse(message_text)
                     bank_coins = float(parsed.money) / 20  # Курс 20:1
-                    player_name = parsed.player_name
                     details.append(f"🏚️ Игрок: {parsed.player_name}")
                     details.append(f"💵 Деньги: {parsed.money}")
                     details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 20:1)")
@@ -308,7 +298,7 @@ class ParsingHandler:
                         logger.info(f"Balance updated for user {user.id}: {current_balance} -> {new_balance}")
                 
                 # Build response with details
-                response = f"✅ Сообщение успешно обработано!\n\n"
+                response = "✅ Сообщение успешно обработано!\n\n"
                 response += f"📊 Тип: {message_type}\n\n"
                 if details:
                     response += "📝 Детали:\n" + "\n".join(details)

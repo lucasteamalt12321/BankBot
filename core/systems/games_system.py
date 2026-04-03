@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from database.database import GameSession, GamePlayer, User, Transaction
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 import random
 import structlog
 
@@ -97,8 +97,8 @@ class GDLevelsGame:
 
     def get_level_by_first_letter(self, letter: str, used_levels: List[str]) -> Optional[str]:
         """Получить уровень на заданную букву"""
-        available_levels = [l for l in self.levels if l not in used_levels]
-        matching_levels = [l for l in available_levels if l.upper().startswith(letter.upper())]
+        available_levels = [lv for lv in self.levels if lv not in used_levels]
+        matching_levels = [lv for lv in available_levels if lv.upper().startswith(letter.upper())]
 
         return random.choice(matching_levels) if matching_levels else None
 
@@ -355,7 +355,7 @@ class GamesSystem:
 
         players = self.db.query(GamePlayer).filter(
             GamePlayer.session_id == session_id,
-            GamePlayer.is_active == True
+            GamePlayer.is_active
         ).order_by(GamePlayer.joined_at).all()
 
         player_ids = [p.user_id for p in players]

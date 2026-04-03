@@ -12,7 +12,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from database.database import Base, Achievement
-from database.connection import get_connection
 from core.systems.achievements import AchievementSystem
 
 def update_achievements():
@@ -29,7 +28,7 @@ def update_achievements():
         print("🔄 Обновление системы достижений...")
         
         # Создаем экземпляр системы достижений
-        achievement_system = AchievementSystem(session)
+        AchievementSystem(session)
         
         # Получаем все достижения из базы
         all_achievements = session.query(Achievement).all()

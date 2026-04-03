@@ -142,7 +142,7 @@ class UserRepository(BaseRepository[User]):
             List of User instances with is_vip=True and vip_until <= current_time
         """
         return self.session.query(User).filter(
-            User.is_vip == True,
+            User.is_vip,
             User.vip_until <= current_time
         ).all()
 
@@ -157,7 +157,7 @@ class UserRepository(BaseRepository[User]):
             List of matching User instances
         """
         return self.session.query(User).filter(
-            User.sticker_unlimited == True,
+            User.sticker_unlimited,
             User.sticker_unlimited_until <= current_time
         ).all()
 

@@ -1,7 +1,7 @@
 # achievements.py
 from sqlalchemy.orm import Session
 from database.database import UserAchievement, Achievement
-from typing import List, Dict
+from typing import Dict
 from datetime import datetime
 import structlog
 

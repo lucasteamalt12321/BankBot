@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
 from database.database import ShopCategory, ShopItem, UserPurchase, User, Transaction
-from typing import List, Dict, Optional
+from typing import List, Dict
 from datetime import datetime, timedelta
 import structlog
 
@@ -143,14 +143,14 @@ class EnhancedShopSystem:
         """Получение полного каталога магазина"""
 
         categories = self.db.query(ShopCategory).filter(
-            ShopCategory.is_active == True
+            ShopCategory.is_active
         ).order_by(ShopCategory.sort_order).all()
 
         catalog = {}
         for category in categories:
             items = self.db.query(ShopItem).filter(
                 ShopItem.category_id == category.id,
-                ShopItem.is_active == True
+                ShopItem.is_active
             ).all()
 
             catalog[category.name] = {
@@ -176,7 +176,7 @@ class EnhancedShopSystem:
 
         purchases = self.db.query(UserPurchase).filter(
             UserPurchase.user_id == user_id,
-            UserPurchase.is_active == True
+            UserPurchase.is_active
         ).join(ShopItem).all()
 
         inventory = []
@@ -215,7 +215,7 @@ class EnhancedShopSystem:
             user_purchase_count = self.db.query(UserPurchase).filter(
                 UserPurchase.user_id == user_id,
                 UserPurchase.item_id == item_id,
-                UserPurchase.is_active == True
+                UserPurchase.is_active
             ).count()
 
             if user_purchase_count >= item.purchase_limit:
@@ -226,7 +226,7 @@ class EnhancedShopSystem:
             last_purchase = self.db.query(UserPurchase).filter(
                 UserPurchase.user_id == user_id,
                 UserPurchase.item_id == item_id,
-                UserPurchase.is_active == True
+                UserPurchase.is_active
             ).order_by(UserPurchase.purchased_at.desc()).first()
 
             if last_purchase:
@@ -470,7 +470,7 @@ class EnhancedShopSystem:
         now = datetime.utcnow()
         expired_purchases = self.db.query(UserPurchase).filter(
             UserPurchase.expires_at <= now,
-            UserPurchase.is_active == True
+            UserPurchase.is_active
         ).all()
 
         for purchase in expired_purchases:

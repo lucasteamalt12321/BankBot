@@ -1,8 +1,5 @@
-"""Обработчики входящих сообщений VK Long Poll.
+"""VK bot handlers — re-export VKListenerThread from bridge_bot."""
 
-Re-export из bot/bridge/vk_listener.py.
-"""
-
-from bot.bridge.vk_listener import VKListenerThread
+from bridge_bot.vk_listener import VKListenerThread
 
 __all__ = ["VKListenerThread"]

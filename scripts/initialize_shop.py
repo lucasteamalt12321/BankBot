@@ -85,7 +85,7 @@ def initialize_shop():
         print(f"Successfully initialized shop with {len(default_items)} items!")
         
         # Display created items
-        items = db.query(ShopItem).filter(ShopItem.is_active == True).all()
+        items = db.query(ShopItem).filter(ShopItem.is_active).all()
         print("\nCreated shop items:")
         for i, item in enumerate(items, 1):
             print(f"{i}. {item.name} - {item.price} монет")

@@ -5,7 +5,6 @@
 import os
 import sys
 from datetime import datetime
-from sqlalchemy.orm import Session
 
 # Добавляем путь к проекту
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -42,7 +41,7 @@ def initialize_system():
     db = next(get_db())
     try:
         print("[SYSTEM] Инициализация банковской системы...")
-        bank_system = BankSystem(db)
+        BankSystem(db)
         
         print("[SYSTEM] Инициализация магазина...")
         shop_system = EnhancedShopSystem(db)
@@ -51,27 +50,27 @@ def initialize_system():
         print("[SHOP] Категории и товары инициализированы")
         
         print("[SYSTEM] Инициализация системы достижений...")
-        achievement_system = AchievementSystem(db)
+        AchievementSystem(db)
         print("[ACHIEVEMENTS] Система достижений инициализирована")
         
         print("[SYSTEM] Инициализация системы мотивации...")
-        motivation_system = MotivationSystem(db)
+        MotivationSystem(db)
         print("[MOTIVATION] Система мотивации инициализирована")
         
         print("[SYSTEM] Инициализация D&D системы...")
-        dnd_system = DndSystem(db)
+        DndSystem(db)
         print("[DND] D&D система инициализирована")
         
         print("[SYSTEM] Инициализация игровой системы...")
-        games_system = GamesSystem(db)
+        GamesSystem(db)
         print("[GAMES] Игровая система инициализирована")
         
         print("[SYSTEM] Инициализация социальной системы...")
-        social_system = SocialSystem(db)
+        SocialSystem(db)
         print("[SOCIAL] Социальная система инициализирована")
         
         print("[SYSTEM] Инициализация системы уведомлений...")
-        notification_system = NotificationSystem(db)
+        NotificationSystem(db)
         print("[NOTIFICATIONS] Система уведомлений инициализирована")
         
         print("[SYSTEM] Инициализация системы мониторинга...")
@@ -80,15 +79,15 @@ def initialize_system():
         print("[MONITORING] Система мониторинга и алертов инициализирована")
         
         print("[SYSTEM] Инициализация системы бэкапов...")
-        backup_system = BackupSystem()
+        BackupSystem()
         print("[BACKUP] Система резервного копирования инициализирована")
         
         print("[SYSTEM] Инициализация системы обработки ошибок...")
-        error_handling_system = ErrorHandlingSystem(db)
+        ErrorHandlingSystem(db)
         print("[ERROR] Система обработки ошибок инициализирована")
         
         print("[SYSTEM] Инициализация менеджера пользователей...")
-        user_manager = UserManager(db)
+        UserManager(db)
         print("[USERS] Менеджер пользователей инициализирован")
         
         # Проверяем систему
@@ -102,7 +101,7 @@ def initialize_system():
         print(f"[CHECK] Метрики производительности: {performance_metrics}")
         
         # Проверяем алерты
-        alerts = alert_system.check_and_send_alerts()
+        alert_system.check_and_send_alerts()
         active_alerts = alert_system.get_active_alerts()
         print(f"[CHECK] Активные алерты: {len(active_alerts)}")
         

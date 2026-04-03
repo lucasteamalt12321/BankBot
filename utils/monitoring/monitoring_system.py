@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from database.database import User, Transaction
 import structlog
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 logger = structlog.get_logger()
 

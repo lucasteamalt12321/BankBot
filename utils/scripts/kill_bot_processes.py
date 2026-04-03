@@ -4,7 +4,6 @@
 import psutil
 import os
 import time
-import sys
 
 def kill_existing_bot_processes():
     """Убивает все существующие процессы, связанные с ботом"""

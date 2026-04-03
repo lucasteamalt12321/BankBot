@@ -4,7 +4,7 @@ from __future__ import annotations
 import functools
 import structlog
 from contextlib import contextmanager
-from typing import Generator, Optional, Callable, Any, TYPE_CHECKING
+from typing import Generator, Optional, Callable, TYPE_CHECKING
 from sqlalchemy.orm import Session
 from database.database import SessionLocal
 

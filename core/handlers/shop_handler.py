@@ -11,7 +11,7 @@ from typing import List, Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
-from database.database import ShopItem, ShopCategory, get_db
+from database.database import ShopItem, get_db
 import structlog
 
 logger = structlog.get_logger()
@@ -83,7 +83,7 @@ class ShopHandler:
                 self.db = next(get_db())
                 
             # Query active shop items using SQLAlchemy
-            items = self.db.query(ShopItem).filter(ShopItem.is_active == True).all()
+            items = self.db.query(ShopItem).filter(ShopItem.is_active).all()
             return items
         except Exception as e:
             logger.error(f"Error retrieving shop items: {e}")

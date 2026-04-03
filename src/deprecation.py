@@ -3,7 +3,6 @@ Deprecation utilities for marking code as deprecated.
 """
 import warnings
 from functools import wraps
-from datetime import datetime
 from typing import Callable, TypeVar, Any
 
 F = TypeVar('F', bound=Callable[..., Any])

@@ -1,9 +1,9 @@
 """Admin stats service for business logic related to admin statistics."""
 
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, or_
 from decimal import Decimal
 
 from database.database import User, ParsedTransaction, ParsingRule, UserPurchase, ShopItem
@@ -231,7 +231,7 @@ class AdminStatsService:
             
             # Get parsing rules for context
             active_rules = self.db.query(ParsingRule).filter(
-                ParsingRule.is_active == True
+                ParsingRule.is_active
             ).all()
             
             parsing_rules_info = []
@@ -306,8 +306,8 @@ class AdminStatsService:
         try:
             # Get user counts
             total_users = self.db.query(User).count()
-            admin_users = self.db.query(User).filter(User.is_admin == True).count()
-            vip_users = self.db.query(User).filter(User.is_vip == True).count()
+            admin_users = self.db.query(User).filter(User.is_admin).count()
+            vip_users = self.db.query(User).filter(User.is_vip).count()
             
             # Get recent activity (last 24 hours)
             yesterday = datetime.utcnow() - timedelta(hours=24)

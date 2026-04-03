@@ -19,7 +19,7 @@ from bot.bridge.config import (
     VK_PEER_ID,
 )
 from bot.bridge.telegram_forwarder import router as bridge_router
-from bot.bridge.vk_listener import VKListenerThread
+from bridge_bot.vk_listener import VKListenerThread
 from config.settings import bot_settings
 from core.middleware import ErrorHandlingMiddleware
 

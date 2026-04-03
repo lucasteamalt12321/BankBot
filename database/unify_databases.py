@@ -3,7 +3,6 @@
 Удаляет дублирующиеся БД из корня
 """
 
-import os
 import sqlite3
 import shutil
 from pathlib import Path
@@ -81,7 +80,7 @@ def unify_databases():
     print("ФИНАЛЬНОЕ СОСТОЯНИЕ")
     print("=" * 60)
     
-    print(f"\n✓ Основная БД: data/bot.db")
+    print("\n✓ Основная БД: data/bot.db")
     
     if target_db.exists():
         size = target_db.stat().st_size
@@ -95,7 +94,7 @@ def unify_databases():
             cursor.execute("SELECT COUNT(*) FROM users")
             users_count = cursor.fetchone()[0]
             print(f"  Пользователей: {users_count}")
-        except:
+        except Exception:
             print("  Пользователей: 0 (таблица не создана)")
         
         conn.close()

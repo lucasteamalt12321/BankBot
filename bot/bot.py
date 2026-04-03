@@ -18,7 +18,7 @@ from core.systems.motivation_system import MotivationSystem
 from utils.monitoring.notification_system import NotificationSystem
 from core.systems.achievements import AchievementSystem
 from core.systems.social_system import SocialSystem
-from src.config import settings, update_currency_rate, get_currency_config
+from src.config import settings
 from utils.monitoring.monitoring_system import MonitoringSystem, AlertSystem
 from database.backup_system import BackupSystem
 from utils.core.error_handling import ErrorHandlingSystem
@@ -26,10 +26,50 @@ from utils.admin.admin_middleware import auto_registration_middleware
 from utils.admin.admin_system import AdminSystem, admin_required
 from bot.commands.advanced_admin_commands import AdvancedAdminCommands
 from bot.commands import config_commands  # Configuration management commands
+from bot.commands.core_commands import (
+    welcome_command,
+    balance_command,
+    history_command,
+    profile_command,
+    stats_command,
+)
+from bot.commands.shop_commands_ptb import (
+    shop_command,
+    buy_contact_command,
+    buy_command,
+    _handle_purchase_command,
+    inventory_command,
+)
+from bot.commands.admin_commands_ptb import (
+    admin_command,
+    admin_stats_command,
+    admin_adjust_command,
+    admin_addcoins_command,
+    admin_removecoins_command,
+    admin_merge_command,
+    admin_transactions_command,
+    admin_balances_command,
+    admin_users_command,
+    admin_rates_command,
+    admin_rate_command,
+    admin_cleanup_command,
+    admin_shop_add_command,
+    admin_shop_edit_command,
+    admin_games_stats_command,
+    admin_reset_game_command,
+    admin_ban_player_command,
+    admin_health_command,
+    admin_errors_command,
+    admin_backup_command,
+    admin_background_status_command,
+    admin_background_health_command,
+    admin_background_restart_command,
+    admin_parsing_reload_command,
+    admin_parsing_config_command,
+)
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
-from datetime import datetime
 import structlog
 
 logging.basicConfig(
@@ -402,7 +442,6 @@ class TelegramBot:
         """Просмотр информации о достижении"""
         db = next(get_db())
         try:
-            achievement_system = AchievementSystem(db)
             from database.database import Achievement
             achievement = db.query(Achievement).filter(Achievement.id == achievement_id).first()
 
@@ -428,812 +467,72 @@ class TelegramBot:
 
     # ===== Основные команды =====
     async def welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /start - интегрированная с новой системой регистрации"""
-        user = update.effective_user
-        
-        registration_status = "❌ Ошибка регистрации"
-        admin_status = "❌ Не администратор"
-        
-        # Принудительная регистрация в административной системе
-        try:
-            admin_user = self.admin_system.get_user_by_id(user.id)
-            if not admin_user:
-                # Регистрируем пользователя
-                success = self.admin_system.register_user(
-                    user.id, 
-                    user.username, 
-                    user.first_name
-                )
-                if success:
-                    logger.info(f"Force-registered user {user.id} in admin system")
-                    registration_status = "✅ Пользователь зарегистрирован"
-                    
-                    # Если это пользователь из конфига - делаем администратором
-                    if user.id == settings.ADMIN_TELEGRAM_ID:  # LucasTeamLuke
-                        admin_success = self.admin_system.set_admin_status(user.id, True)
-                        if admin_success:
-                            logger.info(f"Set admin status for user {user.id}")
-                            admin_status = "✅ Права администратора установлены"
-                        else:
-                            admin_status = "❌ Ошибка установки прав администратора"
-                    
-                    # Получаем пользователя снова для проверки
-                    admin_user = self.admin_system.get_user_by_id(user.id)
-                else:
-                    logger.error(f"Failed to register user {user.id} in admin system")
-                    registration_status = "❌ Ошибка регистрации"
-            else:
-                registration_status = "✅ Пользователь уже зарегистрирован"
-                if admin_user['is_admin']:
-                    admin_status = "✅ Права администратора активны"
-                else:
-                    admin_status = "❌ Нет прав администратора"
-                    
-                    # Если это пользователь из конфига - делаем администратором
-                    if user.id == settings.ADMIN_TELEGRAM_ID:  # LucasTeamLuke
-                        admin_success = self.admin_system.set_admin_status(user.id, True)
-                        if admin_success:
-                            admin_status = "✅ Права администратора установлены"
-                        
-        except Exception as e:
-            logger.error(f"Error in admin system registration: {e}")
-            registration_status = f"❌ Ошибка: {str(e)}"
-        
-        # Process automatic user registration (old system)
-        await auto_registration_middleware.process_message(update, context)
-
-        welcome_text = f"""
-[BANK] Добро пожаловать в Мета-Игровую Платформу LucasTeam!
-
-[HELLO] Привет, {user.first_name}!
-
-[SYSTEM] <b>Статус регистрации:</b>
-{registration_status}
-{admin_status}
-Ваш Telegram ID: {user.id}
-
-Я автоматически отслеживаю вашу активность в играх и начисляю банковские монеты.
-
-[COMMANDS] <b>🔧 Основные команды:</b>
-/balance - проверить баланс
-/history - история транзакций  
-/profile - ваш профиль
-/stats - персональная статистика
-
-[SHOP] <b>🛒 Магазин:</b>
-/shop - просмотр товаров
-/buy &lt;номер&gt; - купить товар
-/buy_1, /buy_2, /buy_3 - быстрая покупка
-/buy_contact - связь с админом (10 очков)
-/inventory - ваши покупки
-
-
-
-[ACHIEVEMENTS] <b>🏆 Достижения:</b>
-/achievements - ваши достижения
-/notifications - уведомления
-/notifications_clear - очистить все
-
-[ADMIN] <b>👨‍💼 Админ-команды:</b>
-/admin - панель администратора
-/add_points &lt;@user&gt; &lt;сумма&gt; - начислить очки
-/add_admin &lt;@user&gt; - назначить админа
-/admin_stats - статистика системы
-/admin_users - список пользователей
-/admin_balances - топ по балансу
-/admin_transactions &lt;@user&gt; - транзакции
-/admin_addcoins, /admin_removecoins - управление балансом
-/admin_health - здоровье системы
-
-[ADVANCED] <b>🔧 Расширенные админ-команды:</b>
-/parsing_stats - статистика парсинга
-/user_stats &lt;@user&gt; - детальная статистика
-/broadcast &lt;текст&gt; - рассылка всем
-/add_item - добавить товар в магазин
-
-[CONFIG] <b>⚙️ Конфигурация системы:</b>
-/reload_config - перезагрузить конфигурацию
-/config_status - статус конфигурации
-/list_parsing_rules - правила парсинга
-/add_parsing_rule - добавить правило
-/update_parsing_rule - обновить правило
-/export_config - экспорт конфигурации
-/import_config - импорт конфигурации
-/backup_config - создать бэкап
-/restore_config - восстановить бэкап
-/list_backups - список бэкапов
-/validate_config - валидация конфигурации
-
-[GAMES_SUPPORTED] <b>Поддерживаемые игры:</b>
-• Shmalala (курс 1:1)
-• GD Cards (курс 2:1)  
-• True Mafia (курс 15:1)
-• Bunker RP (курс 20:1)
-
-[PLAY] Просто играйте, а я буду автоматически начислять вам монеты за активность!
-
-[TIP] <b>💡 Совет:</b> Начните с /shop для покупок!
-        """
-
-        await update.message.reply_text(welcome_text, parse_mode='HTML')
-
-        # Регистрируем пользователя в основной системе (SQLAlchemy)
-        # Это сохраняет существующий функционал согласно требованию 8.7
-        db = next(get_db())
-        try:
-            from utils.core.user_manager import UserManager
-            
-            user_manager = UserManager(db)
-            identified_user = user_manager.identify_user(
-                user.username or user.first_name,
-                user.id
-            )
-
-            # Отправляем приветственное уведомление только для новых пользователей
-            # Проверяем, был ли пользователь только что создан
-            if identified_user.created_at and (datetime.utcnow() - identified_user.created_at).total_seconds() < 60:
-                notification_system = NotificationSystem(db)
-                notification_system.send_system_notification(
-                    identified_user.id,
-                    "🎉 Добро пожаловать!",
-                    "Вы успешно зарегистрированы в системе. Начните зарабатывать монеты, участвуя в играх!"
-                )
-
-            logger.info(f"User processed in main system: {identified_user.id} (Telegram ID: {user.id})")
-        except Exception as e:
-            logger.error(f"Error processing user in main system: {e}")
-        finally:
-            db.close()
+        """Команда /start - приветствие и регистрация."""
+        await welcome_command(update, context, self.admin_system, settings, get_db)
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /balance - проверка баланса"""
-        # Process automatic user registration first
-        await auto_registration_middleware.process_message(update, context)
-        
-        user = update.effective_user
-
-        try:
-            # Try to get balance from new admin system first
-            admin_user = self.admin_system.get_user_by_id(user.id)
-            
-            if admin_user:
-                # User exists in new admin system, use that balance
-                text = f"""
-[MONEY] <b>Ваш баланс</b>
-
-[USER] Пользователь: {admin_user['first_name'] or user.first_name or 'Неизвестно'}
-[BALANCE] Баланс: {admin_user['balance']} очков
-[STATUS] Статус: {'Администратор' if admin_user['is_admin'] else 'Пользователь'}
-
-[TIP] Используйте /history для просмотра транзакций
-                """
-                await update.message.reply_text(text, parse_mode='HTML')
-                return
-            
-            # Fallback to main database if user not found in admin system
-            db = next(get_db())
-            try:
-                from database.database import User
-                user_db = db.query(User).filter(User.telegram_id == user.id).first()
-                
-                if user_db:
-                    text = f"""
-[MONEY] <b>Ваш баланс</b>
-
-[USER] Пользователь: {user_db.first_name or ''} {user_db.last_name or ''}
-[BALANCE] Баланс: {user_db.balance} банковских монет
-[TIME] Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}
-
-[TIP] Используйте /history для просмотра транзакций
-                    """
-                    await update.message.reply_text(text, parse_mode='HTML')
-                else:
-                    await update.message.reply_text("❌ Пользователь не найден. Используйте /start для регистрации.")
-            finally:
-                db.close()
-                
-        except Exception as e:
-            logger.error("Error in balance command", error=str(e), user_id=user.id, username=user.username)
-            await update.message.reply_text(f"❌ Произошла ошибка при получении баланса. Попробуйте позже.")
+        """Команда /balance - проверка баланса."""
+        await balance_command(update, context, self.admin_system, get_db)
 
     async def history_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /history - история транзакций"""
-        user = update.effective_user
-        limit = int(context.args[0]) if context.args and context.args[0].isdigit() else 10
-
-        db = next(get_db())
-        try:
-            from database.database import User, Transaction
-            from sqlalchemy import desc
-            
-            user_db = db.query(User).filter(User.telegram_id == user.id).first()
-            if not user_db:
-                await update.message.reply_text("📭 Пользователь не найден. Используйте /start для регистрации.")
-                return
-
-            transactions = db.query(Transaction).filter(
-                Transaction.user_id == user_db.id
-            ).order_by(desc(Transaction.created_at)).limit(limit).all()
-
-            if not transactions:
-                await update.message.reply_text("📭 У вас пока нет транзакций")
-                return
-
-            text = f"""
-[STATS] <b>История транзакций</b>
-
-[USER] Пользователь: {user_db.first_name or ''} {user_db.last_name or ''}
-[BALANCE] Текущий баланс: {user_db.balance} монет
-[LIST] Показано последних: {len(transactions)} транзакций
-
-"""
-            for t in transactions:
-                amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
-                arrow = "UP" if t.amount > 0 else "DOWN" if t.amount < 0 else "EQUAL"
-
-                text += f"[{arrow}] {amount_text} монет\n"
-                text += f"   Тип: {t.transaction_type}\n"
-                text += f"   Описание: {t.description[:50]}...\n"
-                text += f"   Дата: {t.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in history command: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
+        """Команда /history - история транзакций."""
+        await history_command(update, context, get_db)
 
     async def profile_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /profile - профиль пользователя"""
-        user = update.effective_user
-        
-        # Логируем вызов команды для отладки
-        logger.info(f"Profile command called by user {user.id} (@{user.username})")
-        
-        try:
-            # Process automatic user registration first
-            await auto_registration_middleware.process_message(update, context)
-            logger.info(f"Auto-registration middleware processed for user {user.id}")
-        except Exception as e:
-            logger.error(f"Error in auto-registration middleware: {e}")
-            # Продолжаем выполнение команды даже если middleware не сработал
-        
-        # Принудительная регистрация если пользователь не найден
-        admin_user = None
-        try:
-            admin_user = self.admin_system.get_user_by_id(user.id)
-            if not admin_user:
-                # Регистрируем пользователя
-                success = self.admin_system.register_user(
-                    user.id, 
-                    user.username, 
-                    user.first_name
-                )
-                if success:
-                    logger.info(f"Force-registered user {user.id} in profile command")
-                    
-                    # Если это пользователь из конфига - делаем администратором
-                    if user.id == settings.ADMIN_TELEGRAM_ID:  # LucasTeamLuke
-                        self.admin_system.set_admin_status(user.id, True)
-                        logger.info(f"Set admin status for user {user.id}")
-                    
-                    # Получаем пользователя снова
-                    admin_user = self.admin_system.get_user_by_id(user.id)
-                    
-                    # Если все еще не найден, создаем временный объект
-                    if not admin_user:
-                        admin_user = {
-                            'id': None,
-                            'telegram_id': user.id,
-                            'username': user.username,
-                            'first_name': user.first_name,
-                            'balance': 0,
-                            'is_admin': user.id == settings.ADMIN_TELEGRAM_ID
-                        }
-                        logger.warning(f"Created temporary user object for {user.id}")
-                else:
-                    # Создаем временный объект если регистрация не удалась
-                    admin_user = {
-                        'id': None,
-                        'telegram_id': user.id,
-                        'username': user.username,
-                        'first_name': user.first_name,
-                        'balance': 0,
-                        'is_admin': False
-                    }
-                    logger.warning(f"Registration failed, created fallback user object for {user.id}")
-        except Exception as e:
-            logger.error(f"Error in admin system registration: {e}")
-            # Создаем временный объект пользователя для отображения
-            admin_user = {
-                'id': None,
-                'telegram_id': user.id,
-                'username': user.username,
-                'first_name': user.first_name,
-                'balance': 0,
-                'is_admin': False
-            }
-            logger.warning(f"Created fallback user object for {user.id} due to error: {e}")
-
-        try:
-            if not admin_user:
-                await update.message.reply_text("❌ Критическая ошибка: пользователь не найден после регистрации")
-                return
-
-            # Получаем количество транзакций из основной базы данных
-            conn = self.admin_system.get_db_connection()
-            cursor = conn.cursor()
-            
-            # Получаем внутренний ID для запросов к транзакциям
-            cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user.id,))
-            user_row = cursor.fetchone()
-            internal_id = user_row['id'] if user_row else None
-            
-            total_transactions = 0
-            total_deposits = 0
-            if internal_id:
-                cursor.execute("SELECT COUNT(*) as count FROM transactions WHERE user_id = ?", (internal_id,))
-                result = cursor.fetchone()
-                total_transactions = result['count'] if result else 0
-                
-                cursor.execute("SELECT COUNT(*) as count FROM transactions WHERE user_id = ? AND amount > 0", (internal_id,))
-                result = cursor.fetchone()
-                total_deposits = result['count'] if result else 0
-            
-            conn.close()
-
-            text = f"""
-[USER] <b>Ваш профиль</b>
-
-[INFO] <b>Основная информация:</b>
-   • ID: {user.id}
-   • Имя: {admin_user['first_name'] or 'Не указано'}
-   • Username: @{admin_user['username'] or 'Не указан'}
-   • Баланс: {int(admin_user['balance'])} очков
-
-[STATS] <b>Статистика:</b>
-   • Всего транзакций: {total_transactions}
-   • Пополнений: {total_deposits}
-   • Покупок: 0
-   • Друзей: 0
-   • Отправлено подарков: 0
-
-[SOCIAL] <b>Социальный статус:</b>
-   • В клане: NO 
-   • Роль в клане: Не состоит
-   • Входящих запросов: 0
-
-[ADMIN] <b>Права доступа:</b>
-   • Статус: {'Администратор' if admin_user['is_admin'] else 'Пользователь'}
-
-[TIPS] <b>Советы:</b>
-   • Используйте /daily для получения ежедневного бонуса
-   • Играйте в игры для увеличения баланса
-   • Приглашайте друзей для получения бонусов
-            """
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error("Error in profile command", error=str(e), user_id=user.id, username=user.username)
-            await update.message.reply_text(f"❌ Произошла ошибка при получении профиля: {str(e)}")
+        """Команда /profile - профиль пользователя."""
+        await profile_command(update, context, self.admin_system, settings, get_db)
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /stats - персональная статистика"""
-        user = update.effective_user
-
-        db = next(get_db())
-        try:
-            from database.database import User, Transaction, UserPurchase
-            from sqlalchemy import func
-
-            user_db = db.query(User).filter(User.telegram_id == user.id).first()
-            if not user_db:
-                await update.message.reply_text("❌ Пользователь не найден")
-                return
-
-            # Базовая статистика
-            total_earned = db.query(func.sum(Transaction.amount)).filter(
-                Transaction.user_id == user_db.id,
-                Transaction.amount > 0
-            ).scalar() or 0
-
-            total_spent = abs(db.query(func.sum(Transaction.amount)).filter(
-                Transaction.user_id == user_db.id,
-                Transaction.amount < 0
-            ).scalar() or 0)
-
-            total_purchases = db.query(UserPurchase).filter(
-                UserPurchase.user_id == user_db.id
-            ).count()
-
-            # Активность за последнюю неделю
-            week_ago = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-            week_transactions = db.query(Transaction).filter(
-                Transaction.user_id == user_db.id,
-                Transaction.created_at >= week_ago
-            ).count()
-
-            text = f"""
-[CHART] <b>Ваша статистика</b>
-
-[MONEY] <b>Финансы:</b>
-   • Всего заработано: {total_earned} монет
-   • Всего потрачено: {total_spent} монет
-   • Текущий баланс: {user_db.balance} монет
-   • Покупок совершено: {total_purchases}
-
-[STATS] <b>Активность:</b>
-   • Транзакций за неделю: {week_transactions}
-   • Дней в системе: {(datetime.utcnow() - user_db.created_at).days}
-   • Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}
-
-[TARGET] <b>Рекомендации:</b>
-   • Заходите ежедневно для получения бонусов
-   • Участвуйте в играх для увеличения баланса
-   • Используйте /achievements для отслеживания прогресса
-            """
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in stats command: {e}")
-            await update.message.reply_text(f"Oshibka: {str(e)}")
-        finally:
-            db.close()
+        """Команда /stats - персональная статистика."""
+        await stats_command(update, context, get_db)
 
     # ===== Магазин =====
     async def shop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /shop - просмотр магазина"""
-        # Process automatic user registration first
-        await auto_registration_middleware.process_message(update, context)
-        
-        user = update.effective_user
-        logger.info(f"Shop command from user {user.id}")
-
-        try:
-            # Get database session
-            db = next(get_db())
-            
-            # Import ShopHandler
-            from core.handlers.shop_handler import ShopHandler
-            
-            # Create shop handler with database session and generate display
-            shop_handler = ShopHandler(db)
-            shop_display = shop_handler.display_shop(user.id)
-            
-            await update.message.reply_text(shop_display)
-            
-        except Exception as e:
-            logger.error(f"Error in shop command: {e}")
-            # Fallback to simple display if there's an error
-            fallback_text = """🛒 МАГАЗИН
-
-❌ Произошла ошибка при загрузке магазина. Попробуйте позже.
-
-Для связи с администратором используйте /buy_contact"""
-            await update.message.reply_text(fallback_text)
+        """Команда /shop - просмотр магазина."""
+        await shop_command(update, context, auto_registration_middleware, get_db)
 
     async def buy_contact_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_contact для покупки товаров"""
-        # Process automatic user registration first
-        await auto_registration_middleware.process_message(update, context)
-        
-        user = update.effective_user
-        
-        try:
-            # Получаем пользователя из административной системы
-            admin_user = self.admin_system.get_user_by_username(user.username or str(user.id))
-            if not admin_user:
-                # Если пользователь не найден, регистрируем его
-                success = self.admin_system.register_user(
-                    user.id, 
-                    user.username, 
-                    user.first_name
-                )
-                if not success:
-                    await update.message.reply_text("❌ Ошибка регистрации пользователя")
-                    return
-                
-                # Получаем пользователя снова после регистрации
-                admin_user = self.admin_system.get_user_by_username(user.username or str(user.id))
-                if not admin_user:
-                    await update.message.reply_text("❌ Не удалось найти пользователя")
-                    return
-            
-            # Проверяем баланс пользователя (минимум 10 очков)
-            current_balance = admin_user['balance']
-            required_amount = 10
-            
-            if current_balance < required_amount:
-                await update.message.reply_text(
-                    f"❌ Недостаточно очков для покупки. "
-                    f"Требуется: {required_amount} очков, "
-                    f"у вас: {int(current_balance)} очков"
-                )
-                return
-            
-            # Списываем 10 очков с баланса пользователя
-            new_balance = self.admin_system.update_balance(user.id, -required_amount)
-            if new_balance is None:
-                await update.message.reply_text("❌ Не удалось обновить баланс")
-                return
-            
-            # Создаем транзакцию типа 'buy'
-            transaction_id = self.admin_system.add_transaction(
-                user.id, -required_amount, 'buy'
-            )
-            
-            # Отправляем подтверждение пользователю
-            await update.message.reply_text("Вы купили контакт. Администратор свяжется с вами.")
-            
-            # Отправляем уведомление всем администраторам
-            try:
-                conn = self.admin_system.get_db_connection()
-                cursor = conn.cursor()
-                
-                # Получаем всех администраторов
-                cursor.execute("SELECT telegram_id FROM users WHERE is_admin = TRUE")
-                admin_ids = [row['telegram_id'] for row in cursor.fetchall()]
-                conn.close()
-                
-                # Формируем сообщение для администраторов
-                username_display = f"@{user.username}" if user.username else f"#{user.id}"
-                admin_message = f"Пользователь {username_display} купил контакт. Его баланс: {int(new_balance)} очков"
-                
-                # Отправляем сообщение каждому администратору
-                for admin_id in admin_ids:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=admin_message
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to send notification to admin {admin_id}: {e}")
-                
-                logger.info(f"User {user.id} bought contact, notified {len(admin_ids)} admins")
-                
-            except Exception as e:
-                logger.error(f"Error notifying admins about purchase: {e}")
-                # Покупка уже совершена, поэтому не возвращаем ошибку пользователю
-            
-        except Exception as e:
-            logger.error(f"Error in buy_contact command: {e}")
-            await update.message.reply_text(
-                "❌ Произошла ошибка при покупке. "
-                "Попробуйте позже или обратитесь к администратору."
-            )
+        """Команда /buy_contact для покупки товаров."""
+        await buy_contact_command(update, context, self.admin_system, get_db)
     async def buy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy - покупка товара с интеграцией ShopManager"""
-        # Process automatic user registration first
-        await auto_registration_middleware.process_message(update, context)
-        
-        user = update.effective_user
-
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Укажите номер товара!\n\n"
-                "Использование: /buy <номер_товара>\n"
-                "Пример: /buy 1\n\n"
-                "Посмотрите доступные товары: /shop"
-            )
-            return
-
-        try:
-            item_number = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Неверный номер товара!\n\n"
-                "Номер товара должен быть числом (1, 2, 3...)\n"
-                "Посмотрите доступные товары: /shop"
-            )
-            return
-
-        db = next(get_db())
-        try:
-            # Import and use the new ShopManager
-            from core.managers.shop_manager import ShopManager
-            
-            # Create ShopManager instance
-            shop_manager = ShopManager(db)
-            
-            # Process the purchase
-            result = await shop_manager.process_purchase(user.id, item_number)
-            
-            if result.success:
-                # Success message with activation details
-                text = f"""✅ <b>Покупка успешна!</b>
-
-{result.message}
-
-💰 Новый баланс: {result.new_balance} монет
-🛒 ID покупки: {result.purchase_id}
-
-Товар активирован и готов к использованию!"""
-
-                # Send notification if available
-                try:
-                    notification_system = NotificationSystem(db)
-                    # Get item name from shop items for notification
-                    shop_items = shop_manager.get_shop_items()
-                    if shop_items and 1 <= item_number <= len(shop_items):
-                        item = shop_items[item_number - 1]
-                        notification_system.send_purchase_notification(
-                            user.id,
-                            item.name,
-                            int(item.price),
-                            int(result.new_balance)
-                        )
-                except Exception as notification_error:
-                    logger.warning(f"Failed to send purchase notification: {notification_error}")
-
-                await update.message.reply_text(text, parse_mode='HTML')
-                logger.info(f"Purchase successful: user {user.id}, item {item_number}, purchase {result.purchase_id}")
-                
-            else:
-                # Error message
-                error_text = f"❌ {result.message}"
-                
-                # Add helpful suggestions based on error code
-                if result.error_code == "INSUFFICIENT_BALANCE":
-                    error_text += "\n\n💡 Заработайте больше монет, участвуя в играх!"
-                elif result.error_code == "ITEM_NOT_FOUND":
-                    error_text += "\n\n💡 Посмотрите доступные товары: /shop"
-                elif result.error_code == "USER_NOT_FOUND":
-                    error_text += "\n\n💡 Используйте /start для регистрации"
-
-                await update.message.reply_text(error_text)
-                logger.warning(f"Purchase failed: user {user.id}, item {item_number}, error: {result.error_code}")
-                
-        except Exception as e:
-            logger.error(f"Error in buy command: {e}")
-            await update.message.reply_text(
-                "❌ Произошла ошибка при обработке покупки.\n"
-                "Попробуйте позже или обратитесь к администратору."
-            )
-        finally:
-            db.close()
+        """Команда /buy - покупка товара."""
+        await buy_command(update, context, auto_registration_middleware, get_db)
 
     async def buy_1_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_1 - покупка первого товара"""
-        await self._handle_purchase_command(update, context, 1)
+        """Команда /buy_1 - покупка первого товара."""
+        await _handle_purchase_command(update, context, 1, auto_registration_middleware, get_db)
 
     async def buy_2_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_2 - покупка второго товара"""
-        await self._handle_purchase_command(update, context, 2)
+        """Команда /buy_2 - покупка второго товара."""
+        await _handle_purchase_command(update, context, 2, auto_registration_middleware, get_db)
 
     async def buy_3_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_3 - покупка третьего товара"""
-        await self._handle_purchase_command(update, context, 3)
+        """Команда /buy_3 - покупка третьего товара."""
+        await _handle_purchase_command(update, context, 3, auto_registration_middleware, get_db)
 
     async def buy_4_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_4 - покупка четвертого товара"""
-        await self._handle_purchase_command(update, context, 4)
+        """Команда /buy_4 - покупка четвертого товара."""
+        await _handle_purchase_command(update, context, 4, auto_registration_middleware, get_db)
 
     async def buy_5_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_5 - покупка пятого товара"""
-        await self._handle_purchase_command(update, context, 5)
+        """Команда /buy_5 - покупка пятого товара."""
+        await _handle_purchase_command(update, context, 5, auto_registration_middleware, get_db)
 
     async def buy_6_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_6 - покупка шестого товара"""
-        await self._handle_purchase_command(update, context, 6)
+        """Команда /buy_6 - покупка шестого товара."""
+        await _handle_purchase_command(update, context, 6, auto_registration_middleware, get_db)
 
     async def buy_7_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_7 - покупка седьмого товара"""
-        await self._handle_purchase_command(update, context, 7)
+        """Команда /buy_7 - покупка седьмого товара."""
+        await _handle_purchase_command(update, context, 7, auto_registration_middleware, get_db)
 
     async def buy_8_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /buy_8 - покупка восьмого товара"""
-        await self._handle_purchase_command(update, context, 8)
-
-    async def _handle_purchase_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, item_number: int):
-        """Обработчик команд покупки товаров из магазина с интеграцией ShopManager"""
-        # Process automatic user registration first
-        await auto_registration_middleware.process_message(update, context)
-        
-        user = update.effective_user
-        logger.info(f"Purchase command /buy_{item_number} from user {user.id}")
-
-        db = next(get_db())
-        try:
-            # Import and use the new ShopManager
-            from core.managers.shop_manager import ShopManager
-            
-            # Create ShopManager instance
-            shop_manager = ShopManager(db)
-            
-            # Process the purchase
-            result = await shop_manager.process_purchase(user.id, item_number)
-            
-            if result.success:
-                # Success message with activation details
-                text = f"""✅ <b>Покупка успешна!</b>
-
-{result.message}
-
-💰 Новый баланс: {result.new_balance} монет
-🛒 ID покупки: {result.purchase_id}
-
-Товар активирован и готов к использованию!"""
-
-                # Send notification if available
-                try:
-                    notification_system = NotificationSystem(db)
-                    # Get item name from shop items for notification
-                    shop_items = shop_manager.get_shop_items()
-                    if shop_items and 1 <= item_number <= len(shop_items):
-                        item = shop_items[item_number - 1]
-                        notification_system.send_purchase_notification(
-                            user.id,
-                            item.name,
-                            int(item.price),
-                            int(result.new_balance)
-                        )
-                except Exception as notification_error:
-                    logger.warning(f"Failed to send purchase notification: {notification_error}")
-                
-                await update.message.reply_text(text, parse_mode='HTML')
-                logger.info(f"Purchase successful: user {user.id}, item {item_number}, purchase {result.purchase_id}")
-                
-            else:
-                # Error message with helpful suggestions
-                error_text = f"❌ {result.message}"
-                
-                # Add helpful suggestions based on error code
-                if result.error_code == "INSUFFICIENT_BALANCE":
-                    error_text += "\n\n💡 Заработайте больше монет, участвуя в играх!"
-                elif result.error_code == "ITEM_NOT_FOUND":
-                    error_text += "\n\n💡 Посмотрите доступные товары: /shop"
-                elif result.error_code == "USER_NOT_FOUND":
-                    error_text += "\n\n💡 Используйте /start для регистрации"
-
-                await update.message.reply_text(error_text)
-                logger.warning(f"Purchase failed: user {user.id}, item {item_number}, error: {result.error_code}")
-            
-        except Exception as e:
-            logger.error(f"Error in buy_{item_number} command: {e}")
-            await update.message.reply_text(
-                "❌ Произошла ошибка при обработке покупки. "
-                "Попробуйте позже или обратитесь к администратору."
-            )
-        finally:
-            db.close()
+        """Команда /buy_8 - покупка восьмого товара."""
+        await _handle_purchase_command(update, context, 8, auto_registration_middleware, get_db)
 
     async def inventory_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /inventory - инвентарь"""
-        user = update.effective_user
-
-        db = next(get_db())
-        try:
-            shop = EnhancedShopSystem(db)
-            inventory = shop.get_user_inventory(user.id)
-
-            if not inventory:
-                await update.message.reply_text("Vash inventar pust")
-                return
-
-            text = "[BAG] <b>Ваш инвентарь</b>\n\n"
-
-            active_items = [i for i in inventory if i['is_active']]
-            expired_items = [i for i in inventory if not i['is_active']]
-
-            if active_items:
-                text += "[YES] <b>Активные товары:</b>\n"
-                for item in active_items:
-                    text += f"• {item['item_name']}\n"
-                    if item['expires_at']:
-                        text += f"  ⏰ Истекает: {item['expires_at'].strftime('%d.%m.%Y %H:%M')}\n"
-                    text += f"  🛒 Куплен: {item['purchased_at'].strftime('%d.%m.%Y')}\n\n"
-
-            if expired_items:
-                text += "[NO] <b>Неактивные товары:</b>\n"
-                for item in expired_items[:5]:  # Показываем только 5
-                    text += f"• {item['item_name']} (истек)\n"
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in inventory command: {e}")
-            await update.message.reply_text(f"Oshibka: {str(e)}")
-        finally:
-            db.close()
+        """Команда /inventory - инвентарь."""
+        await inventory_command(update, context, get_db)
 
     # ===== Мини-игры =====
     async def games_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1831,10 +1130,10 @@ ID сессии: {session_info['id']}
             if stats['can_claim_today']:
                 text += f"[MONEY] Следующий бонус: {stats['next_bonus_amount']} монет\n"
                 text += f"[CHART] Множитель: {stats['next_multiplier']}x\n"
-                text += f"\n[TIP] Используйте /daily для получения бонуса!"
+                text += "\n[TIP] Используйте /daily для получения бонуса!"
             else:
                 text += f"⏰ Последний бонус: {stats['last_bonus_date'].strftime('%d.%m.%Y') if stats['last_bonus_date'] else 'Никогда'}\n"
-                text += f"\n[TIP] Возвращайтесь завтра для нового бонуса!"
+                text += "\n[TIP] Возвращайтесь завтра для нового бонуса!"
 
             await update.message.reply_text(text, parse_mode='HTML')
         except Exception as e:
@@ -2314,72 +1613,7 @@ ID клана: {result['clan_id']}
     # ===== Админ-команды =====
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin - панель администратора с точным форматом вывода"""
-        user = update.effective_user
-        
-        # Проверяем права администратора
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text(
-                "🔒 У вас нет прав администратора для выполнения этой команды.\n"
-                "Обратитесь к администратору бота для получения доступа."
-            )
-            logger.warning(f"User {user.id} (@{user.username}) attempted to use admin command without permissions")
-            return
-        
-        users_count = self.admin_system.get_users_count()
-        
-        text = f"""🔧 <b>Админ-панель</b>
-
-👥 <b>Управление пользователями:</b>
-/add_points @user [число] - начислить очки
-/add_admin @user - добавить администратора
-/user_stats @user - детальная статистика пользователя
-/admin_users - список всех пользователей
-/admin_balances - топ пользователей по балансу
-/admin_transactions @user - история транзакций
-
-💰 <b>Управление балансом:</b>
-/admin_addcoins @user [число] - добавить монеты
-/admin_removecoins @user [число] - снять монеты
-/admin_adjust @user [число] - корректировка баланса
-/admin_merge @user1 @user2 - объединить аккаунты
-
-📊 <b>Статистика и аналитика:</b>
-/parsing_stats [24h|7d|30d] - статистика парсинга
-/admin_stats - общая статистика системы
-/admin_games_stats - статистика по играм
-/admin_rates - коэффициенты конвертации
-
-📢 <b>Коммуникация:</b>
-/broadcast &lt;текст&gt; - рассылка всем пользователям
-
-🛒 <b>Управление магазином:</b>
-/add_item - добавить товар в магазин
-/admin_shop_add - добавить товар (альтернатива)
-/admin_shop_edit - редактировать товар
-
-🔧 <b>Системные команды:</b>
-/admin_health - здоровье системы
-/admin_backup - создать резервную копию
-/admin_cleanup - очистка системы
-/admin_errors - просмотр ошибок
-
-⚙️ <b>Настройки парсинга:</b>
-/admin_parsing_config - конфигурация парсинга
-/admin_parsing_reload - перезагрузить правила
-
-🎮 <b>Фоновые задачи:</b>
-/admin_background_status - статус задач
-/admin_background_health - здоровье задач
-/admin_background_restart - перезапуск задач
-
-📈 <b>Информация:</b>
-Всего пользователей: {users_count}
-
-💡 <b>Совет:</b> Используйте /user_stats @username для получения детальной информации о любом игроке
-"""
-        
-        await update.message.reply_text(text, parse_mode='HTML')
-        logger.info(f"Admin panel accessed by user {user.id}")
+        await admin_command(update, context, self.admin_system, get_db)
 
     async def add_points_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /add_points для начисления очков"""
@@ -2442,7 +1676,7 @@ ID клана: {result['clan_id']}
                 return
             
             # Создаем транзакцию типа 'add'
-            transaction_id = self.admin_system.add_transaction(
+            self.admin_system.add_transaction(
                 target_user['telegram_id'], amount, 'add', user.id
             )
             
@@ -2523,845 +1757,84 @@ ID клана: {result['clan_id']}
 
     async def admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_stats - статистика системы"""
-        user = update.effective_user
-
-        # Проверка прав через AdminSystem
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        db = next(get_db())
-        try:
-            from database.database import User, Transaction
-            from sqlalchemy import func
-            from datetime import datetime
-            
-            # Получаем статистику из основной базы данных
-            total_users = db.query(User).count()
-            total_balance = db.query(func.sum(User.balance)).scalar() or 0
-            
-            # Транзакции за сегодня
-            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-            today_transactions = db.query(Transaction).filter(
-                Transaction.created_at >= today
-            ).count()
-
-            text = f"""
-📊 <b>Статистика системы</b>
-
-👤 Пользователи: {total_users}
-💰 Общий баланс: {total_balance} монет
-📈 Транзакций сегодня: {today_transactions}
-
-💱 <b>Коэффициенты конвертации:</b>
-   • Shmalala: 1:1
-   • GD Cards: 2:1
-   • True Mafia: 15:1
-   • Bunker RP: 20:1
-"""
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in admin_stats command: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_stats_command(update, context, self.admin_system, get_db)
 
     async def admin_adjust_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_adjust - корректировка баланса"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        if len(context.args) < 3:
-            await update.message.reply_text(
-                "❌ Используйте: /admin_adjust <пользователь> <сумма> <причина>\n"
-                "Пример: /admin_adjust @username 100 \"Бонус за активность\"\n"
-                "Пример: /admin_adjust Имя Фамилия -50 \"Штраф за нарушение\""
-            )
-            return
-
-        user_identifier = context.args[0]
-
-        try:
-            amount = int(context.args[1])
-        except ValueError:
-            await update.message.reply_text("❌ Неверная сумма")
-            return
-
-        reason = ' '.join(context.args[2:])
-
-        db = next(get_db())
-        try:
-            from database.database import Transaction
-            from utils.core.user_manager import UserManager
-            
-            user_manager = UserManager(db)
-            user_obj = user_manager.identify_user(user_identifier)
-            
-            if not user_obj:
-                await update.message.reply_text("❌ Пользователь не найден")
-                return
-            
-            # Обновляем баланс
-            old_balance = user_obj.balance
-            user_obj.balance += amount
-            
-            # Создаем транзакцию
-            transaction = Transaction(
-                user_id=user_obj.id,
-                amount=amount,
-                transaction_type='admin_adjustment',
-                description=reason,
-                metadata={'admin_id': user.id, 'admin_username': user.username}
-            )
-            
-            db.add(transaction)
-            db.commit()
-
-            text = f"""
-✅ <b>Баланс скорректирован</b>
-
-Пользователь: #{user_obj.id}
-Изменение: {amount} монет
-Новый баланс: {user_obj.balance} монет
-Причина: {reason}
-ID транзакции: {transaction.id}
-            """
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in admin_adjust command: {e}")
-            db.rollback()
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_adjust_command(update, context, self.admin_system, get_db)
 
     async def admin_addcoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_addcoins - добавление монет пользователю"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("У вас нет прав администратора для использования этой команды")
-            return
-
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "Неправильное использование: /admin_addcoins <пользователь> <сумма> [причина]\n"
-                "Пример: /admin_addcoins @username 100\n"
-                "Пример: /admin_addcoins @username 100 \"Бонус за активность\""
-            )
-            return
-
-        user_identifier = context.args[0]
-
-        try:
-            amount = int(context.args[1])
-        except ValueError:
-            await update.message.reply_text("Сумма должна быть числом")
-            return
-
-        reason = ' '.join(context.args[2:]) if len(context.args) > 2 else f"Добавлено администратором {user.username or user.first_name}"
-
-        db = next(get_db())
-        try:
-            from database.database import Transaction
-            from utils.core.user_manager import UserManager
-            
-            user_manager = UserManager(db)
-            user_obj = user_manager.identify_user(user_identifier)
-            
-            if not user_obj:
-                await update.message.reply_text("Пользователь не найден")
-                return
-            
-            # Обновляем баланс
-            old_balance = user_obj.balance
-            user_obj.balance += amount
-            
-            # Создаем транзакцию
-            transaction = Transaction(
-                user_id=user_obj.id,
-                amount=amount,
-                transaction_type='admin_add_coins',
-                description=reason,
-                metadata={'admin_id': user.id, 'admin_username': user.username}
-            )
-            
-            db.add(transaction)
-            db.commit()
-
-            text = f"""
-[COINS] <b>Монеты успешно добавлены</b>
-
-ID пользователя: #{user_obj.id}
-Добавлено: {amount} монет
-Новый баланс: {user_obj.balance} монет
-Причина: {reason}
-ID транзакции: {transaction.id}
-            """
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in admin_addcoins command: {e}")
-            db.rollback()
-            await update.message.reply_text(f"Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_addcoins_command(update, context, self.admin_system, get_db)
 
     async def admin_removecoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_removecoins - удаление монет у пользователя"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("У вас нет прав администратора для использования этой команды")
-            return
-
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "Неправильное использование: /admin_removecoins <пользователь> <сумма> [причина]\n"
-                "Пример: /admin_removecoins @username 50\n"
-                "Пример: /admin_removecoins @username 50 \"Штраф за нарушение\""
-            )
-            return
-
-        user_identifier = context.args[0]
-
-        try:
-            amount = int(context.args[1])
-            if amount <= 0:
-                await update.message.reply_text("Сумма должна быть положительным числом")
-                return
-        except ValueError:
-            await update.message.reply_text("Сумма должна быть числом")
-            return
-
-        # Make amount negative for removal
-        amount = -abs(amount)  # Ensure it's negative
-        
-        reason = ' '.join(context.args[2:]) if len(context.args) > 2 else f"Удалено администратором {user.username or user.first_name}"
-
-        db = next(get_db())
-        try:
-            from database.database import Transaction
-            from utils.core.user_manager import UserManager
-            
-            user_manager = UserManager(db)
-            user_obj = user_manager.identify_user(user_identifier)
-            
-            if not user_obj:
-                await update.message.reply_text("Пользователь не найден")
-                return
-            
-            # Обновляем баланс
-            old_balance = user_obj.balance
-            user_obj.balance += amount  # amount is already negative
-            
-            # Создаем транзакцию
-            transaction = Transaction(
-                user_id=user_obj.id,
-                amount=amount,
-                transaction_type='admin_remove_coins',
-                description=reason,
-                metadata={'admin_id': user.id, 'admin_username': user.username}
-            )
-            
-            db.add(transaction)
-            db.commit()
-
-            text = f"""
-[COINS] <b>Монеты успешно удалены</b>
-
-ID пользователя: #{user_obj.id}
-Удалено: {abs(amount)} монет
-Новый баланс: {user_obj.balance} монет
-Причина: {reason}
-ID транзакции: {transaction.id}
-            """
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in admin_removecoins command: {e}")
-            db.rollback()
-            await update.message.reply_text(f"Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_removecoins_command(update, context, self.admin_system, get_db)
 
     async def admin_merge_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_merge - объединение аккаунтов"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "❌ Используйте: /admin_merge <основной_пользователь> <дублирующий_пользователь>\n"
-                "Пример: /admin_merge @username @old_username\n"
-                "Пример: /admin_merge \"Имя Фамилия\" \"Старое Имя\""
-            )
-            return
-
-        primary_identifier = context.args[0]
-        secondary_identifier = context.args[1]
-
-        db = next(get_db())
-        try:
-            from utils.core.user_manager import UserManager
-            user_manager = UserManager(db)
-
-            primary_user = user_manager.identify_user(primary_identifier)
-            secondary_user = user_manager.identify_user(secondary_identifier)
-
-            if not primary_user or not secondary_user:
-                await update.message.reply_text("❌ Один из пользователей не найден")
-                return
-
-            if primary_user.id == secondary_user.id:
-                await update.message.reply_text("❌ Нельзя объединить пользователя с самим собой")
-                return
-
-            # Объединяем пользователей
-            user_manager.merge_users(primary_user.id, secondary_user.id)
-
-            text = f"""
-✅ <b>Аккаунты объединены</b>
-
-Основной аккаунт: #{primary_user.id}
-Объединенный аккаунт: #{secondary_user.id}
-Баланс объединен
-Алиасы перенесены
-Транзакции перенесены
-
-💡 Пользователь #{secondary_user.id} удален из системы.
-            """
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in admin_merge command: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_merge_command(update, context, self.admin_system, get_db)
 
     async def admin_transactions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_transactions - транзакции пользователя"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Используйте: /admin_transactions &lt;пользователь&gt; [лимит]\n"
-                "Пример: /admin_transactions @username 20\n"
-                "Пример: /admin_transactions \"Имя Фамилия\"",
-                parse_mode='HTML'
-            )
-            return
-
-        user_identifier = context.args[0].replace('@', '')  # Убираем @ если есть
-        limit = int(context.args[1]) if len(context.args) > 1 and context.args[1].isdigit() else 20
-
-        try:
-            # Сначала пробуем найти в административной системе
-            admin_user = self.admin_system.get_user_by_username(user_identifier)
-            if admin_user:
-                # Получаем транзакции из административной системы
-                conn = self.admin_system.get_db_connection()
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT amount, type, created_at, description 
-                    FROM transactions 
-                    WHERE user_id = ? 
-                    ORDER BY created_at DESC 
-                    LIMIT ?
-                """, (admin_user['id'], limit))
-                
-                transactions = cursor.fetchall()
-                conn.close()
-                
-                text = f"""📊 <b>Транзакции пользователя</b>
-
-👤 Пользователь: {admin_user['first_name']} (@{admin_user['username'] or admin_user['telegram_id']})
-💳 Баланс: {int(admin_user['balance'])} очков
-📋 Показано: {len(transactions)} транзакций
-
-"""
-                
-                if not transactions:
-                    text += "📭 Транзакций не найдено"
-                else:
-                    for t in transactions:
-                        amount_text = f"+{t['amount']}" if t['amount'] > 0 else str(t['amount'])
-                        emoji = "⬆️" if t['amount'] > 0 else "⬇️" if t['amount'] < 0 else "➡️"
-                        
-                        text += f"{emoji} {amount_text} очков\n"
-                        text += f"   Тип: {t['type']}\n"
-                        text += f"   Описание: {t['description'] or 'Нет описания'}\n"
-                        text += f"   Дата: {t['created_at']}\n\n"
-                
-                await update.message.reply_text(text, parse_mode='HTML')
-                return
-            
-            # Fallback к основной системе
-            db = next(get_db())
-            try:
-                from database.database import Transaction
-                from utils.core.user_manager import UserManager
-                from sqlalchemy import desc
-                
-                user_manager = UserManager(db)
-                user_obj = user_manager.identify_user(user_identifier)
-                if not user_obj:
-                    await update.message.reply_text("❌ Пользователь не найден")
-                    return
-
-                # Получаем транзакции пользователя
-                transactions = db.query(Transaction).filter(
-                    Transaction.user_id == user_obj.id
-                ).order_by(desc(Transaction.created_at)).limit(limit).all()
-
-                text = f"""📊 <b>Транзакции пользователя</b>
-
-👤 Пользователь: #{user_obj.id}
-💳 Баланс: {user_obj.balance} монет
-📋 Показано: {len(transactions)} транзакций
-
-"""
-                for t in transactions:
-                    amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
-                    emoji = "⬆️" if t.amount > 0 else "⬇️" if t.amount < 0 else "➡️"
-
-                    text += f"{emoji} {amount_text} монет\n"
-                    text += f"   ID: {t.id}\n"
-                    text += f"   Тип: {t.transaction_type}\n"
-                    text += f"   Описание: {t.description[:50]}{'...' if len(t.description) > 50 else ''}\n"
-                    text += f"   Дата: {t.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-
-                await update.message.reply_text(text, parse_mode='HTML')
-            finally:
-                db.close()
-                
-        except Exception as e:
-            logger.error(f"Error in admin_transactions command: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await admin_transactions_command(update, context, self.admin_system, get_db)
 
     async def admin_balances_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_balances - балансы всех пользователей (доступно всем)"""
-        user = update.effective_user
-
-        db = next(get_db())
-        try:
-            from database.database import User
-            from sqlalchemy import desc
-
-            # Получаем топ пользователей по балансу
-            users = db.query(User).order_by(desc(User.balance)).limit(20).all()
-
-            text = """
-🏆 <b>Топ пользователей по балансу</b>
-
-"""
-            for i, user_db in enumerate(users, 1):
-                medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-
-                text += f"{medal} "
-                if user_db.username:
-                    text += f"@{user_db.username}"
-                elif user_db.first_name:
-                    text += f"{user_db.first_name} {user_db.last_name or ''}"
-                else:
-                    text += f"#{user_db.id}"
-
-                text += f" - {user_db.balance} монет\n"
-
-            text += f"\n💡 Всего пользователей: {db.query(User).count()}"
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in admin_balances command: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_balances_command(update, context, self.admin_system, get_db)
 
     async def admin_users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_users - список пользователей"""
-        user = update.effective_user
-
-        # Проверка прав через AdminSystem
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        db = next(get_db())
-        try:
-            from database.database import User
-            from sqlalchemy import desc
-
-            users = db.query(User).order_by(desc(User.created_at)).limit(20).all()
-
-            text = """
-👥 <b>Последние зарегистрированные пользователи</b>
-
-"""
-            for user_db in users:
-                text += f"👤 #{user_db.id}\n"
-                if user_db.username:
-                    text += f"   @{user_db.username}\n"
-                if user_db.first_name:
-                    text += f"   {user_db.first_name} {user_db.last_name or ''}\n"
-                text += f"   Баланс: {user_db.balance} монет\n"
-                text += f"   Регистрация: {user_db.created_at.strftime('%d.%m.%Y')}\n\n"
-
-            text += f"💡 Всего пользователей: {db.query(User).count()}"
-
-            await update.message.reply_text(text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error in admin_users command: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_users_command(update, context, self.admin_system, get_db)
 
     async def admin_rates_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_rates - коэффициенты конвертации"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        currency_config = get_currency_config()
-
-        text = "💰 <b>Текущие коэффициенты конвертации:</b>\n\n"
-        for game, config in currency_config.items():
-            text += f"🎮 <b>{game}</b>: {config['base_rate']}x\n"
-            if 'event_multipliers' in config:
-                for event, multiplier in config['event_multipliers'].items():
-                    text += f"   ├ {event}: {multiplier}x\n"
-            if 'rarity_multipliers' in config:
-                for rarity, multiplier in config['rarity_multipliers'].items():
-                    text += f"   ├ {rarity}: {multiplier}x\n"
-            text += "\n"
-
-        text += "💡 Используйте /admin_rate <игра> <коэффициент> для изменения"
-
-        await update.message.reply_text(text, parse_mode='HTML')
+        await admin_rates_command(update, context, self.admin_system)
 
     async def admin_rate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_rate - изменение коэффициента"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "❌ Используйте: /admin_rate <игра> <новый_коэффициент>\n"
-                "Пример: /admin_rate shmalala 1.5\n"
-                "Доступные игры: shmalala, gdcards, true_mafia, bunkerrp"
-            )
-            return
-
-        game, new_rate = context.args[0], context.args[1]
-
-        try:
-            new_rate = float(new_rate)
-            if new_rate <= 0:
-                await update.message.reply_text("❌ Коэффициент должен быть положительным числом")
-                return
-
-            success = update_currency_rate(game, new_rate)
-
-            if success:
-                await update.message.reply_text(
-                    f"✅ Коэффициент для {game} изменен на {new_rate}x\n"
-                    f"💡 Изменение применено в памяти. Для постоянного сохранения требуется перезапуск."
-                )
-            else:
-                await update.message.reply_text(
-                    f"❌ Игра '{game}' не найдена\n"
-                    f"Доступные игры: shmalala, gdcards, true_mafia, bunkerrp"
-                )
-
-        except ValueError:
-            await update.message.reply_text("❌ Неверный формат коэффициента")
+        await admin_rate_command(update, context, self.admin_system)
 
     async def admin_cleanup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_cleanup - очистка системы"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        db = next(get_db())
-        try:
-            shop = EnhancedShopSystem(db)
-            expired_count = shop.check_expired_items()
-
-            # Очистка старых уведомлений
-            from database.database import UserNotification
-            from datetime import datetime, timedelta
-
-            month_ago = datetime.utcnow() - timedelta(days=30)
-            old_notifications = db.query(UserNotification).filter(
-                UserNotification.created_at < month_ago
-            ).delete()
-            db.commit()
-
-            db.commit()
-
-            await update.message.reply_text(
-                f"🧹 <b>Очистка системы завершена</b>\n\n"
-                f"📦 Деактивировано просроченных товаров: {expired_count}\n"
-                f"🗑️ Удалено старых уведомлений: {old_notifications}\n"
-                f"✅ Система оптимизирована",
-                parse_mode='HTML'
-            )
-
-        except Exception as e:
-            logger.error(f"Error in admin_cleanup command: {e}")
-            await update.message.reply_text(f"❌ Ошибка при очистке: {str(e)}")
-        finally:
-            db.close()
+        await admin_cleanup_command(update, context, self.admin_system, get_db)
 
     async def admin_shop_add_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_shop_add - добавление товара (заглушка)"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        await update.message.reply_text(
-            "🛍️ <b>Добавление товара</b>\n\n"
-            "Функция в разработке. Используйте прямой SQL для добавления товаров.",
-            parse_mode='HTML'
-        )
+        await admin_shop_add_command(update, context, self.admin_system)
 
     async def admin_shop_edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_shop_edit - редактирование товара (заглушка)"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        await update.message.reply_text(
-            "✏️ <b>Редактирование товара</b>\n\n"
-            "Функция в разработке. Используйте прямой SQL для редактирования товаров.",
-            parse_mode='HTML'
-        )
+        await admin_shop_edit_command(update, context, self.admin_system)
 
     async def admin_games_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_games_stats - статистика игр"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        db = next(get_db())
-        try:
-            from database.database import GameSession
-
-            total_games = db.query(GameSession).count()
-            active_games = db.query(GameSession).filter(GameSession.status == 'active').count()
-            waiting_games = db.query(GameSession).filter(GameSession.status == 'waiting').count()
-
-            await update.message.reply_text(
-                f"🎮 <b>Статистика мини-игр</b>\n\n"
-                f"Всего игр: {total_games}\n"
-                f"Активных: {active_games}\n"
-                f"Ожидающих начала: {waiting_games}",
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            logger.error(f"Error in admin_games_stats command: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-        finally:
-            db.close()
+        await admin_games_stats_command(update, context, self.admin_system, get_db)
 
     async def admin_reset_game_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_reset_game - сброс игры (заглушка)"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        await update.message.reply_text(
-            "🔄 <b>Сброс игры</b>\n\n"
-            "Функция в разработке.",
-            parse_mode='HTML'
-        )
+        await admin_reset_game_command(update, context, self.admin_system)
 
     async def admin_ban_player_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_ban_player - бан игрока (заглушка)"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        await update.message.reply_text(
-            "🚫 <b>Бан игрока</b>\n\n"
-            "Функция в разработке.",
-            parse_mode='HTML'
-        )
+        await admin_ban_player_command(update, context, self.admin_system)
 
     async def admin_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_health - здоровье системы"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        # Используем нашу систему мониторинга
-        if self.monitoring_system:
-            health_data = self.monitoring_system.get_system_health()
-            metrics = self.monitoring_system.get_all_metrics()
-            
-            text = f"""
-⚙️ <b>Состояние системы</b>
-
-💻 <b>Процессор:</b>
-   • Загрузка: {health_data['cpu']['percent']}%
-   • Ядер: {health_data['cpu']['count']}
-
-🧠 <b>Память:</b>
-   • Всего: {health_data['memory']['total'] // (1024 ** 3)} GB
-   • Использовано: {health_data['memory']['used'] // (1024 ** 3)} GB ({health_data['memory']['percent']}%)
-   • Свободно: {health_data['memory']['available'] // (1024 ** 3)} GB
-
-💾 <b>Диск:</b>
-   • Всего: {health_data['disk']['total'] // (1024 ** 3)} GB
-   • Использовано: {health_data['disk']['used'] // (1024 ** 3)} GB ({health_data['disk']['percent']}%)
-   • Свободно: {health_data['disk']['free'] // (1024 ** 3)} GB
-
-📊 <b>Бизнес-метрики:</b>
-   • Всего пользователей: {metrics['business_metrics']['total_users']}
-   • Активных сегодня: {metrics['business_metrics']['active_users_today']}
-   • Транзакций сегодня: {metrics['business_metrics']['today_transactions']}
-
-📈 <b>Производительность:</b>
-   • Проверка: {metrics['performance_metrics']['total_check_time']:.2f}s
-   • Проблемы: {len(metrics['performance_metrics']['performance_issues'])}
-            """
-        else:
-            # Резервная реализация с psutil
-            import psutil
-            import os
-
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/')
-
-            text = f"""
-⚙️ <b>Состояние системы</b>
-
-💻 <b>Процессор:</b>
-   • Загрузка: {cpu_percent}%
-   • Ядер: {psutil.cpu_count()}
-
-🧠 <b>Память:</b>
-   • Всего: {memory.total // (1024 ** 3)} GB
-   • Использовано: {memory.used // (1024 ** 3)} GB ({memory.percent}%)
-   • Свободно: {memory.available // (1024 ** 3)} GB
-
-💾 <b>Диск:</b>
-   • Всего: {disk.total // (1024 ** 3)} GB
-   • Использовано: {disk.used // (1024 ** 3)} GB ({disk.percent}%)
-   • Свободно: {disk.free // (1024 ** 3)} GB
-
-📊 <b>Бот:</b>
-   • PID: {os.getpid()}
-   • Время работы: {psutil.Process(os.getpid()).create_time()}
-            """
-
-        await update.message.reply_text(text, parse_mode='HTML')
+        await admin_health_command(update, context, self.admin_system, self.monitoring_system)
 
     async def admin_errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_errors - просмотр ошибок"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        # Используем нашу систему обработки ошибок
-        if self.error_handling_system:
-            errors = self.error_handling_system.get_recent_errors(10)
-            stats = self.error_handling_system.get_error_statistics()
-            
-            text = f"""
-🚨 <b>Последние ошибки</b>
-
-📊 <b>Статистика ошибок:</b>
-   • Всего ошибок: {stats['total_errors']}
-   • Сегодня: {stats['errors_today']}
-   • На этой неделе: {stats['errors_this_week']}
-   • Самая частая: {stats['most_common_error']['type']} ({stats['most_common_error']['count']} раз)
-
-📝 <b>Последние ошибки:</b>
-"""
-            for error in errors[-5:]:  # Показываем последние 5 ошибок
-                text += f"• {error['error_type']}: {error['message'][:50]}...\n"
-                text += f"  📅 {error['timestamp'].strftime('%d.%m.%Y %H:%M')}\n\n"
-                
-            text += "💡 Используйте /admin_cleanup для очистки старых ошибок"
-        else:
-            text = (
-                "🚨 <b>Просмотр ошибок</b>\n\n"
-                "Функция в разработке. Ошибки логируются в файлы логов."
-            )
-
-        await update.message.reply_text(text, parse_mode='HTML')
+        await admin_errors_command(update, context, self.admin_system, self.error_handling_system)
 
     async def admin_backup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_backup - резервное копирование"""
-        user = update.effective_user
-
-        if not self.admin_system.is_admin(user.id):
-            await update.message.reply_text("❌ У вас нет прав администратора")
-            return
-
-        # Используем нашу систему бэкапов
-        if self.backup_system:
-            result = self.backup_system.create_backup()
-            if result['success']:
-                await update.message.reply_text(
-                    f"✅ <b>Резервная копия создана</b>\n\n"
-                    f"Файл: {result['backup_file']}\n"
-                    f"Размер: {result['size']} байт\n"
-                    f"Время: {result['timestamp']}",
-                    parse_mode='HTML'
-                )
-            else:
-                await update.message.reply_text(
-                    f"❌ <b>Ошибка создания резервной копии</b>\n\n"
-                    f"{result['message']}",
-                    parse_mode='HTML'
-                )
-        else:
-            await update.message.reply_text(
-                "💾 <b>Резервное копирование</b>\n\n"
-                "Функция в разработке. Резервные копии создаются автоматически.",
-                parse_mode='HTML'
-            )
+        await admin_backup_command(update, context, self.admin_system, self.backup_system)
 
     # ===== Обработка сообщений =====
     async def parse_all_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка сообщений - только ручной парсинг по команде 'парсинг'"""
         message_text = update.message.text
-        user = update.effective_user
         chat = update.effective_chat
 
         # Проверяем, является ли это командой "парсинг" в ответ на сообщение
@@ -3407,308 +1880,27 @@ ID транзакции: {transaction.id}
     @admin_required
     async def admin_background_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_background_status - статус фоновых задач"""
-        user = update.effective_user
-        
-        try:
-            if not self.background_task_manager:
-                await update.message.reply_text(
-                    "❌ Система фоновых задач не инициализирована"
-                )
-                return
-            
-            # Получаем статус задач
-            task_status = self.background_task_manager.get_task_status()
-            
-            # Получаем статус здоровья системы
-            health_status = await self.background_task_manager.monitor_parsing_health()
-            
-            text = f"""
-🔧 <b>Статус фоновых задач</b>
-
-📊 <b>Основной статус:</b>
-   • Запущены: {'✅ Да' if task_status['is_running'] else '❌ Нет'}
-   • Интервал очистки: {task_status['cleanup_interval_seconds']} сек
-   • Интервал мониторинга: {task_status['monitoring_interval_seconds']} сек
-
-🏃 <b>Активные задачи:</b>
-   • Очистка: {'✅ Активна' if task_status['cleanup_task_running'] else '❌ Неактивна'}
-   • Мониторинг: {'✅ Активен' if task_status['monitoring_task_running'] else '❌ Неактивен'}
-
-🏥 <b>Здоровье системы:</b>
-   • Общее состояние: {'✅ Здорова' if health_status.is_healthy else '❌ Проблемы'}
-   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
-   • Парсинг активен: {'✅ Да' if health_status.parsing_active else '❌ Нет'}
-   • Последняя проверка: {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
-
-⚠️ <b>Ошибки:</b>
-{chr(10).join([f"   • {error}" for error in health_status.errors]) if health_status.errors else "   • Ошибок нет"}
-
-🕐 <b>Последняя проверка статуса:</b>
-   {task_status['last_status_check']}
-            """
-            
-            await update.message.reply_text(text, parse_mode='HTML')
-            logger.info(f"Background status requested by admin {user.id}")
-            
-        except Exception as e:
-            logger.error(f"Error in admin_background_status command: {e}")
-            await update.message.reply_text(
-                f"❌ Ошибка при получении статуса фоновых задач: {str(e)}"
-            )
+        await admin_background_status_command(update, context, self.admin_system, self.background_task_manager)
 
     @admin_required
     async def admin_background_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_background_health - проверка здоровья фоновых задач"""
-        user = update.effective_user
-        
-        try:
-            if not self.background_task_manager:
-                await update.message.reply_text(
-                    "❌ Система фоновых задач не инициализирована"
-                )
-                return
-            
-            # Выполняем проверку здоровья
-            health_status = await self.background_task_manager.monitor_parsing_health()
-            
-            # Выполняем тестовую очистку
-            cleanup_result = await self.background_task_manager.cleanup_expired_access()
-            
-            text = f"""
-🏥 <b>Проверка здоровья фоновых задач</b>
-
-📊 <b>Результат проверки:</b>
-   • Статус: {'✅ Система здорова' if health_status.is_healthy else '❌ Обнаружены проблемы'}
-   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
-   • Фоновые задачи: {'✅ Работают' if health_status.background_tasks_running else '❌ Остановлены'}
-   • Парсинг: {'✅ Активен' if health_status.parsing_active else '❌ Неактивен'}
-
-🧹 <b>Результат тестовой очистки:</b>
-   • Очищено пользователей: {cleanup_result.cleaned_users}
-   • Очищено файлов: {cleanup_result.cleaned_files}
-   • Ошибок: {len(cleanup_result.errors)}
-   • Сообщение: {cleanup_result.completion_message}
-
-⚠️ <b>Обнаруженные ошибки:</b>
-{chr(10).join([f"   • {error}" for error in health_status.errors + cleanup_result.errors]) if (health_status.errors or cleanup_result.errors) else "   • Ошибок не обнаружено"}
-
-🕐 <b>Время проверки:</b>
-   {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
-
-💡 <b>Рекомендации:</b>
-   • Если есть ошибки, используйте /admin_background_restart для перезапуска
-   • Регулярно проверяйте статус с помощью /admin_background_status
-            """
-            
-            await update.message.reply_text(text, parse_mode='HTML')
-            logger.info(f"Background health check requested by admin {user.id}")
-            
-        except Exception as e:
-            logger.error(f"Error in admin_background_health command: {e}")
-            await update.message.reply_text(
-                f"❌ Ошибка при проверке здоровья фоновых задач: {str(e)}"
-            )
+        await admin_background_health_command(update, context, self.admin_system, self.background_task_manager)
 
     @admin_required
     async def admin_background_restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_background_restart - перезапуск фоновых задач"""
-        user = update.effective_user
-        
-        try:
-            if not self.background_task_manager:
-                await update.message.reply_text(
-                    "❌ Система фоновых задач не инициализирована"
-                )
-                return
-            
-            await update.message.reply_text("🔄 Перезапуск фоновых задач...")
-            
-            # Останавливаем текущие задачи
-            await self.background_task_manager.stop_periodic_cleanup()
-            logger.info(f"Background tasks stopped by admin {user.id}")
-            
-            # Ждем немного для полной остановки
-            await asyncio.sleep(2)
-            
-            # Запускаем заново
-            await self.background_task_manager.start_periodic_cleanup()
-            logger.info(f"Background tasks restarted by admin {user.id}")
-            
-            # Проверяем статус после перезапуска
-            task_status = self.background_task_manager.get_task_status()
-            health_status = await self.background_task_manager.monitor_parsing_health()
-            
-            text = f"""
-✅ <b>Фоновые задачи перезапущены</b>
-
-📊 <b>Новый статус:</b>
-   • Запущены: {'✅ Да' if task_status['is_running'] else '❌ Нет'}
-   • Очистка активна: {'✅ Да' if task_status['cleanup_task_running'] else '❌ Нет'}
-   • Мониторинг активен: {'✅ Да' if task_status['monitoring_task_running'] else '❌ Нет'}
-   • Система здорова: {'✅ Да' if health_status.is_healthy else '❌ Нет'}
-
-🕐 <b>Время перезапуска:</b>
-   {datetime.utcnow().strftime('%d.%m.%Y %H:%M:%S')}
-
-💡 <b>Следующие шаги:</b>
-   • Проверьте статус через несколько минут: /admin_background_status
-   • Мониторьте логи на предмет ошибок
-            """
-            
-            await update.message.reply_text(text, parse_mode='HTML')
-            
-        except Exception as e:
-            logger.error(f"Error in admin_background_restart command: {e}")
-            await update.message.reply_text(
-                f"❌ Ошибка при перезапуске фоновых задач: {str(e)}"
-            )
+        await admin_background_restart_command(update, context, self.admin_system, self.background_task_manager)
 
     # ===== Message Parsing Configuration Commands (Task 11.2) =====
     @admin_required
     async def admin_parsing_reload_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_parsing_reload - перезагрузка правил парсинга"""
-        user = update.effective_user
-        
-        try:
-            await update.message.reply_text("🔄 Перезагружаю правила парсинга...")
-            
-            # Перезагружаем конфигурацию
-            from core.managers.config_manager import get_config_manager
-            config_manager = get_config_manager()
-            
-            success = config_manager.reload_configuration()
-            
-            if success:
-                # Обновляем парсер с новыми правилами
-                if self.message_parser:
-                    self.message_parser.load_parsing_rules()
-                
-                # Получаем информацию о загруженных правилах
-                config = config_manager.get_configuration()
-                
-                text = f"""
-✅ <b>Правила парсинга перезагружены</b>
+        await admin_parsing_reload_command(update, context, self.admin_system, self.message_parser)
 
-📊 <b>Статистика:</b>
-   • Загружено правил: {len(config.parsing_rules)}
-   • Активных правил: {len([r for r in config.parsing_rules if r.is_active])}
-   • Ошибок валидации: {len(config_manager.get_validation_errors())}
-
-🎮 <b>Поддерживаемые боты:</b>
-{chr(10).join([f"   • {rule.bot_name} ({rule.currency_type}, x{rule.multiplier})" for rule in config.parsing_rules if rule.is_active])}
-
-⚠️ <b>Ошибки валидации:</b>
-{chr(10).join([f"   • {error}" for error in config_manager.get_validation_errors()]) if config_manager.get_validation_errors() else "   • Ошибок нет"}
-
-🕐 <b>Время перезагрузки:</b>
-   {datetime.utcnow().strftime('%d.%m.%Y %H:%M:%S')}
-                """
-                
-                await update.message.reply_text(text, parse_mode='HTML')
-                logger.info(f"Parsing rules reloaded by admin {user.id}")
-                
-            else:
-                errors = config_manager.get_validation_errors()
-                error_text = f"""
-❌ <b>Ошибка перезагрузки правил парсинга</b>
-
-⚠️ <b>Обнаруженные ошибки:</b>
-{chr(10).join([f"   • {error}" for error in errors]) if errors else "   • Неизвестная ошибка"}
-
-💡 <b>Рекомендации:</b>
-   • Проверьте правила парсинга в базе данных
-   • Используйте /admin_parsing_config для просмотра конфигурации
-   • Обратитесь к логам для подробной информации
-                """
-                
-                await update.message.reply_text(error_text, parse_mode='HTML')
-                logger.warning(f"Parsing rules reload failed for admin {user.id}")
-                
-        except Exception as e:
-            logger.error(f"Error in admin_parsing_reload command: {e}")
-            await update.message.reply_text(
-                f"❌ Ошибка при перезагрузке правил парсинга: {str(e)}"
-            )
-
-    @admin_required
     async def admin_parsing_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin_parsing_config - просмотр конфигурации парсинга"""
-        user = update.effective_user
-        
-        try:
-            from core.managers.config_manager import get_config_manager
-            config_manager = get_config_manager()
-            
-            # Получаем текущую конфигурацию
-            config = config_manager.get_configuration()
-            
-            # Получаем статус здоровья системы
-            health_status = config_manager.get_health_status()
-            
-            # Получаем статистику из базы данных
-            db = next(get_db())
-            try:
-                from database.database import ParsedTransaction, ParsingRule
-                from sqlalchemy import func
-                
-                # Статистика транзакций за последние 24 часа
-                from datetime import timedelta
-                yesterday = datetime.utcnow() - timedelta(days=1)
-                
-                recent_transactions = db.query(func.count(ParsedTransaction.id)).filter(
-                    ParsedTransaction.parsed_at >= yesterday
-                ).scalar() or 0
-                
-                total_rules = db.query(func.count(ParsingRule.id)).scalar() or 0
-                active_rules = db.query(func.count(ParsingRule.id)).filter(
-                    ParsingRule.is_active == True
-                ).scalar() or 0
-                
-            finally:
-                db.close()
-            
-            text = f"""
-⚙️ <b>Конфигурация системы парсинга</b>
-
-🏥 <b>Состояние системы:</b>
-   • Общее здоровье: {'✅ Здорова' if health_status.is_healthy else '❌ Проблемы'}
-   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
-   • Парсинг активен: {'✅ Да' if health_status.parsing_active else '❌ Нет'}
-
-📊 <b>Статистика правил:</b>
-   • Всего правил в БД: {total_rules}
-   • Активных правил: {active_rules}
-   • Загружено в память: {len(config.parsing_rules)}
-
-📈 <b>Статистика активности:</b>
-   • Транзакций за 24ч: {recent_transactions}
-   • Последняя проверка: {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
-
-🎮 <b>Активные правила парсинга:</b>
-{chr(10).join([f"   • {rule.bot_name}: {rule.pattern[:50]}{'...' if len(rule.pattern) > 50 else ''}" for rule in config.parsing_rules if rule.is_active]) if config.parsing_rules else "   • Нет активных правил"}
-
-⚙️ <b>Настройки системы:</b>
-   • Интервал очистки стикеров: {config.sticker_cleanup_interval}с
-   • Задержка автоудаления: {config.sticker_auto_delete_delay}с
-   • Размер пакета рассылки: {config.broadcast_batch_size}
-   • Максимум попыток парсинга: {config.max_parsing_retries}
-
-⚠️ <b>Ошибки:</b>
-{chr(10).join([f"   • {error}" for error in health_status.errors]) if health_status.errors else "   • Ошибок нет"}
-
-💡 <b>Команды управления:</b>
-   • /admin_parsing_reload - перезагрузить правила
-   • /parsing_stats - статистика парсинга
-            """
-            
-            await update.message.reply_text(text, parse_mode='HTML')
-            logger.info(f"Parsing configuration viewed by admin {user.id}")
-            
-        except Exception as e:
-            logger.error(f"Error in admin_parsing_config command: {e}")
-            await update.message.reply_text(
-                f"❌ Ошибка при получении конфигурации парсинга: {str(e)}"
-            )
+        await admin_parsing_config_command(update, context, self.admin_system, get_db)
 
     def run(self):
         """Запуск бота с интеграцией фоновых задач и системы парсинга (Task 11.2)"""
@@ -3726,8 +1918,6 @@ ID транзакции: {transaction.id}
             shop.initialize_default_items()
             logger.info("Enhanced shop initialized successfully")
 
-            # Инициализируем достижения
-            achievement_system = AchievementSystem(db)
             logger.info("Achievement system initialized successfully")
             
             # Инициализируем системы мониторинга и безопасности
@@ -3762,7 +1952,7 @@ ID транзакции: {transaction.id}
             # Закрываем loop только при ошибке
             try:
                 loop.close()
-            except:
+            except Exception:
                 pass
 
         # Добавляем обработчик для graceful shutdown (Task 11.3)

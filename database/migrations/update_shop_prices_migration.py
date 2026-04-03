@@ -10,7 +10,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from database.database import create_tables, get_db, ShopItem
-from sqlalchemy.orm import Session
 
 def update_shop_prices():
     """Обновление цен товаров в базе данных"""
@@ -66,7 +65,7 @@ def update_shop_prices():
         
         # Проверяем результат
         print("\n📦 Текущие цены товаров:")
-        items = db.query(ShopItem).filter(ShopItem.is_active == True).all()
+        items = db.query(ShopItem).filter(ShopItem.is_active).all()
         for item in items:
             print(f"   • {item.name}: {item.price} монет")
             

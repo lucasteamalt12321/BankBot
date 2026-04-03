@@ -70,7 +70,7 @@ class AdvancedAdminCommands:
                             f"   • Конвертировано: {bot_stat['total_converted_amount']:.2f}\n"
                         )
 
-                text += f"\n💡 Используйте /parsing_stats [24h|7d|30d]"
+                text += "\n💡 Используйте /parsing_stats [24h|7d|30d]"
                 await update.message.reply_text(text, parse_mode="HTML")
 
             except Exception as e:

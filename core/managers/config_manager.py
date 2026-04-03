@@ -9,9 +9,7 @@ import json
 import yaml
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List, Dict, Any, Union
-from sqlalchemy.orm import Session
-from pathlib import Path
+from typing import Optional, List, Dict, Any
 import structlog
 
 # Add root directory to path
@@ -20,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database.database import ParsingRule, get_db
 from core.models.advanced_models import (
     BotConfig, ParsingRule as AdvancedParsingRule, 
-    ConfigurationError, HealthStatus, ConfigurationBackup
+    ConfigurationError, HealthStatus
 )
 
 logger = structlog.get_logger()
@@ -68,7 +66,7 @@ class ConfigurationManager:
             db = next(get_db())
             try:
                 # Query active parsing rules from database
-                db_rules = db.query(ParsingRule).filter(ParsingRule.is_active == True).all()
+                db_rules = db.query(ParsingRule).filter(ParsingRule.is_active).all()
                 
                 # Convert to advanced model objects
                 parsing_rules = []

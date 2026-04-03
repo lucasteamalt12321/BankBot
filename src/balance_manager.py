@@ -10,7 +10,7 @@ from src.repository_impl import DatabaseRepository
 from src.coefficient_provider import CoefficientProvider
 from src.parsers import (
     ParsedProfile, ParsedAccrual, ParsedFishing, ParsedKarma,
-    ParsedMafiaWinners, ParsedMafiaProfile, ParsedBunkerWinners, ParsedBunkerProfile
+    ParsedMafiaProfile, ParsedBunkerProfile
 )
 
 

@@ -106,8 +106,8 @@ def main():
     print(f"\n{'=' * 80}")
     print(f"Total files affected: {len(by_file)}")
     print(f"Total occurrences: {len(results)}")
-    print(f"\nReplace with: settings.ADMIN_TELEGRAM_ID")
-    print(f"Make sure to import: from src.config import settings")
+    print("\nReplace with: settings.ADMIN_TELEGRAM_ID")
+    print("Make sure to import: from src.config import settings")
 
 
 if __name__ == "__main__":

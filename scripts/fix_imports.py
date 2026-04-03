@@ -137,9 +137,9 @@ class ImportFixer:
             print(f"Processing: {py_file}")
             if self.fix_imports_in_file(py_file):
                 self.files_modified += 1
-                print(f"  ✓ Modified")
+                print("  ✓ Modified")
             else:
-                print(f"  - No changes needed")
+                print("  - No changes needed")
 
         return {
             'scanned': self.files_scanned,

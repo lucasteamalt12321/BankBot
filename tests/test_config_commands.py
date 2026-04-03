@@ -2,8 +2,7 @@
 Тесты для конфигурационных команд бота
 """
 import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 from telegram import Update, User, Message, Chat
 from telegram.ext import ContextTypes
 
@@ -214,7 +213,7 @@ class TestExportConfig:
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             mock_export_data = {"version": "1.0", "data": "test"}
             with patch.object(config_commands.config_manager, 'export_configuration', return_value=mock_export_data):
-                with patch('builtins.open', create=True) as mock_open:
+                with patch('builtins.open', create=True):
                     with patch('tempfile.NamedTemporaryFile') as mock_temp:
                         mock_temp.return_value.__enter__.return_value.name = '/tmp/test.json'
                         

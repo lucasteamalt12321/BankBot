@@ -4,7 +4,7 @@
 Использование:
     python run_bot.py           # запустить BankBot (по умолчанию)
     python run_bot.py bank      # запустить BankBot
-    python run_bot.py bridge    # запустить BridgeBot (aiogram)
+    python run_bot.py bridge    # запустить BridgeBot
     python run_bot.py vk        # запустить VK Bot
 """
 
@@ -28,8 +28,8 @@ def main() -> None:
         vk_run()
 
     else:
-        # bank (default)
-        from bank_bot.main import main as bank_main
+        # bank (default) - основной бот в bot/
+        from bot.main import main as bank_main
         bank_main()
 
 

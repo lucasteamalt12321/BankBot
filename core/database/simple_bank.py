@@ -4,7 +4,7 @@
 
 import structlog
 from sqlalchemy.orm import Session
-from database.database import User, Transaction
+from database.database import Transaction
 from utils.core.user_manager import UserManager
 from core.parsers.simple_parser import ParsedFishing
 from typing import Optional, Dict

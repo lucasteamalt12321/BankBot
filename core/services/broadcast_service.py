@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List
 from sqlalchemy.orm import Session
 from telegram import Bot
 from telegram.error import TelegramError, BadRequest, Forbidden
@@ -99,7 +99,7 @@ class BroadcastService:
             logger.info(f"Sending admin notification from sender {sender_id}")
             
             admin_users = self.db.query(User).filter(
-                User.is_admin == True,
+                User.is_admin,
                 User.telegram_id.isnot(None)
             ).all()
             
@@ -210,7 +210,7 @@ class BroadcastService:
                 item_price = purchase_info.get('item_price', 'Unknown')
                 purchase_id = purchase_info.get('purchase_id', 'Unknown')
                 
-                purchase_details = f"\n\n🛍️ <b>Детали покупки:</b>"
+                purchase_details = "\n\n🛍️ <b>Детали покупки:</b>"
                 purchase_details += f"\n📦 <b>Товар:</b> {item_name}"
                 purchase_details += f"\n💵 <b>Цена:</b> {item_price}"
                 purchase_details += f"\n🔢 <b>ID покупки:</b> {purchase_id}"

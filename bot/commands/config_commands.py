@@ -9,7 +9,6 @@ import json
 import tempfile
 from decimal import Decimal
 from datetime import datetime
-from typing import List, Dict, Any
 from telegram import Update
 from telegram.ext import ContextTypes
 import structlog
@@ -34,7 +33,6 @@ class ConfigurationCommands:
         """Initialize configuration commands"""
         self.config_manager = get_config_manager()
         # AdminManager требует db_session, создаем его через get_db
-        from database.database import get_db
         self.db = next(get_db())
         self.admin_manager = AdminManager(self.db)
     
@@ -75,7 +73,7 @@ class ConfigurationCommands:
             elif success and errors:
                 response_text = (
                     "⚠️ Конфигурация перезагружена с предупреждениями:\n\n"
-                    f"🔍 Ошибки валидации:\n"
+                    "🔍 Ошибки валидации:\n"
                 )
                 for i, error in enumerate(errors[:5], 1):  # Show max 5 errors
                     response_text += f"{i}. {error}\n"
@@ -85,7 +83,7 @@ class ConfigurationCommands:
             else:
                 response_text = (
                     "❌ Не удалось перезагрузить конфигурацию!\n\n"
-                    f"🔍 Ошибки:\n"
+                    "🔍 Ошибки:\n"
                 )
                 for i, error in enumerate(errors[:3], 1):  # Show max 3 errors
                     response_text += f"{i}. {error}\n"
@@ -614,7 +612,7 @@ class ConfigurationCommands:
                     try:
                         created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                         created_at = created_dt.strftime('%d.%m.%Y %H:%M:%S')
-                    except:
+                    except Exception:
                         pass
                 
                 file_size = backup.get('file_size', 0)

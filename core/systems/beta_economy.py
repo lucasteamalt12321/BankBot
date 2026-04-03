@@ -6,7 +6,7 @@ Handles market, trading, loans, and investments
 import sqlite3
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 import logging
 
 logger = logging.getLogger(__name__)

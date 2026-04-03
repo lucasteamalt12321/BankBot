@@ -7,7 +7,6 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
-from dataclasses import asdict
 import json
 import pytz
 

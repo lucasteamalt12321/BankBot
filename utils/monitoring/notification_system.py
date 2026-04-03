@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
 from database.database import UserNotification, User
-from typing import List, Dict, Optional
+from typing import List, Dict
 from datetime import datetime, timedelta
 import structlog
 
@@ -181,7 +181,7 @@ class NotificationSystem:
         )
 
         if unread_only:
-            query = query.filter(UserNotification.is_read == False)
+            query = query.filter(not UserNotification.is_read)
 
         notifications = query.order_by(
             UserNotification.created_at.desc()
@@ -235,7 +235,7 @@ class NotificationSystem:
 
         updated = self.db.query(UserNotification).filter(
             UserNotification.user_id == user_id,
-            UserNotification.is_read == False
+            not UserNotification.is_read
         ).update({
             'is_read': True,
             'read_at': datetime.utcnow()
@@ -256,7 +256,7 @@ class NotificationSystem:
 
         return self.db.query(UserNotification).filter(
             UserNotification.user_id == user_id,
-            UserNotification.is_read == False
+            not UserNotification.is_read
         ).count()
 
     def cleanup_expired(self) -> int:

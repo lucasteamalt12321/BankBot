@@ -23,8 +23,7 @@ from bridge_bot.handlers import router as bridge_router
 from common.config import bot_settings
 from core.middleware import ErrorHandlingMiddleware
 
-# VKListenerThread живёт в bot/bridge до полного переноса
-from bot.bridge.vk_listener import VKListenerThread
+from bridge_bot.vk_listener import VKListenerThread
 
 logger = structlog.get_logger()
 

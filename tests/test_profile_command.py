@@ -8,7 +8,6 @@ import os
 # Добавляем корневую директорию в путь
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from database.database import get_db
 from utils.admin.admin_system import AdminSystem
 from src.config import settings
 
@@ -28,15 +27,15 @@ def test_profile_command():
     user = admin_system.get_user_by_id(test_user_id)
     
     if user:
-        print(f"[SUCCESS] Пользователь найден:")
+        print("[SUCCESS] Пользователь найден:")
         print(f"  - ID: {user['telegram_id']}")
         print(f"  - Имя: {user['first_name']}")
         print(f"  - Username: {user['username']}")
         print(f"  - Баланс: {user['balance']}")
         print(f"  - Админ: {user['is_admin']}")
     else:
-        print(f"[ERROR] Пользователь не найден!")
-        print(f"[INFO] Попытка регистрации...")
+        print("[ERROR] Пользователь не найден!")
+        print("[INFO] Попытка регистрации...")
         
         success = admin_system.register_user(
             test_user_id,
@@ -45,23 +44,23 @@ def test_profile_command():
         )
         
         if success:
-            print(f"[SUCCESS] Пользователь зарегистрирован!")
+            print("[SUCCESS] Пользователь зарегистрирован!")
             
             # Устанавливаем права администратора
             admin_system.set_admin_status(test_user_id, True)
-            print(f"[SUCCESS] Права администратора установлены!")
+            print("[SUCCESS] Права администратора установлены!")
             
             # Проверяем снова
             user = admin_system.get_user_by_id(test_user_id)
             if user:
-                print(f"[SUCCESS] Пользователь найден после регистрации:")
+                print("[SUCCESS] Пользователь найден после регистрации:")
                 print(f"  - ID: {user['telegram_id']}")
                 print(f"  - Имя: {user['first_name']}")
                 print(f"  - Username: {user['username']}")
                 print(f"  - Баланс: {user['balance']}")
                 print(f"  - Админ: {user['is_admin']}")
         else:
-            print(f"[ERROR] Не удалось зарегистрировать пользователя!")
+            print("[ERROR] Не удалось зарегистрировать пользователя!")
     
     print("\n[TEST] Проверяем транзакции...")
     
@@ -82,7 +81,7 @@ def test_profile_command():
         
         print(f"[INFO] Всего транзакций: {total_transactions}")
     else:
-        print(f"[ERROR] Пользователь не найден в базе данных!")
+        print("[ERROR] Пользователь не найден в базе данных!")
     
     conn.close()
     

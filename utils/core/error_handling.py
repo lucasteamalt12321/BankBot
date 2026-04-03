@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
-from database.database import User, Transaction
+from database.database import User
 import structlog
 
 logger = structlog.get_logger()

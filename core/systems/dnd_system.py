@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from database.database import DndSession, DndCharacter, DndDiceRoll, DndQuest, User
+from database.database import DndSession, DndCharacter, DndDiceRoll, DndQuest
 from typing import List, Dict, Optional
 from datetime import datetime
 import random
@@ -200,7 +200,6 @@ class DndSystem:
         quest.completed_at = datetime.utcnow()
 
         # Начисляем награды персонажу (в будущем можно расширить)
-        character = quest.character
         # Здесь можно добавить логику начисления опыта и золота
 
         self.db.commit()
@@ -303,7 +302,7 @@ class DndSystem:
 
         rolls = self.db.query(DndDiceRoll).filter(
             DndDiceRoll.session_id == session_id,
-            DndDiceRoll.is_secret == False
+            not DndDiceRoll.is_secret
         ).order_by(DndDiceRoll.created_at.desc()).limit(limit).all()
 
         return [

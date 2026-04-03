@@ -6,7 +6,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from database.database import engine, Base, BotBalance
+from database.database import engine, BotBalance
 from sqlalchemy import inspect
 
 def run_migration():

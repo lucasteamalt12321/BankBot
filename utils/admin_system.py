@@ -17,4 +17,4 @@ warnings.warn(
 )
 
 # Re-export everything from the new location for backward compatibility
-from utils.admin.admin_system import *  # noqa: F401, F403
+from utils.admin.admin_system import *  # noqa: F401, F403, E402

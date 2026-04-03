@@ -21,7 +21,7 @@ import structlog
 from sqlalchemy.orm import Session
 from telegram.ext import ContextTypes
 
-from database.database import SessionLocal, get_db
+from database.database import SessionLocal
 from src.repository.user_repository import UserRepository
 from core.services.user_service import UserService
 from core.services.admin_service import AdminService

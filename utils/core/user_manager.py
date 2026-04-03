@@ -1,7 +1,7 @@
 # user_manager.py
 from sqlalchemy.orm import Session
-from database.database import User, UserAlias, get_db
-from typing import Optional, List
+from database.database import User, UserAlias
+from typing import Optional
 import re
 import difflib
 from datetime import datetime
@@ -158,7 +158,7 @@ class UserManager:
             user = self.find_user_by_telegram_id(telegram_id)
             if user:
                 # Обновляем алиасы при наличии
-                if identifier.startswith('@') or not ' ' in identifier:
+                if identifier.startswith('@') or ' ' not in identifier:
                     self.add_alias(user, 'username', identifier, 'auto_detection')
                 elif identifier:
                     self.add_alias(user, 'game_nickname', identifier, 'auto_detection')

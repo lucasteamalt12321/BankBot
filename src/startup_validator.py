@@ -1,6 +1,5 @@
 """Startup validation system for the Telegram bot."""
 
-import sys
 from pathlib import Path
 from typing import List, Tuple
 

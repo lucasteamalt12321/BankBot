@@ -3,30 +3,17 @@
 DEPRECATED: Этот модуль устарел. Используйте:
 - database.connection для подключения к БД
 - utils.admin.admin_system.AdminSystem для работы с пользователями
-"""
-import sqlite3
-import os
-from typing import Optional, Dict, Any
-from datetime import datetime
-import logging
-
-# simple_db.py - Simplified database functions for admin system
-"""
-DEPRECATED: Этот модуль устарел. Используйте:
-- database.connection для подключения к БД
-- utils.admin.admin_system.AdminSystem для работы с пользователями
 - src.repository.user_repository.UserRepository для работы с пользователями через SQLAlchemy
 
 Все функции этого модуля используют прямой SQL и устарели.
 """
-import sqlite3
-import os
-import warnings
-from typing import Optional, Dict, Any
-from datetime import datetime
 import logging
+import os
+import sqlite3
+import warnings
+from datetime import datetime
+from typing import Any, Dict, Optional
 
-# Импортируем централизованное подключение
 from database.connection import get_connection
 
 logger = logging.getLogger(__name__)
@@ -45,7 +32,6 @@ def _warn_deprecated(func_name: str):
     )
 
 # Импортируем централизованное подключение
-from database.connection import get_connection
 
 logger = logging.getLogger(__name__)
 

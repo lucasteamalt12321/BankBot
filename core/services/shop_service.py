@@ -2,8 +2,7 @@
 
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy.orm import Session
-from database.database import ShopCategory, ShopItem, UserPurchase, User
+from database.database import ShopCategory, ShopItem, UserPurchase
 from src.repository.user_repository import UserRepository
 
 
@@ -35,7 +34,7 @@ class ShopService:
         """
         query = self.user_repo.session.query(ShopCategory)
         if only_active:
-            query = query.filter(ShopCategory.is_active == True)
+            query = query.filter(ShopCategory.is_active)
         return query.order_by(ShopCategory.sort_order).all()
 
     def get_category_by_id(self, category_id: int) -> Optional[ShopCategory]:
@@ -69,7 +68,7 @@ class ShopService:
         """
         query = self.user_repo.session.query(ShopItem)
         if only_active:
-            query = query.filter(ShopItem.is_active == True)
+            query = query.filter(ShopItem.is_active)
         if category_id:
             query = query.filter(ShopItem.category_id == category_id)
         return query.order_by(ShopItem.name).all()
@@ -107,7 +106,7 @@ class ShopService:
             category_id=category_id
         )
         if only_active:
-            query = query.filter(ShopItem.is_active == True)
+            query = query.filter(ShopItem.is_active)
         return query.order_by(ShopItem.name).all()
 
     def purchase_item(
@@ -220,7 +219,7 @@ class ShopService:
             user_id=user_id
         )
         if only_active:
-            query = query.filter(UserPurchase.is_active == True)
+            query = query.filter(UserPurchase.is_active)
         return query.order_by(UserPurchase.purchased_at.desc()).offset(offset).limit(limit).all()
 
     def get_user_total_purchases(self, user_id: int) -> int:

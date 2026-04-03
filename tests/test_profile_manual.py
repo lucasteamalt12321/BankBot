@@ -35,6 +35,6 @@ else:
     for i, line in enumerate(lines):
         print(f"Строка {i}: {line}")
         if "Орбы:" in line:
-            print(f"  -> Найдена строка с орбами")
+            print("  -> Найдена строка с орбами")
         if "Очки:" in line:
-            print(f"  -> Найдена строка с очками")
+            print("  -> Найдена строка с очками")

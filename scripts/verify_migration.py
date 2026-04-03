@@ -22,10 +22,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from database.database import SessionLocal
-from src.models.parsing_rule import ParsingRule
-from src.repository.base import BaseRepository
-from core.managers.parsing_config_manager import ParsingConfigManager
+from database.database import SessionLocal  # noqa: E402
+from src.models.parsing_rule import ParsingRule  # noqa: E402
+from src.repository.base import BaseRepository  # noqa: E402
+from core.managers.parsing_config_manager import ParsingConfigManager  # noqa: E402
 
 
 # Mapping of game names from coefficients.json to standardized names
@@ -99,7 +99,7 @@ def verify_migration():
             
             # Check if rule exists
             if game_name not in all_rules:
-                print(f"  ❌ MISSING: Rule not found in database")
+                print("  ❌ MISSING: Rule not found in database")
                 missing_games.append(original_name)
                 all_passed = False
                 continue
@@ -108,7 +108,7 @@ def verify_migration():
             
             # Check coefficient
             if rule.coefficient != expected_coefficient:
-                print(f"  ❌ COEFFICIENT MISMATCH:")
+                print("  ❌ COEFFICIENT MISMATCH:")
                 print(f"     Expected: {expected_coefficient}")
                 print(f"     Found: {rule.coefficient}")
                 incorrect_coefficients.append({
@@ -122,11 +122,11 @@ def verify_migration():
             
             # Check if enabled
             if not rule.enabled:
-                print(f"  ⚠️  WARNING: Rule is disabled")
+                print("  ⚠️  WARNING: Rule is disabled")
                 disabled_rules.append(original_name)
                 all_passed = False
             else:
-                print(f"  ✅ Rule is enabled")
+                print("  ✅ Rule is enabled")
             
             # Display additional info
             print(f"  ℹ️  Parser class: {rule.parser_class}")

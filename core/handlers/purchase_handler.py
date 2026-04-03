@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.database.shop_database import ShopDatabaseManager
 from core.models.shop_models import (
-    PurchaseResult, ShopItem, User, InsufficientBalanceError, 
+    PurchaseResult, User, InsufficientBalanceError, 
     ItemNotFoundError, UserNotFoundError
 )
 import structlog
@@ -107,13 +107,13 @@ class PurchaseHandler:
                 error_code="insufficient_balance",
                 new_balance=e.current_balance
             )
-        except ItemNotFoundError as e:
+        except ItemNotFoundError:
             return PurchaseResult(
                 success=False,
-                message=f"Товар не найден.",
+                message="Товар не найден.",
                 error_code="item_not_found"
             )
-        except UserNotFoundError as e:
+        except UserNotFoundError:
             return PurchaseResult(
                 success=False,
                 message="Пользователь не найден. Используйте /start для регистрации.",

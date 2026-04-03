@@ -29,7 +29,7 @@ ID: 8685 (23.08.2025)
 Любимая карта: Нету
 ───────────────"""
     
-    print(f"\n[INFO] Тестовое сообщение:")
+    print("\n[INFO] Тестовое сообщение:")
     print(test_message)
     print("\n" + "="*50 + "\n")
     
@@ -40,14 +40,14 @@ ID: 8685 (23.08.2025)
     result = parser.parse_profile_message(test_message)
     
     if result:
-        print(f"[SUCCESS] Профиль успешно распознан!")
+        print("[SUCCESS] Профиль успешно распознан!")
         print(f"  - Игрок: {result.player_name}")
         print(f"  - Орбы: {result.orbs}")
         print(f"  - Очки: {result.points}")
-        print(f"\n[INFO] Сырое сообщение (первые 200 символов):")
+        print("\n[INFO] Сырое сообщение (первые 200 символов):")
         print(f"  {result.raw_message}")
     else:
-        print(f"[ERROR] Не удалось распознать профиль!")
+        print("[ERROR] Не удалось распознать профиль!")
         return False
     
     # Проверяем корректность данных
@@ -55,7 +55,7 @@ ID: 8685 (23.08.2025)
     assert result.orbs == 10, f"Ожидалось 10 орбов, получено {result.orbs}"
     assert result.points == 364, f"Ожидалось 364 очка, получено {result.points}"
     
-    print(f"\n[SUCCESS] Все проверки пройдены!")
+    print("\n[SUCCESS] Все проверки пройдены!")
     return True
 
 if __name__ == "__main__":

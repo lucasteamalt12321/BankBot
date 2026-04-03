@@ -118,7 +118,7 @@ def fix_imports_in_directory(directory: Path, dry_run: bool = False) -> None:
                 print(change)
             print()
     
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Total files processed: {total_files}")
     print(f"  Files changed: {changed_files}")
     print(f"  Files unchanged: {total_files - changed_files}")

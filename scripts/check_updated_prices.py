@@ -12,7 +12,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import create_tables, get_db
-from database.connection import get_connection
 from core.systems.shop_system import EnhancedShopSystem
 
 def check_updated_prices():

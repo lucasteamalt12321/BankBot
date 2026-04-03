@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import User, ShopItem, UserPurchase
-from core.models.advanced_models import PurchaseResult, ShopItem as AdvancedShopItem
+from core.models.advanced_models import PurchaseResult
 import structlog
 
 logger = structlog.get_logger()
@@ -61,7 +61,7 @@ class ShopManager:
                 )
             
             # Get shop items to find the requested item by number
-            shop_items = self.db.query(ShopItem).filter(ShopItem.is_active == True).all()
+            shop_items = self.db.query(ShopItem).filter(ShopItem.is_active).all()
             if not shop_items or item_number < 1 or item_number > len(shop_items):
                 return PurchaseResult(
                     success=False,
@@ -445,7 +445,7 @@ class ShopManager:
             List of active ShopItem objects
         """
         try:
-            return self.db.query(ShopItem).filter(ShopItem.is_active == True).all()
+            return self.db.query(ShopItem).filter(ShopItem.is_active).all()
         except Exception as e:
             logger.error("Error getting shop items", error=str(e))
             return []

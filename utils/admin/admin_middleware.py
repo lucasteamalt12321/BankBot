@@ -42,7 +42,7 @@ class AutoRegistrationMiddleware:
                 user_manager = UserManager(db)
                 
                 # Идентифицируем/регистрируем пользователя
-                db_user = user_manager.identify_user(
+                user_manager.identify_user(
                     user.username or user.first_name,
                     user_id
                 )

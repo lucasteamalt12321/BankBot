@@ -4,12 +4,10 @@ Minimal working implementation of 27 beta commands
 """
 
 import logging
-import sqlite3
 import random
-from datetime import datetime, timedelta
-from decimal import Decimal
 from telegram import Update
 from telegram.ext import ContextTypes
+from typing import Optional
 from database.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -831,7 +829,6 @@ class BetaCommandsImpl:
     
     async def spin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /spin - колесо фортуны"""
-        user = update.effective_user
         
         # Простая проверка - можно крутить раз в день
         # В реальной версии проверяем в БД
@@ -902,4 +899,3 @@ class BetaCommandsImpl:
 
 
 # Добавляем Optional import
-from typing import Optional

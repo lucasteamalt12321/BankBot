@@ -1,6 +1,6 @@
 # social_system.py
 from sqlalchemy.orm import Session
-from database.database import Friendship, Gift, ClanMember, User, Transaction, UserNotification
+from database.database import Friendship, Gift, Clan, ClanMember, User, UserNotification
 from typing import List, Dict, Optional
 from datetime import datetime
 import structlog
@@ -293,7 +293,7 @@ class SocialSystem:
         """Вступление в клан"""
         clan = self.db.query(Clan).filter(
             Clan.name.ilike(clan_name),
-            Clan.is_active == True
+            Clan.is_active
         ).first()
 
         if not clan:

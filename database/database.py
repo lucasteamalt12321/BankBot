@@ -5,11 +5,10 @@ import sys
 # Добавляем корневую директорию в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey, func, DECIMAL
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey, DECIMAL
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
-from src.config import settings
 
 Base = declarative_base()
 
@@ -423,7 +422,7 @@ class BotBalance(Base):
     )
 
 
-from database.connection import get_pooled_engine
+from database.connection import get_pooled_engine  # noqa: E402
 
 engine = get_pooled_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

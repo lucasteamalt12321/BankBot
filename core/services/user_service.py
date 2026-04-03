@@ -1,7 +1,6 @@
 """User service for business logic related to user management."""
 
 from typing import Optional, List
-from sqlalchemy.orm import Session
 from database.database import User, UserAlias
 from src.repository.user_repository import UserRepository
 

@@ -5,16 +5,15 @@ Implements sticker access management with time-based permissions and automatic c
 
 import os
 import sys
-import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import User, ScheduledTask
-from core.models.advanced_models import CleanupResult, StickerAccessError
+from core.models.advanced_models import StickerAccessError
 import structlog
 
 logger = structlog.get_logger()
@@ -152,7 +151,7 @@ class StickerManager:
             
             # Find all users with expired sticker access
             expired_users = self.db.query(User).filter(
-                User.sticker_unlimited == True,
+                User.sticker_unlimited,
                 User.sticker_unlimited_until <= current_time
             ).all()
             
@@ -329,7 +328,7 @@ class StickerManager:
         """
         try:
             users_with_access = self.db.query(User).filter(
-                User.sticker_unlimited == True
+                User.sticker_unlimited
             ).all()
             
             result = []

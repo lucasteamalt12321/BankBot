@@ -6,9 +6,6 @@ Implements 27 new experimental commands for LucasTeam Bank Bot
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from datetime import datetime, timedelta
-from decimal import Decimal
-import random
 
 logger = logging.getLogger(__name__)
 
