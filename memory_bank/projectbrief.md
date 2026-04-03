@@ -117,3 +117,24 @@ https://github.com/lucasteamalt12321/BankBot
 | F11 | Микросервисы (разделение на сервисы) | P3 | completed |
 | F12 | GraphQL API | P3 | completed |
 | F13 | Kubernetes (autoscaling) | P3 | completed |
+
+---
+
+## Phase 2 Roadmap (2026-04-03)
+
+### Средний приоритет
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| G01 | Исправить 62 сломанных unit тестов | P1 | pending |
+| G02 | Рефакторинг bot/bot.py (разбить монолит) | P2 | pending |
+
+### Низкий приоритет
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| G03 | Покрытие тестами managers (admin, sticker, background) | P2 | pending |
+| G04 | Docker оптимизация (multi-stage build, health checks) | P3 | pending |
+| G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | pending |
+
+**Примечание:** G01 в приоритете — исправление тестов откроет понимание состояния кодовой базы.
