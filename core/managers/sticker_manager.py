@@ -3,14 +3,9 @@ StickerManager class for Advanced Telegram Bot Features
 Implements sticker access management with time-based permissions and automatic cleanup
 """
 
-import os
-import sys
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import User, ScheduledTask
 from core.models.advanced_models import StickerAccessError

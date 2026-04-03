@@ -2,7 +2,7 @@
 
 ## Статус проекта
 **Процент выполнения:** 97%
-**Текущая фаза:** Завершение — очистка и финализация
+**Текущая фаза:** F01 — Исправление unit тестов
 
 ## Known Issues
 
@@ -13,8 +13,32 @@
 - ✅ T13 (рефакторинг bot/bot.py): 3923 → 2112 строк (−44%)
 - ✅ T14: PARSING_ENABLED=true
 - ✅ T15: Ruff cleanup завершён, ruff.toml создан
+- ✅ F01: Root cause найден — sys.path.insert в source файлах
+- ✅ F01: Исправлены импорты — 746 passed (было 0 с указанными ошибками)
 
 ## Changelog
+
+### 2026-04-03 (F01 — исправление unit тестов)
+- **Root cause**: `sys.path.insert(0, 'core/')` в source файлах затенял корневой `database/` модуль
+- **Исправлено**: убраны `sys.path.insert` из:
+  - `core/managers/shop_manager.py`
+  - `core/managers/admin_manager.py`
+  - `core/managers/config_manager.py`
+  - `core/managers/sticker_manager.py`
+  - `core/managers/background_task_manager.py`
+  - `core/handlers/shop_handler.py`
+  - `core/handlers/purchase_handler.py`
+  - `core/systems/shop_system.py`
+  - `database/database.py`
+  - `core/systems/motivation_system.py`
+  - `bot/bot.py`, `bot/main.py`
+  - `bot/commands/config_commands.py`
+  - `utils/monitoring/notification_system.py`
+  - `utils/monitoring/monitoring_system.py`
+  - `utils/core/error_handling.py`
+- **Добавлен импорт**: `import os` в `config_commands.py`, `config_manager.py`
+- **Тесты**: 746 passed, 62 failed (не импорты, а test-specific issues)
+- **Ruff**: All checks passed
 
 ### 2026-04-03 (ревизия проекта)
 - **Git commit**: a5355a2 — Refactoring: extract commands from bot/bot.py, Ruff cleanup, Bridge/VK tests

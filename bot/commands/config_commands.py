@@ -4,7 +4,6 @@ Provides admin commands for managing parsing rules and configuration
 """
 
 import os
-import sys
 import json
 import tempfile
 from decimal import Decimal
@@ -12,9 +11,6 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 import structlog
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.managers.config_manager import get_config_manager, reload_global_configuration
 from core.managers.admin_manager import AdminManager

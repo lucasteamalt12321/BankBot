@@ -1,10 +1,4 @@
 # notification_system.py
-import os
-import sys
-
-# Добавляем корневую директорию в путь
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from sqlalchemy.orm import Session
 from database.database import UserNotification, User
 from typing import List, Dict

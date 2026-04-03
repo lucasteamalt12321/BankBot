@@ -1,10 +1,4 @@
 # database.py
-import os
-import sys
-
-# Добавляем корневую директорию в путь
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey, DECIMAL
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship

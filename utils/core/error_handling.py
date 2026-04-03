@@ -2,12 +2,6 @@
 """
 Система обработки ошибок и логирования
 """
-import os
-import sys
-
-# Добавляем корневую директорию в путь
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import traceback
 import logging
 from datetime import datetime

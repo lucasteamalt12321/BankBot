@@ -5,18 +5,12 @@ Tests purchase validation logic and item activation behaviors
 
 import pytest
 import asyncio
-import sys
-import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Import the modules we're testing
 from core.managers.shop_manager import ShopManager
 from core.models.advanced_models import PurchaseResult
 from database.database import Base, User, ShopItem, UserPurchase

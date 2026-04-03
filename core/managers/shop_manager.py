@@ -3,15 +3,10 @@ ShopManager class for Advanced Telegram Bot Features
 Implements purchase validation logic and item activation for the enhanced shop system
 """
 
-import os
-import sys
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import User, ShopItem, UserPurchase
 from core.models.advanced_models import PurchaseResult

@@ -9,9 +9,6 @@ import time
 import asyncio
 from typing import Optional
 
-# Добавляем корневую директорию в путь
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from bot.bot import TelegramBot
 from database.database import create_tables
 from src.startup_validator import validate_startup

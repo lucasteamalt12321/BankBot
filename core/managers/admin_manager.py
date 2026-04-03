@@ -3,16 +3,11 @@ AdminManager class for Advanced Telegram Bot Features
 Implements administrative functions including user statistics, parsing statistics, and admin broadcasts
 """
 
-import os
-import sys
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from decimal import Decimal
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import User, ParsedTransaction, ParsingRule, UserPurchase, ShopItem
 from core.models.advanced_models import UserStats, ParsingStats, BroadcastResult

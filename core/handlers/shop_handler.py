@@ -3,12 +3,7 @@ ShopHandler class for displaying shop items in the Telegram Bot Shop System
 Implements shop display formatting with Russian text and command handling
 """
 
-import os
-import sys
 from typing import List, Optional
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
 from database.database import ShopItem, get_db

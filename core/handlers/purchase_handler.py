@@ -3,12 +3,7 @@ PurchaseHandler class for processing purchases in the Telegram Bot Shop System
 Implements balance validation, deduction logic, and purchase command handling
 """
 
-import os
-import sys
 from typing import Optional, Dict, Any
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.database.shop_database import ShopDatabaseManager
 from core.models.shop_models import (

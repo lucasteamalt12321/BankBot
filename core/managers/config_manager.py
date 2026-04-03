@@ -4,16 +4,12 @@ Implements parsing rules loading from database, validation, default values, and 
 """
 
 import os
-import sys
 import json
 import yaml
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 import structlog
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import ParsingRule, get_db
 from core.models.advanced_models import (

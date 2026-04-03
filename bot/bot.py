@@ -1,12 +1,7 @@
 # bot.py - Объединенный Telegram-бот банк-аггрегатора LucasTeam
 import logging
-import os
-import sys
 import asyncio
 import signal
-
-# Добавляем корневую директорию в путь
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler

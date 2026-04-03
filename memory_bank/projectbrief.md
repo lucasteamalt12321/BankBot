@@ -89,7 +89,7 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| F01 | Исправить сломанные unit тесты (55 errors при сборе) | P0 | pending |
+| F01 | Исправить сломанные unit тесты (sys.path.insert root cause) | P0 | in_progress |
 | F02 | Проверить и удалить merge conflict markers | P0 | pending |
 
 ### Высокий приоритет

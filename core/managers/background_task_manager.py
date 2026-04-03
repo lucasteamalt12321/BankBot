@@ -3,15 +3,10 @@ BackgroundTaskManager class for Advanced Telegram Bot Features
 Implements background task management with periodic cleanup and system monitoring
 """
 
-import os
-import sys
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
-
-# Add root directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.database import User, ParsedTransaction, ParsingRule
 from core.models.advanced_models import CleanupResult, HealthStatus, BackgroundTaskError
