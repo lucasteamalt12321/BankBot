@@ -137,4 +137,4 @@ https://github.com/lucasteamalt12321/BankBot
 | G04 | Docker оптимизация (multi-stage build, health checks) | P3 | completed |
 | G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | completed |
 
-**Примечание:** G05 выполнено — добавлен RateLimitMiddleware.
+**Примечание:** G02 выполнен — извлечены buy_N (8) и admin (16) команды. bot/bot.py: 2308 → 2144 строк.
