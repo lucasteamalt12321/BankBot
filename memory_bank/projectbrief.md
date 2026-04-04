@@ -138,3 +138,23 @@ https://github.com/lucasteamalt12321/BankBot
 | G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | completed |
 
 **Примечание:** G02 выполнен — извлечены buy_N (8) и admin (16) команды. bot/bot.py: 2308 → 2144 строк.
+
+---
+
+## Phase 3 Roadmap (2026-04-04)
+
+### Средний приоритет
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| H01 | Извлечь команды из bot/bot.py (games, dnd, motivation, social) | P2 | pending |
+| H02 | Alembic миграции БД | P2 | pending |
+| H03 | Интеграция Prometheus метрик | P2 | pending |
+
+### Низкий приоритет
+
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| H04 | Ruff full cleanup (исправить F/E/W ошибки) | P3 | pending |
+| H05 | Integration тесты BridgeBot (VK forwarding) | P3 | pending |
+| H06 | Redis кэширование (кэш баланса) | P3 | pending |
