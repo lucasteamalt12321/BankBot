@@ -137,4 +137,4 @@ https://github.com/lucasteamalt12321/BankBot
 | G04 | Docker оптимизация (multi-stage build, health checks) | P3 | pending |
 | G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | pending |
 
-**Примечание:** G02 в процессе — извлечены buy_N команды (bot/bot.py: 2356 → 2308 строк).
+**Примечание:** G02 в процессе — извлечены buy_N команды + admin wrappers (bot/bot.py: 2356 → 2308 строк, admin_commands_ptb.py расширен).
