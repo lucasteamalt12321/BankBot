@@ -193,6 +193,88 @@ async def admin_parsing_config_command_w(
     await admin_parsing_config_command(update, context, admin_system, get_db)
 
 
+async def admin_stats_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_stats_command
+
+    await admin_stats_command(update, context, admin_system, get_db)
+
+
+async def admin_health_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system, monitoring_system
+):
+    from bot.commands.admin_commands_ptb import admin_health_command
+
+    await admin_health_command(update, context, admin_system, monitoring_system)
+
+
+async def admin_errors_command_w(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    admin_system,
+    error_handling_system,
+):
+    from bot.commands.admin_commands_ptb import admin_errors_command
+
+    await admin_errors_command(update, context, admin_system, error_handling_system)
+
+
+async def admin_backup_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system, backup_system
+):
+    from bot.commands.admin_commands_ptb import admin_backup_command
+
+    await admin_backup_command(update, context, admin_system, backup_system)
+
+
+async def admin_background_status_command_w(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    admin_system,
+    background_task_manager,
+):
+    from bot.commands.admin_commands_ptb import admin_background_status_command
+
+    await admin_background_status_command(
+        update, context, admin_system, background_task_manager
+    )
+
+
+async def admin_background_health_command_w(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    admin_system,
+    background_task_manager,
+):
+    from bot.commands.admin_commands_ptb import admin_background_health_command
+
+    await admin_background_health_command(
+        update, context, admin_system, background_task_manager
+    )
+
+
+async def admin_background_restart_command_w(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    admin_system,
+    background_task_manager,
+):
+    from bot.commands.admin_commands_ptb import admin_background_restart_command
+
+    await admin_background_restart_command(
+        update, context, admin_system, background_task_manager
+    )
+
+
+async def admin_parsing_reload_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system, message_parser
+):
+    from bot.commands.admin_commands_ptb import admin_parsing_reload_command
+
+    await admin_parsing_reload_command(update, context, admin_system, message_parser)
+
+
 async def admin_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
