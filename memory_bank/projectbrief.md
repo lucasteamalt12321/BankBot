@@ -127,7 +127,7 @@ https://github.com/lucasteamalt12321/BankBot
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
 | G01 | Исправить 62 сломанных unit тестов | P1 | completed |
-| G02 | Рефакторинг bot/bot.py (разбить монолит) | P2 | pending |
+| G02 | Рефакторинг bot/bot.py (разбить монолит) | P2 | in_progress |
 
 ### Низкий приоритет
 
@@ -137,4 +137,4 @@ https://github.com/lucasteamalt12321/BankBot
 | G04 | Docker оптимизация (multi-stage build, health checks) | P3 | pending |
 | G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | pending |
 
-**Примечание:** G01 в приоритете — исправление тестов откроет понимание состояния кодовой базы.
+**Примечание:** G02 в процессе — извлечены buy_N команды (bot/bot.py: 2356 → 2308 строк).
