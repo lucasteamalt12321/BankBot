@@ -135,6 +135,6 @@ https://github.com/lucasteamalt12321/BankBot
 |----|------|----------|--------|
 | G03 | Покрытие тестами managers (admin, sticker, background) | P2 | completed |
 | G04 | Docker оптимизация (multi-stage build, health checks) | P3 | completed |
-| G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | pending |
+| G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | completed |
 
-**Примечание:** G04 выполнено — Docker multi-stage build, health checks, resource limits.
+**Примечание:** G05 выполнено — добавлен RateLimitMiddleware.
