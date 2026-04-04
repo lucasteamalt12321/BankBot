@@ -3,8 +3,194 @@
 import structlog
 from telegram import Update
 from telegram.ext import ContextTypes
+from database.database import get_db
 
 logger = structlog.get_logger()
+
+
+# Wrapper commands - extracted from bot/bot.py
+async def admin_adjust_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_adjust_command
+
+    await admin_adjust_command(update, context, admin_system, get_db)
+
+
+async def admin_addcoins_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_addcoins_command
+
+    await admin_addcoins_command(update, context, admin_system, get_db)
+
+
+async def admin_removecoins_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_removecoins_command
+
+    await admin_removecoins_command(update, context, admin_system, get_db)
+
+
+async def admin_merge_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_merge_command
+
+    await admin_merge_command(update, context, admin_system, get_db)
+
+
+async def admin_transactions_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_transactions_command
+
+    await admin_transactions_command(update, context, admin_system, get_db)
+
+
+async def admin_balances_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_balances_command
+
+    await admin_balances_command(update, context, admin_system, get_db)
+
+
+async def admin_users_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_users_command
+
+    await admin_users_command(update, context, admin_system, get_db)
+
+
+async def admin_rates_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_rates_command
+
+    await admin_rates_command(update, context, admin_system)
+
+
+async def admin_rate_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_rate_command
+
+    await admin_rate_command(update, context, admin_system)
+
+
+async def admin_cleanup_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_cleanup_command
+
+    await admin_cleanup_command(update, context, admin_system, get_db)
+
+
+async def admin_shop_add_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_shop_add_command
+
+    await admin_shop_add_command(update, context, admin_system, get_db)
+
+
+async def admin_shop_edit_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_shop_edit_command
+
+    await admin_shop_edit_command(update, context, admin_system, get_db)
+
+
+async def admin_games_stats_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_games_stats_command
+
+    await admin_games_stats_command(update, context, admin_system, get_db)
+
+
+async def admin_reset_game_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_reset_game_command
+
+    await admin_reset_game_command(update, context, admin_system, get_db)
+
+
+async def admin_ban_player_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_ban_player_command
+
+    await admin_ban_player_command(update, context, admin_system, get_db)
+
+
+async def admin_health_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_health_command
+
+    await admin_health_command(update, context, admin_system, get_db)
+
+
+async def admin_errors_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_errors_command
+
+    await admin_errors_command(update, context, admin_system, get_db)
+
+
+async def admin_backup_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_backup_command
+
+    await admin_backup_command(update, context, admin_system, get_db)
+
+
+async def admin_background_status_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_background_status_command
+
+    await admin_background_status_command(update, context, admin_system, get_db)
+
+
+async def admin_background_health_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_background_health_command
+
+    await admin_background_health_command(update, context, admin_system, get_db)
+
+
+async def admin_background_restart_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_background_restart_command
+
+    await admin_background_restart_command(update, context, admin_system, get_db)
+
+
+async def admin_parsing_reload_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_parsing_reload_command
+
+    await admin_parsing_reload_command(update, context, admin_system, get_db)
+
+
+async def admin_parsing_config_command_w(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system
+):
+    from bot.commands.admin_commands_ptb import admin_parsing_config_command
+
+    await admin_parsing_config_command(update, context, admin_system, get_db)
 
 
 async def admin_command(
@@ -21,7 +207,9 @@ async def admin_command(
             "🔒 У вас нет прав администратора для выполнения этой команды.\n"
             "Обратитесь к администратору бота для получения доступа."
         )
-        logger.warning(f"User {user.id} (@{user.username}) attempted to use admin command without permissions")
+        logger.warning(
+            f"User {user.id} (@{user.username}) attempted to use admin command without permissions"
+        )
         return
 
     users_count = admin_system.get_users_count()
@@ -103,9 +291,9 @@ async def admin_stats_command(
         total_balance = db.query(func.sum(User.balance)).scalar() or 0
 
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_transactions = db.query(Transaction).filter(
-            Transaction.created_at >= today
-        ).count()
+        today_transactions = (
+            db.query(Transaction).filter(Transaction.created_at >= today).count()
+        )
 
         text = f"""
 📊 <b>Статистика системы</b>
@@ -264,8 +452,7 @@ async def admin_reset_game_command(
         return
 
     await update.message.reply_text(
-        "🔄 <b>Сброс игры</b>\n\n"
-        "Функция в разработке.",
+        "🔄 <b>Сброс игры</b>\n\nФункция в разработке.",
         parse_mode="HTML",
     )
 
@@ -283,8 +470,7 @@ async def admin_ban_player_command(
         return
 
     await update.message.reply_text(
-        "🚫 <b>Бан игрока</b>\n\n"
-        "Функция в разработке.",
+        "🚫 <b>Бан игрока</b>\n\nФункция в разработке.",
         parse_mode="HTML",
     )
 
@@ -318,7 +504,7 @@ async def admin_adjust_command(
         await update.message.reply_text("❌ Неверная сумма")
         return
 
-    reason = ' '.join(context.args[2:])
+    reason = " ".join(context.args[2:])
 
     db = get_db()
     try:
@@ -337,9 +523,9 @@ async def admin_adjust_command(
         transaction = Transaction(
             user_id=user_obj.id,
             amount=amount,
-            transaction_type='admin_adjustment',
+            transaction_type="admin_adjustment",
             description=reason,
-            metadata={'admin_id': user.id, 'admin_username': user.username}
+            metadata={"admin_id": user.id, "admin_username": user.username},
         )
 
         db.add(transaction)
@@ -374,7 +560,9 @@ async def admin_addcoins_command(
     user = update.effective_user
 
     if not admin_system.is_admin(user.id):
-        await update.message.reply_text("У вас нет прав администратора для использования этой команды")
+        await update.message.reply_text(
+            "У вас нет прав администратора для использования этой команды"
+        )
         return
 
     if len(context.args) < 2:
@@ -393,7 +581,11 @@ async def admin_addcoins_command(
         await update.message.reply_text("Сумма должна быть числом")
         return
 
-    reason = ' '.join(context.args[2:]) if len(context.args) > 2 else f"Добавлено администратором {user.username or user.first_name}"
+    reason = (
+        " ".join(context.args[2:])
+        if len(context.args) > 2
+        else f"Добавлено администратором {user.username or user.first_name}"
+    )
 
     db = get_db()
     try:
@@ -412,9 +604,9 @@ async def admin_addcoins_command(
         transaction = Transaction(
             user_id=user_obj.id,
             amount=amount,
-            transaction_type='admin_add_coins',
+            transaction_type="admin_add_coins",
             description=reason,
-            metadata={'admin_id': user.id, 'admin_username': user.username}
+            metadata={"admin_id": user.id, "admin_username": user.username},
         )
 
         db.add(transaction)
@@ -449,7 +641,9 @@ async def admin_removecoins_command(
     user = update.effective_user
 
     if not admin_system.is_admin(user.id):
-        await update.message.reply_text("У вас нет прав администратора для использования этой команды")
+        await update.message.reply_text(
+            "У вас нет прав администратора для использования этой команды"
+        )
         return
 
     if len(context.args) < 2:
@@ -472,7 +666,11 @@ async def admin_removecoins_command(
         return
 
     amount = -abs(amount)
-    reason = ' '.join(context.args[2:]) if len(context.args) > 2 else f"Удалено администратором {user.username or user.first_name}"
+    reason = (
+        " ".join(context.args[2:])
+        if len(context.args) > 2
+        else f"Удалено администратором {user.username or user.first_name}"
+    )
 
     db = get_db()
     try:
@@ -491,9 +689,9 @@ async def admin_removecoins_command(
         transaction = Transaction(
             user_id=user_obj.id,
             amount=amount,
-            transaction_type='admin_remove_coins',
+            transaction_type="admin_remove_coins",
             description=reason,
-            metadata={'admin_id': user.id, 'admin_username': user.username}
+            metadata={"admin_id": user.id, "admin_username": user.username},
         )
 
         db.add(transaction)
@@ -545,6 +743,7 @@ async def admin_merge_command(
     db = get_db()
     try:
         from utils.core.user_manager import UserManager
+
         user_manager = UserManager(db)
 
         primary_user = user_manager.identify_user(primary_identifier)
@@ -555,7 +754,9 @@ async def admin_merge_command(
             return
 
         if primary_user.id == secondary_user.id:
-            await update.message.reply_text("❌ Нельзя объединить пользователя с самим собой")
+            await update.message.reply_text(
+                "❌ Нельзя объединить пользователя с самим собой"
+            )
             return
 
         user_manager.merge_users(primary_user.id, secondary_user.id)
@@ -598,12 +799,16 @@ async def admin_transactions_command(
             "❌ Используйте: /admin_transactions <пользователь> [лимит]\n"
             "Пример: /admin_transactions @username 20\n"
             'Пример: /admin_transactions "Имя Фамилия"',
-            parse_mode='HTML'
+            parse_mode="HTML",
         )
         return
 
-    user_identifier = context.args[0].replace('@', '')
-    limit = int(context.args[1]) if len(context.args) > 1 and context.args[1].isdigit() else 20
+    user_identifier = context.args[0].replace("@", "")
+    limit = (
+        int(context.args[1])
+        if len(context.args) > 1 and context.args[1].isdigit()
+        else 20
+    )
 
     try:
         admin_user = admin_system.get_user_by_username(user_identifier)
@@ -611,21 +816,24 @@ async def admin_transactions_command(
             conn = admin_system.get_db_connection()
             cursor = conn.cursor()
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT amount, type, created_at, description 
                 FROM transactions 
                 WHERE user_id = ? 
                 ORDER BY created_at DESC 
                 LIMIT ?
-            """, (admin_user['id'], limit))
+            """,
+                (admin_user["id"], limit),
+            )
 
             transactions = cursor.fetchall()
             conn.close()
 
             text = f"""📊 <b>Транзакции пользователя</b>
 
-👤 Пользователь: {admin_user['first_name']} (@{admin_user['username'] or admin_user['telegram_id']})
-💳 Баланс: {int(admin_user['balance'])} очков
+👤 Пользователь: {admin_user["first_name"]} (@{admin_user["username"] or admin_user["telegram_id"]})
+💳 Баланс: {int(admin_user["balance"])} очков
 📋 Показано: {len(transactions)} транзакций
 
 """
@@ -633,15 +841,17 @@ async def admin_transactions_command(
                 text += "📭 Транзакций не найдено"
             else:
                 for t in transactions:
-                    amount_text = f"+{t['amount']}" if t['amount'] > 0 else str(t['amount'])
-                    emoji = "⬆️" if t['amount'] > 0 else "⬇️" if t['amount'] < 0 else "➡️"
+                    amount_text = (
+                        f"+{t['amount']}" if t["amount"] > 0 else str(t["amount"])
+                    )
+                    emoji = "⬆️" if t["amount"] > 0 else "⬇️" if t["amount"] < 0 else "➡️"
 
                     text += f"{emoji} {amount_text} очков\n"
                     text += f"   Тип: {t['type']}\n"
                     text += f"   Описание: {t['description'] or 'Нет описания'}\n"
                     text += f"   Дата: {t['created_at']}\n\n"
 
-            await update.message.reply_text(text, parse_mode='HTML')
+            await update.message.reply_text(text, parse_mode="HTML")
             return
 
         db = get_db()
@@ -656,9 +866,13 @@ async def admin_transactions_command(
                 await update.message.reply_text("❌ Пользователь не найден")
                 return
 
-            transactions = db.query(Transaction).filter(
-                Transaction.user_id == user_obj.id
-            ).order_by(desc(Transaction.created_at)).limit(limit).all()
+            transactions = (
+                db.query(Transaction)
+                .filter(Transaction.user_id == user_obj.id)
+                .order_by(desc(Transaction.created_at))
+                .limit(limit)
+                .all()
+            )
 
             text = f"""📊 <b>Транзакции пользователя</b>
 
@@ -699,16 +913,17 @@ async def admin_rates_command(
         return
 
     from src.config import get_currency_config
+
     currency_config = get_currency_config()
 
     text = "💰 <b>Текущие коэффициенты конвертации:</b>\n\n"
     for game, config in currency_config.items():
         text += f"🎮 <b>{game}</b>: {config['base_rate']}x\n"
-        if 'event_multipliers' in config:
-            for event, multiplier in config['event_multipliers'].items():
+        if "event_multipliers" in config:
+            for event, multiplier in config["event_multipliers"].items():
                 text += f"   ├ {event}: {multiplier}x\n"
-        if 'rarity_multipliers' in config:
-            for rarity, multiplier in config['rarity_multipliers'].items():
+        if "rarity_multipliers" in config:
+            for rarity, multiplier in config["rarity_multipliers"].items():
                 text += f"   ├ {rarity}: {multiplier}x\n"
         text += "\n"
 
@@ -742,10 +957,13 @@ async def admin_rate_command(
     try:
         new_rate = float(new_rate)
         if new_rate <= 0:
-            await update.message.reply_text("❌ Коэффициент должен быть положительным числом")
+            await update.message.reply_text(
+                "❌ Коэффициент должен быть положительным числом"
+            )
             return
 
         from src.config import update_currency_rate
+
         success = update_currency_rate(game, new_rate)
 
         if success:
@@ -779,6 +997,7 @@ async def admin_cleanup_command(
     db = get_db()
     try:
         from shop.enhanced_shop import EnhancedShopSystem
+
         shop = EnhancedShopSystem(db)
         expired_count = shop.check_expired_items()
 
@@ -786,9 +1005,11 @@ async def admin_cleanup_command(
         from datetime import datetime, timedelta
 
         month_ago = datetime.utcnow() - timedelta(days=30)
-        old_notifications = db.query(UserNotification).filter(
-            UserNotification.created_at < month_ago
-        ).delete()
+        old_notifications = (
+            db.query(UserNotification)
+            .filter(UserNotification.created_at < month_ago)
+            .delete()
+        )
         db.commit()
 
         db.commit()
@@ -798,7 +1019,7 @@ async def admin_cleanup_command(
             f"📦 Деактивировано просроченных товаров: {expired_count}\n"
             f"🗑️ Удалено старых уведомлений: {old_notifications}\n"
             f"✅ Система оптимизирована",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
     except Exception as e:
@@ -826,15 +1047,19 @@ async def admin_games_stats_command(
         from database.database import GameSession
 
         total_games = db.query(GameSession).count()
-        active_games = db.query(GameSession).filter(GameSession.status == 'active').count()
-        waiting_games = db.query(GameSession).filter(GameSession.status == 'waiting').count()
+        active_games = (
+            db.query(GameSession).filter(GameSession.status == "active").count()
+        )
+        waiting_games = (
+            db.query(GameSession).filter(GameSession.status == "waiting").count()
+        )
 
         await update.message.reply_text(
             f"🎮 <b>Статистика мини-игр</b>\n\n"
             f"Всего игр: {total_games}\n"
             f"Активных: {active_games}\n"
             f"Ожидающих начала: {waiting_games}",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
     except Exception as e:
         logger.error(f"Error in admin_games_stats command: {e}")
@@ -864,27 +1089,27 @@ async def admin_health_command(
 ⚙️ <b>Состояние системы</b>
 
 💻 <b>Процессор:</b>
-   • Загрузка: {health_data['cpu']['percent']}%
-   • Ядер: {health_data['cpu']['count']}
+   • Загрузка: {health_data["cpu"]["percent"]}%
+   • Ядер: {health_data["cpu"]["count"]}
 
 🧠 <b>Память:</b>
-   • Всего: {health_data['memory']['total'] // (1024 ** 3)} GB
-   • Использовано: {health_data['memory']['used'] // (1024 ** 3)} GB ({health_data['memory']['percent']}%)
-   • Свободно: {health_data['memory']['available'] // (1024 ** 3)} GB
+   • Всего: {health_data["memory"]["total"] // (1024**3)} GB
+   • Использовано: {health_data["memory"]["used"] // (1024**3)} GB ({health_data["memory"]["percent"]}%)
+   • Свободно: {health_data["memory"]["available"] // (1024**3)} GB
 
 💾 <b>Диск:</b>
-   • Всего: {health_data['disk']['total'] // (1024 ** 3)} GB
-   • Использовано: {health_data['disk']['used'] // (1024 ** 3)} GB ({health_data['disk']['percent']}%)
-   • Свободно: {health_data['disk']['free'] // (1024 ** 3)} GB
+   • Всего: {health_data["disk"]["total"] // (1024**3)} GB
+   • Использовано: {health_data["disk"]["used"] // (1024**3)} GB ({health_data["disk"]["percent"]}%)
+   • Свободно: {health_data["disk"]["free"] // (1024**3)} GB
 
 📊 <b>Бизнес-метрики:</b>
-   • Всего пользователей: {metrics['business_metrics']['total_users']}
-   • Активных сегодня: {metrics['business_metrics']['active_users_today']}
-   • Транзакций сегодня: {metrics['business_metrics']['today_transactions']}
+   • Всего пользователей: {metrics["business_metrics"]["total_users"]}
+   • Активных сегодня: {metrics["business_metrics"]["active_users_today"]}
+   • Транзакций сегодня: {metrics["business_metrics"]["today_transactions"]}
 
 📈 <b>Производительность:</b>
-   • Проверка: {metrics['performance_metrics']['total_check_time']:.2f}s
-   • Проблемы: {len(metrics['performance_metrics']['performance_issues'])}
+   • Проверка: {metrics["performance_metrics"]["total_check_time"]:.2f}s
+   • Проблемы: {len(metrics["performance_metrics"]["performance_issues"])}
         """
     else:
         import psutil
@@ -892,7 +1117,7 @@ async def admin_health_command(
 
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
+        disk = psutil.disk_usage("/")
 
         text = f"""
 ⚙️ <b>Состояние системы</b>
@@ -902,14 +1127,14 @@ async def admin_health_command(
    • Ядер: {psutil.cpu_count()}
 
 🧠 <b>Память:</b>
-   • Всего: {memory.total // (1024 ** 3)} GB
-   • Использовано: {memory.used // (1024 ** 3)} GB ({memory.percent}%)
-   • Свободно: {memory.available // (1024 ** 3)} GB
+   • Всего: {memory.total // (1024**3)} GB
+   • Использовано: {memory.used // (1024**3)} GB ({memory.percent}%)
+   • Свободно: {memory.available // (1024**3)} GB
 
 💾 <b>Диск:</b>
-   • Всего: {disk.total // (1024 ** 3)} GB
-   • Использовано: {disk.used // (1024 ** 3)} GB ({disk.percent}%)
-   • Свободно: {disk.free // (1024 ** 3)} GB
+   • Всего: {disk.total // (1024**3)} GB
+   • Использовано: {disk.used // (1024**3)} GB ({disk.percent}%)
+   • Свободно: {disk.free // (1024**3)} GB
 
 📊 <b>Бот:</b>
    • PID: {os.getpid()}
@@ -940,10 +1165,10 @@ async def admin_errors_command(
 🚨 <b>Последние ошибки</b>
 
 📊 <b>Статистика ошибок:</b>
-   • Всего ошибок: {stats['total_errors']}
-   • Сегодня: {stats['errors_today']}
-   • На этой неделе: {stats['errors_this_week']}
-   • Самая частая: {stats['most_common_error']['type']} ({stats['most_common_error']['count']} раз)
+   • Всего ошибок: {stats["total_errors"]}
+   • Сегодня: {stats["errors_today"]}
+   • На этой неделе: {stats["errors_this_week"]}
+   • Самая частая: {stats["most_common_error"]["type"]} ({stats["most_common_error"]["count"]} раз)
 
 📝 <b>Последние ошибки:</b>
 """
@@ -976,25 +1201,24 @@ async def admin_backup_command(
 
     if backup_system:
         result = backup_system.create_backup()
-        if result['success']:
+        if result["success"]:
             await update.message.reply_text(
                 f"✅ <b>Резервная копия создана</b>\n\n"
                 f"Файл: {result['backup_file']}\n"
                 f"Размер: {result['size']} байт\n"
                 f"Время: {result['timestamp']}",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
         else:
             await update.message.reply_text(
-                f"❌ <b>Ошибка создания резервной копии</b>\n\n"
-                f"{result['message']}",
-                parse_mode="HTML"
+                f"❌ <b>Ошибка создания резервной копии</b>\n\n{result['message']}",
+                parse_mode="HTML",
             )
     else:
         await update.message.reply_text(
             "💾 <b>Резервное копирование</b>\n\n"
             "Функция в разработке. Резервные копии создаются автоматически.",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
 
@@ -1021,25 +1245,25 @@ async def admin_background_status_command(
 🔧 <b>Статус фоновых задач</b>
 
 📊 <b>Основной статус:</b>
-   • Запущены: {'✅ Да' if task_status['is_running'] else '❌ Нет'}
-   • Интервал очистки: {task_status['cleanup_interval_seconds']} сек
-   • Интервал мониторинга: {task_status['monitoring_interval_seconds']} сек
+   • Запущены: {"✅ Да" if task_status["is_running"] else "❌ Нет"}
+   • Интервал очистки: {task_status["cleanup_interval_seconds"]} сек
+   • Интервал мониторинга: {task_status["monitoring_interval_seconds"]} сек
 
 🏃 <b>Активные задачи:</b>
-   • Очистка: {'✅ Активна' if task_status['cleanup_task_running'] else '❌ Неактивна'}
-   • Мониторинг: {'✅ Активен' if task_status['monitoring_task_running'] else '❌ Неактивен'}
+   • Очистка: {"✅ Активна" if task_status["cleanup_task_running"] else "❌ Неактивна"}
+   • Мониторинг: {"✅ Активен" if task_status["monitoring_task_running"] else "❌ Неактивен"}
 
 🏥 <b>Здоровье системы:</b>
-   • Общее состояние: {'✅ Здорова' if health_status.is_healthy else '❌ Проблемы'}
-   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
-   • Парсинг активен: {'✅ Да' if health_status.parsing_active else '❌ Нет'}
-   • Последняя проверка: {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
+   • Общее состояние: {"✅ Здорова" if health_status.is_healthy else "❌ Проблемы"}
+   • База данных: {"✅ Подключена" if health_status.database_connected else "❌ Отключена"}
+   • Парсинг активен: {"✅ Да" if health_status.parsing_active else "❌ Нет"}
+   • Последняя проверка: {health_status.last_check.strftime("%d.%m.%Y %H:%M:%S")}
 
 ⚠️ <b>Ошибки:</b>
 {chr(10).join([f"   • {error}" for error in health_status.errors]) if health_status.errors else "   • Ошибок нет"}
 
 🕐 <b>Последняя проверка статуса:</b>
-   {task_status['last_status_check']}
+   {task_status["last_status_check"]}
         """
 
         await update.message.reply_text(text, parse_mode="HTML")
@@ -1075,10 +1299,10 @@ async def admin_background_health_command(
 🏥 <b>Проверка здоровья фоновых задач</b>
 
 📊 <b>Результат проверки:</b>
-   • Статус: {'✅ Система здорова' if health_status.is_healthy else '❌ Обнаружены проблемы'}
-   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
-   • Фоновые задачи: {'✅ Работают' if health_status.background_tasks_running else '❌ Остановлены'}
-   • Парсинг: {'✅ Активен' if health_status.parsing_active else '❌ Неактивен'}
+   • Статус: {"✅ Система здорова" if health_status.is_healthy else "❌ Обнаружены проблемы"}
+   • База данных: {"✅ Подключена" if health_status.database_connected else "❌ Отключена"}
+   • Фоновые задачи: {"✅ Работают" if health_status.background_tasks_running else "❌ Остановлены"}
+   • Парсинг: {"✅ Активен" if health_status.parsing_active else "❌ Неактивен"}
 
 🧹 <b>Результат тестовой очистки:</b>
    • Очищено пользователей: {cleanup_result.cleaned_users}
@@ -1090,7 +1314,7 @@ async def admin_background_health_command(
 {chr(10).join([f"   • {error}" for error in health_status.errors + cleanup_result.errors]) if (health_status.errors or cleanup_result.errors) else "   • Ошибок не обнаружено"}
 
 🕐 <b>Время проверки:</b>
-   {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
+   {health_status.last_check.strftime("%d.%m.%Y %H:%M:%S")}
 
 💡 <b>Рекомендации:</b>
    • Если есть ошибки, используйте /admin_background_restart для перезапуска
@@ -1126,6 +1350,7 @@ async def admin_background_restart_command(
         await update.message.reply_text("🔄 Перезапуск фоновых задач...")
 
         import asyncio
+
         await background_task_manager.stop_periodic_cleanup()
         logger.info(f"Background tasks stopped by admin {user.id}")
 
@@ -1138,17 +1363,18 @@ async def admin_background_restart_command(
         health_status = await background_task_manager.monitor_parsing_health()
 
         from datetime import datetime
+
         text = f"""
 ✅ <b>Фоновые задачи перезапущены</b>
 
 📊 <b>Новый статус:</b>
-   • Запущены: {'✅ Да' if task_status['is_running'] else '❌ Нет'}
-   • Очистка активна: {'✅ Да' if task_status['cleanup_task_running'] else '❌ Нет'}
-   • Мониторинг активен: {'✅ Да' if task_status['monitoring_task_running'] else '❌ Нет'}
-   • Система здорова: {'✅ Да' if health_status.is_healthy else '❌ Нет'}
+   • Запущены: {"✅ Да" if task_status["is_running"] else "❌ Нет"}
+   • Очистка активна: {"✅ Да" if task_status["cleanup_task_running"] else "❌ Нет"}
+   • Мониторинг активен: {"✅ Да" if task_status["monitoring_task_running"] else "❌ Нет"}
+   • Система здорова: {"✅ Да" if health_status.is_healthy else "❌ Нет"}
 
 🕐 <b>Время перезапуска:</b>
-   {datetime.utcnow().strftime('%d.%m.%Y %H:%M:%S')}
+   {datetime.utcnow().strftime("%d.%m.%Y %H:%M:%S")}
 
 💡 <b>Следующие шаги:</b>
    • Проверьте статус через несколько минут: /admin_background_status
@@ -1177,6 +1403,7 @@ async def admin_parsing_reload_command(
         await update.message.reply_text("🔄 Перезагружаю правила парсинга...")
 
         from core.managers.config_manager import get_config_manager
+
         config_manager = get_config_manager()
 
         success = config_manager.reload_configuration()
@@ -1187,6 +1414,7 @@ async def admin_parsing_reload_command(
 
             config = config_manager.get_configuration()
             from datetime import datetime
+
             text = f"""
 ✅ <b>Правила парсинга перезагружены</b>
 
@@ -1202,7 +1430,7 @@ async def admin_parsing_reload_command(
 {chr(10).join([f"   • {error}" for error in config_manager.get_validation_errors()]) if config_manager.get_validation_errors() else "   • Ошибок нет"}
 
 🕐 <b>Время перезагрузки:</b>
-   {datetime.utcnow().strftime('%d.%m.%Y %H:%M:%S')}
+   {datetime.utcnow().strftime("%d.%m.%Y %H:%M:%S")}
             """
 
             await update.message.reply_text(text, parse_mode="HTML")
@@ -1243,6 +1471,7 @@ async def admin_parsing_config_command(
 
     try:
         from core.managers.config_manager import get_config_manager
+
         config_manager = get_config_manager()
 
         config = config_manager.get_configuration()
@@ -1254,16 +1483,22 @@ async def admin_parsing_config_command(
             from sqlalchemy import func
             from datetime import timedelta
 
-            yesterday = __import__('datetime').datetime.utcnow() - timedelta(days=1)
+            yesterday = __import__("datetime").datetime.utcnow() - timedelta(days=1)
 
-            recent_transactions = db.query(func.count(ParsedTransaction.id)).filter(
-                ParsedTransaction.parsed_at >= yesterday
-            ).scalar() or 0
+            recent_transactions = (
+                db.query(func.count(ParsedTransaction.id))
+                .filter(ParsedTransaction.parsed_at >= yesterday)
+                .scalar()
+                or 0
+            )
 
             total_rules = db.query(func.count(ParsingRule.id)).scalar() or 0
-            active_rules = db.query(func.count(ParsingRule.id)).filter(
-                ParsingRule.is_active
-            ).scalar() or 0
+            active_rules = (
+                db.query(func.count(ParsingRule.id))
+                .filter(ParsingRule.is_active)
+                .scalar()
+                or 0
+            )
 
         finally:
             db.close()
@@ -1272,9 +1507,9 @@ async def admin_parsing_config_command(
 ⚙️ <b>Конфигурация системы парсинга</b>
 
 🏥 <b>Состояние системы:</b>
-   • Общее здоровье: {'✅ Здорова' if health_status.is_healthy else '❌ Проблемы'}
-   • База данных: {'✅ Подключена' if health_status.database_connected else '❌ Отключена'}
-   • Парсинг активен: {'✅ Да' if health_status.parsing_active else '❌ Нет'}
+   • Общее здоровье: {"✅ Здорова" if health_status.is_healthy else "❌ Проблемы"}
+   • База данных: {"✅ Подключена" if health_status.database_connected else "❌ Отключена"}
+   • Парсинг активен: {"✅ Да" if health_status.parsing_active else "❌ Нет"}
 
 📊 <b>Статистика правил:</b>
    • Всего правил в БД: {total_rules}
@@ -1283,7 +1518,7 @@ async def admin_parsing_config_command(
 
 📈 <b>Статистика активности:</b>
    • Транзакций за 24ч: {recent_transactions}
-   • Последняя проверка: {health_status.last_check.strftime('%d.%m.%Y %H:%M:%S')}
+   • Последняя проверка: {health_status.last_check.strftime("%d.%m.%Y %H:%M:%S")}
 
 🎮 <b>Активные правила парсинга:</b>
 {chr(10).join([f"   • {rule.bot_name}: {rule.pattern[:50]}{'...' if len(rule.pattern) > 50 else ''}" for rule in config.parsing_rules if rule.is_active]) if config.parsing_rules else "   • Нет активных правил"}
