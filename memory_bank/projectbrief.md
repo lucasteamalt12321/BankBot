@@ -126,7 +126,7 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| G01 | Исправить 62 сломанных unit тестов | P1 | pending |
+| G01 | Исправить 62 сломанных unit тестов | P1 | completed |
 | G02 | Рефакторинг bot/bot.py (разбить монолит) | P2 | pending |
 
 ### Низкий приоритет
