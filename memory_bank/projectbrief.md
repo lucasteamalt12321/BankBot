@@ -134,7 +134,7 @@ https://github.com/lucasteamalt12321/BankBot
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
 | G03 | Покрытие тестами managers (admin, sticker, background) | P2 | completed |
-| G04 | Docker оптимизация (multi-stage build, health checks) | P3 | pending |
+| G04 | Docker оптимизация (multi-stage build, health checks) | P3 | completed |
 | G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | pending |
 
-**Примечание:** G03 выполнено — coverage: admin_manager (85%), sticker_manager (78%), shop_manager (57%), background_task_manager (82%).
+**Примечание:** G04 выполнено — Docker multi-stage build, health checks, resource limits.
