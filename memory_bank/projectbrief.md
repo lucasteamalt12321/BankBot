@@ -133,8 +133,8 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| G03 | Покрытие тестами managers (admin, sticker, background) | P2 | pending |
+| G03 | Покрытие тестами managers (admin, sticker, background) | P2 | completed |
 | G04 | Docker оптимизация (multi-stage build, health checks) | P3 | pending |
 | G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | pending |
 
-**Примечание:** G02 в процессе — извлечены buy_N команды + admin wrappers (bot/bot.py: 2356 → 2308 строк, admin_commands_ptb.py расширен).
+**Примечание:** G03 выполнено — coverage: admin_manager (85%), sticker_manager (78%), shop_manager (57%), background_task_manager (82%).
