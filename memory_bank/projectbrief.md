@@ -26,24 +26,24 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
-| D01 | Централизованная конфигурация (Pydantic Settings) | completed | 7 |
+| D01 | Централизованная конфигурация (Pydantic Settings) | completed | 5 |
 | D02 | Вынос конфиденциальных данных в env | completed | 5 |
 | D03 | Разделение зависимостей (requirements) | completed | 4 |
 | D04 | Исправление импортов | completed | 3 |
 | D05 | Слой репозиториев (Repository pattern) | completed | 7 |
-| D06 | Service layer (бизнес-логика из handlers) | completed | 7 |
+| D06 | Service layer (бизнес-логика из handlers) | completed | 5 |
 | D07 | Рефакторинг bot.py на модули | completed | 5 |
 | D08 | Middleware обработки ошибок | completed | 5 |
 | D09 | Graceful shutdown | completed | 4 |
 | D10 | ParserRegistry + конфигурация парсинга в БД | completed | 5 |
-| D11 | Блокировки балансов + Unit of Work | completed | 6 |
+| D11 | Блокировки балансов + Unit of Work | completed | 5 |
 | D12 | Connection pooling | completed | 3 |
 | D13 | Аудит SQL injection | completed | 5 |
 | D16 | Аудит и очистка неиспользуемого кода | completed | 4 |
 | D17 | Объединение дублирующихся парсеров | completed | 3 |
 | D18 | E2E тесты основных сценариев | completed | 4 |
-| D19 | Тесты безопасности (SQL injection, race conditions) | completed | 4 |
-| D20 | Coverage 80%+ | completed | 4 |
+| D19 | Тесты безопасности (SQL injection, race conditions) | completed | 3 |
+| D20 | Coverage 80%+ | completed | 3 |
 | D21 | Документация (README, DEPLOYMENT.md, диаграммы) | completed | 3 |
 | D22 | Docstrings Google style | completed | 2 |
 | D23 | Bridge-модуль: конфигурация + миграция bridge_state | completed | 3 |
@@ -51,6 +51,8 @@ https://github.com/lucasteamalt12321/BankBot
 | D25 | Bridge-модуль: telegram_forwarder, vk_listener, main_bridge | completed | 4 |
 | D26 | Bridge-модуль: media_handler (TG→VK, VK→TG) | completed | 3 |
 | D27 | vk_bot/: config, bot, handlers, main | completed | 3 |
+
+**Sum: 5+5+4+3+7+5+5+5+4+5+5+3+5+4+3+4+3+3+3+2+3+4+4+3+3 = 100**
 
 **Процент выполнения:** 100% (D01–D27 completed = 100/100)
 
