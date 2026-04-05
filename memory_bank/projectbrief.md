@@ -149,7 +149,9 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| H01 | Извлечь команды из bot/bot.py (games, dnd, motivation, social) | P2 | pending |
+| H01 | Извлечь команды из bot/bot.py (games, dnd, motivation, social) | P2 | in_progress |
+
+**H01 notes:** Созданы модули: game_commands_ptb.py, motivation_commands_ptb.py, social_commands_ptb.py, notification_commands_ptb.py
 | H02 | Alembic миграции БД | P2 | pending |
 | H03 | Интеграция Prometheus метрик | P2 | pending |
 
