@@ -37,11 +37,11 @@ from src.parsers import AccrualParser, ParserError, ParsedAccrual
 
 class TestAccrualParserProperties(unittest.TestCase):
     """Property-based tests for AccrualParser."""
-    
+
     def setUp(self):
         """Setup test parser."""
         self.parser = AccrualParser()
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -70,7 +70,7 @@ class TestAccrualParserProperties(unittest.TestCase):
         assume("Игрок:" not in player_name)
         assume("Очки:" not in player_name)
         assume(player_name.strip() != "")
-        
+
         # Construct a valid accrual message
         message = f"""🃏 НОВАЯ КАРТА 🃏
 ───────────────
@@ -85,16 +85,16 @@ class TestAccrualParserProperties(unittest.TestCase):
 Орбы за дроп: +10
 Коллекция: 124/213 карт
 ───────────────"""
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert extraction is correct
         self.assertIsInstance(result, ParsedAccrual)
         self.assertEqual(result.player_name, player_name.strip())
         self.assertEqual(result.points, points)
         self.assertEqual(result.game, "GD Cards")
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -124,7 +124,7 @@ class TestAccrualParserProperties(unittest.TestCase):
         assume("Игрок:" not in player_name)
         assume("Очки:" not in player_name)
         assume(player_name.strip() != "")
-        
+
         # Construct message with malformed points field (no plus sign or invalid format)
         message = f"""🃏 НОВАЯ КАРТА 🃏
 ───────────────
@@ -132,11 +132,11 @@ class TestAccrualParserProperties(unittest.TestCase):
 ───────────────
 Очки: {points_value}
 ───────────────"""
-        
+
         # Parsing should raise ParserError
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message)
-        
+
         # Error message should indicate the issue
         error_msg = str(context.exception)
         self.assertTrue(
@@ -144,7 +144,7 @@ class TestAccrualParserProperties(unittest.TestCase):
             "Invalid points value" in error_msg,
             f"Expected error about malformed points, got: {error_msg}"
         )
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -202,52 +202,52 @@ class TestAccrualParserProperties(unittest.TestCase):
         assume("Игрок:" not in player_name)
         assume("Очки:" not in player_name)
         assume(player_name.strip() != "")
-        
+
         # Ensure extra fields don't interfere with parsing
         for field_name, field_value in extra_fields_before + extra_fields_after:
             assume("Игрок" not in field_name and "Игрок:" not in field_value)
             assume("Очки" not in field_name)
             assume("Очки:" not in field_value)  # Ensure field values don't contain "Очки:"
             assume("+" not in field_value or "Очки" not in field_value)  # Avoid confusion
-        
+
         # Construct message with extra fields before and after Очки
         message_lines = ["🃏 НОВАЯ КАРТА 🃏", "───────────────"]
         message_lines.append(f"Игрок: {player_name}")
         message_lines.append("───────────────")
-        
+
         # Add extra fields before Очки
         for field_name, field_value in extra_fields_before:
             message_lines.append(f"{field_name}: {field_value}")
-        
+
         # Add the Очки field
         message_lines.append(f"Очки: +{points}")
-        
+
         # Add extra fields after Очки
         for field_name, field_value in extra_fields_after:
             message_lines.append(f"{field_name}: {field_value}")
-        
+
         message_lines.append("───────────────")
         message = "\n".join(message_lines)
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert that only player name and points are extracted correctly
         self.assertEqual(result.player_name, player_name.strip())
         self.assertEqual(result.points, points)
         self.assertEqual(result.game, "GD Cards")
-        
+
         # Verify that the result only has the expected fields
         self.assertIsInstance(result, ParsedAccrual)
         self.assertTrue(hasattr(result, 'player_name'))
         self.assertTrue(hasattr(result, 'points'))
         self.assertTrue(hasattr(result, 'game'))
-    
+
     def test_accrual_parser_without_hypothesis(self):
         """Fallback test when Hypothesis is not available."""
         if HYPOTHESIS_AVAILABLE:
             self.skipTest("Hypothesis is available, using property-based tests")
-        
+
         # Property 9: Basic extraction
         message1 = """🃏 НОВАЯ КАРТА 🃏
 ───────────────
@@ -258,7 +258,7 @@ class TestAccrualParserProperties(unittest.TestCase):
         result1 = self.parser.parse(message1)
         self.assertEqual(result1.player_name, "TestPlayer")
         self.assertEqual(result1.points, Decimal("5"))
-        
+
         # Property 10: Malformed points (no plus sign)
         message2 = """🃏 НОВАЯ КАРТА 🃏
 ───────────────
@@ -269,7 +269,7 @@ class TestAccrualParserProperties(unittest.TestCase):
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message2)
         self.assertIn("does not contain a plus sign", str(context.exception))
-        
+
         # Property 10: Malformed points (invalid value)
         message3 = """🃏 НОВАЯ КАРТА 🃏
 ───────────────
@@ -280,7 +280,7 @@ class TestAccrualParserProperties(unittest.TestCase):
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message3)
         self.assertIn("Invalid points value", str(context.exception))
-        
+
         # Property 11: Field isolation
         message4 = """🃏 НОВАЯ КАРТА 🃏
 ───────────────

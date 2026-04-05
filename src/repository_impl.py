@@ -9,17 +9,17 @@ from src.models import BotBalance, UserBalance
 
 class DatabaseRepository(ABC):
     """Abstract interface for database operations."""
-    
+
     @abstractmethod
     def get_or_create_user(self, user_name: str) -> UserBalance:
         """Get existing user or create new one with zero balance."""
         pass
-    
+
     @abstractmethod
     def get_bot_balance(self, user_id: str, game: str) -> Optional[BotBalance]:
         """Get bot balance for user and game, or None if not exists."""
         pass
-    
+
     @abstractmethod
     def create_bot_balance(
         self,
@@ -30,12 +30,12 @@ class DatabaseRepository(ABC):
     ) -> None:
         """Create new bot balance record."""
         pass
-    
+
     @abstractmethod
     def update_user_balance(self, user_id: str, new_balance: Decimal) -> None:
         """Update user's bank balance."""
         pass
-    
+
     @abstractmethod
     def update_bot_last_balance(
         self,
@@ -45,7 +45,7 @@ class DatabaseRepository(ABC):
     ) -> None:
         """Update last_balance field in bot_balances."""
         pass
-    
+
     @abstractmethod
     def update_bot_current_balance(
         self,
@@ -55,27 +55,27 @@ class DatabaseRepository(ABC):
     ) -> None:
         """Update current_bot_balance field in bot_balances."""
         pass
-    
+
     @abstractmethod
     def begin_transaction(self) -> None:
         """Start a database transaction."""
         pass
-    
+
     @abstractmethod
     def commit_transaction(self) -> None:
         """Commit current transaction."""
         pass
-    
+
     @abstractmethod
     def rollback_transaction(self) -> None:
         """Rollback current transaction."""
         pass
-    
+
     @abstractmethod
     def message_id_exists(self, message_id: str) -> bool:
         """Check if message ID has been processed."""
         pass
-    
+
     @abstractmethod
     def store_message_id(self, message_id: str) -> None:
         """Store message ID to mark it as processed."""
@@ -84,7 +84,7 @@ class DatabaseRepository(ABC):
 
 class SQLiteRepository(DatabaseRepository):
     """SQLite implementation of database repository."""
-    
+
     def __init__(self, db_path: str):
         """
         Initialize with database path and create schema.
@@ -97,11 +97,11 @@ class SQLiteRepository(DatabaseRepository):
         self.conn = sqlite3.connect(db_path)
         self._in_transaction = False
         self._init_schema()
-    
+
     def _init_schema(self) -> None:
         """Create tables if they don't exist."""
         cursor = self.conn.cursor()
-        
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_balances (
                 user_id TEXT PRIMARY KEY,
@@ -109,7 +109,7 @@ class SQLiteRepository(DatabaseRepository):
                 bank_balance TEXT NOT NULL
             )
         """)
-        
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS bot_balances (
                 user_id TEXT NOT NULL,
@@ -120,21 +120,21 @@ class SQLiteRepository(DatabaseRepository):
                 FOREIGN KEY (user_id) REFERENCES user_balances(user_id)
             )
         """)
-        
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS processed_messages (
                 message_id TEXT PRIMARY KEY,
                 processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_processed_messages_timestamp 
             ON processed_messages(processed_at)
         """)
-        
+
         self.conn.commit()
-    
+
     def get_or_create_user(self, user_name: str) -> UserBalance:
         """
         Get existing user or create new one with zero balance.
@@ -146,21 +146,21 @@ class SQLiteRepository(DatabaseRepository):
             UserBalance object
         """
         cursor = self.conn.cursor()
-        
+
         # Try to get existing user
         cursor.execute(
             "SELECT user_id, user_name, bank_balance FROM user_balances WHERE user_name = ?",
             (user_name,)
         )
         row = cursor.fetchone()
-        
+
         if row:
             return UserBalance(
                 user_id=row[0],
                 user_name=row[1],
                 bank_balance=Decimal(row[2])
             )
-        
+
         # Create new user with zero balance
         import uuid
         user_id = str(uuid.uuid4())
@@ -170,13 +170,13 @@ class SQLiteRepository(DatabaseRepository):
         )
         if not self._in_transaction:
             self.conn.commit()
-        
+
         return UserBalance(
             user_id=user_id,
             user_name=user_name,
             bank_balance=Decimal(0)
         )
-    
+
     def get_bot_balance(self, user_id: str, game: str) -> Optional[BotBalance]:
         """
         Get bot balance for user and game, or None if not exists.
@@ -196,7 +196,7 @@ class SQLiteRepository(DatabaseRepository):
             (user_id, game)
         )
         row = cursor.fetchone()
-        
+
         if row:
             return BotBalance(
                 user_id=row[0],
@@ -204,9 +204,9 @@ class SQLiteRepository(DatabaseRepository):
                 last_balance=Decimal(row[2]),
                 current_bot_balance=Decimal(row[3])
             )
-        
+
         return None
-    
+
     def create_bot_balance(
         self,
         user_id: str,
@@ -231,7 +231,7 @@ class SQLiteRepository(DatabaseRepository):
         )
         if not self._in_transaction:
             self.conn.commit()
-    
+
     def update_user_balance(self, user_id: str, new_balance: Decimal) -> None:
         """
         Update user's bank balance.
@@ -247,7 +247,7 @@ class SQLiteRepository(DatabaseRepository):
         )
         if not self._in_transaction:
             self.conn.commit()
-    
+
     def update_bot_last_balance(
         self,
         user_id: str,
@@ -269,7 +269,7 @@ class SQLiteRepository(DatabaseRepository):
         )
         if not self._in_transaction:
             self.conn.commit()
-    
+
     def update_bot_current_balance(
         self,
         user_id: str,
@@ -291,24 +291,24 @@ class SQLiteRepository(DatabaseRepository):
         )
         if not self._in_transaction:
             self.conn.commit()
-    
+
     def begin_transaction(self) -> None:
         """Start a database transaction."""
         # SQLite is in autocommit mode by default when using the connection object
         # We need to explicitly begin a transaction
         self.conn.execute("BEGIN")
         self._in_transaction = True
-    
+
     def commit_transaction(self) -> None:
         """Commit current transaction."""
         self.conn.commit()
         self._in_transaction = False
-    
+
     def rollback_transaction(self) -> None:
         """Rollback current transaction."""
         self.conn.rollback()
         self._in_transaction = False
-    
+
     def message_id_exists(self, message_id: str) -> bool:
         """
         Check if message ID has been processed.
@@ -325,7 +325,7 @@ class SQLiteRepository(DatabaseRepository):
             (message_id,)
         )
         return cursor.fetchone() is not None
-    
+
     def store_message_id(self, message_id: str) -> None:
         """
         Store message ID to mark it as processed.

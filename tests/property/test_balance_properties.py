@@ -53,7 +53,7 @@ def test_property_12_profile_first_parse_initialization(
     # Arrange - create fresh components for each test with temporary database
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
         test_db_path = f.name
-    
+
     try:
         repository = SQLiteRepository(test_db_path)
         coefficient_provider = CoefficientProvider({
@@ -65,25 +65,25 @@ def test_property_12_profile_first_parse_initialization(
         })
         mock_logger = Mock()
         balance_manager = BalanceManager(repository, coefficient_provider, mock_logger)
-        
+
         # Get initial bank balance (should be 0 for new user)
         user = repository.get_or_create_user(player_name)
         initial_bank_balance = user.bank_balance
-        
+
         # Act
         parsed = ParsedProfile(player_name=player_name, orbs=orbs, game=game)
         balance_manager.process_profile(parsed)
-        
+
         # Assert
         user = repository.get_or_create_user(player_name)
         bot_balance = repository.get_bot_balance(user.user_id, game)
-        
+
         assert bot_balance is not None, "Bot balance should be created"
         assert bot_balance.last_balance == orbs, f"Last balance should equal orbs: {orbs}"
         assert bot_balance.current_bot_balance == Decimal(0), "Current bot balance should be zero"
         assert bot_balance.game == game, f"Game should be {game}"
         assert user.bank_balance == initial_bank_balance, "Bank balance should not be modified"
-        
+
         # Close the database connection before cleanup
         repository.conn.close()
     finally:
@@ -116,11 +116,11 @@ def test_property_13_profile_update_with_positive_delta(
     """
     # Ensure positive delta
     assume(new_orbs > initial_orbs)
-    
+
     # Arrange - create fresh components for each test with temporary database
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
         test_db_path = f.name
-    
+
     try:
         repository = SQLiteRepository(test_db_path)
         coefficients = {
@@ -133,27 +133,27 @@ def test_property_13_profile_update_with_positive_delta(
         coefficient_provider = CoefficientProvider(coefficients)
         mock_logger = Mock()
         balance_manager = BalanceManager(repository, coefficient_provider, mock_logger)
-        
+
         # Initialize with first profile
         parsed_first = ParsedProfile(player_name=player_name, orbs=initial_orbs, game=game)
         balance_manager.process_profile(parsed_first)
-        
+
         # Act - process second profile with higher orbs
         parsed_second = ParsedProfile(player_name=player_name, orbs=new_orbs, game=game)
         balance_manager.process_profile(parsed_second)
-        
+
         # Assert
         user = repository.get_or_create_user(player_name)
         bot_balance = repository.get_bot_balance(user.user_id, game)
-        
+
         delta = new_orbs - initial_orbs
         coefficient = coefficients[game]
         expected_bank_change = delta * coefficient
-        
+
         assert bot_balance.last_balance == new_orbs, f"Last balance should be updated to {new_orbs}"
         assert user.bank_balance == expected_bank_change, \
             f"Bank balance should be {expected_bank_change} (delta {delta} * coefficient {coefficient})"
-        
+
         # Close the database connection before cleanup
         repository.conn.close()
     finally:
@@ -186,11 +186,11 @@ def test_property_14_profile_update_with_negative_delta(
     """
     # Ensure negative delta
     assume(new_orbs < initial_orbs)
-    
+
     # Arrange - create fresh components for each test with temporary database
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
         test_db_path = f.name
-    
+
     try:
         repository = SQLiteRepository(test_db_path)
         coefficients = {
@@ -203,27 +203,27 @@ def test_property_14_profile_update_with_negative_delta(
         coefficient_provider = CoefficientProvider(coefficients)
         mock_logger = Mock()
         balance_manager = BalanceManager(repository, coefficient_provider, mock_logger)
-        
+
         # Initialize with first profile
         parsed_first = ParsedProfile(player_name=player_name, orbs=initial_orbs, game=game)
         balance_manager.process_profile(parsed_first)
-        
+
         # Act - process second profile with lower orbs
         parsed_second = ParsedProfile(player_name=player_name, orbs=new_orbs, game=game)
         balance_manager.process_profile(parsed_second)
-        
+
         # Assert
         user = repository.get_or_create_user(player_name)
         bot_balance = repository.get_bot_balance(user.user_id, game)
-        
+
         delta = new_orbs - initial_orbs  # This will be negative
         coefficient = coefficients[game]
         expected_bank_change = delta * coefficient  # This will be negative
-        
+
         assert bot_balance.last_balance == new_orbs, f"Last balance should be updated to {new_orbs}"
         assert user.bank_balance == expected_bank_change, \
             f"Bank balance should be {expected_bank_change} (delta {delta} * coefficient {coefficient})"
-        
+
         # Close the database connection before cleanup
         repository.conn.close()
     finally:
@@ -256,7 +256,7 @@ def test_property_15_accrual_processing(
     # Arrange - create fresh components for each test with temporary database
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
         test_db_path = f.name
-    
+
     try:
         repository = SQLiteRepository(test_db_path)
         coefficients = {
@@ -269,18 +269,18 @@ def test_property_15_accrual_processing(
         coefficient_provider = CoefficientProvider(coefficients)
         mock_logger = Mock()
         balance_manager = BalanceManager(repository, coefficient_provider, mock_logger)
-        
+
         # Act
         parsed = ParsedAccrual(player_name=player_name, points=points, game=game)
         balance_manager.process_accrual(parsed)
-        
+
         # Assert
         user = repository.get_or_create_user(player_name)
         bot_balance = repository.get_bot_balance(user.user_id, game)
-        
+
         coefficient = coefficients[game]
         expected_bank_balance = points * coefficient
-        
+
         assert bot_balance is not None, "Bot balance should be created"
         assert bot_balance.current_bot_balance == points, \
             f"Current bot balance should equal points: {points}"
@@ -288,7 +288,7 @@ def test_property_15_accrual_processing(
             "Last balance should not be modified (should remain 0)"
         assert user.bank_balance == expected_bank_balance, \
             f"Bank balance should be {expected_bank_balance} (points {points} * coefficient {coefficient})"
-        
+
         # Close the database connection before cleanup
         repository.conn.close()
     finally:
@@ -321,7 +321,7 @@ def test_property_16_accrual_first_time_initialization(
     # Arrange - create fresh components for each test with temporary database
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
         test_db_path = f.name
-    
+
     try:
         repository = SQLiteRepository(test_db_path)
         coefficient_provider = CoefficientProvider({
@@ -333,26 +333,26 @@ def test_property_16_accrual_first_time_initialization(
         })
         mock_logger = Mock()
         balance_manager = BalanceManager(repository, coefficient_provider, mock_logger)
-        
+
         # Verify no bot balance exists initially
         user = repository.get_or_create_user(player_name)
         initial_bot_balance = repository.get_bot_balance(user.user_id, game)
         assert initial_bot_balance is None, "Bot balance should not exist initially"
-        
+
         # Act
         parsed = ParsedAccrual(player_name=player_name, points=points, game=game)
         balance_manager.process_accrual(parsed)
-        
+
         # Assert
         bot_balance = repository.get_bot_balance(user.user_id, game)
-        
+
         assert bot_balance is not None, "Bot balance should be created"
         assert bot_balance.current_bot_balance == points, \
             f"Current bot balance should equal points: {points}"
         assert bot_balance.last_balance == Decimal(0), \
             "Last balance should be initialized to zero"
         assert bot_balance.game == game, f"Game should be {game}"
-        
+
         # Close the database connection before cleanup
         repository.conn.close()
     finally:

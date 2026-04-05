@@ -25,31 +25,31 @@ class ParserRegistry:
     def __init__(self):
         self.parsers: List[BaseParser] = []
         self._register_default_parsers()
-    
+
     def _register_default_parsers(self):
         """Регистрирует стандартные парсеры"""
         # GD Cards
         self.register(GDCardsProfileParser())
         self.register(GDCardsCardParser())
         self.register(GDCardsOrbDropParser())
-        
+
         # Shmalala
         self.register(ShmalalaFishingParser())
         self.register(ShmalalaKarmaParser())
-        
+
         # True Mafia
         self.register(TrueMafiaProfileParser())
         self.register(TrueMafiaGameEndParser())
-        
+
         # Bunker RP
         self.register(BunkerRPProfileParser())
         self.register(BunkerRPGameEndParser())
-        
+
         logger.info(
             "Parser registry initialized",
             total_parsers=len(self.parsers)
         )
-    
+
     def register(self, parser: BaseParser):
         """
         Регистрирует парсер
@@ -63,7 +63,7 @@ class ParserRegistry:
             parser=parser.__class__.__name__,
             game=parser.game_name
         )
-    
+
     def parse(self, text: str) -> Optional[ParseResult]:
         """
         Пытается распарсить сообщение всеми зарегистрированными парсерами
@@ -92,13 +92,13 @@ class ParserRegistry:
                     error=str(e)
                 )
                 continue
-        
+
         logger.warning(
             "No parser could handle message",
             text_preview=text[:100]
         )
         return None
-    
+
     def reload(self) -> None:
         """Перезагрузить конфигурацию парсеров из БД без перезапуска бота.
 

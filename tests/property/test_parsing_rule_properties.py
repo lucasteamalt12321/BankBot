@@ -46,7 +46,7 @@ coefficient_strategy = st.floats(min_value=0.01, max_value=100.0, allow_nan=Fals
 
 class TestParsingRuleProperties:
     """Property-based tests for ParsingRule model."""
-    
+
     @given(
         game_name=game_name_strategy,
         parser_class=parser_class_strategy,
@@ -70,14 +70,14 @@ class TestParsingRuleProperties:
             )
             session.add(rule)
             session.commit()
-            
+
             # Verify the rule was created
             assert rule.id is not None
             assert rule.game_name == game_name
             assert rule.parser_class == parser_class
             assert rule.coefficient == coefficient
             assert rule.enabled == enabled
-    
+
     @given(
         game_name=game_name_strategy,
         parser_class=parser_class_strategy,
@@ -99,11 +99,11 @@ class TestParsingRuleProperties:
             )
             session.add(rule)
             session.commit()
-            
+
             # Default values should always be applied
             assert rule.enabled is True
             assert rule.config == {}
-    
+
     @given(
         game_name=game_name_strategy,
         parser_class=parser_class_strategy,
@@ -126,19 +126,19 @@ class TestParsingRuleProperties:
             )
             session.add(rule)
             session.commit()
-            
+
             original_id = rule.id
             original_game_name = rule.game_name
-            
+
             # Update the rule
             rule.coefficient = new_coefficient
             session.commit()
-            
+
             # Identity should be preserved
             assert rule.id == original_id
             assert rule.game_name == original_game_name
             assert rule.coefficient == new_coefficient
-    
+
     @given(
         game_name=game_name_strategy,
         parser_class=parser_class_strategy,
@@ -161,17 +161,17 @@ class TestParsingRuleProperties:
             )
             session.add(rule)
             session.commit()
-            
+
             # Query multiple times
             found_rule_1 = session.query(ParsingRule).filter_by(game_name=game_name).first()
             found_rule_2 = session.query(ParsingRule).filter_by(game_name=game_name).first()
-            
+
             # Should always return the same rule
             assert found_rule_1 is not None
             assert found_rule_2 is not None
             assert found_rule_1.id == found_rule_2.id
             assert found_rule_1.game_name == found_rule_2.game_name
-    
+
     @given(
         rules_data=st.lists(
             st.tuples(
@@ -202,17 +202,17 @@ class TestParsingRuleProperties:
                 )
                 session.add(rule)
             session.commit()
-            
+
             # Query enabled rules
             enabled_rules = session.query(ParsingRule).filter_by(enabled=True).all()
-            
+
             # All returned rules should be enabled
             assert all(rule.enabled for rule in enabled_rules)
-            
+
             # Count should match
             expected_count = sum(1 for _, _, _, enabled in rules_data if enabled)
             assert len(enabled_rules) == expected_count
-    
+
     @given(
         game_name=game_name_strategy,
         parser_class=parser_class_strategy
@@ -231,21 +231,21 @@ class TestParsingRuleProperties:
             )
             session.add(rule)
             session.commit()
-            
+
             rule_id = rule.id
-            
+
             # Delete rule
             session.delete(rule)
             session.commit()
-            
+
             # Rule should not exist
             deleted_rule = session.query(ParsingRule).filter_by(id=rule_id).first()
             assert deleted_rule is None
-            
+
             # Also verify by game_name
             deleted_by_name = session.query(ParsingRule).filter_by(game_name=game_name).first()
             assert deleted_by_name is None
-    
+
     @given(
         game_name=game_name_strategy,
         parser_class=parser_class_strategy,
@@ -267,9 +267,9 @@ class TestParsingRuleProperties:
             )
             session.add(rule)
             session.commit()
-            
+
             repr_str = repr(rule)
-            
+
             # Repr should contain key information
             assert "ParsingRule" in repr_str
             assert game_name in repr_str

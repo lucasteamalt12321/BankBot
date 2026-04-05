@@ -18,16 +18,16 @@ def get_applied_migrations(conn: sqlite3.Connection) -> List[int]:
         List of applied migration version numbers
     """
     cursor = conn.cursor()
-    
+
     # Check if migrations table exists
     cursor.execute("""
         SELECT name FROM sqlite_master 
         WHERE type='table' AND name='schema_migrations'
     """)
-    
+
     if not cursor.fetchone():
         return []
-    
+
     # Get applied migrations
     cursor.execute("SELECT version FROM schema_migrations ORDER BY version")
     return [row[0] for row in cursor.fetchall()]
@@ -42,17 +42,17 @@ def get_available_migrations() -> List[Tuple[int, str, Path]]:
     """
     migrations_dir = Path(__file__).parent
     migrations = []
-    
+
     for sql_file in sorted(migrations_dir.glob('*.sql')):
         # Parse filename: 001_initial_schema.sql
         filename = sql_file.stem
         parts = filename.split('_', 1)
-        
+
         if len(parts) == 2 and parts[0].isdigit():
             version = int(parts[0])
             name = parts[1]
             migrations.append((version, name, sql_file))
-    
+
     return sorted(migrations, key=lambda x: x[0])
 
 
@@ -67,11 +67,11 @@ def apply_migration(conn: sqlite3.Connection, version: int, name: str, path: Pat
         path: Path to SQL file
     """
     print(f"Applying migration {version:03d}: {name}...")
-    
+
     # Read SQL file
     with open(path, 'r', encoding='utf-8') as f:
         sql = f.read()
-    
+
     # Execute migration
     try:
         conn.executescript(sql)
@@ -92,40 +92,40 @@ def migrate(db_path: str, target_version: int = None) -> None:
         target_version: Target version to migrate to (None = latest)
     """
     print(f"Migrating database: {db_path}")
-    
+
     # Connect to database
     conn = sqlite3.connect(db_path)
-    
+
     try:
         # Get applied and available migrations
         applied = get_applied_migrations(conn)
         available = get_available_migrations()
-        
+
         if not available:
             print("⚠️  No migration files found")
             return
-        
+
         print(f"Applied migrations: {applied if applied else 'none'}")
         print(f"Available migrations: {[v for v, _, _ in available]}")
-        
+
         # Determine which migrations to apply
         to_apply = []
         for version, name, path in available:
             if version not in applied:
                 if target_version is None or version <= target_version:
                     to_apply.append((version, name, path))
-        
+
         if not to_apply:
             print("✅ Database is up to date")
             return
-        
+
         # Apply migrations
         print(f"\nApplying {len(to_apply)} migration(s)...")
         for version, name, path in to_apply:
             apply_migration(conn, version, name, path)
-        
+
         print(f"\n✅ Successfully applied {len(to_apply)} migration(s)")
-        
+
     finally:
         conn.close()
 
@@ -153,29 +153,29 @@ def status(db_path: str) -> None:
         db_path: Path to database file
     """
     print(f"Migration status for: {db_path}")
-    
+
     # Connect to database
     conn = sqlite3.connect(db_path)
-    
+
     try:
         applied = get_applied_migrations(conn)
         available = get_available_migrations()
-        
+
         print(f"\nApplied migrations: {len(applied)}")
         for version in applied:
             print(f"  ✅ {version:03d}")
-        
+
         print(f"\nAvailable migrations: {len(available)}")
         for version, name, _ in available:
             status_icon = "✅" if version in applied else "⏳"
             print(f"  {status_icon} {version:03d}: {name}")
-        
+
         pending = [v for v, _, _ in available if v not in applied]
         if pending:
             print(f"\n⏳ Pending migrations: {pending}")
         else:
             print("\n✅ Database is up to date")
-        
+
     finally:
         conn.close()
 
@@ -196,10 +196,10 @@ def main():
         print("  python migrate.py data/bot.db migrate 1")
         print("  python migrate.py data/bot.db status")
         sys.exit(1)
-    
+
     db_path = sys.argv[1]
     command = sys.argv[2] if len(sys.argv) > 2 else 'migrate'
-    
+
     if command == 'migrate':
         target_version = int(sys.argv[3]) if len(sys.argv) > 3 else None
         migrate(db_path, target_version)

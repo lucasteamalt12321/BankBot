@@ -23,14 +23,14 @@ class ParsingRule(Base):
         config: Additional JSON configuration for the parser
     """
     __tablename__ = 'parsing_rules_config'
-    
+
     id = Column(Integer, primary_key=True)
     game_name = Column(String, unique=True, nullable=False)
     parser_class = Column(String, nullable=False)
     coefficient = Column(Float, default=1.0)
     enabled = Column(Boolean, default=True)
     config = Column(JSON, default={})
-    
+
     def __repr__(self):
         return (
             f"<ParsingRule(id={self.id}, game_name='{self.game_name}', "

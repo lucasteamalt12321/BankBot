@@ -80,21 +80,21 @@ def update_user_balance(user_id: int, amount: float) -> Optional[float]:
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        
+
         # Get current balance
         cursor.execute('SELECT balance FROM users WHERE telegram_id = ?', (user_id,))
         row = cursor.fetchone()
         if not row:
             return None
-        
+
         new_balance = row['balance'] + amount
-        
+
         # Update balance
         cursor.execute('UPDATE users SET balance = ? WHERE telegram_id = ?', (new_balance, user_id))
         conn.commit()
-        
+
         return new_balance
-        
+
     except Exception as e:
         logger.error(f"Error updating balance for user {user_id}: {e}")
         conn.rollback()
@@ -121,22 +121,22 @@ def add_transaction(user_id: int, amount: float, transaction_type: str, admin_id
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        
+
         # Get internal user ID from telegram_id
         internal_user_id = get_internal_user_id(user_id)
         if not internal_user_id:
             logger.error(f"User with telegram_id {user_id} not found")
             return None
-        
+
         # Use the actual column names from the database
         cursor.execute('''
             INSERT INTO transactions (user_id, amount, transaction_type, description, created_at)
             VALUES (?, ?, ?, ?, ?)
         ''', (internal_user_id, amount, transaction_type, description or f"Admin transaction: {transaction_type}", datetime.now()))
-        
+
         conn.commit()
         return cursor.lastrowid
-        
+
     except Exception as e:
         logger.error(f"Error adding transaction: {e}")
         conn.rollback()
@@ -175,24 +175,24 @@ def register_user(user_id: int, username: str = None, first_name: str = None) ->
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        
+
         # Check if user already exists
         cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (user_id,))
         if cursor.fetchone():
             return False  # User already exists
-        
+
         # Clean username (remove @ if present)
         clean_username = username.lstrip('@') if username else None
-        
+
         # Insert new user
         cursor.execute('''
             INSERT INTO users (telegram_id, username, first_name, balance, is_admin)
             VALUES (?, ?, ?, 0.0, 0)
         ''', (user_id, clean_username, first_name))
-        
+
         conn.commit()
         return True
-        
+
     except Exception as e:
         logger.error(f"Error registering user {user_id}: {e}")
         conn.rollback()

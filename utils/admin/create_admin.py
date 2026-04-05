@@ -17,15 +17,15 @@ def create_admin():
     """Создание первого администратора"""
     print("Создание первого администратора")
     print("Для получения user_id отправьте любое сообщение боту и посмотрите в логи")
-    
+
     try:
         user_id = int(input("Введите Telegram ID пользователя: "))
         username = input("Введите username (без @): ")
         first_name = input("Введите имя: ")
-        
+
         conn = get_connection(DB_PATH)
         cursor = conn.cursor()
-        
+
         # Проверяем, существует ли пользователь
         cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (user_id,))
         if cursor.fetchone():
@@ -43,15 +43,15 @@ def create_admin():
                 VALUES (?, ?, ?, 0, TRUE)
             ''', (user_id, username, first_name))
             print(f"✅ Создан новый пользователь-администратор: {user_id}")
-        
+
         conn.commit()
         conn.close()
-        
+
         print("\nТеперь вы можете использовать команды администратора:")
         print("/admin - панель администратора")
         print("/add_points @username [число] - начислить очки")
         print("/add_admin @username - добавить администратора")
-        
+
     except ValueError:
         print("❌ Неверный формат ID")
     except Exception as e:

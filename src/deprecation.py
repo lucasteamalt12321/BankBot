@@ -29,32 +29,32 @@ def deprecated(reason: str, removal_date: str, alternative: str = None) -> Calla
     def decorator(obj: F) -> F:
         # Get the name of the deprecated object
         name = getattr(obj, '__name__', repr(obj))
-        
+
         # Build the warning message
         msg = f"{name} is deprecated: {reason}. Will be removed on {removal_date}"
         if alternative:
             msg += f". Use {alternative} instead"
-        
+
         # For classes
         if isinstance(obj, type):
             original_init = obj.__init__
-            
+
             @wraps(original_init)
             def new_init(self, *args, **kwargs):
                 warnings.warn(msg, DeprecationWarning, stacklevel=2)
                 original_init(self, *args, **kwargs)
-            
+
             obj.__init__ = new_init
             return obj
-        
+
         # For functions and methods
         @wraps(obj)
         def wrapper(*args, **kwargs):
             warnings.warn(msg, DeprecationWarning, stacklevel=2)
             return obj(*args, **kwargs)
-        
+
         return wrapper
-    
+
     return decorator
 
 
@@ -77,14 +77,14 @@ def deprecated_module(reason: str, removal_date: str, alternative: str = None):
         )
     """
     import inspect
-    
+
     # Get the calling module's name
     frame = inspect.currentframe().f_back
     module_name = frame.f_globals.get('__name__', 'unknown')
-    
+
     # Build the warning message
     msg = f"Module {module_name} is deprecated: {reason}. Will be removed on {removal_date}"
     if alternative:
         msg += f". Use {alternative} instead"
-    
+
     warnings.warn(msg, DeprecationWarning, stacklevel=2)

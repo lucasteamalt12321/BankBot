@@ -40,17 +40,17 @@ def backup_database(db_path: Path) -> Path:
     if not db_path.exists():
         print("ℹ️  База данных не существует, резервная копия не требуется")
         return None
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = Path("backups")
     backup_dir.mkdir(exist_ok=True)
-    
+
     backup_path = backup_dir / f"bot_backup_{timestamp}.db"
-    
+
     print(f"💾 Создание резервной копии: {backup_path}")
     shutil.copy2(db_path, backup_path)
     print("✅ Резервная копия создана")
-    
+
     return backup_path
 
 
@@ -62,7 +62,7 @@ def drop_all_tables(engine):
         engine: SQLAlchemy engine
     """
     print("🗑️  Удаление всех таблиц...")
-    
+
     # Tables in correct order (respecting foreign key constraints)
     tables = [
         'user_notifications', 'user_achievements', 'achievements',
@@ -71,7 +71,7 @@ def drop_all_tables(engine):
         'game_players', 'game_sessions', 'user_purchases', 'shop_items',
         'shop_categories', 'transactions', 'user_aliases', 'users'
     ]
-    
+
     with engine.connect() as conn:
         for table in tables:
             try:
@@ -80,7 +80,7 @@ def drop_all_tables(engine):
             except Exception as e:
                 print(f"  ⚠️  Не удалось удалить таблицу {table}: {e}")
         conn.commit()
-    
+
     print("✅ Все таблицы удалены")
 
 
@@ -104,29 +104,29 @@ def validate_database_structure(db_path: Path):
         db_path: Path to the database file
     """
     print("\n📋 Проверка структуры базы данных...")
-    
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     # Get all tables
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = cursor.fetchall()
-    
+
     print(f"\n✅ Созданные таблицы ({len(tables)}):")
     for table in tables:
         print(f"   - {table[0]}")
-    
+
     # Check users table structure
     cursor.execute("PRAGMA table_info(users)")
     columns = cursor.fetchall()
-    
+
     print(f"\n✅ Колонки таблицы users ({len(columns)}):")
     for col in columns:
         col_id, name, col_type, not_null, default, pk = col
         pk_marker = " [PRIMARY KEY]" if pk else ""
         not_null_marker = " NOT NULL" if not_null else ""
         print(f"   - {name} ({col_type}){pk_marker}{not_null_marker}")
-    
+
     conn.close()
 
 
@@ -138,9 +138,9 @@ def add_test_user(engine):
         engine: SQLAlchemy engine
     """
     print("\n👤 Добавление тестового пользователя...")
-    
+
     session = Session(bind=engine)
-    
+
     try:
         user = User(
             telegram_id=7956794368,
@@ -168,35 +168,35 @@ def recreate_database(add_test_data: bool = False, skip_backup: bool = False):
         skip_backup: Skip backup creation (use with caution!)
     """
     db_path = Path("data/bot.db")
-    
+
     # Create backup unless skipped
     backup_path = None
     if not skip_backup:
         backup_path = backup_database(db_path)
-    
+
     # Delete old database
     if db_path.exists():
         print(f"\n🗑️  Удаление старой базы данных: {db_path}")
         db_path.unlink()
         print("✅ Старая база данных удалена")
-    
+
     # Ensure data directory exists
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Create engine
     print(f"\n🔨 Создание новой базы данных: {db_path}")
     engine = create_engine(f"sqlite:///{db_path}")
-    
+
     # Create all tables
     create_all_tables(engine)
-    
+
     # Validate structure
     validate_database_structure(db_path)
-    
+
     # Add test data if requested
     if add_test_data:
         add_test_user(engine)
-    
+
     return backup_path
 
 
@@ -212,26 +212,26 @@ Examples:
   python recreate_database.py --skip-backup      # Recreate without backup (dangerous!)
         """
     )
-    
+
     parser.add_argument(
         '--test-data',
         action='store_true',
         help='Add test user after database recreation'
     )
-    
+
     parser.add_argument(
         '--skip-backup',
         action='store_true',
         help='Skip backup creation (use with caution!)'
     )
-    
+
     args = parser.parse_args()
-    
+
     print("=" * 70)
     print("DATABASE RECREATION SCRIPT")
     print("=" * 70)
     print()
-    
+
     if args.skip_backup:
         print("⚠️  WARNING: Backup creation is DISABLED!")
         response = input("Are you sure you want to continue? (yes/no): ")
@@ -239,13 +239,13 @@ Examples:
             print("❌ Operation cancelled")
             return
         print()
-    
+
     try:
         backup_path = recreate_database(
             add_test_data=args.test_data,
             skip_backup=args.skip_backup
         )
-        
+
         print()
         print("=" * 70)
         print("✅ База данных успешно пересоздана")
@@ -254,7 +254,7 @@ Examples:
         if args.test_data:
             print("👤 Тестовый пользователь добавлен")
         print("=" * 70)
-        
+
     except Exception as e:
         print()
         print("=" * 70)

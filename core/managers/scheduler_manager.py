@@ -38,7 +38,7 @@ class SchedulerManager:
     Manages APScheduler with SQLite persistence for delayed tasks
     Handles task scheduling, restoration, and cleanup
     """
-    
+
     def __init__(self, db_url: str, scheduler_db_url: Optional[str] = None):
         """
         Initialize the SchedulerManager
@@ -49,17 +49,17 @@ class SchedulerManager:
         """
         if not APSCHEDULER_AVAILABLE:
             raise SchedulerError("APScheduler is not installed. Please install it with: pip install APScheduler")
-        
+
         self.db_url = db_url
         self.scheduler_db_url = scheduler_db_url or db_url
         self.scheduler = None
         self._is_started = False
-        
+
         # Configure timezone to UTC for consistency
         self.timezone = pytz.UTC
-        
+
         self._setup_scheduler()
-    
+
     def _setup_scheduler(self):
         """Configure APScheduler with SQLite persistence"""
         try:
@@ -67,19 +67,19 @@ class SchedulerManager:
             jobstores = {
                 'default': SQLAlchemyJobStore(url=self.scheduler_db_url)
             }
-            
+
             # Configure executors
             executors = {
                 'default': ThreadPoolExecutor(20)
             }
-            
+
             # Job defaults
             job_defaults = {
                 'coalesce': False,
                 'max_instances': 3,
                 'misfire_grace_time': 30
             }
-            
+
             # Create scheduler
             self.scheduler = BackgroundScheduler(
                 jobstores=jobstores,
@@ -87,17 +87,17 @@ class SchedulerManager:
                 job_defaults=job_defaults,
                 timezone=self.timezone
             )
-            
+
             # Add event listeners
             self.scheduler.add_listener(self._job_executed, EVENT_JOB_EXECUTED)
             self.scheduler.add_listener(self._job_error, EVENT_JOB_ERROR)
-            
+
             logger.info("APScheduler configured with SQLite persistence")
-            
+
         except Exception as e:
             logger.error(f"Failed to setup scheduler: {e}")
             raise SchedulerError(f"Failed to setup scheduler: {e}")
-    
+
     def start(self):
         """Start the scheduler"""
         if not self._is_started and self.scheduler:
@@ -108,7 +108,7 @@ class SchedulerManager:
             except Exception as e:
                 logger.error(f"Failed to start scheduler: {e}")
                 raise SchedulerError(f"Failed to start scheduler: {e}")
-    
+
     def shutdown(self, wait: bool = True):
         """Shutdown the scheduler"""
         if self._is_started and self.scheduler:
@@ -118,7 +118,7 @@ class SchedulerManager:
                 logger.info("APScheduler shutdown successfully")
             except Exception as e:
                 logger.error(f"Failed to shutdown scheduler: {e}")
-    
+
     def schedule_message_deletion(self, user_id: int, chat_id: int, message_id: int, 
                                 delay_hours: int = 24, task_data: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -136,13 +136,13 @@ class SchedulerManager:
         """
         if not self._is_started:
             raise SchedulerError("Scheduler is not started")
-        
+
         # Calculate execution time
         execute_at = datetime.now(self.timezone) + timedelta(hours=delay_hours)
-        
+
         # Create job ID
         job_id = f"delete_message_{user_id}_{message_id}_{int(execute_at.timestamp())}"
-        
+
         try:
             # Store task metadata in database
             self._store_scheduled_task(
@@ -154,7 +154,7 @@ class SchedulerManager:
                 task_data=task_data,
                 job_id=job_id
             )
-            
+
             # Schedule the job
             self.scheduler.add_job(
                 func=self._execute_message_deletion,
@@ -164,14 +164,14 @@ class SchedulerManager:
                 id=job_id,
                 replace_existing=True
             )
-            
+
             logger.info(f"Scheduled message deletion: job_id={job_id}, execute_at={execute_at}")
             return job_id
-            
+
         except Exception as e:
             logger.error(f"Failed to schedule message deletion: {e}")
             raise SchedulerError(f"Failed to schedule message deletion: {e}")
-    
+
     def schedule_custom_task(self, user_id: int, chat_id: int, task_type: str,
                            execute_at: datetime, task_data: Optional[Dict[str, Any]] = None,
                            callback_func=None) -> str:
@@ -191,14 +191,14 @@ class SchedulerManager:
         """
         if not self._is_started:
             raise SchedulerError("Scheduler is not started")
-        
+
         # Ensure execute_at is timezone-aware
         if execute_at.tzinfo is None:
             execute_at = self.timezone.localize(execute_at)
-        
+
         # Create job ID
         job_id = f"{task_type}_{user_id}_{int(execute_at.timestamp())}"
-        
+
         try:
             # Store task metadata in database
             self._store_scheduled_task(
@@ -209,11 +209,11 @@ class SchedulerManager:
                 task_data=task_data,
                 job_id=job_id
             )
-            
+
             # Use provided callback or default handler
             func = callback_func or self._execute_custom_task
             args = [user_id, chat_id, task_type, task_data] if not callback_func else [task_data]
-            
+
             # Schedule the job
             self.scheduler.add_job(
                 func=func,
@@ -223,14 +223,14 @@ class SchedulerManager:
                 id=job_id,
                 replace_existing=True
             )
-            
+
             logger.info(f"Scheduled custom task: job_id={job_id}, task_type={task_type}, execute_at={execute_at}")
             return job_id
-            
+
         except Exception as e:
             logger.error(f"Failed to schedule custom task: {e}")
             raise SchedulerError(f"Failed to schedule custom task: {e}")
-    
+
     def cancel_task(self, job_id: str) -> bool:
         """
         Cancel a scheduled task
@@ -249,7 +249,7 @@ class SchedulerManager:
         except Exception as e:
             logger.warning(f"Failed to cancel task {job_id}: {e}")
             return False
-    
+
     def restore_scheduled_tasks(self):
         """
         Restore scheduled tasks from database on startup
@@ -257,11 +257,11 @@ class SchedulerManager:
         """
         if not self._is_started:
             self.start()
-        
+
         try:
             # Get pending tasks from database
             pending_tasks = self._get_pending_tasks()
-            
+
             restored_count = 0
             for task in pending_tasks:
                 try:
@@ -272,7 +272,7 @@ class SchedulerManager:
                         self._mark_task_completed_by_id(task.id)
                         logger.warning(f"Skipping overdue task: {task.id}")
                         continue
-                    
+
                     # Restore the task based on its type
                     if task.task_type == "message_deletion":
                         job_id = f"delete_message_{task.user_id}_{task.message_id}_{int(task.execute_at.timestamp())}"
@@ -297,16 +297,16 @@ class SchedulerManager:
                             replace_existing=True
                         )
                         restored_count += 1
-                        
+
                 except Exception as e:
                     logger.error(f"Failed to restore task {task.id}: {e}")
-            
+
             logger.info(f"Restored {restored_count} scheduled tasks from database")
-            
+
         except Exception as e:
             logger.error(f"Failed to restore scheduled tasks: {e}")
             raise SchedulerError(f"Failed to restore scheduled tasks: {e}")
-    
+
     def get_pending_tasks_count(self) -> int:
         """Get count of pending tasks"""
         try:
@@ -315,7 +315,7 @@ class SchedulerManager:
         except Exception as e:
             logger.error(f"Failed to get pending tasks count: {e}")
             return 0
-    
+
     def cleanup_completed_tasks(self, older_than_days: int = 7):
         """
         Clean up completed tasks older than specified days
@@ -325,7 +325,7 @@ class SchedulerManager:
         """
         try:
             cutoff_date = datetime.now(self.timezone) - timedelta(days=older_than_days)
-            
+
             with sqlite3.connect(self.db_url.replace('sqlite:///', '')) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -333,15 +333,15 @@ class SchedulerManager:
                     WHERE is_completed = TRUE 
                     AND created_at < ?
                 """, (cutoff_date,))
-                
+
                 deleted_count = cursor.rowcount
                 conn.commit()
-                
+
             logger.info(f"Cleaned up {deleted_count} completed tasks older than {older_than_days} days")
-            
+
         except Exception as e:
             logger.error(f"Failed to cleanup completed tasks: {e}")
-    
+
     def _store_scheduled_task(self, user_id: int, chat_id: int, task_type: str,
                             execute_at: datetime, task_data: Optional[Dict[str, Any]] = None,
                             message_id: Optional[int] = None, job_id: Optional[str] = None):
@@ -359,11 +359,11 @@ class SchedulerManager:
                     datetime.now(self.timezone)
                 ))
                 conn.commit()
-                
+
         except Exception as e:
             logger.error(f"Failed to store scheduled task: {e}")
             raise
-    
+
     def _get_pending_tasks(self) -> List[ScheduledTask]:
         """Get all pending tasks from database"""
         try:
@@ -375,18 +375,18 @@ class SchedulerManager:
                     WHERE is_completed = FALSE
                     ORDER BY execute_at ASC
                 """)
-                
+
                 tasks = []
                 for row in cursor.fetchall():
                     task_data = json.loads(row[6]) if row[6] else None
                     execute_at = datetime.fromisoformat(row[5])
                     if execute_at.tzinfo is None:
                         execute_at = self.timezone.localize(execute_at)
-                    
+
                     created_at = datetime.fromisoformat(row[7]) if row[7] else None
                     if created_at and created_at.tzinfo is None:
                         created_at = self.timezone.localize(created_at)
-                    
+
                     task = ScheduledTask(
                         id=row[0],
                         user_id=row[1],
@@ -399,19 +399,19 @@ class SchedulerManager:
                         created_at=created_at
                     )
                     tasks.append(task)
-                
+
                 return tasks
-                
+
         except Exception as e:
             logger.error(f"Failed to get pending tasks: {e}")
             return []
-    
+
     def _mark_task_completed(self, job_id: str):
         """Mark a task as completed by job_id"""
         # This is a simplified approach - in a real implementation,
         # you might want to store job_id in the database for easier lookup
         pass
-    
+
     def _mark_task_completed_by_id(self, task_id: int):
         """Mark a task as completed by database ID"""
         try:
@@ -423,10 +423,10 @@ class SchedulerManager:
                     WHERE id = ?
                 """, (task_id,))
                 conn.commit()
-                
+
         except Exception as e:
             logger.error(f"Failed to mark task {task_id} as completed: {e}")
-    
+
     def _execute_message_deletion(self, user_id: int, chat_id: int, message_id: int, 
                                 task_data: Optional[Dict[str, Any]] = None):
         """
@@ -434,7 +434,7 @@ class SchedulerManager:
         This is a placeholder - actual implementation should integrate with bot
         """
         logger.info(f"Executing message deletion: user_id={user_id}, chat_id={chat_id}, message_id={message_id}")
-        
+
         # Mark task as completed in database
         try:
             with sqlite3.connect(self.db_url.replace('sqlite:///', '')) as conn:
@@ -447,11 +447,11 @@ class SchedulerManager:
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to mark message deletion task as completed: {e}")
-        
+
         # TODO: Integrate with actual bot to delete message and send expiration notice
         # This would typically call bot.delete_message(chat_id, message_id)
         # and bot.send_message(chat_id, "Время действия стикеров истекло!")
-    
+
     def _execute_custom_task(self, user_id: int, chat_id: int, task_type: str, 
                            task_data: Optional[Dict[str, Any]] = None):
         """
@@ -459,7 +459,7 @@ class SchedulerManager:
         This is a placeholder for custom task execution
         """
         logger.info(f"Executing custom task: user_id={user_id}, chat_id={chat_id}, task_type={task_type}")
-        
+
         # Mark task as completed in database
         try:
             with sqlite3.connect(self.db_url.replace('sqlite:///', '')) as conn:
@@ -474,11 +474,11 @@ class SchedulerManager:
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to mark custom task as completed: {e}")
-    
+
     def _job_executed(self, event):
         """Handle job execution events"""
         logger.info(f"Job executed successfully: {event.job_id}")
-    
+
     def _job_error(self, event):
         """Handle job error events"""
         logger.error(f"Job failed: {event.job_id}, exception: {event.exception}")

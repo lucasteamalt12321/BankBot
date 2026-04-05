@@ -7,22 +7,22 @@ Task 10.2.1 - Переместить admin команды
 def remove_admin_commands():
     with open('bot/bot.py', 'r', encoding='utf-8') as f:
         lines = f.readlines()
-    
+
     # Find the start marker
     start_marker = "    # ===== Админ-команды =====\n"
     # Find the actual parse_all_messages method
     end_marker = "    async def parse_all_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):\n"
-    
+
     start_idx = None
     end_idx = None
-    
+
     for i, line in enumerate(lines):
         if line == start_marker and start_idx is None:
             start_idx = i
         elif line == end_marker and start_idx is not None:
             end_idx = i - 1  # Keep the line before the method definition
             break
-    
+
     if start_idx is not None and end_idx is not None:
         # Keep the markers but remove everything in between
         replacement = [
@@ -33,12 +33,12 @@ def remove_admin_commands():
             "\n",
             "    # ===== Обработка сообщений =====\n",
         ]
-        
+
         new_lines = lines[:start_idx] + replacement + lines[end_idx+1:]
-        
+
         with open('bot/bot.py', 'w', encoding='utf-8') as f:
             f.writelines(new_lines)
-        
+
         print(f"✅ Removed {end_idx - start_idx} lines of admin command implementations")
         print(f"   Start: line {start_idx + 1}")
         print(f"   End: line {end_idx + 1}")

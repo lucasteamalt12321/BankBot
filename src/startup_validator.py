@@ -16,7 +16,7 @@ class StartupValidator:
     Проверяет наличие необходимых файлов и корректность настроек
     перед запуском приложения.
     """
-    
+
     @staticmethod
     def validate_env_file() -> bool:
         """
@@ -29,19 +29,19 @@ class StartupValidator:
             Path("config/.env"),
             Path(".env"),
         ]
-        
+
         for env_path in env_paths:
             if env_path.exists():
                 logger.info(f"✅ .env файл найден: {env_path}")
                 return True
-        
+
         logger.error(
             "❌ .env файл не найден!\n"
             "Пожалуйста, создайте файл config/.env на основе config/.env.example\n"
             "и заполните необходимые значения."
         )
         return False
-    
+
     @staticmethod
     def validate_required_settings() -> Tuple[bool, List[str]]:
         """
@@ -56,7 +56,7 @@ class StartupValidator:
             'ADMIN_TELEGRAM_ID': settings.ADMIN_TELEGRAM_ID,
             'DATABASE_URL': settings.DATABASE_URL,
         }
-        
+
         # Проверяем, что значения не пустые/нулевые
         missing = []
         for name, value in required_settings.items():
@@ -69,17 +69,17 @@ class StartupValidator:
             else:
                 if not value:
                     missing.append(name)
-        
+
         if missing:
             logger.error(
                 f"❌ Отсутствуют обязательные переменные окружения: {', '.join(missing)}\n"
                 "Пожалуйста, проверьте ваш config/.env файл."
             )
             return False, missing
-        
+
         logger.info("✅ Все обязательные настройки присутствуют")
         return True, []
-    
+
     @staticmethod
     def validate_database_connection() -> bool:
         """
@@ -102,7 +102,7 @@ class StartupValidator:
         except Exception as e:
             logger.error(f"❌ Ошибка подключения к базе данных: {e}")
             return False
-    
+
     @staticmethod
     def validate_directory_structure() -> bool:
         """
@@ -116,20 +116,20 @@ class StartupValidator:
             Path("logs"),
             Path("config"),
         ]
-        
+
         missing = []
         for dir_path in required_dirs:
             if not dir_path.exists():
                 missing.append(dir_path)
                 logger.warning(f"⚠️ Директория не найдена: {dir_path}")
-        
+
         if missing:
             logger.info(f"ℹ️ Создание отсутствующих директорий: {', '.join(str(d) for d in missing)}")
             for dir_path in missing:
                 dir_path.mkdir(parents=True, exist_ok=True)
-        
+
         return True
-    
+
     @classmethod
     def validate_all(cls) -> bool:
         """
@@ -139,14 +139,14 @@ class StartupValidator:
             True если все проверки пройдены, False если есть ошибки
         """
         logger.info("🔍 Начало валидации конфигурации...")
-        
+
         validations = [
             ("Файл конфигурации", cls.validate_env_file),
             ("Обязательные настройки", cls.validate_required_settings),
             ("Структура директорий", cls.validate_directory_structure),
             ("Подключение к БД", cls.validate_database_connection),
         ]
-        
+
         results = []
         for name, validator in validations:
             try:
@@ -157,16 +157,16 @@ class StartupValidator:
             except Exception as e:
                 logger.error(f"❌ Ошибка валидации {name}: {e}")
                 results.append((name, False))
-        
+
         # Итоговый результат
         all_passed = all(result for _, result in results)
-        
+
         if all_passed:
             logger.info("✅ Все проверки пройдены успешно")
         else:
             failed = [name for name, result in results if not result]
             logger.error(f"❌ Валидация не пройдена: {', '.join(failed)}")
-        
+
         return all_passed
 
 

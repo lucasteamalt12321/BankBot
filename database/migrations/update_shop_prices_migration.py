@@ -13,14 +13,14 @@ from database.database import create_tables, get_db, ShopItem
 
 def update_shop_prices():
     """Обновление цен товаров в базе данных"""
-    
+
     print("🔄 Обновление цен товаров в базе данных...")
     print("=" * 50)
-    
+
     # Инициализируем базу данных
     create_tables()
     db = next(get_db())
-    
+
     try:
         # Маппинг старых цен на новые
         price_updates = {
@@ -33,9 +33,9 @@ def update_shop_prices():
             "Персональная команда": 100,
             "Кастомный заголовок": 100
         }
-        
+
         updated_count = 0
-        
+
         for item_name, new_price in price_updates.items():
             item = db.query(ShopItem).filter(ShopItem.name == item_name).first()
             if item:
@@ -45,7 +45,7 @@ def update_shop_prices():
                 updated_count += 1
             else:
                 print(f"⚠️  Товар '{item_name}' не найден в базе данных")
-        
+
         # Также обновим описание бонуса к балансу
         bonus_item = db.query(ShopItem).filter(ShopItem.name == "Бонус к балансу (+1000)").first()
         if bonus_item:
@@ -55,20 +55,20 @@ def update_shop_prices():
             if bonus_item.meta_data:
                 bonus_item.meta_data["amount"] = 100
             print("✅ Обновлено описание и сумма бонуса к балансу")
-        
+
         # Сохраняем изменения
         db.commit()
-        
+
         print("=" * 50)
         print(f"✅ Успешно обновлено {updated_count} товаров!")
         print("💰 Все цены теперь составляют 100 монет")
-        
+
         # Проверяем результат
         print("\n📦 Текущие цены товаров:")
         items = db.query(ShopItem).filter(ShopItem.is_active).all()
         for item in items:
             print(f"   • {item.name}: {item.price} монет")
-            
+
     except Exception as e:
         print(f"❌ Ошибка при обновлении цен: {e}")
         db.rollback()

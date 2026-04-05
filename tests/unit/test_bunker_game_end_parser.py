@@ -10,12 +10,12 @@ from src.parsers import BunkerGameEndParser, ParserError, ParsedBunkerWinners
 
 class TestBunkerGameEndParser:
     """Test suite for BunkerGameEndParser."""
-    
+
     @pytest.fixture
     def parser(self):
         """Create a BunkerGameEndParser instance."""
         return BunkerGameEndParser()
-    
+
     def test_parse_single_winner(self, parser):
         """Test parsing a game end message with a single winner."""
         message = """Прошли в бункер:
@@ -25,14 +25,14 @@ class TestBunkerGameEndParser:
 
 Не прошли в бункер:
 1. Crazy"""
-        
+
         result = parser.parse(message)
-        
+
         assert isinstance(result, ParsedBunkerWinners)
         assert result.game == "Bunker RP"
         assert len(result.winners) == 1
         assert result.winners[0] == "LucasTeam"
-    
+
     def test_parse_multiple_winners(self, parser):
         """Test parsing a game end message with multiple winners."""
         message = """Прошли в бункер:
@@ -47,15 +47,15 @@ class TestBunkerGameEndParser:
 Не прошли в бункер:
 1. Crazy
 2. Tidal"""
-        
+
         result = parser.parse(message)
-        
+
         assert isinstance(result, ParsedBunkerWinners)
         assert result.game == "Bunker RP"
         assert len(result.winners) == 2
         assert result.winners[0] == "LucasTeam"
         assert result.winners[1] == "."
-    
+
     def test_parse_real_example_message(self, parser):
         """Test parsing with the real example from the messages_examples file."""
         message = """BunkerRP, [13.02.2026 11:48]
@@ -97,15 +97,15 @@ BunkerRP, [13.02.2026 11:48]
 📝Факт: Был уволен за поджог офиса
 🧳Багаж: Кукла Вуду
 🃏Карта 1: Разыграй карту, только если ты изгнан. Сбрось любую открытую карту бункера"""
-        
+
         result = parser.parse(message)
-        
+
         assert isinstance(result, ParsedBunkerWinners)
         assert result.game == "Bunker RP"
         assert len(result.winners) == 2
         assert result.winners[0] == "LucasTeam"
         assert result.winners[1] == "."
-    
+
     def test_parse_winner_with_spaces_in_name(self, parser):
         """Test parsing winners with spaces in their names."""
         message = """Прошли в бункер:
@@ -117,13 +117,13 @@ BunkerRP, [13.02.2026 11:48]
 
 Не прошли в бункер:
 1. Tidal Wave"""
-        
+
         result = parser.parse(message)
-        
+
         assert len(result.winners) == 2
         assert result.winners[0] == "LucasTeam Luke"
         assert result.winners[1] == "Crazy Time"
-    
+
     def test_parse_stops_at_losers_section(self, parser):
         """Test that parsing stops at 'Не прошли в бункер:' section."""
         message = """Прошли в бункер:
@@ -139,16 +139,16 @@ BunkerRP, [13.02.2026 11:48]
 
 2. Loser2
 💼Профессия: Кардиолог"""
-        
+
         result = parser.parse(message)
-        
+
         # Should only extract winners, not losers
         assert len(result.winners) == 2
         assert "Winner1" in result.winners
         assert "Winner2" in result.winners
         assert "Loser1" not in result.winners
         assert "Loser2" not in result.winners
-    
+
     def test_parse_ignores_non_numbered_lines(self, parser):
         """Test that parser ignores lines without numbered entries."""
         message = """Прошли в бункер:
@@ -161,37 +161,37 @@ Another line
 
 Не прошли в бункер:
 1. Loser"""
-        
+
         result = parser.parse(message)
-        
+
         # Should only extract numbered entries
         assert len(result.winners) == 2
         assert result.winners[0] == "LucasTeam"
         assert result.winners[1] == "Player2"
-    
+
     def test_parse_error_on_missing_winners_section(self, parser):
         """Test that ParserError is raised when 'Прошли в бункер:' is missing."""
         message = """Не прошли в бункер:
 1. Loser1
 2. Loser2"""
-        
+
         with pytest.raises(ParserError) as exc_info:
             parser.parse(message)
-        
+
         assert "No winners found" in str(exc_info.value)
-    
+
     def test_parse_error_on_empty_winners_section(self, parser):
         """Test that ParserError is raised when winners section is empty."""
         message = """Прошли в бункер:
 
 Не прошли в бункер:
 1. Loser1"""
-        
+
         with pytest.raises(ParserError) as exc_info:
             parser.parse(message)
-        
+
         assert "No winners found" in str(exc_info.value)
-    
+
     def test_parse_error_on_no_numbered_entries(self, parser):
         """Test that ParserError is raised when no numbered entries are found."""
         message = """Прошли в бункер:
@@ -201,30 +201,30 @@ Random content
 
 Не прошли в бункер:
 1. Loser1"""
-        
+
         with pytest.raises(ParserError) as exc_info:
             parser.parse(message)
-        
+
         assert "No winners found" in str(exc_info.value)
-    
+
     def test_parse_handles_empty_message(self, parser):
         """Test that ParserError is raised for empty message."""
         message = ""
-        
+
         with pytest.raises(ParserError) as exc_info:
             parser.parse(message)
-        
+
         assert "No winners found" in str(exc_info.value)
-    
+
     def test_parse_handles_whitespace_only_message(self, parser):
         """Test that ParserError is raised for whitespace-only message."""
         message = "   \n\n   \n   "
-        
+
         with pytest.raises(ParserError) as exc_info:
             parser.parse(message)
-        
+
         assert "No winners found" in str(exc_info.value)
-    
+
     def test_parse_winner_with_special_characters(self, parser):
         """Test parsing winners with special characters in names."""
         message = """Прошли в бункер:
@@ -236,13 +236,13 @@ Random content
 
 Не прошли в бункер:
 1. Loser"""
-        
+
         result = parser.parse(message)
-        
+
         assert len(result.winners) == 2
         assert result.winners[0] == "Player@123"
         assert result.winners[1] == "User_Name!"
-    
+
     def test_parse_without_losers_section(self, parser):
         """Test parsing when there's no 'Не прошли в бункер:' section."""
         message = """Прошли в бункер:
@@ -251,13 +251,13 @@ Random content
 
 2. Winner2
 💼Профессия: Судья"""
-        
+
         result = parser.parse(message)
-        
+
         assert len(result.winners) == 2
         assert result.winners[0] == "Winner1"
         assert result.winners[1] == "Winner2"
-    
+
     def test_parse_extracts_only_player_names(self, parser):
         """Test that parser extracts only player names, not other details."""
         message = """Прошли в бункер:
@@ -272,15 +272,15 @@ Random content
 
 Не прошли в бункер:
 1. Loser"""
-        
+
         result = parser.parse(message)
-        
+
         assert len(result.winners) == 1
         assert result.winners[0] == "TestPlayer"
         # Ensure no other details are included
         assert "Программист" not in result.winners[0]
         assert "Мужчина" not in result.winners[0]
-    
+
     def test_parse_handles_different_number_formats(self, parser):
         """Test parsing with different number formats (1., 2., etc.)."""
         message = """Прошли в бункер:
@@ -298,15 +298,15 @@ Random content
 
 Не прошли в бункер:
 1. Loser"""
-        
+
         result = parser.parse(message)
-        
+
         assert len(result.winners) == 4
         assert result.winners[0] == "Player1"
         assert result.winners[1] == "Player2"
         assert result.winners[2] == "Player3"
         assert result.winners[3] == "Player10"
-    
+
     def test_parse_preserves_winner_order(self, parser):
         """Test that the order of winners is preserved."""
         message = """Прошли в бункер:
@@ -321,9 +321,9 @@ Random content
 
 Не прошли в бункер:
 1. Loser"""
-        
+
         result = parser.parse(message)
-        
+
         assert result.winners[0] == "FirstWinner"
         assert result.winners[1] == "SecondWinner"
         assert result.winners[2] == "ThirdWinner"

@@ -27,7 +27,7 @@ class ParsingConfigManager:
     - Старый: через SQLAlchemy session + старая модель ParsingRule (bot_name/pattern)
     - Новый: через BaseRepository + новая модель ParsingRule (game_name/parser_class)
     """
-    
+
     def __init__(self, session_or_repository=None, *, session=None):
         """
         Инициализация менеджера.
@@ -54,16 +54,16 @@ class ParsingConfigManager:
             self._repository = None
             self._use_repository = False
             self._session_created = session_or_repository is None
-    
+
     def __enter__(self):
         """Context manager entry"""
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
         if self._session_created:
             self.session.close()
-    
+
     def get_rule(self, bot_name: str, pattern: str) -> Optional[ParsingRule]:
         """
         Получить правило парсинга по имени бота и паттерну.
@@ -80,16 +80,16 @@ class ParsingConfigManager:
                 ParsingRule.bot_name == bot_name,
                 ParsingRule.pattern == pattern
             ).first()
-            
+
             if rule:
                 logger.debug(f"Found parsing rule for {bot_name}: {pattern}")
-            
+
             return rule
-            
+
         except Exception as e:
             logger.error(f"Error getting parsing rule: {e}")
             return None
-    
+
     def get_rule_by_id(self, rule_id: int) -> Optional[ParsingRule]:
         """
         Получить правило парсинга по ID.
@@ -104,16 +104,16 @@ class ParsingConfigManager:
             rule = self.session.query(ParsingRule).filter(
                 ParsingRule.id == rule_id
             ).first()
-            
+
             if rule:
                 logger.debug(f"Found parsing rule with ID {rule_id}")
-            
+
             return rule
-            
+
         except Exception as e:
             logger.error(f"Error getting parsing rule by ID: {e}")
             return None
-    
+
     def get_all_rules(self, active_only: bool = True) -> List[ParsingRule]:
         """
         Получить все правила парсинга.
@@ -126,19 +126,19 @@ class ParsingConfigManager:
         """
         try:
             query = self.session.query(ParsingRule)
-            
+
             if active_only:
                 query = query.filter(ParsingRule.is_active)
-            
+
             rules = query.all()
             logger.debug(f"Retrieved {len(rules)} parsing rules")
-            
+
             return rules
-            
+
         except Exception as e:
             logger.error(f"Error getting all parsing rules: {e}")
             return []
-    
+
     def get_rules_by_bot(self, bot_name: str, active_only: bool = True) -> List[ParsingRule]:
         """
         Получить все правила для конкретного бота.
@@ -154,19 +154,19 @@ class ParsingConfigManager:
             query = self.session.query(ParsingRule).filter(
                 ParsingRule.bot_name == bot_name
             )
-            
+
             if active_only:
                 query = query.filter(ParsingRule.is_active)
-            
+
             rules = query.all()
             logger.debug(f"Retrieved {len(rules)} parsing rules for {bot_name}")
-            
+
             return rules
-            
+
         except Exception as e:
             logger.error(f"Error getting parsing rules for {bot_name}: {e}")
             return []
-    
+
     def add_rule(
         self,
         bot_name: str,
@@ -194,7 +194,7 @@ class ParsingConfigManager:
             if existing:
                 logger.warning(f"Parsing rule already exists for {bot_name}: {pattern}")
                 return None
-            
+
             # Создаем новое правило
             new_rule = ParsingRule(
                 bot_name=bot_name,
@@ -203,19 +203,19 @@ class ParsingConfigManager:
                 currency_type=currency_type,
                 is_active=is_active
             )
-            
+
             self.session.add(new_rule)
             self.session.commit()
-            
+
             logger.info(f"Added new parsing rule for {bot_name}: {pattern}")
-            
+
             return new_rule
-            
+
         except Exception as e:
             logger.error(f"Error adding parsing rule: {e}")
             self.session.rollback()
             return None
-    
+
     def update_rule(self, rule_id: int, **kwargs) -> bool:
         """
         Обновить существующее правило парсинга.
@@ -232,23 +232,23 @@ class ParsingConfigManager:
             if not rule:
                 logger.warning(f"Parsing rule with ID {rule_id} not found")
                 return False
-            
+
             # Обновляем поля
             for key, value in kwargs.items():
                 if hasattr(rule, key):
                     setattr(rule, key, value)
-            
+
             self.session.commit()
-            
+
             logger.info(f"Updated parsing rule {rule_id}: {list(kwargs.keys())}")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Error updating parsing rule: {e}")
             self.session.rollback()
             return False
-    
+
     def delete_rule(self, rule_id: int) -> bool:
         """
         Удалить правило парсинга.
@@ -264,19 +264,19 @@ class ParsingConfigManager:
             if not rule:
                 logger.warning(f"Parsing rule with ID {rule_id} not found")
                 return False
-            
+
             self.session.delete(rule)
             self.session.commit()
-            
+
             logger.info(f"Deleted parsing rule {rule_id}")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Error deleting parsing rule: {e}")
             self.session.rollback()
             return False
-    
+
     def activate_rule(self, rule_id: int) -> bool:
         """
         Активировать правило парсинга.
@@ -288,7 +288,7 @@ class ParsingConfigManager:
             True если успешно, False если ошибка
         """
         return self.update_rule(rule_id, is_active=True)
-    
+
     def deactivate_rule(self, rule_id: int) -> bool:
         """
         Деактивировать правило парсинга.
@@ -300,7 +300,7 @@ class ParsingConfigManager:
             True если успешно, False если ошибка
         """
         return self.update_rule(rule_id, is_active=False)
-    
+
     def update_coefficient(self, rule_id: int, coefficient: Decimal) -> bool:
         """
         Обновить коэффициент правила парсинга.
@@ -313,7 +313,7 @@ class ParsingConfigManager:
             True если успешно, False если ошибка
         """
         return self.update_rule(rule_id, multiplier=coefficient)
-    
+
     def get_coefficients_by_bot(self, bot_name: str) -> Dict[str, Decimal]:
         """
         Получить все коэффициенты для бота.
@@ -326,25 +326,25 @@ class ParsingConfigManager:
         """
         try:
             rules = self.get_rules_by_bot(bot_name)
-            
+
             coefficients = {}
             for rule in rules:
                 # Explicitly convert to Python types to satisfy type checker
                 pattern = str(getattr(rule, 'pattern', ''))
                 multiplier = Decimal(str(getattr(rule, 'multiplier', '0')))
                 is_active = bool(getattr(rule, 'is_active', False))
-                
+
                 if is_active and pattern:
                     coefficients[pattern] = multiplier
-            
+
             logger.debug(f"Retrieved {len(coefficients)} coefficients for {bot_name}")
-            
+
             return coefficients
-            
+
         except Exception as e:
             logger.error(f"Error getting coefficients for {bot_name}: {e}")
             return {}
-    
+
     def export_rules(self, bot_name: Optional[str] = None) -> List[Dict]:
         """
         Экспортировать правила в формат dict.
@@ -360,7 +360,7 @@ class ParsingConfigManager:
                 rules = self.get_rules_by_bot(bot_name, active_only=False)
             else:
                 rules = self.get_all_rules(active_only=False)
-            
+
             exported = []
             for rule in rules:
                 # Explicitly convert to Python types to satisfy type checker
@@ -370,7 +370,7 @@ class ParsingConfigManager:
                 multiplier_val = float(str(getattr(rule, 'multiplier', '1.0')))
                 currency_type_val = str(getattr(rule, 'currency_type', 'coins'))
                 is_active_val = bool(getattr(rule, 'is_active', False))
-                
+
                 exported.append({
                     'id': rule_id,
                     'bot_name': bot_name_val,
@@ -379,15 +379,15 @@ class ParsingConfigManager:
                     'currency_type': currency_type_val,
                     'is_active': is_active_val
                 })
-            
+
             logger.info(f"Exported {len(exported)} parsing rules")
-            
+
             return exported
-            
+
         except Exception as e:
             logger.error(f"Error exporting parsing rules: {e}")
             return []
-    
+
     def import_rules(self, rules_data: List[Dict], overwrite: bool = False) -> int:
         """
         Импортировать правила из формата dict.
@@ -401,21 +401,21 @@ class ParsingConfigManager:
         """
         try:
             imported_count = 0
-            
+
             for rule_data in rules_data:
                 bot_name = rule_data.get('bot_name')
                 pattern = rule_data.get('pattern')
-                
+
                 if not bot_name or not pattern:
                     logger.warning(f"Skipping rule with missing bot_name or pattern: {rule_data}")
                     continue
-                
+
                 # Проверяем существование
                 existing = self.get_rule(bot_name, pattern)
                 if existing and not overwrite:
                     logger.warning(f"Rule already exists for {bot_name}: {pattern}, skipping")
                     continue
-                
+
                 # Создаем или обновляем правило
                 if existing:
                     self.update_rule(
@@ -432,13 +432,13 @@ class ParsingConfigManager:
                         currency_type=rule_data.get('currency_type', 'coins'),
                         is_active=rule_data.get('is_active', True)
                     )
-                
+
                 imported_count += 1
-            
+
             logger.info(f"Imported {imported_count} parsing rules")
-            
+
             return imported_count
-            
+
         except Exception as e:
             logger.error(f"Error importing parsing rules: {e}")
             return 0

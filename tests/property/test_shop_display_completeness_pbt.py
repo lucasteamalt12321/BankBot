@@ -47,60 +47,60 @@ class ShopItem:
 # Isolated ShopHandler implementation for testing
 class TestableShopHandler:
     """Isolated shop handler for testing without bot dependencies"""
-    
+
     def __init__(self, shop_items: List[ShopItem] = None):
         self.shop_items = shop_items or []
-    
+
     def display_shop(self, user_id: int) -> str:
         """Generate formatted shop display message with Russian text"""
         try:
             # Get all active shop items
             active_items = [item for item in self.shop_items if item.is_active]
-            
+
             if not active_items:
                 return "🛒 МАГАЗИН\n\nМагазин временно пуст. Попробуйте позже."
-            
+
             # Build the shop display message
             message_lines = ["🛒 МАГАЗИН\n"]
-            
+
             for i, item in enumerate(active_items, 1):
                 # Format each item with number, name, description, and price
                 item_text = f"{i}. {item.name} - {item.price} монет"
                 message_lines.append(item_text)
-                
+
                 # Add description if available
                 if item.description:
                     message_lines.append(f"   {item.description}")
-                
+
                 # Add purchase command
                 message_lines.append(f"   Для покупки: /buy_{i}")
                 message_lines.append("")  # Empty line for spacing
-            
+
             # Add general instructions
             message_lines.append("💡 Используйте команды /buy_1, /buy_2, /buy_3 для покупки товаров")
-            
+
             return "\n".join(message_lines)
-            
+
         except Exception as e:
             return "🛒 МАГАЗИН\n\n❌ Произошла ошибка при загрузке магазина. Попробуйте позже."
 
 
 class TestShopDisplayCompletenessPBT(unittest.TestCase):
     """Property-based tests for shop display completeness"""
-    
+
     def setUp(self):
         """Setup test shop handler"""
         # Initialize with empty shop handler
         self.shop_handler = TestableShopHandler()
-        
+
     def tearDown(self):
         """Clean up after tests"""
         pass
-    
+
     def create_shop_items(self, items_data: List[dict]) -> List[ShopItem]:
         """Helper method to create shop items"""
         shop_items = []
-        
+
         for item_data in items_data:
             # Create ShopItem object
             shop_item = ShopItem(
@@ -112,12 +112,12 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
                 created_at=datetime.utcnow()
             )
             shop_items.append(shop_item)
-        
+
         # Set the items in the shop handler
         self.shop_handler.shop_items = shop_items
-        
+
         return shop_items
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         st.lists(
@@ -151,17 +151,17 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
         """
         # Assume we have at least one item to test meaningful scenarios
         assume(len(items_data) > 0)
-        
+
         # Create shop items in the database
         shop_items = self.create_shop_items(items_data)
-        
+
         # Generate shop display
         display = self.shop_handler.display_shop(user_id)
-        
+
         # Property 1: Display should start with the shop header (Requirement 1.4)
         self.assertIn("🛒 МАГАЗИН", display, 
                      f"Shop display should contain header '🛒 МАГАЗИН' for {len(shop_items)} items")
-        
+
         # Property 2: All active items should be included in the display
         for i, item in enumerate(shop_items, 1):
             if item.is_active:
@@ -169,40 +169,40 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
                 item_line = f"{i}. {item.name} - {item.price} монет"
                 self.assertIn(item_line, display,
                              f"Shop display should contain item line '{item_line}' for item {item.id}")
-                
+
                 # Check item description is displayed (Requirement 1.2)
                 if item.description:
                     self.assertIn(item.description, display,
                                  f"Shop display should contain description '{item.description}' for item {item.id}")
-                
+
                 # Check purchase command is included (Requirement 1.3)
                 purchase_command = f"/buy_{i}"
                 self.assertIn(purchase_command, display,
                              f"Shop display should contain purchase command '{purchase_command}' for item {item.id}")
-        
+
         # Property 3: Display should include purchase instructions
         self.assertIn("💡 Используйте команды", display,
                      "Shop display should contain purchase instructions")
-        
+
         # Property 4: All purchase commands should be listed in instructions
         for i in range(1, len(shop_items) + 1):
             command = f"/buy_{i}"
             self.assertIn(command, display,
                          f"Shop display should contain command '{command}' in instructions")
-        
+
         # Property 5: Display should be properly formatted (no empty sections)
         lines = display.split('\n')
         non_empty_lines = [line for line in lines if line.strip()]
         self.assertGreater(len(non_empty_lines), 0,
                           "Shop display should contain non-empty content")
-        
+
         # Property 6: Each item should have exactly one purchase command
         for i in range(1, len(shop_items) + 1):
             command = f"/buy_{i}"
             command_count = display.count(command)
             self.assertGreaterEqual(command_count, 1,
                                    f"Purchase command '{command}' should appear at least once")
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         st.integers(min_value=1, max_value=2147483647)  # user_id
@@ -218,24 +218,24 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
         """
         # Mock empty shop - no items
         self.shop_handler.shop_items = []
-        
+
         # Generate shop display
         display = self.shop_handler.display_shop(user_id)
-        
+
         # Property: Empty shop should still have header
         self.assertIn("🛒 МАГАЗИН", display,
                      "Empty shop display should contain header '🛒 МАГАЗИН'")
-        
+
         # Property: Empty shop should have appropriate message
         self.assertIn("Магазин временно пуст", display,
                      "Empty shop display should contain empty message")
-        
+
         # Property: Empty shop should not contain purchase commands
         for i in range(1, 10):  # Check first 10 possible commands
             command = f"/buy_{i}"
             self.assertNotIn(command, display,
                            f"Empty shop should not contain purchase command '{command}'")
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         st.lists(
@@ -262,14 +262,14 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
         """
         # Create shop items (mix of active and inactive)
         shop_items = self.create_shop_items(items_data)
-        
+
         # Filter active items
         active_items = [item for item in shop_items if item.is_active]
         inactive_items = [item for item in shop_items if not item.is_active]
-        
+
         # Generate shop display
         display = self.shop_handler.display_shop(user_id)
-        
+
         if active_items:
             # Property: All active items should be displayed
             for item in active_items:
@@ -277,20 +277,20 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
                              f"Active item '{item.name}' should be displayed")
                 self.assertIn(str(item.price), display,
                              f"Active item price '{item.price}' should be displayed")
-            
+
             # Property: Inactive items should NOT be displayed
             for item in inactive_items:
                 # Note: We can't just check name presence as active items might have similar names
                 # Instead, we check that the count of displayed items matches active items count
                 pass
-            
+
             # Property: Number of purchase commands should match active items
             active_count = len(active_items)
             for i in range(1, active_count + 1):
                 command = f"/buy_{i}"
                 self.assertIn(command, display,
                              f"Purchase command '{command}' should exist for active item {i}")
-            
+
             # Property: No extra purchase commands beyond active items
             extra_command = f"/buy_{active_count + 1}"
             # This might appear in instructions, so we check more specifically
@@ -302,35 +302,35 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
             # If no active items, should show empty message
             self.assertIn("Магазин временно пуст", display,
                          "Shop with no active items should show empty message")
-    
+
     def test_shop_display_completeness_without_hypothesis(self):
         """Fallback test when Hypothesis is not available"""
         if HYPOTHESIS_AVAILABLE:
             self.skipTest("Hypothesis is available, using property-based tests")
-        
+
         # Test cases covering the property with various item configurations
         test_cases = [
             # Single item
             [{'id': 1, 'name': 'Test Item 1', 'price': 100, 'description': 'Test description 1', 'is_active': True}],
-            
+
             # Multiple items
             [
                 {'id': 1, 'name': 'Безлимитные стикеры', 'price': 100, 'description': 'Стикеры на 24 часа', 'is_active': True},
                 {'id': 2, 'name': 'Админ права', 'price': 100, 'description': 'Запрос на админ права', 'is_active': True},
                 {'id': 3, 'name': 'Рассылка', 'price': 100, 'description': 'Рассылка всем пользователям', 'is_active': True}
             ],
-            
+
             # Mix of active and inactive items
             [
                 {'id': 1, 'name': 'Active Item', 'price': 50, 'description': 'Active description', 'is_active': True},
                 {'id': 2, 'name': 'Inactive Item', 'price': 75, 'description': 'Inactive description', 'is_active': False},
                 {'id': 3, 'name': 'Another Active', 'price': 125, 'description': 'Another active item', 'is_active': True}
             ],
-            
+
             # Empty shop (no items)
             []
         ]
-        
+
         for case_idx, items_data in enumerate(test_cases):
             with self.subTest(case=case_idx, items_count=len(items_data)):
                 # Create shop items
@@ -341,15 +341,15 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
                     active_items = []
                     # Mock empty shop
                     self.shop_handler.shop_items = []
-                
+
                 # Generate shop display
                 user_id = 12345
                 display = self.shop_handler.display_shop(user_id)
-                
+
                 # Verify shop header is always present
                 self.assertIn("🛒 МАГАЗИН", display,
                              f"Shop display should contain header for case {case_idx}")
-                
+
                 if active_items:
                     # Verify all active items are displayed with required information
                     for i, item in enumerate(active_items, 1):
@@ -357,17 +357,17 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
                         item_line = f"{i}. {item.name} - {item.price} монет"
                         self.assertIn(item_line, display,
                                      f"Item line should be present for item {item.id} in case {case_idx}")
-                        
+
                         # Check description
                         if item.description:
                             self.assertIn(item.description, display,
                                          f"Description should be present for item {item.id} in case {case_idx}")
-                        
+
                         # Check purchase command
                         purchase_command = f"/buy_{i}"
                         self.assertIn(purchase_command, display,
                                      f"Purchase command should be present for item {item.id} in case {case_idx}")
-                    
+
                     # Verify instructions are present
                     self.assertIn("💡 Используйте команды", display,
                                  f"Instructions should be present in case {case_idx}")
@@ -375,7 +375,7 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
                     # Empty shop should show appropriate message
                     self.assertIn("Магазин временно пуст", display,
                                  f"Empty shop message should be present in case {case_idx}")
-    
+
     def test_specific_requirements_compliance(self):
         """Test specific requirements from the design document"""
         # Create the exact items from requirements
@@ -402,13 +402,13 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
                 'is_active': True
             }
         ]
-        
+
         # Create items in database
         shop_items = self.create_shop_items(default_items)
-        
+
         # Generate display
         display = self.shop_handler.display_shop(12345)
-        
+
         # Verify Requirements 1.2: Show each item with name, description, and price
         expected_elements = [
             "1. Безлимитные стикеры на 24 часа - 100 монет",
@@ -418,21 +418,21 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
             "Отправить запрос владельцу бота на получение прав администратора",
             "Отправить ваше сообщение всем пользователям бота"
         ]
-        
+
         for element in expected_elements:
             self.assertIn(element, display,
                          f"Required element missing from display: {element}")
-        
+
         # Verify Requirements 1.3: Include purchase commands
         purchase_commands = ["/buy_1", "/buy_2", "/buy_3"]
         for command in purchase_commands:
             self.assertIn(command, display,
                          f"Purchase command missing from display: {command}")
-        
+
         # Verify Requirements 1.4: Format as "🛒 МАГАЗИН" followed by numbered items
         self.assertTrue(display.startswith("🛒 МАГАЗИН"),
                        "Display should start with '🛒 МАГАЗИН'")
-        
+
         print("✓ Shop display completeness property verified for all requirements")
 
 

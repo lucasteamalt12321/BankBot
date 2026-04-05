@@ -18,13 +18,13 @@ async def track_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE
     """
     if not update.effective_user:
         return
-    
+
     user_id = update.effective_user.id
-    
+
     try:
         db = next(get_db())
         user = db.query(User).filter(User.telegram_id == user_id).first()
-        
+
         if user:
             user.last_activity = datetime.utcnow()
             db.commit()
@@ -41,7 +41,7 @@ async def track_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE
             db.add(new_user)
             db.commit()
             logger.info(f"Created new user {user_id} with initial last_activity")
-            
+
     except Exception as e:
         logger.error(f"Error tracking user activity for {user_id}: {e}")
     finally:

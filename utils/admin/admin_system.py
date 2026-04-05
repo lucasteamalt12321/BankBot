@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 class AdminSystem:
     """Система проверки прав администратора для Telegram бота"""
-    
+
     def __init__(self, db_path: str = "data/bot.db"):
         self.db_path = db_path
         self._ensure_schema()
-    
+
     def _ensure_schema(self) -> None:
         """Создаёт необходимые таблицы, если они не существуют."""
         try:
@@ -51,11 +51,11 @@ class AdminSystem:
             conn.close()
         except Exception as e:
             logger.error(f"Error ensuring schema: {e}")
-    
+
     def get_db_connection(self) -> sqlite3.Connection:
         """Получение соединения с базой данных"""
         return get_connection(self.db_path)
-    
+
     def is_admin(self, user_id: int) -> bool:
         """
         Проверка прав администратора пользователя
@@ -69,22 +69,22 @@ class AdminSystem:
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             # Проверяем существует ли поле is_admin
             cursor.execute("PRAGMA table_info(users)")
             columns = cursor.fetchall()
             column_names = [col[1] for col in columns]
             has_is_admin = 'is_admin' in column_names
-            
+
             if has_is_admin:
                 cursor.execute(
                     "SELECT is_admin FROM users WHERE telegram_id = ?",
                     (user_id,)
                 )
-                
+
                 result = cursor.fetchone()
                 conn.close()
-                
+
                 if result:
                     return bool(result['is_admin'])
                 else:
@@ -97,12 +97,12 @@ class AdminSystem:
                 conn.close()
                 from src.config import settings
                 return user_id == settings.ADMIN_TELEGRAM_ID  # LucasTeamLuke
-                
+
         except Exception as e:
             logger.error(f"Error checking admin status for user {user_id}: {e}")
             from src.config import settings
             return user_id == settings.ADMIN_TELEGRAM_ID  # Fallback для LucasTeamLuke
-    
+
     def register_user(self, user_id: int, username: str = None, first_name: str = None) -> bool:
         """
         Регистрация нового пользователя в системе
@@ -118,22 +118,22 @@ class AdminSystem:
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             # Проверяем, существует ли пользователь
             cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user_id,))
             if cursor.fetchone():
                 conn.close()
                 return True  # Пользователь уже существует
-            
+
             # Проверяем существует ли поле is_admin
             cursor.execute("PRAGMA table_info(users)")
             columns = cursor.fetchall()
             column_names = [col[1] for col in columns]
             has_is_admin = 'is_admin' in column_names
-            
+
             # Создаем нового пользователя с правильной структурой базы данных
             from datetime import datetime
-            
+
             if has_is_admin:
                 cursor.execute(
                     """INSERT INTO users (telegram_id, username, first_name, balance, is_admin, created_at, last_activity) 
@@ -147,17 +147,17 @@ class AdminSystem:
                        VALUES (?, ?, ?, 0, ?, ?)""",
                     (user_id, username, first_name, datetime.now(), datetime.now())
                 )
-            
+
             conn.commit()
             conn.close()
-            
+
             logger.info(f"User {user_id} registered successfully")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error registering user {user_id}: {e}")
             return False
-    
+
     def get_user_by_username(self, username: str) -> Optional[dict]:
         """
         Поиск пользователя по username
@@ -171,16 +171,16 @@ class AdminSystem:
         try:
             # Убираем @ если есть
             clean_username = username.lstrip('@')
-            
+
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             # Проверяем существует ли поле is_admin
             cursor.execute("PRAGMA table_info(users)")
             columns = cursor.fetchall()
             column_names = [col[1] for col in columns]
             has_is_admin = 'is_admin' in column_names
-            
+
             # Ищем пользователя по username или first_name
             if has_is_admin:
                 cursor.execute(
@@ -192,9 +192,9 @@ class AdminSystem:
                     "SELECT id, telegram_id, username, first_name, balance FROM users WHERE username = ? OR first_name = ?",
                     (clean_username, clean_username)
                 )
-            
+
             result = cursor.fetchone()
-            
+
             # Если не найден, попробуем найти по частичному совпадению
             if not result:
                 if has_is_admin:
@@ -208,9 +208,9 @@ class AdminSystem:
                         (f"%{clean_username}%", f"%{clean_username}%")
                     )
                 result = cursor.fetchone()
-            
+
             conn.close()
-            
+
             if result:
                 from src.config import settings
                 return {
@@ -223,11 +223,11 @@ class AdminSystem:
                 }
             else:
                 return None
-                
+
         except Exception as e:
             logger.error(f"Error finding user by username {username}: {e}")
             return None
-    
+
     def get_user_by_id(self, user_id: int) -> Optional[dict]:
         """
         Поиск пользователя по ID
@@ -241,13 +241,13 @@ class AdminSystem:
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             # Проверяем существует ли поле is_admin
             cursor.execute("PRAGMA table_info(users)")
             columns = cursor.fetchall()
             column_names = [col[1] for col in columns]
             has_is_admin = 'is_admin' in column_names
-            
+
             if has_is_admin:
                 cursor.execute(
                     "SELECT id, telegram_id, username, first_name, balance, is_admin FROM users WHERE telegram_id = ?",
@@ -258,10 +258,10 @@ class AdminSystem:
                     "SELECT id, telegram_id, username, first_name, balance FROM users WHERE telegram_id = ?",
                     (user_id,)
                 )
-            
+
             result = cursor.fetchone()
             conn.close()
-            
+
             if result:
                 from src.config import settings
                 user_data = {
@@ -275,11 +275,11 @@ class AdminSystem:
                 return user_data
             else:
                 return None
-                
+
         except Exception as e:
             logger.error(f"Error finding user by ID {user_id}: {e}")
             return None
-    
+
     def update_balance(self, user_id: int, amount: float) -> Optional[float]:
         """
         Обновление баланса пользователя
@@ -294,32 +294,32 @@ class AdminSystem:
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             # Получаем текущий баланс
             cursor.execute("SELECT balance FROM users WHERE telegram_id = ?", (user_id,))
             result = cursor.fetchone()
-            
+
             if not result:
                 conn.close()
                 return None
-            
+
             new_balance = result['balance'] + amount
-            
+
             # Обновляем баланс
             cursor.execute(
                 "UPDATE users SET balance = ? WHERE telegram_id = ?",
                 (new_balance, user_id)
             )
-            
+
             conn.commit()
             conn.close()
-            
+
             return new_balance
-            
+
         except Exception as e:
             logger.error(f"Error updating balance for user {user_id}: {e}")
             return None
-    
+
     def set_admin_status(self, user_id: int, is_admin: bool) -> bool:
         """
         Установка статуса администратора для пользователя
@@ -334,38 +334,38 @@ class AdminSystem:
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             # Проверяем существует ли поле is_admin
             cursor.execute("PRAGMA table_info(users)")
             columns = cursor.fetchall()
             column_names = [col[1] for col in columns]
             has_is_admin = 'is_admin' in column_names
-            
+
             if not has_is_admin:
                 # Если поля нет, добавляем его
                 cursor.execute("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE")
                 conn.commit()
                 logger.info("Added is_admin column to users table")
-            
+
             cursor.execute(
                 "UPDATE users SET is_admin = ? WHERE telegram_id = ?",
                 (is_admin, user_id)
             )
-            
+
             if cursor.rowcount == 0:
                 conn.close()
                 return False  # Пользователь не найден
-            
+
             conn.commit()
             conn.close()
-            
+
             logger.info(f"Admin status for user {user_id} set to {is_admin}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error setting admin status for user {user_id}: {e}")
             return False
-    
+
     def get_users_count(self) -> int:
         """
         Получение общего количества пользователей
@@ -376,17 +376,17 @@ class AdminSystem:
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             cursor.execute("SELECT COUNT(*) as count FROM users")
             result = cursor.fetchone()
             conn.close()
-            
+
             return result['count'] if result else 0
-            
+
         except Exception as e:
             logger.error(f"Error getting users count: {e}")
             return 0
-    
+
     def add_transaction(self, user_id: int, amount: float, transaction_type: str, admin_id: int = None) -> Optional[int]:
         """
         Добавление транзакции в базу данных
@@ -403,7 +403,7 @@ class AdminSystem:
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
-            
+
             # Get internal user ID from telegram_id
             cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user_id,))
             user_row = cursor.fetchone()
@@ -411,22 +411,22 @@ class AdminSystem:
                 logger.error(f"User with telegram_id {user_id} not found")
                 conn.close()
                 return None
-            
+
             internal_user_id = user_row['id']
-            
+
             from datetime import datetime
             cursor.execute(
                 "INSERT INTO transactions (user_id, amount, transaction_type, description, created_at) VALUES (?, ?, ?, ?, ?)",
                 (internal_user_id, amount, transaction_type, f"Admin transaction: {transaction_type}", datetime.now())
             )
-            
+
             transaction_id = cursor.lastrowid
             conn.commit()
             conn.close()
-            
+
             logger.info(f"Transaction {transaction_id} created for user {user_id}")
             return transaction_id
-            
+
         except Exception as e:
             logger.error(f"Error adding transaction for user {user_id}: {e}")
             return None
@@ -446,11 +446,11 @@ def admin_required(admin_system: AdminSystem):
         @wraps(func)
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs) -> Any:
             user = update.effective_user
-            
+
             if not user:
                 await update.message.reply_text("❌ Не удалось определить пользователя")
                 return
-            
+
             # Проверяем права администратора
             if not admin_system.is_admin(user.id):
                 await update.message.reply_text(
@@ -459,7 +459,7 @@ def admin_required(admin_system: AdminSystem):
                 )
                 logger.warning(f"User {user.id} (@{user.username}) attempted to use admin command without permissions")
                 return
-            
+
             # Выполняем оригинальную функцию
             try:
                 return await func(update, context, *args, **kwargs)
@@ -469,7 +469,7 @@ def admin_required(admin_system: AdminSystem):
                     "❌ Произошла ошибка при выполнении команды. "
                     "Попробуйте позже или обратитесь к разработчику."
                 )
-        
+
         return wrapper
     return decorator
 

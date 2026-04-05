@@ -18,7 +18,7 @@ from database.connection import get_connection
 
 class AliasService:
     """Service for managing user aliases and identity resolution."""
-    
+
     def __init__(self, session: Optional[Session] = None):
         """
         Initialize AliasService.
@@ -30,16 +30,16 @@ class AliasService:
         self._owns_session = session is None
         if self._owns_session:
             self.session = get_connection()
-    
+
     def __enter__(self):
         """Context manager entry."""
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - close session if we own it."""
         if self._owns_session and self.session:
             self.session.close()
-    
+
     def add_alias(
         self,
         user_id: int,
@@ -68,20 +68,20 @@ class AliasService:
         user = self.session.query(User).filter_by(id=user_id).first()
         if not user:
             raise ValueError(f"User with id {user_id} not found")
-        
+
         # Check if alias already exists for this user
         existing = self.session.query(UserAlias).filter_by(
             user_id=user_id,
             alias_value=alias_value,
             game_source=game_source
         ).first()
-        
+
         if existing:
             # Update confidence score if alias exists
             existing.confidence_score = max(existing.confidence_score, confidence_score)
             self.session.commit()
             return existing
-        
+
         # Create new alias
         alias = UserAlias(
             user_id=user_id,
@@ -91,12 +91,12 @@ class AliasService:
             confidence_score=confidence_score,
             created_at=datetime.utcnow()
         )
-        
+
         self.session.add(alias)
         self.session.commit()
-        
+
         return alias
-    
+
     def remove_alias(
         self,
         user_id: int,
@@ -118,19 +118,19 @@ class AliasService:
             user_id=user_id,
             alias_value=alias_value
         )
-        
+
         if game_source:
             query = query.filter_by(game_source=game_source)
-        
+
         alias = query.first()
-        
+
         if alias:
             self.session.delete(alias)
             self.session.commit()
             return True
-        
+
         return False
-    
+
     def get_user_aliases(
         self,
         user_id: int,
@@ -147,12 +147,12 @@ class AliasService:
             List of UserAlias objects
         """
         query = self.session.query(UserAlias).filter_by(user_id=user_id)
-        
+
         if game_source:
             query = query.filter_by(game_source=game_source)
-        
+
         return query.order_by(UserAlias.confidence_score.desc()).all()
-    
+
     def find_user_by_alias(
         self,
         alias_value: str,
@@ -171,20 +171,20 @@ class AliasService:
             User object if found, None otherwise
         """
         query = self.session.query(UserAlias).filter_by(alias_value=alias_value)
-        
+
         if game_source:
             query = query.filter_by(game_source=game_source)
-        
+
         query = query.filter(UserAlias.confidence_score >= min_confidence)
         query = query.order_by(UserAlias.confidence_score.desc())
-        
+
         alias = query.first()
-        
+
         if alias:
             return self.session.query(User).filter_by(id=alias.user_id).first()
-        
+
         return None
-    
+
     def find_user_by_name_or_alias(
         self,
         name: str,
@@ -213,23 +213,23 @@ class AliasService:
         user = self.find_user_by_alias(name, game_source, min_confidence)
         if user:
             return user
-        
+
         # Fallback to username (case-insensitive)
         user = self.session.query(User).filter(
             func.lower(User.username) == func.lower(name)
         ).first()
         if user:
             return user
-        
+
         # Fallback to first_name (case-insensitive)
         user = self.session.query(User).filter(
             func.lower(User.first_name) == func.lower(name)
         ).first()
         if user:
             return user
-        
+
         return None
-    
+
     def get_alias_stats(self, user_id: int) -> Dict[str, int]:
         """
         Get statistics about user's aliases.
@@ -241,24 +241,24 @@ class AliasService:
             Dictionary with alias statistics
         """
         aliases = self.get_user_aliases(user_id)
-        
+
         stats = {
             "total": len(aliases),
             "by_game": {},
             "by_type": {}
         }
-        
+
         for alias in aliases:
             # Count by game source
             game = alias.game_source or "unknown"
             stats["by_game"][game] = stats["by_game"].get(game, 0) + 1
-            
+
             # Count by type
             alias_type = alias.alias_type or "unknown"
             stats["by_type"][alias_type] = stats["by_type"].get(alias_type, 0) + 1
-        
+
         return stats
-    
+
     def sync_alias_from_parser(
         self,
         telegram_id: int,
@@ -285,7 +285,7 @@ class AliasService:
         user = self.session.query(User).filter_by(telegram_id=telegram_id).first()
         if not user:
             return None
-        
+
         # Add or update alias
         return self.add_alias(
             user_id=user.id,

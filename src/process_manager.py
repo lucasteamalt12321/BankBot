@@ -20,9 +20,9 @@ class ProcessManager:
     Обеспечивает безопасный запуск и завершение процессов бота
     с использованием PID-файлов вместо поиска по имени.
     """
-    
+
     PID_FILE = Path("data/bot.pid")
-    
+
     @classmethod
     def write_pid(cls) -> None:
         """
@@ -33,7 +33,7 @@ class ProcessManager:
         cls.PID_FILE.parent.mkdir(parents=True, exist_ok=True)
         cls.PID_FILE.write_text(str(os.getpid()))
         logger.info(f"✅ PID записан: {os.getpid()}")
-    
+
     @classmethod
     def read_pid(cls) -> Optional[int]:
         """
@@ -51,7 +51,7 @@ class ProcessManager:
                 logger.warning(f"⚠️ Ошибка чтения PID файла: {e}")
                 return None
         return None
-    
+
     @classmethod
     def remove_pid(cls) -> None:
         """
@@ -60,7 +60,7 @@ class ProcessManager:
         if cls.PID_FILE.exists():
             cls.PID_FILE.unlink()
             logger.info("✅ PID файл удален")
-    
+
     @classmethod
     def kill_existing(cls) -> List[int]:
         """
@@ -73,21 +73,21 @@ class ProcessManager:
         if not pid:
             logger.info("ℹ️ PID файл не найден, нет процессов для завершения")
             return []
-        
+
         try:
             # Проверяем, существует ли процесс
             if not psutil.pid_exists(pid):
                 logger.warning(f"⚠️ Процесс {pid} не найден")
                 cls.remove_pid()
                 return []
-            
+
             # Получаем процесс
             proc = psutil.Process(pid)
             proc_name = proc.name()
-            
+
             logger.info(f"📩 Отправка SIGTERM процессу {pid} ({proc_name})...")
             proc.terminate()
-            
+
             # Ждем завершения до 5 секунд
             try:
                 proc.wait(timeout=5)
@@ -97,10 +97,10 @@ class ProcessManager:
                 proc.kill()
                 proc.wait(timeout=2)
                 logger.info(f"✅ Процесс {pid} принудительно завершен")
-            
+
             cls.remove_pid()
             return [pid]
-            
+
         except psutil.NoSuchProcess:
             logger.warning(f"⚠️ Процесс {pid} уже не существует")
             cls.remove_pid()
@@ -111,7 +111,7 @@ class ProcessManager:
         except Exception as e:
             logger.error(f"❌ Ошибка при завершении процесса {pid}: {e}")
             return []
-    
+
     @classmethod
     def get_running_pids(cls) -> List[int]:
         """
@@ -121,7 +121,7 @@ class ProcessManager:
             Список PID запущенных процессов
         """
         running_pids = []
-        
+
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 cmdline = proc.info['cmdline']
@@ -133,9 +133,9 @@ class ProcessManager:
                         running_pids.append(pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
-        
+
         return running_pids
-    
+
     @classmethod
     def kill_all_bot_processes(cls) -> List[int]:
         """
@@ -146,7 +146,7 @@ class ProcessManager:
         """
         current_pid = os.getpid()
         killed_pids = []
-        
+
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 cmdline = proc.info['cmdline']
@@ -160,10 +160,10 @@ class ProcessManager:
                             killed_pids.append(pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
-        
+
         # Ждем завершения
         time.sleep(1)
-        
+
         # Принудительное завершение оставшихся
         for pid in killed_pids:
             try:
@@ -173,7 +173,7 @@ class ProcessManager:
                     logger.info(f"✅ Принудительно завершен процесс {pid}")
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-        
+
         return killed_pids
 
 
@@ -184,10 +184,10 @@ def graceful_shutdown(signum=None, frame=None):
     Can be used as a signal handler or called directly.
     """
     logger.info(f"Received signal {signum}, initiating shutdown...")
-    
+
     # Remove PID file
     ProcessManager.remove_pid()
-    
+
     # Exit gracefully
     sys.exit(0)
 

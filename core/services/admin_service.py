@@ -51,13 +51,13 @@ class AdminService:
         """
         clean_username = username.lstrip('@')
         user = self.user_repo.get_by_username(clean_username)
-        
+
         if not user:
             # Попробуем найти по first_name
             users = self.user_repo.search_by_name(clean_username)
             if users:
                 user = users[0]
-        
+
         return user
 
     def update_balance(self, user_id: int, amount: float) -> Optional[User]:
@@ -74,11 +74,11 @@ class AdminService:
         user = self.user_repo.get_by_telegram_id(user_id)
         if not user:
             return None
-        
+
         user.balance = int(user.balance + amount)
         self.user_repo.session.commit()
         self.user_repo.session.refresh(user)
-        
+
         return user
 
     def set_admin_status(self, user_id: int, is_admin: bool) -> bool:
@@ -95,11 +95,11 @@ class AdminService:
         user = self.user_repo.get_by_telegram_id(user_id)
         if not user:
             return False
-        
+
         user.is_admin = is_admin
         self.user_repo.session.commit()
         self.user_repo.session.refresh(user)
-        
+
         return True
 
     def get_users_count(self) -> int:

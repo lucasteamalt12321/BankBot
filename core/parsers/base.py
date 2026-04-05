@@ -22,7 +22,7 @@ class ParseResult:
     game: str
     player_name: str
     raw_message: str
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Преобразовать в словарь"""
         return {
@@ -36,7 +36,7 @@ class ParseResult:
 class ProfileResult(ParseResult):
     """Результат парсинга профиля"""
     balance: Decimal  # Основная валюта игры
-    
+
     def to_dict(self) -> Dict[str, Any]:
         result = super().to_dict()
         result['type'] = 'profile'
@@ -49,7 +49,7 @@ class AccrualResult(ParseResult):
     """Результат парсинга начисления"""
     amount: Decimal  # Количество начисленной валюты
     accrual_type: str  # Тип начисления (card, fishing, win, etc.)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         result = super().to_dict()
         result['type'] = 'accrual'
@@ -62,7 +62,7 @@ class AccrualResult(ParseResult):
 class GameEndResult(ParseResult):
     """Результат парсинга окончания игры"""
     winners: list  # Список победителей
-    
+
     def to_dict(self) -> Dict[str, Any]:
         result = super().to_dict()
         result['type'] = 'game_end'
@@ -72,11 +72,11 @@ class GameEndResult(ParseResult):
 
 class BaseParser(ABC):
     """Базовый класс для всех парсеров"""
-    
+
     def __init__(self, game_name: str):
         self.game_name = game_name
         self.logger = logger.bind(parser=self.__class__.__name__, game=game_name)
-    
+
     @abstractmethod
     def can_parse(self, text: str) -> bool:
         """
@@ -89,7 +89,7 @@ class BaseParser(ABC):
             True если парсер может обработать сообщение
         """
         pass
-    
+
     @abstractmethod
     def parse(self, text: str) -> Optional[ParseResult]:
         """
@@ -105,7 +105,7 @@ class BaseParser(ABC):
             ParserError: При критической ошибке парсинга
         """
         pass
-    
+
     def safe_parse(self, text: str) -> Optional[ParseResult]:
         """
         Безопасный парсинг с обработкой ошибок
@@ -119,18 +119,18 @@ class BaseParser(ABC):
         try:
             if not self.can_parse(text):
                 return None
-            
+
             result = self.parse(text)
-            
+
             if result:
                 self.logger.info(
                     "Message parsed successfully",
                     player=result.player_name,
                     type=result.__class__.__name__
                 )
-            
+
             return result
-            
+
         except ParserError as e:
             self.logger.error(
                 "Parser error",
@@ -146,7 +146,7 @@ class BaseParser(ABC):
                 text_preview=text[:100]
             )
             return None
-    
+
     def extract_field(self, text: str, field_name: str, separator: str = ":") -> Optional[str]:
         """
         Извлекает значение поля из текста
@@ -160,15 +160,15 @@ class BaseParser(ABC):
             Значение поля или None
         """
         lines = text.splitlines()
-        
+
         for line in lines:
             if field_name in line:
                 parts = line.split(separator, 1)
                 if len(parts) > 1:
                     return parts[1].strip()
-        
+
         return None
-    
+
     def extract_number(self, text: str, prefix: str = "+") -> Optional[Decimal]:
         """
         Извлекает число из текста
@@ -183,10 +183,10 @@ class BaseParser(ABC):
         try:
             if prefix and text.startswith(prefix):
                 text = text[len(prefix):]
-            
+
             # Убираем все кроме цифр, точки и минуса
             cleaned = ''.join(c for c in text.split()[0] if c.isdigit() or c in '.-')
-            
+
             if cleaned:
                 return Decimal(cleaned)
         except Exception as e:
@@ -195,5 +195,5 @@ class BaseParser(ABC):
                 text=text,
                 error=str(e)
             )
-        
+
         return None

@@ -19,12 +19,12 @@ if os.path.exists(models_file):
     if spec and spec.loader:
         _models_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_models_module)
-        
+
         # Export the models
         BotBalance = _models_module.BotBalance
         UserBalance = _models_module.UserBalance
         MessageType = _models_module.MessageType
-        
+
         __all__ = ["ParsingRule", "BotBalance", "UserBalance", "MessageType"]
 else:
     __all__ = ["ParsingRule"]

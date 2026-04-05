@@ -34,10 +34,10 @@ def test_coefficient_retrieval(game_name, coefficient_value):
     # Arrange
     coefficients_dict = {game_name: coefficient_value}
     provider = CoefficientProvider(coefficients_dict)
-    
+
     # Act
     result = provider.get_coefficient(game_name)
-    
+
     # Assert
     assert result == coefficient_value
 
@@ -59,15 +59,15 @@ def test_missing_coefficient_error(configured_game, configured_coefficient, miss
     # Skip if the missing game is the same as the configured game
     if missing_game == configured_game:
         return
-    
+
     # Arrange
     coefficients_dict = {configured_game: configured_coefficient}
     provider = CoefficientProvider(coefficients_dict)
-    
+
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
         provider.get_coefficient(missing_game)
-    
+
     # Verify error message contains the missing game name
     assert "No coefficient configured for game:" in str(exc_info.value)
     assert missing_game in str(exc_info.value)
@@ -94,11 +94,11 @@ def test_from_config_preserves_all_coefficients(coefficients_dict):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
         json.dump(coefficients_dict, f)
         temp_path = f.name
-    
+
     try:
         # Act
         provider = CoefficientProvider.from_config(temp_path)
-        
+
         # Assert - all coefficients should be retrievable
         for game_name, expected_coefficient in coefficients_dict.items():
             actual_coefficient = provider.get_coefficient(game_name)
@@ -123,11 +123,11 @@ def test_coefficient_retrieval_idempotent(game_name, coefficient_value):
     # Arrange
     coefficients_dict = {game_name: coefficient_value}
     provider = CoefficientProvider(coefficients_dict)
-    
+
     # Act - retrieve coefficient multiple times
     result1 = provider.get_coefficient(game_name)
     result2 = provider.get_coefficient(game_name)
     result3 = provider.get_coefficient(game_name)
-    
+
     # Assert - all results should be identical
     assert result1 == result2 == result3 == coefficient_value

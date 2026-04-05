@@ -17,11 +17,11 @@ logger = structlog.get_logger()
 
 class PurchaseHandler:
     """Handler for processing shop purchases with balance validation"""
-    
+
     def __init__(self, db_manager: Optional[ShopDatabaseManager] = None):
         """Initialize PurchaseHandler with database manager"""
         self.db = db_manager or ShopDatabaseManager()
-    
+
     def process_purchase(self, user_id: int, item_number: int) -> PurchaseResult:
         """
         Process a purchase request with balance validation
@@ -43,7 +43,7 @@ class PurchaseHandler:
                     message="Пользователь не найден. Используйте /start для регистрации.",
                     error_code="user_not_found"
                 )
-            
+
             # Get shop item by number
             shop_items = self.db.get_shop_items()
             if not shop_items or item_number < 1 or item_number > len(shop_items):
@@ -53,9 +53,9 @@ class PurchaseHandler:
                     message=f"Товар с номером {item_number} не найден.",
                     error_code="item_not_found"
                 )
-            
+
             item = shop_items[item_number - 1]  # Convert to 0-based index
-            
+
             # Validate balance
             if not self.validate_balance(user, item.price):
                 return PurchaseResult(
@@ -64,7 +64,7 @@ class PurchaseHandler:
                     error_code="insufficient_balance",
                     new_balance=user.balance
                 )
-            
+
             # Deduct balance
             new_balance = self.deduct_balance(user, item.price)
             if new_balance is None:
@@ -74,10 +74,10 @@ class PurchaseHandler:
                     message="Ошибка при обработке платежа. Попробуйте позже.",
                     error_code="payment_error"
                 )
-            
+
             # Create purchase record
             purchase_id = self.db.create_purchase(user.id, item.id)
-            
+
             # Log transaction
             self.db.add_transaction(
                 user.id, 
@@ -85,16 +85,16 @@ class PurchaseHandler:
                 'shop_purchase', 
                 f"Покупка: {item.name}"
             )
-            
+
             logger.info(f"Purchase successful: user {user_id}, item {item.id}, purchase {purchase_id}")
-            
+
             return PurchaseResult(
                 success=True,
                 message=f"Покупка успешна! Вы приобрели: {item.name}",
                 purchase_id=purchase_id,
                 new_balance=new_balance
             )
-            
+
         except InsufficientBalanceError as e:
             return PurchaseResult(
                 success=False,
@@ -121,7 +121,7 @@ class PurchaseHandler:
                 message="Произошла ошибка при обработке покупки. Попробуйте позже.",
                 error_code="system_error"
             )
-    
+
     def validate_balance(self, user: User, required_amount: int) -> bool:
         """
         Check if user has sufficient balance
@@ -138,7 +138,7 @@ class PurchaseHandler:
         except Exception as e:
             logger.error(f"Error validating balance for user {user.id}: {e}")
             return False
-    
+
     def deduct_balance(self, user: User, amount: int) -> Optional[int]:
         """
         Deduct coins from user balance
@@ -153,17 +153,17 @@ class PurchaseHandler:
         try:
             if user.balance < amount:
                 raise InsufficientBalanceError(user.id, user.balance, amount)
-            
+
             new_balance = user.balance - amount
             self.db.update_user_balance(user.id, new_balance)
-            
+
             logger.info(f"Balance deducted: user {user.id}, amount {amount}, new balance {new_balance}")
             return new_balance
-            
+
         except Exception as e:
             logger.error(f"Error deducting balance for user {user.id}: {e}")
             return None
-    
+
     def get_purchase_commands_info(self) -> Dict[str, Any]:
         """
         Get information about available purchase commands
@@ -174,7 +174,7 @@ class PurchaseHandler:
         try:
             shop_items = self.db.get_shop_items()
             commands = {}
-            
+
             for i, item in enumerate(shop_items, 1):
                 commands[f"/buy_{i}"] = {
                     "item_id": item.id,
@@ -182,13 +182,13 @@ class PurchaseHandler:
                     "price": item.price,
                     "description": item.description
                 }
-            
+
             return commands
-            
+
         except Exception as e:
             logger.error(f"Error getting purchase commands info: {e}")
             return {}
-    
+
     def process_buy_command(self, user_id: int, command: str) -> PurchaseResult:
         """
         Process a buy command (/buy_1, /buy_2, /buy_3)
@@ -208,7 +208,7 @@ class PurchaseHandler:
                     message="Неверная команда покупки.",
                     error_code="invalid_command"
                 )
-            
+
             try:
                 item_number = int(command.split("_")[1])
             except (IndexError, ValueError):
@@ -217,10 +217,10 @@ class PurchaseHandler:
                     message="Неверный номер товара.",
                     error_code="invalid_item_number"
                 )
-            
+
             # Process the purchase
             return self.process_purchase(user_id, item_number)
-            
+
         except Exception as e:
             logger.error(f"Error processing buy command {command} for user {user_id}: {e}")
             return PurchaseResult(
@@ -228,7 +228,7 @@ class PurchaseHandler:
                 message="Произошла ошибка при обработке команды покупки.",
                 error_code="command_error"
             )
-    
+
     def get_user_purchase_history(self, user_id: int, limit: int = 10) -> list:
         """
         Get user's purchase history
@@ -244,14 +244,14 @@ class PurchaseHandler:
             user = self.db.get_user_by_telegram_id(user_id)
             if not user:
                 return []
-            
+
             purchases = self.db.get_user_purchases(user.id)
             return purchases[:limit]
-            
+
         except Exception as e:
             logger.error(f"Error getting purchase history for user {user_id}: {e}")
             return []
-    
+
     def validate_purchase_request(self, user_id: int, item_number: int) -> Dict[str, Any]:
         """
         Validate a purchase request without processing it
@@ -272,7 +272,7 @@ class PurchaseHandler:
                     "error": "user_not_found",
                     "message": "Пользователь не найден"
                 }
-            
+
             # Get item
             shop_items = self.db.get_shop_items()
             if not shop_items or item_number < 1 or item_number > len(shop_items):
@@ -281,9 +281,9 @@ class PurchaseHandler:
                     "error": "item_not_found",
                     "message": "Товар не найден"
                 }
-            
+
             item = shop_items[item_number - 1]
-            
+
             # Check balance
             if user.balance < item.price:
                 return {
@@ -293,14 +293,14 @@ class PurchaseHandler:
                     "current_balance": user.balance,
                     "required": item.price
                 }
-            
+
             return {
                 "valid": True,
                 "user": user,
                 "item": item,
                 "message": "Покупка возможна"
             }
-            
+
         except Exception as e:
             logger.error(f"Error validating purchase request: {e}")
             return {

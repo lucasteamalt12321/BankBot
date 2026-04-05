@@ -48,11 +48,11 @@ player_name_strategy = st.text(
 
 class TestMafiaGameEndParserProperties(unittest.TestCase):
     """Property-based tests for MafiaGameEndParser."""
-    
+
     def setUp(self):
         """Setup test parser."""
         self.parser = MafiaGameEndParser()
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         winners=st.lists(
@@ -81,13 +81,13 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
         # Ensure all winner names are valid (non-empty after strip)
         winners = [w.strip() for w in winners if w.strip()]
         assume(len(winners) > 0)
-        
+
         # Ensure no winner name contains the separator or section markers
         for winner in winners:
             assume(" - " not in winner)
             assume("Победители:" not in winner)
             assume("Остальные участники:" not in winner)
-        
+
         # Construct a valid game end message
         message_lines = [
             "Игра окончена!",
@@ -95,11 +95,11 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
             "",
             "Победители:"
         ]
-        
+
         # Add winner lines
         for winner in winners:
             message_lines.append(f"    {winner} - {role}")
-        
+
         # Add other participants section
         message_lines.extend([
             "",
@@ -107,21 +107,21 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
             "    Loser1 - 🤵🏻 Дон",
             "    Loser2 - 👨🏼‍💼 Мафия"
         ])
-        
+
         message = "\n".join(message_lines)
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert all winners are extracted correctly
         self.assertIsInstance(result, ParsedMafiaWinners)
         self.assertEqual(result.game, "True Mafia")
         self.assertEqual(len(result.winners), len(winners))
-        
+
         # Check that all winners are present
         for winner in winners:
             self.assertIn(winner, result.winners)
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         losers=st.lists(
@@ -150,13 +150,13 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
         # Ensure all loser names are valid
         losers = [l.strip() for l in losers if l.strip()]
         assume(len(losers) > 0)
-        
+
         # Ensure no loser name contains problematic strings
         for loser in losers:
             assume(" - " not in loser)
             assume("Победители:" not in loser)
             assume("Остальные участники:" not in loser)
-        
+
         # Construct message with empty winners section
         message_lines = [
             "Игра окончена!",
@@ -166,20 +166,20 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
             "",
             "Остальные участники:"
         ]
-        
+
         # Add loser lines
         for loser in losers:
             message_lines.append(f"    {loser} - {role}")
-        
+
         message = "\n".join(message_lines)
-        
+
         # Parsing should raise ParserError
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message)
-        
+
         # Error message should indicate no winners found
         self.assertIn("No winners found", str(context.exception))
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         winners=st.lists(
@@ -220,16 +220,16 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
         losers = [l.strip() for l in losers if l.strip()]
         assume(len(winners) > 0)
         assume(len(losers) > 0)
-        
+
         # Ensure no name contains problematic strings
         for name in winners + losers:
             assume(" - " not in name)
             assume("Победители:" not in name)
             assume("Остальные участники:" not in name)
-        
+
         # Ensure winners and losers are distinct
         assume(len(set(winners) & set(losers)) == 0)
-        
+
         # Construct message with both winners and losers
         message_lines = [
             "Игра окончена!",
@@ -237,35 +237,35 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
             "",
             "Победители:"
         ]
-        
+
         # Add winner lines
         for winner in winners:
             message_lines.append(f"    {winner} - {winner_role}")
-        
+
         # Add other participants section
         message_lines.extend([
             "",
             "Остальные участники:"
         ])
-        
+
         # Add loser lines
         for loser in losers:
             message_lines.append(f"    {loser} - {loser_role}")
-        
+
         message = "\n".join(message_lines)
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert only winners are extracted, not losers
         self.assertEqual(len(result.winners), len(winners))
-        
+
         for winner in winners:
             self.assertIn(winner, result.winners)
-        
+
         for loser in losers:
             self.assertNotIn(loser, result.winners)
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         winners=st.lists(
@@ -295,13 +295,13 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
         # Ensure all winner names are valid
         winners = [w.strip() for w in winners if w.strip()]
         assume(len(winners) > 0)
-        
+
         # Ensure no winner name contains problematic strings
         for winner in winners:
             assume(" - " not in winner)
             assume("Победители:" not in winner)
             assume("Остальные участники:" not in winner)
-        
+
         # Construct message with extra whitespace
         message_lines = [
             "Игра окончена!",
@@ -309,38 +309,38 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
             "",
             "Победители:"
         ]
-        
+
         # Add winner lines with extra whitespace
         for winner in winners:
             ws_before = " " * extra_whitespace_before
             ws_after = " " * extra_whitespace_after
             message_lines.append(f"{ws_before}    {winner}{ws_after} - {role}")
-        
+
         message_lines.extend([
             "",
             "Остальные участники:",
             "    Loser - 🤵🏻 Дон"
         ])
-        
+
         message = "\n".join(message_lines)
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert all winners are extracted with trimmed names
         self.assertEqual(len(result.winners), len(winners))
-        
+
         for winner in winners:
             self.assertIn(winner, result.winners)
             # Ensure no extra whitespace in extracted names
             for extracted_winner in result.winners:
                 self.assertEqual(extracted_winner, extracted_winner.strip())
-    
+
     def test_mafia_game_end_parser_without_hypothesis(self):
         """Fallback test when Hypothesis is not available."""
         if HYPOTHESIS_AVAILABLE:
             self.skipTest("Hypothesis is available, using property-based tests")
-        
+
         # Property: Winner extraction
         message1 = """Игра окончена!
 Победили: Мирные жители
@@ -351,12 +351,12 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
 
 Остальные участники:
     Loser1 - 🤵🏻 Дон"""
-        
+
         result1 = self.parser.parse(message1)
         self.assertEqual(len(result1.winners), 2)
         self.assertIn("Player1", result1.winners)
         self.assertIn("Player2", result1.winners)
-        
+
         # Property: Missing winners error
         message2 = """Игра окончена!
 Победили: Мирные жители
@@ -365,11 +365,11 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
 
 Остальные участники:
     Loser1 - 🤵🏻 Дон"""
-        
+
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message2)
         self.assertIn("No winners found", str(context.exception))
-        
+
         # Property: Parsing stops at other participants
         message3 = """Игра окончена!
 Победили: Мирные жители
@@ -380,7 +380,7 @@ class TestMafiaGameEndParserProperties(unittest.TestCase):
 Остальные участники:
     Loser1 - 🤵🏻 Дон
     Loser2 - 👨🏼‍💼 Мафия"""
-        
+
         result3 = self.parser.parse(message3)
         self.assertEqual(len(result3.winners), 1)
         self.assertIn("Winner1", result3.winners)

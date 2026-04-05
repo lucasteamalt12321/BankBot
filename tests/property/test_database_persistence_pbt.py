@@ -29,7 +29,7 @@ def user_balance_strategy(draw):
     )))
     # Filter out names that are just whitespace
     assume(user_name.strip() != "")
-    
+
     bank_balance = draw(st.decimals(
         min_value=Decimal("-999999.99"),
         max_value=Decimal("999999.99"),
@@ -37,7 +37,7 @@ def user_balance_strategy(draw):
         allow_infinity=False,
         places=2
     ))
-    
+
     return user_name, bank_balance
 
 
@@ -51,7 +51,7 @@ def bot_balance_strategy(draw):
         "True Mafia",
         "Bunker RP"
     ]))
-    
+
     last_balance = draw(st.decimals(
         min_value=Decimal("-999999.99"),
         max_value=Decimal("999999.99"),
@@ -59,7 +59,7 @@ def bot_balance_strategy(draw):
         allow_infinity=False,
         places=2
     ))
-    
+
     current_bot_balance = draw(st.decimals(
         min_value=Decimal("-999999.99"),
         max_value=Decimal("999999.99"),
@@ -67,7 +67,7 @@ def bot_balance_strategy(draw):
         allow_infinity=False,
         places=2
     ))
-    
+
     return game, last_balance, current_bot_balance
 
 
@@ -101,7 +101,7 @@ class TestDataPersistenceRoundTrip:
     
     **Validates: Requirements 10.1, 10.2, 10.5**
     """
-    
+
     @given(user_data=user_balance_strategy())
     @settings(max_examples=100, deadline=5000)
     def test_user_balance_round_trip(self, user_data):
@@ -112,18 +112,18 @@ class TestDataPersistenceRoundTrip:
         should return the same values.
         """
         user_name, bank_balance = user_data
-        
+
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             # Store: Create user with specific balance
             user = repository.get_or_create_user(user_name)
             repository.update_user_balance(user.user_id, bank_balance)
-            
+
             # Retrieve: Get the user back
             retrieved_user = repository.get_or_create_user(user_name)
-            
+
             # Assert: All fields should be preserved
             assert retrieved_user.user_name == user_name, \
                 f"User name not preserved: expected {user_name}, got {retrieved_user.user_name}"
@@ -133,7 +133,7 @@ class TestDataPersistenceRoundTrip:
                 f"User ID changed: expected {user.user_id}, got {retrieved_user.user_id}"
         finally:
             cleanup_repository(repository, db_path)
-    
+
     @given(
         user_data=user_balance_strategy(),
         bot_data=bot_balance_strategy()
@@ -148,10 +148,10 @@ class TestDataPersistenceRoundTrip:
         """
         user_name, _ = user_data
         game, last_balance, current_bot_balance = bot_data
-        
+
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             # Store: Create user and bot balance
             user = repository.get_or_create_user(user_name)
@@ -161,10 +161,10 @@ class TestDataPersistenceRoundTrip:
                 last_balance=last_balance,
                 current_bot_balance=current_bot_balance
             )
-            
+
             # Retrieve: Get the bot balance back
             retrieved_bot_balance = repository.get_bot_balance(user.user_id, game)
-            
+
             # Assert: All fields should be preserved
             assert retrieved_bot_balance is not None, \
                 "Bot balance should exist after creation"
@@ -178,7 +178,7 @@ class TestDataPersistenceRoundTrip:
                 f"Current bot balance not preserved: expected {current_bot_balance}, got {retrieved_bot_balance.current_bot_balance}"
         finally:
             cleanup_repository(repository, db_path)
-    
+
     @given(
         user_data=user_balance_strategy(),
         bot_data_list=st.lists(bot_balance_strategy(), min_size=1, max_size=5)
@@ -192,14 +192,14 @@ class TestDataPersistenceRoundTrip:
         retrievable with correct values.
         """
         user_name, _ = user_data
-        
+
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             # Store: Create user and multiple bot balances
             user = repository.get_or_create_user(user_name)
-            
+
             # Use unique games to avoid duplicate key errors
             unique_games = {}
             for game, last_balance, current_bot_balance in bot_data_list:
@@ -211,11 +211,11 @@ class TestDataPersistenceRoundTrip:
                         last_balance=last_balance,
                         current_bot_balance=current_bot_balance
                     )
-            
+
             # Retrieve: Get all bot balances back and verify
             for game, (expected_last, expected_current) in unique_games.items():
                 retrieved = repository.get_bot_balance(user.user_id, game)
-                
+
                 assert retrieved is not None, \
                     f"Bot balance for game {game} should exist"
                 assert retrieved.last_balance == expected_last, \
@@ -235,7 +235,7 @@ class TestUserNameUniqueness:
     
     **Validates: Requirements 10.3**
     """
-    
+
     @given(
         user_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
             blacklist_categories=('Cs', 'Cc'),
@@ -254,31 +254,31 @@ class TestUserNameUniqueness:
         """
         assume(user_name.strip() != "")
         assume(balance1 != balance2)  # Make sure we're testing different records
-        
+
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             # Create first user
             user1 = repository.get_or_create_user(user_name)
             repository.update_user_balance(user1.user_id, balance1)
-            
+
             # Try to manually insert a duplicate user_name with different user_id
             cursor = repository.conn.cursor()
-            
+
             with pytest.raises(sqlite3.IntegrityError) as exc_info:
                 cursor.execute(
                     "INSERT INTO user_balances (user_id, user_name, bank_balance) VALUES (?, ?, ?)",
                     ("different_id_" + user1.user_id, user_name, str(balance2))
                 )
                 repository.conn.commit()
-            
+
             # Verify the error is about uniqueness
             assert "UNIQUE constraint failed" in str(exc_info.value) or "unique" in str(exc_info.value).lower(), \
                 f"Expected UNIQUE constraint error, got: {exc_info.value}"
         finally:
             cleanup_repository(repository, db_path)
-    
+
     @given(
         base_name=st.text(min_size=1, max_size=40, alphabet='abcdefghijklmnopqrstuvwxyz'),
         num_users=st.integers(min_value=2, max_value=5)
@@ -292,26 +292,26 @@ class TestUserNameUniqueness:
         """
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             created_users = []
-            
+
             for i in range(num_users):
                 user_name = f"{base_name}_{i}"
                 user = repository.get_or_create_user(user_name)
                 created_users.append(user)
-            
+
             # Verify all users were created with unique IDs
             user_ids = [u.user_id for u in created_users]
             assert len(user_ids) == len(set(user_ids)), \
                 "All users should have unique IDs"
-            
+
             # Verify all users can be retrieved
             for i, user in enumerate(created_users):
                 user_name = f"{base_name}_{i}"
                 retrieved = repository.get_or_create_user(user_name)
                 assert retrieved.user_id == user.user_id, \
-                    f"Retrieved user should have same ID as created user"
+                    "Retrieved user should have same ID as created user"
         finally:
             cleanup_repository(repository, db_path)
 
@@ -325,7 +325,7 @@ class TestBotBalanceCompositeKeyUniqueness:
     
     **Validates: Requirements 10.4**
     """
-    
+
     @given(
         user_name=st.text(min_size=1, max_size=50, alphabet='abcdefghijklmnopqrstuvwxyz'),
         game=st.sampled_from(["GD Cards", "Shmalala", "True Mafia", "Bunker RP"]),
@@ -343,10 +343,10 @@ class TestBotBalanceCompositeKeyUniqueness:
         on the second attempt.
         """
         assume(balance1 != balance2)  # Make sure we're testing different records
-        
+
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             # Create user and first bot balance
             user = repository.get_or_create_user(user_name)
@@ -356,7 +356,7 @@ class TestBotBalanceCompositeKeyUniqueness:
                 last_balance=balance1,
                 current_bot_balance=Decimal("0")
             )
-            
+
             # Try to create duplicate bot balance for same user and game
             with pytest.raises(sqlite3.IntegrityError) as exc_info:
                 repository.create_bot_balance(
@@ -365,14 +365,14 @@ class TestBotBalanceCompositeKeyUniqueness:
                     last_balance=balance2,
                     current_bot_balance=Decimal("0")
                 )
-            
+
             # Verify the error is about uniqueness/primary key
             error_msg = str(exc_info.value).lower()
             assert "unique" in error_msg or "primary key" in error_msg, \
                 f"Expected UNIQUE/PRIMARY KEY constraint error, got: {exc_info.value}"
         finally:
             cleanup_repository(repository, db_path)
-    
+
     @given(
         user_name=st.text(min_size=1, max_size=50, alphabet='abcdefghijklmnopqrstuvwxyz'),
         games=st.lists(
@@ -391,10 +391,10 @@ class TestBotBalanceCompositeKeyUniqueness:
         """
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             user = repository.get_or_create_user(user_name)
-            
+
             # Create bot balances for different games
             for i, game in enumerate(games):
                 balance = Decimal(str(10 * (i + 1)))
@@ -404,19 +404,19 @@ class TestBotBalanceCompositeKeyUniqueness:
                     last_balance=balance,
                     current_bot_balance=Decimal("0")
                 )
-            
+
             # Verify all bot balances were created and can be retrieved
             for i, game in enumerate(games):
                 expected_balance = Decimal(str(10 * (i + 1)))
                 retrieved = repository.get_bot_balance(user.user_id, game)
-                
+
                 assert retrieved is not None, \
                     f"Bot balance for game {game} should exist"
                 assert retrieved.last_balance == expected_balance, \
                     f"Last balance for {game} should be {expected_balance}"
         finally:
             cleanup_repository(repository, db_path)
-    
+
     @given(
         user_names=st.lists(
             st.text(min_size=1, max_size=30, alphabet='abcdefghijklmnopqrstuvwxyz'),
@@ -435,7 +435,7 @@ class TestBotBalanceCompositeKeyUniqueness:
         """
         # Create repository for this test
         repository, db_path = create_temp_repository()
-        
+
         try:
             # Create bot balances for different users with same game
             for i, user_name in enumerate(user_names):
@@ -447,13 +447,13 @@ class TestBotBalanceCompositeKeyUniqueness:
                     last_balance=balance,
                     current_bot_balance=Decimal("0")
                 )
-            
+
             # Verify all bot balances were created correctly
             for i, user_name in enumerate(user_names):
                 user = repository.get_or_create_user(user_name)
                 expected_balance = Decimal(str(100 * (i + 1)))
                 retrieved = repository.get_bot_balance(user.user_id, game)
-                
+
                 assert retrieved is not None, \
                     f"Bot balance for user {user_name} should exist"
                 assert retrieved.last_balance == expected_balance, \

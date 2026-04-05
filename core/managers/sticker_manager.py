@@ -19,7 +19,7 @@ class StickerManager:
     Manages sticker access permissions and automatic cleanup for the advanced bot features
     Implements Requirements 2.1, 2.2, 2.3, 2.4, 2.5 from the advanced features specification
     """
-    
+
     def __init__(self, db_session: Session):
         """
         Initialize StickerManager with database session
@@ -28,7 +28,7 @@ class StickerManager:
             db_session: SQLAlchemy database session
         """
         self.db = db_session
-    
+
     async def grant_unlimited_access(self, user_id: int, duration_hours: int = 24) -> None:
         """
         Grant unlimited sticker access to a user for specified duration
@@ -44,7 +44,7 @@ class StickerManager:
         """
         try:
             logger.info("Granting unlimited sticker access", user_id=user_id, duration_hours=duration_hours)
-            
+
             # Get user from database
             user = self.db.query(User).filter(User.telegram_id == user_id).first()
             if not user:
@@ -52,14 +52,14 @@ class StickerManager:
                     user_id=user_id,
                     message=f"User with ID {user_id} not found in database"
                 )
-            
+
             # Set unlimited access flag and expiration time
             user.sticker_unlimited = True
             user.sticker_unlimited_until = datetime.utcnow() + timedelta(hours=duration_hours)
-            
+
             # Commit the changes
             self.db.commit()
-            
+
             logger.info(
                 "Unlimited sticker access granted successfully",
                 user_id=user_id,
@@ -67,7 +67,7 @@ class StickerManager:
                 expires_at=user.sticker_unlimited_until,
                 duration_hours=duration_hours
             )
-            
+
         except StickerAccessError:
             # Re-raise StickerAccessError as-is
             raise
@@ -78,7 +78,7 @@ class StickerManager:
                 user_id=user_id,
                 message=f"Database error while granting access: {str(e)}"
             )
-    
+
     async def check_access(self, user_id: int) -> bool:
         """
         Check if user has unlimited sticker access and it hasn't expired
@@ -93,42 +93,42 @@ class StickerManager:
         """
         try:
             logger.debug("Checking sticker access", user_id=user_id)
-            
+
             # Get user from database
             user = self.db.query(User).filter(User.telegram_id == user_id).first()
             if not user:
                 logger.warning("User not found for access check", user_id=user_id)
                 return False
-            
+
             # Check if unlimited access is enabled
             if not user.sticker_unlimited:
                 logger.debug("User does not have unlimited sticker access", user_id=user_id)
                 return False
-            
+
             # Check if access has expired
             current_time = datetime.utcnow()
             if user.sticker_unlimited_until and current_time >= user.sticker_unlimited_until:
                 logger.info("Sticker access expired, revoking access", user_id=user_id, expired_at=user.sticker_unlimited_until)
-                
+
                 # Automatically revoke expired access
                 user.sticker_unlimited = False
                 user.sticker_unlimited_until = None
                 self.db.commit()
-                
+
                 return False
-            
+
             logger.debug(
                 "User has valid unlimited sticker access",
                 user_id=user_id,
                 expires_at=user.sticker_unlimited_until
             )
-            
+
             return True
-            
+
         except Exception as e:
             logger.error("Error checking sticker access", error=str(e), user_id=user_id)
             return False
-    
+
     async def cleanup_expired_stickers(self) -> int:
         """
         Clean up expired sticker access for all users
@@ -141,17 +141,17 @@ class StickerManager:
         """
         try:
             logger.info("Starting cleanup of expired sticker access")
-            
+
             current_time = datetime.utcnow()
-            
+
             # Find all users with expired sticker access
             expired_users = self.db.query(User).filter(
                 User.sticker_unlimited,
                 User.sticker_unlimited_until <= current_time
             ).all()
-            
+
             cleanup_count = 0
-            
+
             for user in expired_users:
                 try:
                     logger.info(
@@ -160,13 +160,13 @@ class StickerManager:
                         username=user.username,
                         expired_at=user.sticker_unlimited_until
                     )
-                    
+
                     # Revoke unlimited access
                     user.sticker_unlimited = False
                     user.sticker_unlimited_until = None
-                    
+
                     cleanup_count += 1
-                    
+
                 except Exception as user_error:
                     logger.error(
                         "Error cleaning up individual user",
@@ -174,21 +174,21 @@ class StickerManager:
                         user_id=user.telegram_id
                     )
                     continue
-            
+
             # Commit all changes
             if cleanup_count > 0:
                 self.db.commit()
                 logger.info(f"Cleaned up expired sticker access for {cleanup_count} users")
             else:
                 logger.debug("No expired sticker access found to clean up")
-            
+
             return cleanup_count
-            
+
         except Exception as e:
             logger.error("Error during sticker access cleanup", error=str(e))
             self.db.rollback()
             return 0
-    
+
     async def auto_delete_sticker(self, message_id: int, delay_minutes: int = 2) -> None:
         """
         Schedule automatic deletion of a sticker message after specified delay
@@ -202,10 +202,10 @@ class StickerManager:
         """
         try:
             logger.info("Scheduling sticker auto-deletion", message_id=message_id, delay_minutes=delay_minutes)
-            
+
             # Calculate deletion time
             delete_at = datetime.utcnow() + timedelta(minutes=delay_minutes)
-            
+
             # Create scheduled task for sticker deletion
             scheduled_task = ScheduledTask(
                 user_id=None,  # System task, not user-specific
@@ -219,21 +219,21 @@ class StickerManager:
                     "scheduled_at": datetime.utcnow().isoformat()
                 }
             )
-            
+
             self.db.add(scheduled_task)
             self.db.commit()
-            
+
             logger.info(
                 "Sticker auto-deletion scheduled successfully",
                 message_id=message_id,
                 delete_at=delete_at,
                 task_id=scheduled_task.id
             )
-            
+
         except Exception as e:
             logger.error("Error scheduling sticker auto-deletion", error=str(e), message_id=message_id)
             self.db.rollback()
-    
+
     def get_user_sticker_status(self, user_id: int) -> Dict[str, Any]:
         """
         Get detailed sticker access status for a user
@@ -253,13 +253,13 @@ class StickerManager:
                     "expires_at": None,
                     "is_expired": True
                 }
-            
+
             current_time = datetime.utcnow()
             is_expired = (
                 user.sticker_unlimited_until is not None and 
                 current_time >= user.sticker_unlimited_until
             )
-            
+
             return {
                 "found": True,
                 "has_unlimited": user.sticker_unlimited,
@@ -271,7 +271,7 @@ class StickerManager:
                     else None
                 )
             }
-            
+
         except Exception as e:
             logger.error("Error getting user sticker status", error=str(e), user_id=user_id)
             return {
@@ -281,7 +281,7 @@ class StickerManager:
                 "is_expired": True,
                 "error": str(e)
             }
-    
+
     async def revoke_access(self, user_id: int) -> bool:
         """
         Manually revoke unlimited sticker access for a user
@@ -294,26 +294,26 @@ class StickerManager:
         """
         try:
             logger.info("Manually revoking sticker access", user_id=user_id)
-            
+
             user = self.db.query(User).filter(User.telegram_id == user_id).first()
             if not user:
                 logger.warning("User not found for access revocation", user_id=user_id)
                 return False
-            
+
             # Revoke access
             user.sticker_unlimited = False
             user.sticker_unlimited_until = None
-            
+
             self.db.commit()
-            
+
             logger.info("Sticker access revoked successfully", user_id=user_id, username=user.username)
             return True
-            
+
         except Exception as e:
             logger.error("Error revoking sticker access", error=str(e), user_id=user_id)
             self.db.rollback()
             return False
-    
+
     def get_all_users_with_access(self) -> List[Dict[str, Any]]:
         """
         Get all users who currently have unlimited sticker access
@@ -325,16 +325,16 @@ class StickerManager:
             users_with_access = self.db.query(User).filter(
                 User.sticker_unlimited
             ).all()
-            
+
             result = []
             current_time = datetime.utcnow()
-            
+
             for user in users_with_access:
                 is_expired = (
                     user.sticker_unlimited_until is not None and 
                     current_time >= user.sticker_unlimited_until
                 )
-                
+
                 result.append({
                     "user_id": user.telegram_id,
                     "username": user.username,
@@ -346,9 +346,9 @@ class StickerManager:
                         else None
                     )
                 })
-            
+
             return result
-            
+
         except Exception as e:
             logger.error("Error getting users with sticker access", error=str(e))
             return []

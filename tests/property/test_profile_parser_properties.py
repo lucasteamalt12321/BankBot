@@ -38,11 +38,11 @@ from src.parsers import ProfileParser, ParserError, ParsedProfile
 
 class TestProfileParserProperties(unittest.TestCase):
     """Property-based tests for ProfileParser."""
-    
+
     def setUp(self):
         """Setup test parser."""
         self.parser = ProfileParser()
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -71,7 +71,7 @@ class TestProfileParserProperties(unittest.TestCase):
         assume("ПРОФИЛЬ" not in player_name)
         assume("Орбы:" not in player_name)
         assume(player_name.strip() != "")
-        
+
         # Construct a valid profile message
         message = f"""ПРОФИЛЬ {player_name}
 ───────────────
@@ -83,16 +83,16 @@ ID: 8685 (23.08.2025)
 Орбы: {orbs} (#342)
 Клан: TestClan (#50)
 ───────────────"""
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert extraction is correct
         self.assertIsInstance(result, ParsedProfile)
         self.assertEqual(result.player_name, player_name.strip())
         self.assertEqual(result.orbs, orbs)
         self.assertEqual(result.game, "GD Cards")
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -121,30 +121,30 @@ ID: 8685 (23.08.2025)
         assume("ПРОФИЛЬ" not in player_name)
         assume("Орбы:" not in player_name)
         assume(player_name.strip() != "")
-        
+
         # Store original string representation
         orbs_str = str(orbs)
-        
+
         # Construct message with decimal orbs
         message = f"""ПРОФИЛЬ {player_name}
 ───────────────
 Орбы: {orbs_str} (#100)
 ───────────────"""
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Convert back to string and verify precision is preserved
         result_str = str(result.orbs)
-        
+
         # The parsed value should equal the original Decimal
         self.assertEqual(result.orbs, orbs)
-        
+
         # String representation should match (accounting for trailing zeros)
         # Decimal("10.50") == Decimal("10.5") but str() may differ
         # So we compare the actual Decimal values
         self.assertEqual(Decimal(result_str), Decimal(orbs_str))
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -180,29 +180,29 @@ ID: 8685 (23.08.2025)
         assume("ПРОФИЛЬ" not in player_name)
         assume("Орбы:" not in player_name)
         assume(player_name.strip() != "")
-        
+
         # Ensure extra fields don't contain "Орбы:"
         for field_name, field_value in extra_fields:
             assume("Орбы" not in field_name)
             assume("Орбы:" not in field_value)
-        
+
         # Construct message WITHOUT "Орбы:" field
         message_lines = [f"ПРОФИЛЬ {player_name}", "───────────────"]
-        
+
         # Add extra fields (but not Орбы:)
         for field_name, field_value in extra_fields:
             message_lines.append(f"{field_name}: {field_value}")
-        
+
         message_lines.append("───────────────")
         message = "\n".join(message_lines)
-        
+
         # Parsing should raise ParserError
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message)
-        
+
         # Error message should indicate missing Orbs field
         self.assertIn("Orbs field not found", str(context.exception))
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -260,49 +260,49 @@ ID: 8685 (23.08.2025)
         assume("ПРОФИЛЬ" not in player_name)
         assume("Орбы:" not in player_name)
         assume(player_name.strip() != "")
-        
+
         # Ensure extra fields don't interfere with parsing
         for field_name, field_value in extra_fields_before + extra_fields_after:
             assume("ПРОФИЛЬ" not in field_name and "ПРОФИЛЬ" not in field_value)
             assume("Орбы" not in field_name)
             assume("Орбы:" not in field_value)  # Ensure field values don't contain "Орбы:"
-        
+
         # Construct message with extra fields before and after Орбы
         message_lines = [f"ПРОФИЛЬ {player_name}", "───────────────"]
-        
+
         # Add extra fields before Орбы
         for field_name, field_value in extra_fields_before:
             message_lines.append(f"{field_name}: {field_value}")
-        
+
         # Add the Орбы field
         message_lines.append(f"Орбы: {orbs} (#342)")
-        
+
         # Add extra fields after Орбы
         for field_name, field_value in extra_fields_after:
             message_lines.append(f"{field_name}: {field_value}")
-        
+
         message_lines.append("───────────────")
         message = "\n".join(message_lines)
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert that only player name and orbs are extracted correctly
         self.assertEqual(result.player_name, player_name.strip())
         self.assertEqual(result.orbs, orbs)
         self.assertEqual(result.game, "GD Cards")
-        
+
         # Verify that the result only has the expected fields
         self.assertIsInstance(result, ParsedProfile)
         self.assertTrue(hasattr(result, 'player_name'))
         self.assertTrue(hasattr(result, 'orbs'))
         self.assertTrue(hasattr(result, 'game'))
-    
+
     def test_profile_parser_without_hypothesis(self):
         """Fallback test when Hypothesis is not available."""
         if HYPOTHESIS_AVAILABLE:
             self.skipTest("Hypothesis is available, using property-based tests")
-        
+
         # Property 5: Basic extraction
         message1 = """ПРОФИЛЬ TestPlayer
 ───────────────
@@ -311,7 +311,7 @@ ID: 8685 (23.08.2025)
         result1 = self.parser.parse(message1)
         self.assertEqual(result1.player_name, "TestPlayer")
         self.assertEqual(result1.orbs, Decimal("100.50"))
-        
+
         # Property 6: Decimal precision
         message2 = """ПРОФИЛЬ Player2
 ───────────────
@@ -320,7 +320,7 @@ ID: 8685 (23.08.2025)
         result2 = self.parser.parse(message2)
         self.assertEqual(result2.orbs, Decimal("123.456789"))
         self.assertEqual(str(result2.orbs), "123.456789")
-        
+
         # Property 7: Missing Orbs field
         message3 = """ПРОФИЛЬ Player3
 ───────────────
@@ -329,7 +329,7 @@ ID: 8685 (23.08.2025)
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message3)
         self.assertIn("Orbs field not found", str(context.exception))
-        
+
         # Property 8: Field isolation
         message4 = """ПРОФИЛЬ Player4
 ───────────────

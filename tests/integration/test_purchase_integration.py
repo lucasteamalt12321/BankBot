@@ -14,10 +14,10 @@ def test_database_setup():
     try:
         conn = sqlite3.connect('bot.db')
         cursor = conn.cursor()
-        
+
         # Check if shop tables exist
         tables_to_check = ['shop_items', 'user_purchases', 'scheduled_tasks', 'users', 'transactions']
-        
+
         for table in tables_to_check:
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
             result = cursor.fetchone()
@@ -25,21 +25,21 @@ def test_database_setup():
                 print(f"✅ Table '{table}' exists")
             else:
                 print(f"❌ Table '{table}' missing")
-        
+
         # Check shop items
         cursor.execute("SELECT COUNT(*) FROM shop_items")
         item_count = cursor.fetchone()[0]
         print(f"✅ Found {item_count} shop items in database")
-        
+
         # Show shop items
         cursor.execute("SELECT id, name, price FROM shop_items ORDER BY id")
         items = cursor.fetchall()
         for item_id, name, price in items:
             print(f"   {item_id}. {name} - {price} монет")
-        
+
         conn.close()
         return True
-        
+
     except Exception as e:
         print(f"❌ Database test failed: {e}")
         return False
@@ -49,12 +49,12 @@ def test_user_creation():
     try:
         conn = sqlite3.connect('bot.db')
         cursor = conn.cursor()
-        
+
         # Check if test user exists
         test_telegram_id = 999999
         cursor.execute("SELECT id, balance FROM users WHERE telegram_id = ?", (test_telegram_id,))
         user = cursor.fetchone()
-        
+
         if user:
             print(f"✅ Test user exists with balance: {user[1]}")
         else:
@@ -65,10 +65,10 @@ def test_user_creation():
             """, (test_telegram_id, 'testuser', 'Test User', 500, False))
             conn.commit()
             print("✅ Created test user with 500 coins")
-        
+
         conn.close()
         return True
-        
+
     except Exception as e:
         print(f"❌ User creation test failed: {e}")
         return False
@@ -82,7 +82,7 @@ def test_purchase_validation():
         print("   - User validation: get_user_by_telegram_id() method")
         print("   - Item validation: get_shop_items() method")
         return True
-        
+
     except Exception as e:
         print(f"❌ Purchase validation test failed: {e}")
         return False
@@ -91,16 +91,16 @@ def main():
     """Run integration tests"""
     print("PurchaseHandler Integration Test")
     print("=" * 40)
-    
+
     tests = [
         test_database_setup,
         test_user_creation,
         test_purchase_validation
     ]
-    
+
     passed = 0
     total = len(tests)
-    
+
     for test in tests:
         try:
             if test():
@@ -109,10 +109,10 @@ def main():
         except Exception as e:
             print(f"❌ Test {test.__name__} failed: {e}")
             print()
-    
+
     print("=" * 40)
     print(f"Tests passed: {passed}/{total}")
-    
+
     if passed == total:
         print("🎉 Integration tests passed!")
         print("\n📋 Task 2.3 Implementation Summary:")

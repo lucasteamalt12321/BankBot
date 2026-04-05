@@ -14,18 +14,18 @@ from src.config import settings
 def test_profile_command():
     """Тестируем команду profile"""
     print("[TEST] Тестирование команды /profile...")
-    
+
     # Инициализируем админ систему
     admin_system = AdminSystem("data/bot.db")
-    
+
     # Тестовый пользователь
     test_user_id = settings.ADMIN_TELEGRAM_ID  # LucasTeamLuke
-    
+
     print(f"[TEST] Проверяем пользователя {test_user_id}...")
-    
+
     # Получаем пользователя
     user = admin_system.get_user_by_id(test_user_id)
-    
+
     if user:
         print("[SUCCESS] Пользователь найден:")
         print(f"  - ID: {user['telegram_id']}")
@@ -36,20 +36,20 @@ def test_profile_command():
     else:
         print("[ERROR] Пользователь не найден!")
         print("[INFO] Попытка регистрации...")
-        
+
         success = admin_system.register_user(
             test_user_id,
             "LucasTeamLuke",
             "Lucas"
         )
-        
+
         if success:
             print("[SUCCESS] Пользователь зарегистрирован!")
-            
+
             # Устанавливаем права администратора
             admin_system.set_admin_status(test_user_id, True)
             print("[SUCCESS] Права администратора установлены!")
-            
+
             # Проверяем снова
             user = admin_system.get_user_by_id(test_user_id)
             if user:
@@ -61,30 +61,30 @@ def test_profile_command():
                 print(f"  - Админ: {user['is_admin']}")
         else:
             print("[ERROR] Не удалось зарегистрировать пользователя!")
-    
+
     print("\n[TEST] Проверяем транзакции...")
-    
+
     # Получаем транзакции
     conn = admin_system.get_db_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (test_user_id,))
     user_row = cursor.fetchone()
-    
+
     if user_row:
         internal_id = user_row['id']
         print(f"[INFO] Внутренний ID пользователя: {internal_id}")
-        
+
         cursor.execute("SELECT COUNT(*) as count FROM transactions WHERE user_id = ?", (internal_id,))
         result = cursor.fetchone()
         total_transactions = result['count'] if result else 0
-        
+
         print(f"[INFO] Всего транзакций: {total_transactions}")
     else:
         print("[ERROR] Пользователь не найден в базе данных!")
-    
+
     conn.close()
-    
+
     print("\n[TEST] Тест завершен!")
 
 if __name__ == "__main__":

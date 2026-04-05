@@ -26,10 +26,10 @@ class BotApplication:
     - Bot application shutdown
     - PID file management
     """
-    
+
     def __init__(self):
         self.bot: Optional[TelegramBot] = None
-    
+
     async def shutdown(self) -> bool:
         """Perform graceful shutdown of all resources.
         
@@ -46,9 +46,9 @@ class BotApplication:
             bool: True if all resources cleaned up successfully
         """
         logger.info("Starting graceful shutdown", bot_running=self.bot is not None)
-        
+
         errors = []
-        
+
         # Step 1: Close database
         try:
             logger.info("Shutting down database connections")
@@ -57,7 +57,7 @@ class BotApplication:
         except Exception as e:
             errors.append(f"database: {e}")
             logger.error("Database shutdown failed", error=str(e))
-        
+
         # Step 2: Stop background tasks
         if self.bot is not None:
             try:
@@ -72,7 +72,7 @@ class BotApplication:
             except Exception as e:
                 errors.append(f"background_tasks: {e}")
                 logger.error("Background task shutdown failed", error=str(e))
-        
+
         # Step 3: Stop bot application
         if self.bot is not None:
             try:
@@ -87,7 +87,7 @@ class BotApplication:
             except Exception as e:
                 errors.append(f"bot_application: {e}")
                 logger.error("Bot application shutdown failed", error=str(e))
-        
+
         # Step 4: Always remove PID file (even on errors)
         try:
             logger.info("Removing PID file")
@@ -95,11 +95,11 @@ class BotApplication:
         except Exception as e:
             errors.append(f"pid_file: {e}")
             logger.error("PID file removal failed", error=str(e))
-        
+
         if errors:
             logger.info("Shutdown completed with errors", errors=errors)
             return False
-        
+
         logger.info("Shutdown completed successfully")
         return True
 
@@ -107,9 +107,9 @@ def kill_existing_bot_processes():
     """Убивает все существующие процессы, связанные с ботом"""
     current_pid = os.getpid()
     killed_processes = []
-    
+
     print(f"[KILL] Поиск старых процессов бота (текущий PID: {current_pid})...")
-    
+
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
             # Получаем командную строку процесса
@@ -125,7 +125,7 @@ def kill_existing_bot_processes():
                         killed_processes.append((pid, proc))
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
-    
+
     # Ждем завершения процессов или убиваем жестко (асинхронно)
     for pid, proc in killed_processes:
         try:
@@ -133,10 +133,10 @@ def kill_existing_bot_processes():
             print(f"[KILL] Помечен процесс {pid} для завершения")
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             print(f"[KILL] Процесс {pid} уже не существует или нет доступа")
-    
+
     # Краткая пауза для завершения, но не ждем долго
     time.sleep(1)
-    
+
     if killed_processes:
         print(f"[KILL] Убито {len(killed_processes)} старых процессов бота")
         time.sleep(2)  # Даем время для полного завершения
@@ -145,29 +145,29 @@ def kill_existing_bot_processes():
 
 def main():
     """Основная функция запуска бота"""
-    
+
     print("[START] Запуск Telegram-бота банк-аггрегатора LucasTeam...")
-    
+
     # Валидация конфигурации перед запуском
     print("[VALIDATE] Проверка конфигурации...")
     if not validate_startup():
         print("[ERROR] Валидация конфигурации не пройдена. Остановка бота.")
         sys.exit(1)
     print("[VALIDATE] Конфигурация валидна")
-    
+
     # Убиваем старые процессы перед запуском
     kill_existing_bot_processes()
-    
+
     print("[INFO] Бот запускается с настройками и расширенным функционалом")
     print("[GAMES] Поддерживаемые игры: Shmalala, GD Cards, True Mafia, Bunker RP")
     print("[CURRENCY] Настроена система конвертации валюты из разных источников")
     print("[SHOP] Загружен магазин товаров и привилегий")
     print("[BONUSES] Активированы ежедневные бонусы и задания")
     print("[ADMIN] Доступны административные команды")
-    
+
     # Создаем таблицы БД при запуске
     create_tables()
-    
+
     # Создаем и запускаем бота
     bot = TelegramBot()
     bot.run()

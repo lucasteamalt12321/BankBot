@@ -129,7 +129,7 @@ https://github.com/lucasteamalt12321/BankBot
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
 | G01 | Исправить 62 сломанных unit тестов | P1 | completed |
-| G02 | Рефакторинг bot/bot.py (разбить монолит) | P2 | in_progress |
+| G02 | Рефакторинг bot/bot.py (разбить монолит) | P2 | completed |
 
 ### Низкий приоритет
 
@@ -143,22 +143,24 @@ https://github.com/lucasteamalt12321/BankBot
 
 ---
 
-## Phase 3 Roadmap (2026-04-04)
+## Phase 3 Roadmap (2026-04-05)
 
 ### Средний приоритет
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| H01 | Извлечь команды из bot/bot.py (games, dnd, motivation, social) | P2 | in_progress |
-
-**H01 notes:** Созданы модули: game_commands_ptb.py, motivation_commands_ptb.py, social_commands_ptb.py, notification_commands_ptb.py
-| H02 | Alembic миграции БД | P2 | pending |
-| H03 | Интеграция Prometheus метрик | P2 | pending |
+| H01 | Извлечь команды из bot/bot.py (games, dnd, motivation, social) | P2 | completed |
+| H02 | Alembic миграции БД | P2 | completed |
+| H03 | Интеграция Prometheus метрик | P2 | completed |
 
 ### Низкий приоритет
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| H04 | Ruff full cleanup (исправить F/E/W ошибки) | P3 | pending |
-| H05 | Integration тесты BridgeBot (VK forwarding) | P3 | pending |
-| H06 | Redis кэширование (кэш баланса) | P3 | pending |
+| H04 | Ruff full cleanup (исправить F/E/W ошибки) | P3 | completed |
+| H05 | Integration тесты BridgeBot (VK forwarding) | P3 | completed |
+| H06 | Redis кэширование (кэш баланса) | P3 | completed |
+
+**H01 notes:** bot/bot.py: 3923 → 891 строк (−77%). Созданы модули: dnd_commands_ptb.py, achievements_commands_ptb.py, social_commands_ptb.py, notification_commands_ptb.py, motivation_commands_ptb.py, game_commands_ptb.py
+
+**H06 notes:** Создан Redis бэкенд для кэша (`utils/redis_cache.py`). Redis уже установлен (5.0.1). Добавлен `redis==5.0.1` в requirements.txt. Тесты: `tests/unit/test_redis_cache.py` (19 тестов).

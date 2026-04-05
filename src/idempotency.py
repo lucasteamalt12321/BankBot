@@ -8,7 +8,7 @@ from src.repository_impl import DatabaseRepository
 
 class IdempotencyChecker:
     """Prevents duplicate message processing."""
-    
+
     def __init__(self, repository: DatabaseRepository):
         """
         Initialize with database repository.
@@ -17,7 +17,7 @@ class IdempotencyChecker:
             repository: DatabaseRepository instance for storing message IDs
         """
         self.repository = repository
-    
+
     def generate_message_id(self, message: str, timestamp: datetime) -> str:
         """
         Generate unique ID for a message.
@@ -31,7 +31,7 @@ class IdempotencyChecker:
         """
         content = f"{message}{timestamp.isoformat()}"
         return hashlib.sha256(content.encode()).hexdigest()
-    
+
     def is_processed(self, message_id: str) -> bool:
         """
         Check if message was already processed.
@@ -43,7 +43,7 @@ class IdempotencyChecker:
             True if message was already processed, False otherwise
         """
         return self.repository.message_id_exists(message_id)
-    
+
     def mark_processed(self, message_id: str) -> None:
         """
         Mark message as processed.

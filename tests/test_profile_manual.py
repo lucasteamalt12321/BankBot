@@ -29,7 +29,7 @@ else:
     print("❌ Профиль не распознан")
     print("\nДебаг информация:")
     print(f"Текст содержит 'ПРОФИЛЬ': {'ПРОФИЛЬ' in profile_text}")
-    
+
     # Проверяем построчно
     lines = profile_text.splitlines()
     for i, line in enumerate(lines):

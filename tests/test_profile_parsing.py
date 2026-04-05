@@ -13,7 +13,7 @@ from core.parsers.simple_parser import SimpleShmalalaParser
 def test_profile_parsing():
     """Тестируем парсинг профиля GDcards"""
     print("[TEST] Тестирование парсинга профиля GDcards...")
-    
+
     # Тестовое сообщение профиля
     test_message = """ПРОФИЛЬ LucasTeam
 ───────────────
@@ -28,17 +28,17 @@ ID: 8685 (23.08.2025)
 Бейджи: Нет
 Любимая карта: Нету
 ───────────────"""
-    
+
     print("\n[INFO] Тестовое сообщение:")
     print(test_message)
     print("\n" + "="*50 + "\n")
-    
+
     # Создаем парсер
     parser = SimpleShmalalaParser()
-    
+
     # Парсим сообщение
     result = parser.parse_profile_message(test_message)
-    
+
     if result:
         print("[SUCCESS] Профиль успешно распознан!")
         print(f"  - Игрок: {result.player_name}")
@@ -49,12 +49,12 @@ ID: 8685 (23.08.2025)
     else:
         print("[ERROR] Не удалось распознать профиль!")
         return False
-    
+
     # Проверяем корректность данных
     assert result.player_name == "LucasTeam", f"Ожидалось 'LucasTeam', получено '{result.player_name}'"
     assert result.orbs == 10, f"Ожидалось 10 орбов, получено {result.orbs}"
     assert result.points == 364, f"Ожидалось 364 очка, получено {result.points}"
-    
+
     print("\n[SUCCESS] Все проверки пройдены!")
     return True
 

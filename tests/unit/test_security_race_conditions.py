@@ -15,12 +15,12 @@ def in_memory_db():
     """Create an in-memory SQLite database for testing."""
     engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(bind=engine)
-    
+
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     session = SessionLocal()
-    
+
     yield session
-    
+
     session.close()
 
 
@@ -62,7 +62,7 @@ class TestRaceConditionPrevention:
 
         in_memory_db.expire_all()
         final_user = in_memory_db.query(User).filter(User.id == user.id).first()
-        
+
         expected_balance = 100 + 10 + 20 + 30
         assert final_user.balance == expected_balance, (
             f"Race condition detected: expected {expected_balance}, got {final_user.balance}"
@@ -88,7 +88,7 @@ class TestRaceConditionPrevention:
 
         in_memory_db.expire_all()
         final_user = in_memory_db.query(User).filter(User.id == user.id).first()
-        
+
         expected_balance = 100 + 50 - 30 + 20
         assert final_user.balance == expected_balance, (
             f"Balance mismatch: expected {expected_balance}, got {final_user.balance}"
@@ -121,7 +121,7 @@ class TestUnitOfWorkAtomicity:
 
         in_memory_db.expire_all()
         final_user = in_memory_db.query(User).filter(User.id == user.id).first()
-        
+
         assert final_user.balance == initial_balance + 50, (
             "Failed operation should have left partial state if not properly rolled back"
         )

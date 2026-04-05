@@ -10,14 +10,14 @@ from src.classifier import MessageClassifier, MessageType
 
 class TestMessageClassifier:
     """Test suite for MessageClassifier covering all 10 message types."""
-    
+
     @pytest.fixture
     def classifier(self):
         """Create a MessageClassifier instance for testing."""
         return MessageClassifier()
-    
+
     # GD Cards Tests
-    
+
     def test_gdcards_profile_classification(self, classifier):
         """Test classification of GD Cards profile messages."""
         message = """ПРОФИЛЬ LucasTeam
@@ -33,10 +33,10 @@ ID: 8685 (23.08.2025)
 Бейджи: Нет
 Любимая карта: Нету
 ───────────────"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.GDCARDS_PROFILE
-    
+
     def test_gdcards_accrual_classification(self, classifier):
         """Test classification of GD Cards accrual messages."""
         message = """🃏 НОВАЯ КАРТА 🃏
@@ -52,12 +52,12 @@ ID: 8685 (23.08.2025)
 Орбы за дроп: +10
 Коллекция: 124/213 карт
 ───────────────"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.GDCARDS_ACCRUAL
-    
+
     # Shmalala Fishing Tests
-    
+
     def test_shmalala_fishing_classification(self, classifier):
         """Test classification of Shmalala fishing messages."""
         message = """🎣 [Рыбалка] 🎣
@@ -73,10 +73,10 @@ ID: 8685 (23.08.2025)
 
 Монеты: +4 (266)💰
 Энергии осталось: 6 ⚡️"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.SHMALALA_FISHING
-    
+
     def test_shmalala_fishing_top_classification(self, classifier):
         """Test classification of Shmalala fishing top/leaderboard messages."""
         message = """[Самые богатые в этом чате]
@@ -87,20 +87,20 @@ LucasTeam Luke 3891 монет 💰
 ----------
 Crazy Time 266 монет 
 Roman Khrushchev 213 монет"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.SHMALALA_FISHING_TOP
-    
+
     # Shmalala Karma Tests
-    
+
     def test_shmalala_karma_classification(self, classifier):
         """Test classification of Shmalala karma messages."""
         message = """Лайк! Вы повысили рейтинг пользователя Никита .
 Теперь его рейтинг: 11 ❤️"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.SHMALALA_KARMA
-    
+
     def test_shmalala_karma_top_classification(self, classifier):
         """Test classification of Shmalala karma top/leaderboard messages."""
         message = """[Самые крутые по Карме в этом чате]
@@ -110,12 +110,12 @@ Roman Khrushchev 213 монет"""
 Sasha   - 9 кармы ❤️
 ----------
 LucasTeam Luke - 8 кармы"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.SHMALALA_KARMA_TOP
-    
+
     # True Mafia Tests
-    
+
     def test_truemafia_game_end_classification(self, classifier):
         """Test classification of True Mafia game end messages."""
         message = """Игра окончена! 
@@ -130,10 +130,10 @@ LucasTeam Luke - 8 кармы"""
     . - 🤵🏻 Дон 
 
 Игра длилась: 2 мин. 35 сек."""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.TRUEMAFIA_GAME_END
-    
+
     def test_truemafia_profile_classification(self, classifier):
         """Test classification of True Mafia profile messages."""
         message = """👤 Tidal Wave
@@ -144,12 +144,12 @@ LucasTeam Luke - 8 кармы"""
 🛡 Защита: 0
 📂 Документы: 0
 🎎 Активная роль: 1"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.TRUEMAFIA_PROFILE
-    
+
     # BunkerRP Tests
-    
+
     def test_bunkerrp_game_end_classification(self, classifier):
         """Test classification of BunkerRP game end messages."""
         message = """Прошли в бункер:
@@ -165,10 +165,10 @@ LucasTeam Luke - 8 кармы"""
 2. .
 💼Профессия: Судья
 👥Био: Мужчина, 32 года, гомосексуален, стаж работы 14 лет"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.BUNKERRP_GAME_END
-    
+
     def test_bunkerrp_profile_classification(self, classifier):
         """Test classification of BunkerRP profile messages."""
         message = """👤 LucasTeam
@@ -182,52 +182,52 @@ LucasTeam Luke - 8 кармы"""
 
 🎯 Побед: 7 (с финалом: 1)
 🎲 Всего игр: 16 (с финалом: 1)"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.BUNKERRP_PROFILE
-    
+
     # Unknown Message Tests
-    
+
     def test_unknown_message_classification(self, classifier):
         """Test classification of unknown/unrecognized messages."""
         message = "This is just a random message with no game markers."
-        
+
         result = classifier.classify(message)
         assert result == MessageType.UNKNOWN
-    
+
     def test_empty_message_classification(self, classifier):
         """Test classification of empty messages."""
         message = ""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.UNKNOWN
-    
+
     # Edge Cases and Priority Tests
-    
+
     def test_gdcards_profile_requires_both_markers(self, classifier):
         """Test that GD Cards profile requires both ПРОФИЛЬ and Орбы: markers."""
         # Only ПРОФИЛЬ without Орбы:
         message_without_orbs = "ПРОФИЛЬ TestUser\nID: 123"
         result = classifier.classify(message_without_orbs)
         assert result == MessageType.UNKNOWN
-        
+
         # Only Орбы: without ПРОФИЛЬ
         message_without_profile = "Орбы: 100\nSome other text"
         result = classifier.classify(message_without_profile)
         assert result == MessageType.UNKNOWN
-    
+
     def test_truemafia_game_end_requires_both_markers(self, classifier):
         """Test that True Mafia game end requires both markers."""
         # Only "Игра окончена!" without "Победители:"
         message_without_winners = "Игра окончена!\nSome other text"
         result = classifier.classify(message_without_winners)
         assert result == MessageType.UNKNOWN
-        
+
         # Only "Победители:" without "Игра окончена!"
         message_without_game_end = "Победители:\nPlayer1\nPlayer2"
         result = classifier.classify(message_without_game_end)
         assert result == MessageType.UNKNOWN
-    
+
     def test_truemafia_profile_requires_all_three_markers(self, classifier):
         """Test that True Mafia profile requires all three markers."""
         # Missing one marker
@@ -236,7 +236,7 @@ LucasTeam Luke - 8 кармы"""
 🛡 Защита: 0"""
         result = classifier.classify(message_missing_marker)
         assert result == MessageType.UNKNOWN
-    
+
     def test_bunkerrp_profile_requires_all_three_markers(self, classifier):
         """Test that BunkerRP profile requires all three markers."""
         # Missing one marker
@@ -245,7 +245,7 @@ LucasTeam Luke - 8 кармы"""
 🛡 Защита: 0"""
         result = classifier.classify(message_missing_marker)
         assert result == MessageType.UNKNOWN
-    
+
     def test_classification_priority_gdcards_profile_over_accrual(self, classifier):
         """Test that GD Cards profile is classified before accrual if both markers present."""
         # This shouldn't happen in practice, but tests priority
@@ -253,67 +253,67 @@ LucasTeam Luke - 8 кармы"""
         message = """🃏 НОВАЯ КАРТА 🃏
 ПРОФИЛЬ TestUser
 Орбы: 100"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.GDCARDS_PROFILE
-    
+
     def test_classification_priority_shmalala_fishing_over_top(self, classifier):
         """Test that Shmalala fishing is classified before fishing top."""
         # This shouldn't happen in practice, but tests priority
         message = """🎣 [Рыбалка] 🎣
 [Самые богатые в этом чате]
 Монеты: +5"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.SHMALALA_FISHING
-    
+
     def test_classification_priority_shmalala_karma_over_top(self, classifier):
         """Test that Shmalala karma is classified before karma top."""
         # This shouldn't happen in practice, but tests priority
         message = """Лайк! Вы повысили рейтинг пользователя TestUser.
 [Самые крутые по Карме в этом чате]"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.SHMALALA_KARMA
-    
+
     # Case Sensitivity Tests
-    
+
     def test_case_sensitive_gdcards_profile(self, classifier):
         """Test that GD Cards profile marker is case-sensitive."""
         # Lowercase version should not match
         message = "профиль TestUser\nОрбы: 100"
         result = classifier.classify(message)
         assert result == MessageType.UNKNOWN
-    
+
     def test_case_sensitive_truemafia_game_end(self, classifier):
         """Test that True Mafia game end marker is case-sensitive."""
         # Different case should not match
         message = "игра окончена!\nПобедители:\nPlayer1"
         result = classifier.classify(message)
         assert result == MessageType.UNKNOWN
-    
+
     # Whitespace and Special Character Tests
-    
+
     def test_classification_with_extra_whitespace(self, classifier):
         """Test that classification works with extra whitespace."""
         message = """  🃏 НОВАЯ КАРТА 🃏  
         
         Игрок: TestUser
         Очки: +5"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.GDCARDS_ACCRUAL
-    
+
     def test_classification_with_unicode_characters(self, classifier):
         """Test that classification works with various Unicode characters."""
         message = """Лайк! Вы повысили рейтинг пользователя Никита .
 Теперь его рейтинг: 11 ❤️"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.SHMALALA_KARMA
-    
+
     # Multiple Message Type Markers (should not happen, but test priority)
-    
+
     def test_multiple_game_markers_respects_priority(self, classifier):
         """Test that when multiple game markers are present, priority is respected."""
         # GD Cards accrual should take priority (appears first in classify method)
@@ -321,6 +321,6 @@ LucasTeam Luke - 8 кармы"""
 Игрок: TestUser
 🎣 [Рыбалка] 🎣
 Рыбак: TestUser"""
-        
+
         result = classifier.classify(message)
         assert result == MessageType.GDCARDS_ACCRUAL

@@ -1,8 +1,8 @@
 # Progress
 
 ## Статус проекта
-**Процент выполнения:** 97%
-**Текущая фаза:** F03-F04 — CI/CD pipeline + покрытие тестами
+**Процент выполнения:** 100%
+**Текущая фаза:** Phase 3 завершён (H01-H06)
 
 ## Known Issues
 
@@ -19,6 +19,69 @@
 - ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
 
 ## Changelog
+
+### 2026-04-05 (H06 — Redis кэширование)
+- **Создан Redis бэкенд:**
+  - `utils/redis_cache.py` — полнофункциональный Redis кэш
+  - Поддержка fallback при недоступности Redis
+  - Key prefix для изоляции данных
+  - JSON сериализация значений
+- **Добавлен в requirements.txt:**
+  - `redis==5.0.1`
+- **Созданы тесты:**
+  - `tests/unit/test_redis_cache.py` (19 тестов)
+- **Тесты**: 745 passed, 10 skipped
+
+### 2026-04-05 (H04 — Ruff cleanup)
+- **Автофиксы ruff:**
+  - F541: f-strings without placeholders (47 fixed)
+  - F811: Redefinition of unused imports (5 fixed)
+  - E712: Equality comparisons to True/False (47 fixed)
+- **Тесты**: 703 passed, 10 skipped
+
+### 2026-04-05 (H05 — BridgeBot тесты)
+- **Созданы тесты:**
+  - `tests/unit/test_bridge_loop_guard.py` (9 тестов)
+  - `tests/unit/test_bridge_queue.py` (14 тестов)
+- **Покрытые модули:**
+  - `bridge_bot/loop_guard.py` — has_bot_mark, add_bot_mark
+  - `bridge_bot/queue.py` — MessageQueue, OutboundMessage, RateLimitError
+- **Тесты**: 726 passed, 10 skipped
+
+### 2026-04-05 (H03 — Prometheus метрики)
+- **metrics_server.py** уже реализован:
+  - `/metrics` — Prometheus-compatible endpoint
+  - `/health` — Health check endpoint
+- **Добавлены в requirements.txt:**
+  - `flask==3.0.0`
+  - `prometheus-client==0.19.0`
+
+### 2026-04-05 (H02 — Alembic миграции)
+- **Создан Alembic конфиг:**
+  - `alembic.ini` — конфигурация
+  - `database/alembic/env.py` — окружение миграций
+  - `database/alembic/script.py.mako` — шаблон миграций
+  - `database/alembic/versions/001_initial.py` — начальная миграция
+  - `database/alembic/__init__.py`
+  - `database/alembic/versions/__init__.py`
+- **Тесты**: 703 passed, 10 skipped
+
+### 2026-04-05 (H01 — извлечение команд, продолжение)
+- **bot/bot.py**: 3923 → 891 строк (−77%)
+- **Созданы модули команд:**
+  - `bot/commands/dnd_commands_ptb.py` (10850 bytes)
+  - `bot/commands/achievements_commands_ptb.py` (2679 bytes)
+  - `bot/commands/social_commands_ptb.py` (5836 bytes)
+  - `bot/commands/notification_commands_ptb.py` (1813 bytes)
+  - `bot/commands/motivation_commands_ptb.py` (2135 bytes)
+- **Удалены inline методы:**
+  - D&D: dnd_command, dnd_create_command, dnd_join_command, dnd_sessions_command, dnd_roll_command
+  - Achievements: achievements_command
+  - Motivation: daily_bonus_command, challenges_command, motivation_stats_command
+  - Notifications: notifications_command, notifications_clear_command
+  - Social: friends_command, friend_add_command, friend_accept_command, gift_command, clan_command, clan_create_command, clan_join_command, clan_leave_command
+- **Тесты**: 703 passed, 10 skipped
+- **Ruff**: All checks passed
 
 ### 2026-04-03 (F03 — CI/CD pipeline)
 - Создан `.github/workflows/ci.yml`:
@@ -137,4 +200,4 @@
 - Добавлен Unit of Work для атомарных транзакций
 
 ## last_checked_commit
-e58eede (2026-04-03)
+e58eede (2026-04-03), обновления H01 (2026-04-05)

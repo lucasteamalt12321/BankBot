@@ -46,10 +46,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.2
         """
-        
+
         async def failing_callback(event, data):
             raise error_type(error_message)
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = 12345
@@ -57,14 +57,14 @@ class TestErrorHandlerProperties:
         message.from_user.id = user_id
         message.from_user.username = username
         message.text = "/test"
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
-            
+
             result = await middleware(failing_callback, message, data)
-            
+
             # Middleware всегда должен возвращать None
             assert result is None
             # Должен быть вызван send_message
@@ -84,10 +84,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.2
         """
-        
+
         async def failing_callback(event, data):
             raise ValueError("Test error")
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = chat_id
@@ -95,17 +95,17 @@ class TestErrorHandlerProperties:
         message.from_user.id = user_id
         message.from_user.username = "testuser"
         message.text = message_text
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
-            
+
             await middleware(failing_callback, message, data)
-            
+
             # Проверяем, что send_message был вызван
             assert mock_bot.send_message.called
-            
+
             # Проверяем, что сообщение отправлено на правильный chat_id
             call_args = mock_bot.send_message.call_args
             sent_chat_id = call_args[1]['chat_id'] if call_args else None
@@ -125,10 +125,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.3
         """
-        
+
         async def failing_callback(event, data):
             raise error_type(error_message)
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = 12345
@@ -136,14 +136,14 @@ class TestErrorHandlerProperties:
         message.from_user.id = 67890
         message.from_user.username = "testuser"
         message.text = "/test"
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = admin_id
-            
+
             await middleware(failing_callback, message, data)
-            
+
             # Проверяем, что send_message был вызван хотя бы один раз
             assert mock_bot.send_message.called
 
@@ -159,10 +159,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.2
         """
-        
+
         async def failing_callback(event, data):
             raise ValueError(error_message)
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = 12345
@@ -170,21 +170,21 @@ class TestErrorHandlerProperties:
         message.from_user.id = 67890
         message.from_user.username = "testuser"
         message.text = "/test"
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
-            
+
             await middleware(failing_callback, message, data)
-            
+
             # Проверяем, что send_message был вызван
             assert mock_bot.send_message.called
-            
+
             # Получаем отправленное сообщение
             call_args = mock_bot.send_message.call_args
             text = call_args[1]['text'] if call_args else ""
-            
+
             # Текст должен быть меньше 4000 символов (ограничение Telegram)
             assert len(text) <= 4000
 
@@ -202,10 +202,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.2
         """
-        
+
         async def failing_callback(event, data):
             raise ValueError("Test error")
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = 12345
@@ -213,24 +213,24 @@ class TestErrorHandlerProperties:
         message.from_user.id = user_id
         message.from_user.username = username
         message.text = message_text
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
-            
+
             await middleware(failing_callback, message, data)
-            
+
             # Проверяем, что send_message был вызван
             assert mock_bot.send_message.called
-            
+
             # Получаем отправленное сообщение администратору
             # (второй вызов - уведомление админу)
             all_calls = mock_bot.send_message.call_args_list
             if len(all_calls) >= 2:
                 admin_call = all_calls[1]
                 admin_text = admin_call[1]['text'] if admin_call else ""
-                
+
                 # Проверяем, что в уведомлении админу есть информация о пользователе
                 assert str(user_id) in admin_text or username in admin_text
 
@@ -248,10 +248,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.2
         """
-        
+
         async def failing_callback(event, data):
             raise ValueError("Test error")
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = chat_id
@@ -259,21 +259,21 @@ class TestErrorHandlerProperties:
         message.from_user.id = user_id
         message.from_user.username = "testuser"
         message.text = message_text
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
-            
+
             await middleware(failing_callback, message, data)
-            
+
             # Проверяем, что send_message был вызван
             assert mock_bot.send_message.called
-            
+
             # Получаем отправленное сообщение пользователю
             call_args = mock_bot.send_message.call_args
             text = call_args[1]['text'] if call_args else ""
-            
+
             # Проверяем, что сообщение содержит ключевые элементы
             assert "ошибка" in text.lower() or "ошибку" in text.lower()
             assert "администраторы" in text.lower() or "уведомлены" in text.lower()
@@ -292,10 +292,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.3
         """
-        
+
         async def failing_callback(event, data):
             raise error_type(error_message)
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = 12345
@@ -303,20 +303,20 @@ class TestErrorHandlerProperties:
         message.from_user.id = 67890
         message.from_user.username = "testuser"
         message.text = "/test"
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = admin_id
-            
+
             await middleware(failing_callback, message, data)
-            
+
             # Проверяем, что send_message был вызван
             assert mock_bot.send_message.called
-            
+
             # Получаем все вызовы send_message
             all_calls = mock_bot.send_message.call_args_list
-            
+
             # Ищем уведомление администратору (обычно это второй вызов)
             admin_notification_found = False
             for call in all_calls:
@@ -329,7 +329,7 @@ class TestErrorHandlerProperties:
                     assert "Пользователь" in text
                     assert "Сообщение" in text
                     break
-            
+
             assert admin_notification_found, "Уведомление администратору не найдено"
 
     @given(
@@ -346,10 +346,10 @@ class TestErrorHandlerProperties:
         
         Validates: Requirements 6.1, 6.3
         """
-        
+
         async def failing_callback(event, data):
             raise error_type(error_message)
-        
+
         message = MagicMock(spec=types.Message)
         message.chat = MagicMock()
         message.chat.id = 12345
@@ -357,16 +357,16 @@ class TestErrorHandlerProperties:
         message.from_user.id = 67890
         message.from_user.username = "testuser"
         message.text = "/test"
-        
+
         # Настраиваем bot.send_message чтобы выбрасывал исключение
         mock_bot.send_message.side_effect = Exception("Failed to send message")
-        
+
         data = {"bot": mock_bot}
-        
+
         with patch('bot.middleware.error_handler.settings') as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = admin_id
-            
+
             # Middleware должен обработать ошибку без выброса исключения
             result = await middleware(failing_callback, message, data)
-            
+
             assert result is None

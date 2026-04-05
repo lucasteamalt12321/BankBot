@@ -16,7 +16,7 @@ from src.parsers import (
 
 class BalanceManager:
     """Manages balance updates with business logic."""
-    
+
     def __init__(
         self,
         repository: DatabaseRepository,
@@ -34,7 +34,7 @@ class BalanceManager:
         self.repository = repository
         self.coefficient_provider = coefficient_provider
         self.logger = logger
-    
+
     def process_profile(self, parsed: ParsedProfile) -> None:
         """
         Process profile message and update balances.
@@ -44,13 +44,13 @@ class BalanceManager:
         """
         game = parsed.game
         coefficient = self.coefficient_provider.get_coefficient(game)
-        
+
         # Get or create user
         user = self.repository.get_or_create_user(parsed.player_name)
-        
+
         # Check if bot balance exists
         bot_balance = self.repository.get_bot_balance(user.user_id, game)
-        
+
         if bot_balance is None:
             # First time seeing this profile - initialize tracking
             self.repository.create_bot_balance(
@@ -63,21 +63,21 @@ class BalanceManager:
         else:
             # Calculate delta and update balances
             delta = parsed.orbs - bot_balance.last_balance
-            
+
             if delta != 0:
                 bank_change = delta * coefficient
-                
+
                 # Update bank balance
                 new_bank_balance = user.bank_balance + bank_change
                 self.repository.update_user_balance(user.user_id, new_bank_balance)
-                
+
                 # Update last_balance
                 self.repository.update_bot_last_balance(
                     user.user_id,
                     game,
                     parsed.orbs
                 )
-                
+
                 self.logger.log_profile_update(
                     user.user_name,
                     game,
@@ -87,7 +87,7 @@ class BalanceManager:
                     bank_change,
                     coefficient
                 )
-    
+
     def process_accrual(self, parsed: ParsedAccrual) -> None:
         """
         Process accrual message and update balances.
@@ -97,13 +97,13 @@ class BalanceManager:
         """
         game = parsed.game
         coefficient = self.coefficient_provider.get_coefficient(game)
-        
+
         # Get or create user
         user = self.repository.get_or_create_user(parsed.player_name)
-        
+
         # Get or create bot balance
         bot_balance = self.repository.get_bot_balance(user.user_id, game)
-        
+
         if bot_balance is None:
             # Create new bot balance with initial points
             self.repository.create_bot_balance(
@@ -120,12 +120,12 @@ class BalanceManager:
                 game,
                 new_bot_balance
             )
-        
+
         # Add to bank balance with coefficient
         bank_change = parsed.points * coefficient
         new_bank_balance = user.bank_balance + bank_change
         self.repository.update_user_balance(user.user_id, new_bank_balance)
-        
+
         self.logger.log_accrual(
             user.user_name,
             game,
@@ -133,7 +133,7 @@ class BalanceManager:
             bank_change,
             coefficient
         )
-    
+
     def process_fishing(self, parsed: ParsedFishing) -> None:
         """
         Process Shmalala fishing message and update balances.
@@ -143,13 +143,13 @@ class BalanceManager:
         """
         game = parsed.game
         coefficient = self.coefficient_provider.get_coefficient(game)
-        
+
         # Get or create user
         user = self.repository.get_or_create_user(parsed.player_name)
-        
+
         # Get or create bot balance
         bot_balance = self.repository.get_bot_balance(user.user_id, game)
-        
+
         if bot_balance is None:
             # Create new bot balance with initial coins
             self.repository.create_bot_balance(
@@ -166,12 +166,12 @@ class BalanceManager:
                 game,
                 new_bot_balance
             )
-        
+
         # Add to bank balance with coefficient
         bank_change = parsed.coins * coefficient
         new_bank_balance = user.bank_balance + bank_change
         self.repository.update_user_balance(user.user_id, new_bank_balance)
-        
+
         self.logger.log_accrual(
             user.user_name,
             game,
@@ -179,7 +179,7 @@ class BalanceManager:
             bank_change,
             coefficient
         )
-    
+
     def process_karma(self, parsed: ParsedKarma) -> None:
         """
         Process Shmalala karma message and update balances.
@@ -190,16 +190,16 @@ class BalanceManager:
         """
         game = parsed.game
         coefficient = self.coefficient_provider.get_coefficient(game)
-        
+
         # Get or create user
         user = self.repository.get_or_create_user(parsed.player_name)
-        
+
         # Karma accrual is always +1
         karma_accrual = Decimal(1)
-        
+
         # Get or create bot balance
         bot_balance = self.repository.get_bot_balance(user.user_id, game)
-        
+
         if bot_balance is None:
             # Create new bot balance with initial karma
             self.repository.create_bot_balance(
@@ -216,12 +216,12 @@ class BalanceManager:
                 game,
                 new_bot_balance
             )
-        
+
         # Add to bank balance with coefficient
         bank_change = karma_accrual * coefficient
         new_bank_balance = user.bank_balance + bank_change
         self.repository.update_user_balance(user.user_id, new_bank_balance)
-        
+
         self.logger.log_accrual(
             user.user_name,
             game,
@@ -229,7 +229,7 @@ class BalanceManager:
             bank_change,
             coefficient
         )
-    
+
     def process_game_winners(self, winners: list, game: str, fixed_amount: Decimal) -> None:
         """
         Process game end message with multiple winners getting fixed amounts.
@@ -242,14 +242,14 @@ class BalanceManager:
         """
         coefficient = self.coefficient_provider.get_coefficient(game)
         bank_change = fixed_amount * coefficient
-        
+
         for winner_name in winners:
             # Get or create user
             user = self.repository.get_or_create_user(winner_name)
-            
+
             # Get or create bot balance
             bot_balance = self.repository.get_bot_balance(user.user_id, game)
-            
+
             if bot_balance is None:
                 # Create new bot balance with initial amount
                 self.repository.create_bot_balance(
@@ -266,11 +266,11 @@ class BalanceManager:
                     game,
                     new_bot_balance
                 )
-            
+
             # Add to bank balance with coefficient
             new_bank_balance = user.bank_balance + bank_change
             self.repository.update_user_balance(user.user_id, new_bank_balance)
-            
+
             self.logger.log_accrual(
                 user.user_name,
                 game,
@@ -278,7 +278,7 @@ class BalanceManager:
                 bank_change,
                 coefficient
             )
-    
+
     def process_mafia_profile(self, parsed: ParsedMafiaProfile) -> None:
         """
         Process True Mafia profile message and update balances.
@@ -288,13 +288,13 @@ class BalanceManager:
         """
         game = parsed.game
         coefficient = self.coefficient_provider.get_coefficient(game)
-        
+
         # Get or create user
         user = self.repository.get_or_create_user(parsed.player_name)
-        
+
         # Check if bot balance exists
         bot_balance = self.repository.get_bot_balance(user.user_id, game)
-        
+
         if bot_balance is None:
             # First time seeing this profile - initialize tracking
             self.repository.create_bot_balance(
@@ -307,21 +307,21 @@ class BalanceManager:
         else:
             # Calculate delta and update balances
             delta = parsed.money - bot_balance.last_balance
-            
+
             if delta != 0:
                 bank_change = delta * coefficient
-                
+
                 # Update bank balance
                 new_bank_balance = user.bank_balance + bank_change
                 self.repository.update_user_balance(user.user_id, new_bank_balance)
-                
+
                 # Update last_balance
                 self.repository.update_bot_last_balance(
                     user.user_id,
                     game,
                     parsed.money
                 )
-                
+
                 self.logger.log_profile_update(
                     user.user_name,
                     game,
@@ -331,7 +331,7 @@ class BalanceManager:
                     bank_change,
                     coefficient
                 )
-    
+
     def process_bunker_profile(self, parsed: ParsedBunkerProfile) -> None:
         """
         Process BunkerRP profile message and update balances.
@@ -341,13 +341,13 @@ class BalanceManager:
         """
         game = parsed.game
         coefficient = self.coefficient_provider.get_coefficient(game)
-        
+
         # Get or create user
         user = self.repository.get_or_create_user(parsed.player_name)
-        
+
         # Check if bot balance exists
         bot_balance = self.repository.get_bot_balance(user.user_id, game)
-        
+
         if bot_balance is None:
             # First time seeing this profile - initialize tracking
             self.repository.create_bot_balance(
@@ -360,21 +360,21 @@ class BalanceManager:
         else:
             # Calculate delta and update balances
             delta = parsed.money - bot_balance.last_balance
-            
+
             if delta != 0:
                 bank_change = delta * coefficient
-                
+
                 # Update bank balance
                 new_bank_balance = user.bank_balance + bank_change
                 self.repository.update_user_balance(user.user_id, new_bank_balance)
-                
+
                 # Update last_balance
                 self.repository.update_bot_last_balance(
                     user.user_id,
                     game,
                     parsed.money
                 )
-                
+
                 self.logger.log_profile_update(
                     user.user_name,
                     game,

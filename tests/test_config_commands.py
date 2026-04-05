@@ -18,14 +18,14 @@ def mock_update():
     update.effective_user.id = 123456789
     update.effective_user.username = "test_admin"
     update.effective_user.first_name = "Test"
-    
+
     update.message = Mock(spec=Message)
     update.message.reply_text = AsyncMock()
     update.message.reply_document = AsyncMock()
-    
+
     update.effective_chat = Mock(spec=Chat)
     update.effective_chat.id = 123456789
-    
+
     return update
 
 
@@ -47,7 +47,7 @@ def config_commands():
 
 class TestReloadConfig:
     """Тесты для команды /reload_config"""
-    
+
     @pytest.mark.asyncio
     async def test_reload_config_success(self, config_commands, mock_update, mock_context):
         """Тест успешной перезагрузки конфигурации"""
@@ -55,19 +55,19 @@ class TestReloadConfig:
             with patch('bot.commands.config_commands.reload_global_configuration', return_value=True):
                 with patch.object(config_commands.config_manager, 'get_validation_errors', return_value=[]):
                     await config_commands.reload_config_command(mock_update, mock_context)
-                    
+
                     # Проверяем, что был вызван reply_text
                     assert mock_update.message.reply_text.called
                     call_args = mock_update.message.reply_text.call_args[0][0]
                     assert "✅" in call_args
                     assert "успешно перезагружена" in call_args
-    
+
     @pytest.mark.asyncio
     async def test_reload_config_no_admin(self, config_commands, mock_update, mock_context):
         """Тест отказа в доступе для не-администратора"""
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=False):
             await config_commands.reload_config_command(mock_update, mock_context)
-            
+
             # Проверяем сообщение об отказе
             assert mock_update.message.reply_text.called
             call_args = mock_update.message.reply_text.call_args[0][0]
@@ -77,7 +77,7 @@ class TestReloadConfig:
 
 class TestConfigStatus:
     """Тесты для команды /config_status"""
-    
+
     @pytest.mark.asyncio
     async def test_config_status_healthy(self, config_commands, mock_update, mock_context):
         """Тест отображения статуса здоровой системы"""
@@ -88,14 +88,14 @@ class TestConfigStatus:
             mock_health.database_connected = True
             mock_health.parsing_active = True
             mock_health.background_tasks_running = True
-            
+
             with patch.object(config_commands.config_manager, 'get_health_status', return_value=mock_health):
                 with patch.object(config_commands.config_manager, 'get_configuration') as mock_config:
                     mock_config.return_value.parsing_rules = []
                     mock_config.return_value.admin_user_ids = [123456789]
-                    
+
                     await config_commands.config_status_command(mock_update, mock_context)
-                    
+
                     assert mock_update.message.reply_text.called
                     call_args = mock_update.message.reply_text.call_args[0][0]
                     assert "✅" in call_args
@@ -104,20 +104,20 @@ class TestConfigStatus:
 
 class TestListParsingRules:
     """Тесты для команды /list_parsing_rules"""
-    
+
     @pytest.mark.asyncio
     async def test_list_parsing_rules_empty(self, config_commands, mock_update, mock_context):
         """Тест отображения пустого списка правил"""
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'get_configuration') as mock_config:
                 mock_config.return_value.parsing_rules = []
-                
+
                 await config_commands.list_parsing_rules_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "не настроены" in call_args.lower()
-    
+
     @pytest.mark.asyncio
     async def test_list_parsing_rules_with_rules(self, config_commands, mock_update, mock_context):
         """Тест отображения списка правил"""
@@ -130,12 +130,12 @@ class TestListParsingRules:
             mock_rule.multiplier = 1.5
             mock_rule.currency_type = "points"
             mock_rule.is_active = True
-            
+
             with patch.object(config_commands.config_manager, 'get_configuration') as mock_config:
                 mock_config.return_value.parsing_rules = [mock_rule]
-                
+
                 await config_commands.list_parsing_rules_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "TestBot" in call_args
@@ -144,29 +144,29 @@ class TestListParsingRules:
 
 class TestAddParsingRule:
     """Тесты для команды /add_parsing_rule"""
-    
+
     @pytest.mark.asyncio
     async def test_add_parsing_rule_success(self, config_commands, mock_update, mock_context):
         """Тест успешного добавления правила"""
         mock_context.args = ["TestBot", "Pattern: (\\d+)", "1.5", "points"]
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'add_parsing_rule', return_value=True):
                 await config_commands.add_parsing_rule_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "✅" in call_args
                 assert "успешно добавлено" in call_args.lower()
-    
+
     @pytest.mark.asyncio
     async def test_add_parsing_rule_invalid_args(self, config_commands, mock_update, mock_context):
         """Тест с неверными аргументами"""
         mock_context.args = ["TestBot"]  # Недостаточно аргументов
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             await config_commands.add_parsing_rule_command(mock_update, mock_context)
-            
+
             assert mock_update.message.reply_text.called
             call_args = mock_update.message.reply_text.call_args[0][0]
             assert "❌" in call_args
@@ -175,29 +175,29 @@ class TestAddParsingRule:
 
 class TestUpdateParsingRule:
     """Тесты для команды /update_parsing_rule"""
-    
+
     @pytest.mark.asyncio
     async def test_update_parsing_rule_success(self, config_commands, mock_update, mock_context):
         """Тест успешного обновления правила"""
         mock_context.args = ["1", "multiplier", "2.0"]
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'update_parsing_rule', return_value=True):
                 await config_commands.update_parsing_rule_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "✅" in call_args
                 assert "обновлено" in call_args.lower()
-    
+
     @pytest.mark.asyncio
     async def test_update_parsing_rule_invalid_field(self, config_commands, mock_update, mock_context):
         """Тест с неверным полем"""
         mock_context.args = ["1", "invalid_field", "value"]
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             await config_commands.update_parsing_rule_command(mock_update, mock_context)
-            
+
             assert mock_update.message.reply_text.called
             call_args = mock_update.message.reply_text.call_args[0][0]
             assert "❌" in call_args
@@ -206,7 +206,7 @@ class TestUpdateParsingRule:
 
 class TestExportConfig:
     """Тесты для команды /export_config"""
-    
+
     @pytest.mark.asyncio
     async def test_export_config_success(self, config_commands, mock_update, mock_context):
         """Тест успешного экспорта конфигурации"""
@@ -216,24 +216,24 @@ class TestExportConfig:
                 with patch('builtins.open', create=True):
                     with patch('tempfile.NamedTemporaryFile') as mock_temp:
                         mock_temp.return_value.__enter__.return_value.name = '/tmp/test.json'
-                        
+
                         await config_commands.export_config_command(mock_update, mock_context)
-                        
+
                         assert mock_update.message.reply_document.called
 
 
 class TestBackupConfig:
     """Тесты для команды /backup_config"""
-    
+
     @pytest.mark.asyncio
     async def test_backup_config_success(self, config_commands, mock_update, mock_context):
         """Тест успешного создания бэкапа"""
         mock_context.args = ["Test backup"]
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'create_configuration_backup', return_value="backup123"):
                 await config_commands.backup_config_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "✅" in call_args
@@ -242,29 +242,29 @@ class TestBackupConfig:
 
 class TestRestoreConfig:
     """Тесты для команды /restore_config"""
-    
+
     @pytest.mark.asyncio
     async def test_restore_config_success(self, config_commands, mock_update, mock_context):
         """Тест успешного восстановления из бэкапа"""
         mock_context.args = ["backup123"]
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'restore_configuration_backup', return_value=True):
                 await config_commands.restore_config_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "✅" in call_args
                 assert "восстановлена" in call_args.lower()
-    
+
     @pytest.mark.asyncio
     async def test_restore_config_no_args(self, config_commands, mock_update, mock_context):
         """Тест без указания ID бэкапа"""
         mock_context.args = []
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             await config_commands.restore_config_command(mock_update, mock_context)
-            
+
             assert mock_update.message.reply_text.called
             call_args = mock_update.message.reply_text.call_args[0][0]
             assert "❌" in call_args
@@ -273,18 +273,18 @@ class TestRestoreConfig:
 
 class TestListBackups:
     """Тесты для команды /list_backups"""
-    
+
     @pytest.mark.asyncio
     async def test_list_backups_empty(self, config_commands, mock_update, mock_context):
         """Тест с пустым списком бэкапов"""
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'list_configuration_backups', return_value=[]):
                 await config_commands.list_backups_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "не найдены" in call_args.lower()
-    
+
     @pytest.mark.asyncio
     async def test_list_backups_with_backups(self, config_commands, mock_update, mock_context):
         """Тест со списком бэкапов"""
@@ -296,11 +296,11 @@ class TestListBackups:
                 'file_size': 15360
             }
         ]
-        
+
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'list_configuration_backups', return_value=mock_backups):
                 await config_commands.list_backups_command(mock_update, mock_context)
-                
+
                 assert mock_update.message.reply_text.called
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "backup123" in call_args
@@ -309,7 +309,7 @@ class TestListBackups:
 
 class TestValidateConfig:
     """Тесты для команды /validate_config"""
-    
+
     @pytest.mark.asyncio
     async def test_validate_config_success(self, config_commands, mock_update, mock_context):
         """Тест успешной валидации"""
@@ -317,28 +317,28 @@ class TestValidateConfig:
             with patch.object(config_commands.config_manager, 'get_configuration') as mock_config:
                 mock_config.return_value.parsing_rules = []
                 mock_config.return_value.admin_user_ids = [123456789]
-                
+
                 with patch.object(config_commands.config_manager, 'validate_configuration', return_value=[]):
                     with patch.object(config_commands.config_manager, 'validate_configuration_schema', return_value=[]):
                         await config_commands.validate_config_command(mock_update, mock_context)
-                        
+
                         assert mock_update.message.reply_text.called
                         call_args = mock_update.message.reply_text.call_args[0][0]
                         assert "✅" in call_args
                         assert "пройдена" in call_args.lower()
-    
+
     @pytest.mark.asyncio
     async def test_validate_config_with_errors(self, config_commands, mock_update, mock_context):
         """Тест валидации с ошибками"""
         with patch.object(config_commands.admin_manager, 'is_admin', return_value=True):
             with patch.object(config_commands.config_manager, 'get_configuration') as mock_config:
                 mock_config.return_value.parsing_rules = []
-                
+
                 errors = ["Error 1", "Error 2"]
                 with patch.object(config_commands.config_manager, 'validate_configuration', return_value=errors):
                     with patch.object(config_commands.config_manager, 'validate_configuration_schema', return_value=[]):
                         await config_commands.validate_config_command(mock_update, mock_context)
-                        
+
                         assert mock_update.message.reply_text.called
                         call_args = mock_update.message.reply_text.call_args[0][0]
                         assert "❌" in call_args

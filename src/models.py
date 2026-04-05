@@ -10,21 +10,21 @@ class MessageType(Enum):
     # GD Cards
     GDCARDS_PROFILE = "gdcards_profile"
     GDCARDS_ACCRUAL = "gdcards_accrual"
-    
+
     # Shmalala
     SHMALALA_FISHING = "shmalala_fishing"
     SHMALALA_FISHING_TOP = "shmalala_fishing_top"
     SHMALALA_KARMA = "shmalala_karma"
     SHMALALA_KARMA_TOP = "shmalala_karma_top"
-    
+
     # True Mafia
     TRUEMAFIA_GAME_END = "truemafia_game_end"
     TRUEMAFIA_PROFILE = "truemafia_profile"
-    
+
     # BunkerRP
     BUNKERRP_GAME_END = "bunkerrp_game_end"
     BUNKERRP_PROFILE = "bunkerrp_profile"
-    
+
     UNKNOWN = "unknown"
 
 

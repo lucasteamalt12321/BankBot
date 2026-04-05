@@ -49,11 +49,11 @@ def verify_migration():
     print("Parsing Configuration Migration Verification")
     print("=" * 60)
     print()
-    
+
     # Load original coefficients
     coefficients_path = project_root / "config" / "coefficients.json"
     print(f"📂 Loading original coefficients from: {coefficients_path}")
-    
+
     try:
         with open(coefficients_path, 'r', encoding='utf-8') as f:
             original_coefficients = json.load(f)
@@ -65,47 +65,47 @@ def verify_migration():
     except json.JSONDecodeError as e:
         print(f"❌ Error parsing JSON: {e}")
         return False
-    
+
     # Connect to database
     print("🔌 Connecting to database...")
     session = SessionLocal()
-    
+
     try:
         repository = BaseRepository(ParsingRule, session)
         manager = ParsingConfigManager(repository)
         print("✅ Database connection established")
         print()
-        
+
         # Get all rules from database
         print("📋 Retrieving parsing rules from database...")
         all_rules = manager.get_all_rules()
         print(f"✅ Found {len(all_rules)} rules in database")
         print()
-        
+
         # Verification checks
         print("🔍 Running verification checks...")
         print("-" * 60)
-        
+
         all_passed = True
         missing_games = []
         incorrect_coefficients = []
         disabled_rules = []
-        
+
         # Check each game from original coefficients
         for original_name, expected_coefficient in original_coefficients.items():
             game_name = GAME_NAME_MAPPING.get(original_name, original_name.lower().replace(" ", "_"))
-            
+
             print(f"\n✓ Checking: {original_name} → {game_name}")
-            
+
             # Check if rule exists
             if game_name not in all_rules:
                 print("  ❌ MISSING: Rule not found in database")
                 missing_games.append(original_name)
                 all_passed = False
                 continue
-            
+
             rule = all_rules[game_name]
-            
+
             # Check coefficient
             if rule.coefficient != expected_coefficient:
                 print("  ❌ COEFFICIENT MISMATCH:")
@@ -119,7 +119,7 @@ def verify_migration():
                 all_passed = False
             else:
                 print(f"  ✅ Coefficient correct: {rule.coefficient}")
-            
+
             # Check if enabled
             if not rule.enabled:
                 print("  ⚠️  WARNING: Rule is disabled")
@@ -127,11 +127,11 @@ def verify_migration():
                 all_passed = False
             else:
                 print("  ✅ Rule is enabled")
-            
+
             # Display additional info
             print(f"  ℹ️  Parser class: {rule.parser_class}")
             print(f"  ℹ️  Database ID: {rule.id}")
-        
+
         print()
         print("-" * 60)
         print("📊 Verification Summary:")
@@ -141,51 +141,51 @@ def verify_migration():
         print(f"   • Incorrect coefficients: {len(incorrect_coefficients)}")
         print(f"   • Disabled rules: {len(disabled_rules)}")
         print()
-        
+
         # Report issues
         if missing_games:
             print("❌ Missing games:")
             for game in missing_games:
                 print(f"   • {game}")
             print()
-        
+
         if incorrect_coefficients:
             print("❌ Incorrect coefficients:")
             for item in incorrect_coefficients:
                 print(f"   • {item['game']}: expected {item['expected']}, got {item['actual']}")
             print()
-        
+
         if disabled_rules:
             print("⚠️  Disabled rules:")
             for game in disabled_rules:
                 print(f"   • {game}")
             print()
-        
+
         # Display all database rules
         print("📋 All parsing rules in database:")
         print("-" * 60)
         for game_name, rule in sorted(all_rules.items()):
             status = "✅ Enabled" if rule.enabled else "❌ Disabled"
             print(f"   {game_name:20} | Coef: {rule.coefficient:6.1f} | {status} | Parser: {rule.parser_class}")
-        
+
         print()
         print("=" * 60)
-        
+
         if all_passed:
             print("✅ VERIFICATION PASSED: All data migrated correctly!")
         else:
             print("❌ VERIFICATION FAILED: Issues found (see above)")
-        
+
         print("=" * 60)
-        
+
         return all_passed
-        
+
     except Exception as e:
         print(f"\n❌ Fatal error during verification: {e}")
         import traceback
         traceback.print_exc()
         return False
-        
+
     finally:
         session.close()
         print("\n🔌 Database connection closed")

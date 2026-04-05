@@ -18,9 +18,12 @@ python-dotenv==1.0.0
 
 # Logging & Monitoring
 structlog==23.1.0
+flask==3.0.0
+prometheus-client==0.19.0
 
 # System Utilities
 psutil==5.9.6
+redis==5.0.1
 
 # Date & Time Handling
 pytz==2023.3

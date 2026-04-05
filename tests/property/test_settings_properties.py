@@ -88,7 +88,7 @@ def invalid_log_level():
 
 class TestSettingsValidInputProperties:
     """Property-based tests for valid Settings inputs"""
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -102,19 +102,19 @@ class TestSettingsValidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         # Valid inputs should always succeed
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # Verify values are stored correctly
         assert settings.BOT_TOKEN == bot_token
         assert settings.ADMIN_TELEGRAM_ID == admin_id
         assert settings.DATABASE_URL == database_url
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -129,19 +129,19 @@ class TestSettingsValidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url,
             ENV=env
         )
-        
+
         assert settings.ENV == env
         assert settings.BOT_TOKEN == bot_token
         assert settings.ADMIN_TELEGRAM_ID == admin_id
         assert settings.DATABASE_URL == database_url
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -156,18 +156,18 @@ class TestSettingsValidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url,
             LOG_LEVEL=log_level
         )
-        
+
         # LOG_LEVEL should always be uppercase
         assert settings.LOG_LEVEL == log_level.upper()
         assert settings.LOG_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -182,21 +182,21 @@ class TestSettingsValidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url,
             PARSING_ENABLED=parsing_enabled
         )
-        
+
         assert settings.PARSING_ENABLED == parsing_enabled
         assert settings.BOT_TOKEN == bot_token
 
 
 class TestSettingsInvalidInputProperties:
     """Property-based tests for invalid Settings inputs"""
-    
+
     @given(
         admin_id=valid_admin_id(),
         database_url=valid_database_url()
@@ -209,16 +209,16 @@ class TestSettingsInvalidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         with pytest.raises(ValidationError) as exc_info:
             Settings(
                 BOT_TOKEN="",
                 ADMIN_TELEGRAM_ID=admin_id,
                 DATABASE_URL=database_url
             )
-        
+
         assert "BOT_TOKEN cannot be empty" in str(exc_info.value)
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=invalid_admin_id(),
@@ -232,16 +232,16 @@ class TestSettingsInvalidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         with pytest.raises(ValidationError) as exc_info:
             Settings(
                 BOT_TOKEN=bot_token,
                 ADMIN_TELEGRAM_ID=admin_id,
                 DATABASE_URL=database_url
             )
-        
+
         assert "ADMIN_TELEGRAM_ID must be a positive integer" in str(exc_info.value)
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id()
@@ -254,16 +254,16 @@ class TestSettingsInvalidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         with pytest.raises(ValidationError) as exc_info:
             Settings(
                 BOT_TOKEN=bot_token,
                 ADMIN_TELEGRAM_ID=admin_id,
                 DATABASE_URL=""
             )
-        
+
         assert "DATABASE_URL cannot be empty" in str(exc_info.value)
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -278,10 +278,10 @@ class TestSettingsInvalidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         # Skip if invalid_env is empty (different error)
         assume(invalid_env != "")
-        
+
         with pytest.raises(ValidationError) as exc_info:
             Settings(
                 BOT_TOKEN=bot_token,
@@ -289,9 +289,9 @@ class TestSettingsInvalidInputProperties:
                 DATABASE_URL=database_url,
                 ENV=invalid_env
             )
-        
+
         assert "ENV must be one of" in str(exc_info.value)
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -306,10 +306,10 @@ class TestSettingsInvalidInputProperties:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         # Skip if invalid_log_level is empty (different error)
         assume(invalid_log_level != "")
-        
+
         with pytest.raises(ValidationError) as exc_info:
             Settings(
                 BOT_TOKEN=bot_token,
@@ -317,13 +317,13 @@ class TestSettingsInvalidInputProperties:
                 DATABASE_URL=database_url,
                 LOG_LEVEL=invalid_log_level
             )
-        
+
         assert "LOG_LEVEL must be one of" in str(exc_info.value)
 
 
 class TestSettingsNoHardcodedSecrets:
     """Property-based tests for no hardcoded secrets"""
-    
+
     @given(file_content=st.text(min_size=0, max_size=1000))
     @hypothesis_settings(max_examples=20, deadline=None)
     def test_no_hardcoded_admin_id_in_content(self, file_content):
@@ -339,14 +339,14 @@ class TestSettingsNoHardcodedSecrets:
         """
         # The specific hardcoded ID that should not appear in production code
         hardcoded_id = "2091908459"
-        
+
         # If the content contains the hardcoded ID, it's a violation
         # (In real implementation, this would scan actual production files, excluding tests and migrations)
         if hardcoded_id in file_content:
             # This is a demonstration - in practice, we'd scan actual source files
             # For now, we just verify the property holds
             assert False, f"Found hardcoded admin ID {hardcoded_id} in content - use settings.ADMIN_TELEGRAM_ID instead"
-    
+
     @given(file_content=st.text(min_size=0, max_size=1000))
     @hypothesis_settings(max_examples=20, deadline=None)
     def test_no_bot_token_pattern_in_content(self, file_content):
@@ -359,13 +359,13 @@ class TestSettingsNoHardcodedSecrets:
         **Validates: Design Property 2: No Hardcoded Secrets**
         """
         import re
-        
+
         # Bot token pattern: 10 digits, colon, 35 alphanumeric characters
         bot_token_pattern = r'\d{10}:\w{35}'
-        
+
         # If content matches bot token pattern, it's a potential violation
         matches = re.findall(bot_token_pattern, file_content)
-        
+
         # In real code, we'd check if these are in actual source files
         # For property testing, we verify the pattern detection works
         if matches:
@@ -376,7 +376,7 @@ class TestSettingsNoHardcodedSecrets:
 
 class TestSettingsConfigurationUniqueness:
     """Property-based tests for configuration uniqueness"""
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -391,28 +391,28 @@ class TestSettingsConfigurationUniqueness:
         **Validates: Design Property 1: Configuration Uniqueness**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # Values should remain the same
         original_token = settings.BOT_TOKEN
         original_id = settings.ADMIN_TELEGRAM_ID
         original_url = settings.DATABASE_URL
-        
+
         # Read multiple times - should always be the same
         assert settings.BOT_TOKEN == original_token
         assert settings.ADMIN_TELEGRAM_ID == original_id
         assert settings.DATABASE_URL == original_url
-        
+
         # Values should not change
         assert settings.BOT_TOKEN == bot_token
         assert settings.ADMIN_TELEGRAM_ID == admin_id
         assert settings.DATABASE_URL == database_url
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -427,19 +427,19 @@ class TestSettingsConfigurationUniqueness:
         **Validates: Design Property 1: Configuration Uniqueness**
         """
         from src.config import Settings
-        
+
         settings1 = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         settings2 = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # Same values should produce same configuration
         assert settings1.BOT_TOKEN == settings2.BOT_TOKEN
         assert settings1.ADMIN_TELEGRAM_ID == settings2.ADMIN_TELEGRAM_ID
@@ -451,7 +451,7 @@ class TestSettingsConfigurationUniqueness:
 
 class TestSettingsValidationInvariants:
     """Property-based tests for validation invariants"""
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -465,13 +465,13 @@ class TestSettingsValidationInvariants:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # All required fields must be present
         assert hasattr(settings, 'BOT_TOKEN')
         assert hasattr(settings, 'ADMIN_TELEGRAM_ID')
@@ -480,12 +480,12 @@ class TestSettingsValidationInvariants:
         assert hasattr(settings, 'PARSING_ENABLED')
         assert hasattr(settings, 'LOG_LEVEL')
         assert hasattr(settings, 'LOG_FILE')
-        
+
         # Required fields must not be None
         assert settings.BOT_TOKEN is not None
         assert settings.ADMIN_TELEGRAM_ID is not None
         assert settings.DATABASE_URL is not None
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -499,17 +499,17 @@ class TestSettingsValidationInvariants:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # Admin ID must always be positive
         assert settings.ADMIN_TELEGRAM_ID > 0
         assert isinstance(settings.ADMIN_TELEGRAM_ID, int)
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -523,18 +523,18 @@ class TestSettingsValidationInvariants:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # Bot token must never be empty
         assert settings.BOT_TOKEN != ""
         assert len(settings.BOT_TOKEN) > 0
         assert isinstance(settings.BOT_TOKEN, str)
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -548,18 +548,18 @@ class TestSettingsValidationInvariants:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # Database URL must never be empty
         assert settings.DATABASE_URL != ""
         assert len(settings.DATABASE_URL) > 0
         assert isinstance(settings.DATABASE_URL, str)
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -573,17 +573,17 @@ class TestSettingsValidationInvariants:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # ENV must always be one of allowed values
         allowed_envs = ["development", "test", "staging", "production"]
         assert settings.ENV in allowed_envs
-    
+
     @given(
         bot_token=valid_bot_token(),
         admin_id=valid_admin_id(),
@@ -597,13 +597,13 @@ class TestSettingsValidationInvariants:
         **Validates: Requirements 1.1**
         """
         from src.config import Settings
-        
+
         settings = Settings(
             BOT_TOKEN=bot_token,
             ADMIN_TELEGRAM_ID=admin_id,
             DATABASE_URL=database_url
         )
-        
+
         # LOG_LEVEL must always be uppercase
         assert settings.LOG_LEVEL == settings.LOG_LEVEL.upper()
         allowed_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]

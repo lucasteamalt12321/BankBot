@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 class BetaCommandsImpl:
     """Implementation of beta commands"""
-    
+
     def __init__(self):
         self.db_path = "data/bot.db"
-    
+
     def _get_user_id(self, telegram_id: int) -> Optional[int]:
         """Get internal user ID from telegram ID"""
         db = next(get_db())
@@ -28,11 +28,11 @@ class BetaCommandsImpl:
             return user.id if user else None
         finally:
             db.close()
-    
+
     # ============================================
     # ЭКОНОМИКА И ТОРГОВЛЯ
     # ============================================
-    
+
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /market - рыночная площадка"""
         text = """
@@ -53,7 +53,7 @@ class BetaCommandsImpl:
 🔜 <b>Скоро:</b> Фильтры, поиск, категории
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def sell_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /sell - выставить предмет на продажу"""
         if not context.args or len(context.args) < 2:
@@ -71,13 +71,13 @@ class BetaCommandsImpl:
         """
             await update.message.reply_text(text, parse_mode='HTML')
             return
-        
+
         # Парсинг аргументов
         try:
             # Простая реализация - последний аргумент это цена
             price = float(context.args[-1])
             item_name = ' '.join(context.args[:-1]).strip('"\'')
-            
+
             text = f"""
 ✅ <b>Объявление создано!</b>
 
@@ -93,11 +93,11 @@ class BetaCommandsImpl:
 Объявление пока не сохранено в базе
             """
             await update.message.reply_text(text, parse_mode='HTML')
-            
+
         except ValueError:
             await update.message.reply_text("❌ Неверная цена! Укажите число.")
 
-    
+
     async def trade_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /trade - предложить обмен"""
         if not context.args:
@@ -121,7 +121,7 @@ class BetaCommandsImpl:
             """
             await update.message.reply_text(text, parse_mode='HTML')
             return
-        
+
         partner = context.args[0].lstrip('@')
         text = f"""
 🤝 <b>Предложение обмена</b>
@@ -134,7 +134,7 @@ class BetaCommandsImpl:
 Обмен пока недоступен
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def loan_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /loan - взять кредит"""
         if not context.args:
@@ -160,12 +160,12 @@ class BetaCommandsImpl:
             """
             await update.message.reply_text(text, parse_mode='HTML')
             return
-        
+
         try:
             amount = float(context.args[0])
             interest = amount * 0.10
             total = amount + interest
-            
+
             text = f"""
 🏦 <b>Заявка на кредит</b>
 
@@ -180,10 +180,10 @@ class BetaCommandsImpl:
 Кредит пока недоступен
             """
             await update.message.reply_text(text, parse_mode='HTML')
-            
+
         except ValueError:
             await update.message.reply_text("❌ Неверная сумма! Укажите число.")
-    
+
     async def repay_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /repay - погасить кредит"""
         text = """
@@ -199,7 +199,7 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def invest_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /invest - инвестировать монеты"""
         if len(context.args) < 2:
@@ -225,19 +225,19 @@ class BetaCommandsImpl:
             """
             await update.message.reply_text(text, parse_mode='HTML')
             return
-        
+
         try:
             amount = float(context.args[0])
             term = context.args[1].lower()
-            
+
             rates = {'1d': 0.05, '3d': 0.08, '7d': 0.12, '30d': 0.15}
             if term not in rates:
                 await update.message.reply_text("❌ Неверный срок! Используйте: 1d, 3d, 7d, 30d")
                 return
-            
+
             profit = amount * rates[term]
             total = amount + profit
-            
+
             text = f"""
 📈 <b>Инвестиция создана</b>
 
@@ -252,10 +252,10 @@ class BetaCommandsImpl:
 Инвестиция пока недоступна
             """
             await update.message.reply_text(text, parse_mode='HTML')
-            
+
         except ValueError:
             await update.message.reply_text("❌ Неверная сумма! Укажите число.")
-    
+
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /portfolio - инвестиционный портфель"""
         text = """
@@ -277,11 +277,11 @@ class BetaCommandsImpl:
         """
         await update.message.reply_text(text, parse_mode='HTML')
 
-    
+
     # ============================================
     # КВЕСТЫ И ЗАДАНИЯ
     # ============================================
-    
+
     async def quests_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /quests - доступные квесты"""
         text = """
@@ -310,13 +310,13 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def quest_start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /quest_start - начать квест"""
         if not context.args:
             await update.message.reply_text("❌ Укажите номер квеста: /quest_start 1")
             return
-        
+
         quest_id = context.args[0]
         text = f"""
 ✅ <b>Квест активирован!</b>
@@ -332,7 +332,7 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def quest_progress_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /quest_progress - прогресс по квестам"""
         text = """
@@ -351,13 +351,13 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def quest_complete_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /quest_complete - завершить квест"""
         if not context.args:
             await update.message.reply_text("❌ Укажите номер квеста: /quest_complete 1")
             return
-        
+
         quest_id = context.args[0]
         text = f"""
 🎉 <b>Квест завершен!</b>
@@ -375,7 +375,7 @@ class BetaCommandsImpl:
 Награды пока не начисляются
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def quest_history_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /quest_history - история квестов"""
         text = """
@@ -396,15 +396,15 @@ class BetaCommandsImpl:
         """
         await update.message.reply_text(text, parse_mode='HTML')
 
-    
+
     # ============================================
     # РЕЙТИНГИ И СОРЕВНОВАНИЯ
     # ============================================
-    
+
     async def leaderboard_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /leaderboard - таблица лидеров"""
         category = context.args[0] if context.args else 'balance'
-        
+
         text = f"""
 🏆 <b>Таблица лидеров</b>
 <b>Категория:</b> {category}
@@ -432,7 +432,7 @@ class BetaCommandsImpl:
 Данные тестовые
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def rank_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /rank - ваш ранг"""
         text = """
@@ -461,13 +461,13 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def compare_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /compare - сравнить статистику"""
         if not context.args:
             await update.message.reply_text("❌ Укажите пользователя: /compare @username")
             return
-        
+
         partner = context.args[0].lstrip('@')
         text = f"""
 📊 <b>Сравнение с @{partner}</b>
@@ -495,7 +495,7 @@ class BetaCommandsImpl:
 Данные тестовые
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def tournament_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /tournament - текущие турниры"""
         text = """
@@ -526,13 +526,13 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def tournament_join_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /tournament_join - участвовать в турнире"""
         if not context.args:
             await update.message.reply_text("❌ Укажите номер турнира: /tournament_join 1")
             return
-        
+
         tournament_id = context.args[0]
         text = f"""
 ✅ <b>Регистрация на турнир</b>
@@ -552,11 +552,11 @@ class BetaCommandsImpl:
         """
         await update.message.reply_text(text, parse_mode='HTML')
 
-    
+
     # ============================================
     # ПЕРСОНАЛИЗАЦИЯ
     # ============================================
-    
+
     async def customize_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /customize - настройки профиля"""
         text = """
@@ -582,7 +582,7 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def title_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /title - установить титул"""
         if not context.args:
@@ -603,7 +603,7 @@ class BetaCommandsImpl:
             """
             await update.message.reply_text(text, parse_mode='HTML')
             return
-        
+
         title = ' '.join(context.args)
         text = f"""
 ✅ <b>Титул изменен!</b>
@@ -616,7 +616,7 @@ class BetaCommandsImpl:
 Титул пока не сохраняется
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def badge_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /badge - управление значками"""
         text = """
@@ -647,7 +647,7 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def theme_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /theme - тема оформления"""
         if not context.args:
@@ -678,7 +678,7 @@ class BetaCommandsImpl:
             """
             await update.message.reply_text(text, parse_mode='HTML')
             return
-        
+
         theme = context.args[0].lower()
         text = f"""
 ✅ <b>Тема изменена!</b>
@@ -692,11 +692,11 @@ class BetaCommandsImpl:
         """
         await update.message.reply_text(text, parse_mode='HTML')
 
-    
+
     # ============================================
     # СТАТИСТИКА И АНАЛИТИКА
     # ============================================
-    
+
     async def activity_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /activity - график активности"""
         text = """
@@ -726,7 +726,7 @@ class BetaCommandsImpl:
 Данные тестовые
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def income_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /income - анализ доходов"""
         text = """
@@ -759,7 +759,7 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def expenses_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /expenses - анализ расходов"""
         text = """
@@ -792,11 +792,11 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     # ============================================
     # БОНУСЫ И СОБЫТИЯ
     # ============================================
-    
+
     async def events_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /events - текущие события"""
         text = """
@@ -826,13 +826,13 @@ class BetaCommandsImpl:
 🔜 <b>Функция в разработке</b>
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def spin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /spin - колесо фортуны"""
-        
+
         # Простая проверка - можно крутить раз в день
         # В реальной версии проверяем в БД
-        
+
         rewards = [
             ("10 монет", 10),
             ("25 монет", 25),
@@ -844,9 +844,9 @@ class BetaCommandsImpl:
             ("Значок 🎁", 0),
             ("Множитель x2", 0),
         ]
-        
+
         reward = random.choice(rewards)
-        
+
         text = f"""
 🎰 <b>Колесо фортуны</b>
 
@@ -864,7 +864,7 @@ class BetaCommandsImpl:
 Награды пока не начисляются
         """
         await update.message.reply_text(text, parse_mode='HTML')
-    
+
     async def lottery_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /lottery - лотерея"""
         text = """

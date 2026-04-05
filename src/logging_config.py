@@ -25,34 +25,34 @@ def setup_logging(
         format_string = (
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
-    
+
     # Create formatter
     formatter = logging.Formatter(format_string)
-    
+
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
-    
+
     # Remove existing handlers
     root_logger.handlers.clear()
-    
+
     # Add console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
-    
+
     # Add file handler if specified
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
-    
+
     # Create and return application logger
     logger = logging.getLogger("message_parsing_system")
     logger.setLevel(level)
-    
+
     return logger
 
 

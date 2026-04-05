@@ -189,7 +189,7 @@ class BotConfig:
     sticker_auto_delete_delay: int = 120  # 2 minutes
     broadcast_batch_size: int = 50
     max_parsing_retries: int = 3
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary for serialization"""
         return {
@@ -209,12 +209,12 @@ class BotConfig:
             'broadcast_batch_size': self.broadcast_batch_size,
             'max_parsing_retries': self.max_parsing_retries
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BotConfig':
         """Create configuration from dictionary"""
         from decimal import Decimal
-        
+
         parsing_rules = []
         for rule_data in data.get('parsing_rules', []):
             rule = ParsingRule(
@@ -226,7 +226,7 @@ class BotConfig:
                 is_active=rule_data.get('is_active', True)
             )
             parsing_rules.append(rule)
-        
+
         return cls(
             parsing_rules=parsing_rules,
             admin_user_ids=data.get('admin_user_ids', []),
@@ -235,34 +235,34 @@ class BotConfig:
             broadcast_batch_size=data.get('broadcast_batch_size', 50),
             max_parsing_retries=data.get('max_parsing_retries', 3)
         )
-    
+
     def validate_schema(self) -> List[str]:
         """Validate configuration against schema requirements"""
         errors = []
-        
+
         # Validate parsing rules
         if not isinstance(self.parsing_rules, list):
             errors.append("parsing_rules must be a list")
-        
+
         # Validate admin user IDs
         if not isinstance(self.admin_user_ids, list):
             errors.append("admin_user_ids must be a list")
         elif not all(isinstance(uid, int) and uid > 0 for uid in self.admin_user_ids):
             errors.append("admin_user_ids must contain positive integers")
-        
+
         # Validate timing configurations
         if not isinstance(self.sticker_cleanup_interval, int) or self.sticker_cleanup_interval <= 0:
             errors.append("sticker_cleanup_interval must be a positive integer")
-        
+
         if not isinstance(self.sticker_auto_delete_delay, int) or self.sticker_auto_delete_delay <= 0:
             errors.append("sticker_auto_delete_delay must be a positive integer")
-        
+
         if not isinstance(self.broadcast_batch_size, int) or self.broadcast_batch_size <= 0:
             errors.append("broadcast_batch_size must be a positive integer")
-        
+
         if not isinstance(self.max_parsing_retries, int) or self.max_parsing_retries <= 0:
             errors.append("max_parsing_retries must be a positive integer")
-        
+
         return errors
 
 

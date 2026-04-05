@@ -35,7 +35,7 @@ else:
     print("❌ Профиль не распознан")
     print("\nДебаг информация:")
     print(f"Текст содержит 'ПРОФИЛЬ': {'ПРОФИЛЬ' in profile_text}")
-    
+
     # Проверяем построчно
     lines = profile_text.splitlines()
     for i, line in enumerate(lines):
@@ -50,5 +50,5 @@ else:
             print("  -> Найдена строка с орбами")
         if "Очки:" in line:
             print("  -> Найдена строка с очками")
-    
+
     print("\n❌ ТЕСТ НЕ ПРОЙДЕН")

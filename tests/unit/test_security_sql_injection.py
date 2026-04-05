@@ -13,12 +13,12 @@ def in_memory_db():
     """Create an in-memory SQLite database for testing."""
     engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(bind=engine)
-    
+
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     session = SessionLocal()
-    
+
     yield session
-    
+
     session.close()
 
 
@@ -50,7 +50,7 @@ class TestSQLInjectionPrevention:
             )
             in_memory_db.add(user)
             in_memory_db.commit()
-            
+
             result = user_repository.get_or_create_by_name(malicious_input)
             assert result is not None
             assert result.username == malicious_input
@@ -78,7 +78,7 @@ class TestSQLInjectionPrevention:
             )
             in_memory_db.add(user)
             in_memory_db.commit()
-            
+
             result = user_repository.get_or_create_by_name(username)
             assert result is not None
             assert result.username == username

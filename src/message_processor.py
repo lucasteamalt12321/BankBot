@@ -16,7 +16,7 @@ from src.audit_logger import AuditLogger
 
 class MessageProcessor:
     """Main orchestrator for message processing."""
-    
+
     def __init__(
         self,
         classifier: MessageClassifier,
@@ -61,7 +61,7 @@ class MessageProcessor:
         self.balance_manager = balance_manager
         self.idempotency_checker = idempotency_checker
         self.logger = logger
-    
+
     def process_message(self, message: str, timestamp: datetime) -> None:
         """
         Process a message end-to-end with full error handling.
@@ -77,40 +77,40 @@ class MessageProcessor:
         """
         # Generate message ID for idempotency
         message_id = self.idempotency_checker.generate_message_id(message, timestamp)
-        
+
         # Check if message was already processed
         if self.idempotency_checker.is_processed(message_id):
             self.logger.logger.info(f"Skipping duplicate message: {message_id}")
             return
-        
+
         try:
             # Begin database transaction
             self.balance_manager.repository.begin_transaction()
-            
+
             # Classify message type
             message_type = self.classifier.classify(message)
-            
+
             # If UNKNOWN type, raise ParserError
             if message_type == MessageType.UNKNOWN:
                 raise ParserError("Unknown message type")
-            
+
             # Parse and process based on message type
             if message_type == MessageType.GDCARDS_PROFILE:
                 parsed = self.profile_parser.parse(message)
                 self.balance_manager.process_profile(parsed)
-            
+
             elif message_type == MessageType.GDCARDS_ACCRUAL:
                 parsed = self.accrual_parser.parse(message)
                 self.balance_manager.process_accrual(parsed)
-            
+
             elif message_type == MessageType.SHMALALA_FISHING:
                 parsed = self.fishing_parser.parse(message)
                 self.balance_manager.process_fishing(parsed)
-            
+
             elif message_type == MessageType.SHMALALA_KARMA:
                 parsed = self.karma_parser.parse(message)
                 self.balance_manager.process_karma(parsed)
-            
+
             elif message_type == MessageType.TRUEMAFIA_GAME_END:
                 parsed = self.mafia_game_end_parser.parse(message)
                 # True Mafia winners get 10 money each
@@ -119,11 +119,11 @@ class MessageProcessor:
                     game=parsed.game,
                     fixed_amount=Decimal("10")
                 )
-            
+
             elif message_type == MessageType.TRUEMAFIA_PROFILE:
                 parsed = self.mafia_profile_parser.parse(message)
                 self.balance_manager.process_mafia_profile(parsed)
-            
+
             elif message_type == MessageType.BUNKERRP_GAME_END:
                 parsed = self.bunker_game_end_parser.parse(message)
                 # BunkerRP winners get 30 money each
@@ -132,17 +132,17 @@ class MessageProcessor:
                     game=parsed.game,
                     fixed_amount=Decimal("30")
                 )
-            
+
             elif message_type == MessageType.BUNKERRP_PROFILE:
                 parsed = self.bunker_profile_parser.parse(message)
                 self.balance_manager.process_bunker_profile(parsed)
-            
+
             # Mark message as processed
             self.idempotency_checker.mark_processed(message_id)
-            
+
             # Commit transaction
             self.balance_manager.repository.commit_transaction()
-            
+
         except ParserError as e:
             # Rollback transaction
             self.balance_manager.repository.rollback_transaction()

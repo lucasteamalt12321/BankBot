@@ -37,11 +37,11 @@ from src.classifier import MessageClassifier, MessageType
 
 class TestClassificationProperties(unittest.TestCase):
     """Property-based tests for MessageClassifier consistency."""
-    
+
     def setUp(self):
         """Setup test classifier."""
         self.classifier = MessageClassifier()
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         prefix=st.text(min_size=0, max_size=100),
@@ -59,14 +59,14 @@ class TestClassificationProperties(unittest.TestCase):
         """
         # Construct message with both required markers
         message = f"{prefix}ПРОФИЛЬ{suffix}\nОрбы: 100"
-        
+
         # Classify the message
         result = self.classifier.classify(message)
-        
+
         # Assert it's classified as GD Cards Profile
         self.assertEqual(result, MessageType.GDCARDS_PROFILE,
-                        f"Message with 'ПРОФИЛЬ' and 'Орбы:' should be classified as GDCARDS_PROFILE")
-    
+                        "Message with 'ПРОФИЛЬ' and 'Орбы:' should be classified as GDCARDS_PROFILE")
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         prefix=st.text(min_size=0, max_size=100),
@@ -85,17 +85,17 @@ class TestClassificationProperties(unittest.TestCase):
         # Assume the message doesn't contain profile markers (to avoid priority conflicts)
         assume("ПРОФИЛЬ" not in prefix and "ПРОФИЛЬ" not in suffix)
         assume("Орбы:" not in prefix and "Орбы:" not in suffix)
-        
+
         # Construct message with accrual marker
         message = f"{prefix}🃏 НОВАЯ КАРТА 🃏{suffix}"
-        
+
         # Classify the message
         result = self.classifier.classify(message)
-        
+
         # Assert it's classified as GD Cards Accrual
         self.assertEqual(result, MessageType.GDCARDS_ACCRUAL,
-                        f"Message with '🃏 НОВАЯ КАРТА 🃏' should be classified as GDCARDS_ACCRUAL")
-    
+                        "Message with '🃏 НОВАЯ КАРТА 🃏' should be classified as GDCARDS_ACCRUAL")
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         message_text=st.text(min_size=0, max_size=200)
@@ -125,14 +125,14 @@ class TestClassificationProperties(unittest.TestCase):
         assume("💎 Кристаллики:" not in message_text)
         assume("🎯 Побед:" not in message_text)
         assume("💵 Деньги:" not in message_text)
-        
+
         # Classify the message
         result = self.classifier.classify(message_text)
-        
+
         # Assert it's classified as Unknown
         self.assertEqual(result, MessageType.UNKNOWN,
-                        f"Message without game markers should be classified as UNKNOWN")
-    
+                        "Message without game markers should be classified as UNKNOWN")
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         prefix=st.text(min_size=0, max_size=100),
@@ -152,14 +152,14 @@ class TestClassificationProperties(unittest.TestCase):
         message_lower = f"{prefix}профиль{suffix}\nорбы: 100"
         result_lower = self.classifier.classify(message_lower)
         self.assertNotEqual(result_lower, MessageType.GDCARDS_PROFILE,
-                           f"Lowercase 'профиль' should NOT be classified as GDCARDS_PROFILE")
-        
+                           "Lowercase 'профиль' should NOT be classified as GDCARDS_PROFILE")
+
         # Test mixed case version
         message_mixed = f"{prefix}Профиль{suffix}\nОрбы: 100"
         result_mixed = self.classifier.classify(message_mixed)
         self.assertNotEqual(result_mixed, MessageType.GDCARDS_PROFILE,
-                           f"Mixed case 'Профиль' should NOT be classified as GDCARDS_PROFILE")
-    
+                           "Mixed case 'Профиль' should NOT be classified as GDCARDS_PROFILE")
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         prefix=st.text(min_size=0, max_size=100),
@@ -179,31 +179,31 @@ class TestClassificationProperties(unittest.TestCase):
         message_lower = f"{prefix}игра окончена!{suffix}\nпобедители:\nPlayer1"
         result_lower = self.classifier.classify(message_lower)
         self.assertNotEqual(result_lower, MessageType.TRUEMAFIA_GAME_END,
-                           f"Lowercase 'игра окончена!' should NOT be classified as TRUEMAFIA_GAME_END")
-        
+                           "Lowercase 'игра окончена!' should NOT be classified as TRUEMAFIA_GAME_END")
+
         # Test mixed case version
         message_mixed = f"{prefix}ИГРА ОКОНЧЕНА!{suffix}\nПОБЕДИТЕЛИ:\nPlayer1"
         result_mixed = self.classifier.classify(message_mixed)
         self.assertNotEqual(result_mixed, MessageType.TRUEMAFIA_GAME_END,
-                           f"Uppercase 'ИГРА ОКОНЧЕНА!' should NOT be classified as TRUEMAFIA_GAME_END")
-    
+                           "Uppercase 'ИГРА ОКОНЧЕНА!' should NOT be classified as TRUEMAFIA_GAME_END")
+
     def test_classification_without_hypothesis(self):
         """Fallback test when Hypothesis is not available."""
         if HYPOTHESIS_AVAILABLE:
             self.skipTest("Hypothesis is available, using property-based tests")
-        
+
         # Property 1: Profile classification
         message_profile = "Test ПРОФИЛЬ User\nОрбы: 100"
         self.assertEqual(self.classifier.classify(message_profile), MessageType.GDCARDS_PROFILE)
-        
+
         # Property 2: Accrual classification
         message_accrual = "Test 🃏 НОВАЯ КАРТА 🃏 message"
         self.assertEqual(self.classifier.classify(message_accrual), MessageType.GDCARDS_ACCRUAL)
-        
+
         # Property 3: Unknown classification
         message_unknown = "This is just a random message"
         self.assertEqual(self.classifier.classify(message_unknown), MessageType.UNKNOWN)
-        
+
         # Property 4: Case sensitivity
         message_lower = "профиль User\nорбы: 100"
         self.assertNotEqual(self.classifier.classify(message_lower), MessageType.GDCARDS_PROFILE)

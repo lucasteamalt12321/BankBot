@@ -6,7 +6,7 @@ from typing import Dict
 
 class CoefficientProvider:
     """Provides game-specific conversion coefficients."""
-    
+
     def __init__(self, coefficients: Dict[str, int]):
         """
         Initialize with coefficient mapping.
@@ -15,7 +15,7 @@ class CoefficientProvider:
             coefficients: Dict mapping game name to coefficient
         """
         self.coefficients = coefficients
-    
+
     def get_coefficient(self, game: str) -> int:
         """
         Get coefficient for a game.
@@ -32,7 +32,7 @@ class CoefficientProvider:
         if game not in self.coefficients:
             raise ValueError(f"No coefficient configured for game: {game}")
         return self.coefficients[game]
-    
+
     @classmethod
     def from_config(cls, config_path: str) -> 'CoefficientProvider':
         """

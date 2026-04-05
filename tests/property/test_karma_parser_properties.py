@@ -34,11 +34,11 @@ from src.parsers import KarmaParser, ParserError, ParsedKarma
 
 class TestKarmaParserProperties(unittest.TestCase):
     """Property-based tests for KarmaParser."""
-    
+
     def setUp(self):
         """Setup test parser."""
         self.parser = KarmaParser()
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -63,19 +63,19 @@ class TestKarmaParserProperties(unittest.TestCase):
         # The parser strips trailing dots, so we need to account for that
         expected_name = player_name.strip().rstrip('.').strip()
         assume(expected_name != "")  # After stripping dots, name must not be empty
-        
+
         # Construct a valid karma message
         message = f"""Лайк! Вы повысили рейтинг пользователя {player_name}.
 Теперь его рейтинг: 10 ❤️"""
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert extraction is correct (with trailing dots removed)
         self.assertIsInstance(result, ParsedKarma)
         self.assertEqual(result.player_name, expected_name)
         self.assertEqual(result.game, "Shmalala Karma")
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -100,19 +100,19 @@ class TestKarmaParserProperties(unittest.TestCase):
         assume(player_name.strip() != "")
         # After rstrip('.') the name must remain non-empty (e.g. "." alone would become "")
         assume(player_name.rstrip('.').strip() != "")
-        
+
         # Construct message with any displayed rating (always > 1)
         message = f"""Лайк! Вы повысили рейтинг пользователя {player_name}.
 Теперь его рейтинг: {displayed_rating} ❤️"""
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert that karma is always 1, regardless of displayed rating
         self.assertEqual(result.karma, Decimal("1"))
         # Verify it's not equal to the displayed rating (which is always > 1)
         self.assertNotEqual(result.karma, Decimal(str(displayed_rating)))
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -131,16 +131,16 @@ class TestKarmaParserProperties(unittest.TestCase):
         **Validates: Requirements 5.3**
         """
         # Construct message without the required marker
-        message = f"""Теперь его рейтинг: 10 ❤️"""
-        
+        message = """Теперь его рейтинг: 10 ❤️"""
+
         # Parsing should raise ParserError
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message)
-        
+
         # Error message should indicate the issue
         error_msg = str(context.exception)
         self.assertIn("Player name not found", error_msg)
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -166,19 +166,19 @@ class TestKarmaParserProperties(unittest.TestCase):
         # The parser strips trailing dots, so we need to account for that
         expected_name = player_name.strip().rstrip('.').strip()
         assume(expected_name != "")  # After stripping dots, name must not be empty
-        
+
         # Construct message with rating field
         message = f"""Лайк! Вы повысили рейтинг пользователя {player_name}.
 Теперь его рейтинг: {displayed_rating} ❤️"""
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert that the rating field is ignored
         self.assertEqual(result.karma, Decimal("1"))
         # Verify the player name was extracted correctly (with trailing dots removed)
         self.assertEqual(result.player_name, expected_name)
-    
+
     @unittest.skipIf(not HYPOTHESIS_AVAILABLE, "Hypothesis not available")
     @given(
         player_name=st.text(min_size=1, max_size=50, alphabet=st.characters(
@@ -219,72 +219,72 @@ class TestKarmaParserProperties(unittest.TestCase):
         # The parser strips trailing dots, so we need to account for that
         expected_name = player_name.strip().rstrip('.').strip()
         assume(expected_name != "")  # After stripping dots, name must not be empty
-        
+
         # Ensure extra lines don't interfere with parsing
         for line in extra_lines_before + extra_lines_after:
             assume("Лайк! Вы повысили рейтинг пользователя" not in line)
-        
+
         # Construct message with extra lines before and after
         message_lines = []
-        
+
         # Add extra lines before
         message_lines.extend(extra_lines_before)
-        
+
         # Add the main karma line
         message_lines.append(f"Лайк! Вы повысили рейтинг пользователя {player_name}.")
         message_lines.append(f"Теперь его рейтинг: {displayed_rating} ❤️")
-        
+
         # Add extra lines after
         message_lines.extend(extra_lines_after)
-        
+
         message = "\n".join(message_lines)
-        
+
         # Parse the message
         result = self.parser.parse(message)
-        
+
         # Assert that player name is extracted correctly (with trailing dots removed)
         self.assertEqual(result.player_name, expected_name)
         self.assertEqual(result.karma, Decimal("1"))
         self.assertEqual(result.game, "Shmalala Karma")
-        
+
         # Verify that the result only has the expected fields
         self.assertIsInstance(result, ParsedKarma)
         self.assertTrue(hasattr(result, 'player_name'))
         self.assertTrue(hasattr(result, 'karma'))
         self.assertTrue(hasattr(result, 'game'))
-    
+
     def test_karma_parser_without_hypothesis(self):
         """Fallback test when Hypothesis is not available."""
         if HYPOTHESIS_AVAILABLE:
             self.skipTest("Hypothesis is available, using property-based tests")
-        
+
         # Basic extraction
         message1 = """Лайк! Вы повысили рейтинг пользователя TestPlayer.
 Теперь его рейтинг: 10 ❤️"""
         result1 = self.parser.parse(message1)
         self.assertEqual(result1.player_name, "TestPlayer")
         self.assertEqual(result1.karma, Decimal("1"))
-        
+
         # Karma always 1 regardless of rating
         message2 = """Лайк! Вы повысили рейтинг пользователя Player2.
 Теперь его рейтинг: 999 ❤️"""
         result2 = self.parser.parse(message2)
         self.assertEqual(result2.karma, Decimal("1"))
         self.assertNotEqual(result2.karma, Decimal("999"))
-        
+
         # Missing player name
         message3 = """Теперь его рейтинг: 10 ❤️"""
         with self.assertRaises(ParserError) as context:
             self.parser.parse(message3)
         self.assertIn("Player name not found", str(context.exception))
-        
+
         # Ignores rating field
         message4 = """Лайк! Вы повысили рейтинг пользователя Player4.
 Теперь его рейтинг: 5000 ❤️"""
         result4 = self.parser.parse(message4)
         self.assertEqual(result4.karma, Decimal("1"))
         self.assertEqual(result4.player_name, "Player4")
-        
+
         # Field isolation with extra lines
         message5 = """Дополнительная информация
 Лайк! Вы повысили рейтинг пользователя Player5.

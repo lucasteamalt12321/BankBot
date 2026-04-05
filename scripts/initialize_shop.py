@@ -18,18 +18,18 @@ logger = structlog.get_logger()
 
 def initialize_shop():
     """Initialize shop with default categories and items"""
-    
+
     try:
         db = next(get_db())
-        
+
         # Check if shop items already exist
         existing_items = db.query(ShopItem).count()
         if existing_items > 0:
             print(f"Shop already has {existing_items} items. Skipping initialization.")
             return
-        
+
         print("Initializing shop categories and items...")
-        
+
         # Create default category
         category = ShopCategory(
             name="Основные услуги",
@@ -40,7 +40,7 @@ def initialize_shop():
         db.add(category)
         db.commit()
         db.refresh(category)
-        
+
         # Create default shop items
         default_items = [
             {
@@ -75,27 +75,27 @@ def initialize_shop():
                 "is_active": True
             }
         ]
-        
+
         for item_data in default_items:
             item = ShopItem(**item_data)
             db.add(item)
-        
+
         db.commit()
-        
+
         print(f"Successfully initialized shop with {len(default_items)} items!")
-        
+
         # Display created items
         items = db.query(ShopItem).filter(ShopItem.is_active).all()
         print("\nCreated shop items:")
         for i, item in enumerate(items, 1):
             print(f"{i}. {item.name} - {item.price} монет")
             print(f"   {item.description}")
-        
+
     except Exception as e:
         logger.error(f"Error initializing shop: {e}")
         print(f"Error initializing shop: {e}")
         return False
-    
+
     return True
 
 

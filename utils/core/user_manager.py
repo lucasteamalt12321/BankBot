@@ -36,10 +36,10 @@ class UserManager:
 
         # Убираем лишние пробелы и приводим к нижнему регистру
         name = re.sub(r'\s+', ' ', name.strip().lower())
-        
+
         # Убираем специальные символы и оставляем только буквы и пробелы
         name = re.sub(r'[^a-zа-яё\s]', '', name)
-        
+
         # Убираем лишние пробелы снова после очистки
         name = re.sub(r'\s+', ' ', name.strip())
 
@@ -108,35 +108,35 @@ class UserManager:
 
         for alias in aliases:
             alias_normalized = self.normalize_name(alias.alias_value)
-            
+
             # Основная проверка по коэффициенту схожести
             score = difflib.SequenceMatcher(
                 None, normalized_name, alias_normalized
             ).ratio()
-            
+
             # Также проверяем с помощью индекса Жаккара (для имен без пробелов)
             jac_score = self.jaccard_similarity(set(normalized_name.split()), set(alias_normalized.split()))
-            
+
             # Проверяем также с помощью SequenceMatcher с разными вариантами
             # Например, проверим, если имя и фамилия перепутаны местами
             reversed_name = ' '.join(normalized_name.split()[::-1]) if ' ' in normalized_name else normalized_name
             reversed_score = difflib.SequenceMatcher(None, reversed_name, alias_normalized).ratio()
-            
+
             # Берем максимальный из трех показателей схожести
             max_score = max(score, jac_score, reversed_score)
-            
+
             # Повышаем уверенность в сопоставлении для коротких имен
             if len(normalized_name) <= 3 and max_score > 0.5:  # Понижаем порог для коротких имен
                 adjusted_score = max_score
             else:
                 adjusted_score = max_score
-            
+
             if adjusted_score > best_score and adjusted_score > 0.6:  # Снижаем порог до 60% для большей гибкости
                 best_score = adjusted_score
                 best_match = alias.user
 
         return best_match
-    
+
     def jaccard_similarity(self, set1, set2):
         """Вычисление коэффициента Жаккара для оценки схожести двух множеств"""
         intersection = len(set1.intersection(set2))
@@ -169,7 +169,7 @@ class UserManager:
         if identifier.startswith('@'):
             # Проверяем без @
             username_variants.append(identifier[1:])
-        
+
         user = None
         for variant in username_variants:
             user = self.find_user_by_username(variant)
@@ -306,50 +306,50 @@ class UserManager:
     def aggressive_alias_search(self, identifier: str) -> Optional[User]:
         """Агрессивный поиск по алиасам с использованием различных стратегий"""
         normalized_identifier = self.normalize_name(identifier)
-        
+
         # Поиск по подстроке в алиасах
         substring_matches = self.db.query(UserAlias).filter(
             UserAlias.alias_value.ilike(f'%{normalized_identifier}%')
         ).all()
-        
+
         if substring_matches:
             # Возвращаем первого подходящего пользователя
             return substring_matches[0].user
-        
+
         # Поиск с использованием более гибких правил
         all_aliases = self.db.query(UserAlias).all()
         best_match = None
         best_score = 0
-        
+
         for alias in all_aliases:
             alias_normalized = self.normalize_name(alias.alias_value)
-            
+
             # Проверяем схожесть с различными стратегиями
             scores = []
-            
+
             # Стандартная проверка
             standard_score = difflib.SequenceMatcher(
                 None, normalized_identifier, alias_normalized
             ).ratio()
             scores.append(standard_score)
-            
+
             # Проверка с игнорированием пробелов
             no_space_score = difflib.SequenceMatcher(
                 None, normalized_identifier.replace(' ', ''),
                 alias_normalized.replace(' ', '')
             ).ratio()
             scores.append(no_space_score)
-            
+
             # Проверка с реверсом
             reversed_score = difflib.SequenceMatcher(
                 None, ' '.join(normalized_identifier.split()[::-1]), alias_normalized
             ).ratio()
             scores.append(reversed_score)
-            
+
             max_score = max(scores)
-            
+
             if max_score > best_score and max_score > 0.5:  # Пониженный порог для агрессивного поиска
                 best_score = max_score
                 best_match = alias.user
-                
+
         return best_match

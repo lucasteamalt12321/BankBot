@@ -12,7 +12,7 @@ from sqlalchemy import inspect
 def run_migration():
     """Создает таблицу bot_balances если её нет"""
     inspector = inspect(engine)
-    
+
     if 'bot_balances' not in inspector.get_table_names():
         print("Creating bot_balances table...")
         BotBalance.__table__.create(engine)

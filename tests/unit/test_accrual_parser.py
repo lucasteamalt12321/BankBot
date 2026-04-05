@@ -22,10 +22,10 @@ def test_parse_valid_accrual_message():
 ───────────────
 Эта карта есть у: 1255 игроков
 Лимит карт сегодня: 1 из 8"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert isinstance(result, ParsedAccrual)
     assert result.player_name == "LucasTeam"
     assert result.points == Decimal("3")
@@ -39,10 +39,10 @@ def test_parse_accrual_with_decimal_points():
 Игрок: TestPlayer
 ───────────────
 Очки: +2.5"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.player_name == "TestPlayer"
     assert result.points == Decimal("2.5")
 
@@ -64,10 +64,10 @@ def test_parse_accrual_second_example():
 ───────────────
 Эта карта есть у: 1530 игроков
 Лимит карт сегодня: 1 из 8"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.player_name == "CrazyTimeI"
     assert result.points == Decimal("2")
 
@@ -77,7 +77,7 @@ def test_parse_missing_player_name():
     message = """🃏 НОВАЯ КАРТА 🃏
 ───────────────
 Очки: +3"""
-    
+
     parser = AccrualParser()
     with pytest.raises(ParserError, match="Player name not found"):
         parser.parse(message)
@@ -89,7 +89,7 @@ def test_parse_missing_points_field():
 ───────────────
 Игрок: TestPlayer
 ───────────────"""
-    
+
     parser = AccrualParser()
     with pytest.raises(ParserError, match="Points field not found"):
         parser.parse(message)
@@ -102,7 +102,7 @@ def test_parse_points_without_plus_sign():
 Игрок: TestPlayer
 ───────────────
 Очки: 3"""
-    
+
     parser = AccrualParser()
     with pytest.raises(ParserError, match="does not contain a plus sign and number"):
         parser.parse(message)
@@ -115,7 +115,7 @@ def test_parse_invalid_points_value():
 Игрок: TestPlayer
 ───────────────
 Очки: +abc"""
-    
+
     parser = AccrualParser()
     with pytest.raises(ParserError, match="Invalid points value"):
         parser.parse(message)
@@ -128,10 +128,10 @@ def test_parse_points_with_negative_value():
 Игрок: TestPlayer
 ───────────────
 Очки: +0"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.points == Decimal("0")
 
 
@@ -142,10 +142,10 @@ def test_parse_accrual_preserves_decimal_precision():
 Игрок: PrecisionPlayer
 ───────────────
 Очки: +123.456789"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.points == Decimal("123.456789")
     assert str(result.points) == "123.456789"
 
@@ -157,10 +157,10 @@ def test_parse_accrual_with_large_points_value():
 Игрок: HighScorer
 ───────────────
 Очки: +999999.99"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.player_name == "HighScorer"
     assert result.points == Decimal("999999.99")
 
@@ -172,10 +172,10 @@ def test_parse_accrual_with_special_characters_in_name():
 Игрок: Player_123-Test
 ───────────────
 Очки: +5"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.player_name == "Player_123-Test"
     assert result.points == Decimal("5")
 
@@ -187,10 +187,10 @@ def test_parse_accrual_with_whitespace_variations():
 Игрок:    PlayerWithSpaces   
 ───────────────
 Очки:    +100   """
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.player_name == "PlayerWithSpaces"
     assert result.points == Decimal("100")
 
@@ -199,10 +199,10 @@ def test_parse_accrual_minimal_message():
     """Test parsing minimal valid accrual message."""
     message = """Игрок: MinimalPlayer
 Очки: +3"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.player_name == "MinimalPlayer"
     assert result.points == Decimal("3")
 
@@ -224,10 +224,10 @@ def test_parse_accrual_ignores_other_fields():
 ───────────────
 Эта карта есть у: 1255 игроков
 Лимит карт сегодня: 1 из 8"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     # Should only extract player name and points
     assert result.player_name == "TestPlayer"
     assert result.points == Decimal("3")
@@ -243,10 +243,10 @@ def test_parse_accrual_with_integer_points():
 Игрок: IntegerPlayer
 ───────────────
 Очки: +10"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.player_name == "IntegerPlayer"
     assert result.points == Decimal("10")
     # Verify it's still a Decimal type
@@ -260,8 +260,8 @@ def test_parse_accrual_game_field():
 Игрок: TestPlayer
 ───────────────
 Очки: +5"""
-    
+
     parser = AccrualParser()
     result = parser.parse(message)
-    
+
     assert result.game == "GD Cards"

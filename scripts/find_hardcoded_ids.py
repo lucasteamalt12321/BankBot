@@ -53,18 +53,18 @@ def find_hardcoded_ids(root_dir: Path = Path(".")) -> List[Tuple[Path, int, str]
         List of tuples (file_path, line_number, line_content)
     """
     results = []
-    
+
     for search_dir in SEARCH_DIRS:
         dir_path = root_dir / search_dir
         if not dir_path.exists():
             continue
-            
+
         for ext in EXTENSIONS:
             for file_path in dir_path.rglob(f"*{ext}"):
                 # Skip excluded directories
                 if should_exclude_path(file_path):
                     continue
-                    
+
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         for line_num, line in enumerate(f, 1):
@@ -72,7 +72,7 @@ def find_hardcoded_ids(root_dir: Path = Path(".")) -> List[Tuple[Path, int, str]
                                 results.append((file_path, line_num, line.strip()))
                 except Exception as e:
                     print(f"Error reading {file_path}: {e}")
-    
+
     return results
 
 
@@ -81,28 +81,28 @@ def main():
     print(f"Searching for hardcoded ID: {TARGET_ID}")
     print(f"Directories: {', '.join(SEARCH_DIRS)}")
     print("-" * 80)
-    
+
     results = find_hardcoded_ids()
-    
+
     if not results:
         print("✅ No hardcoded IDs found!")
         return
-    
+
     print(f"\n❌ Found {len(results)} occurrences:\n")
-    
+
     # Group by file
     by_file = {}
     for file_path, line_num, line_content in results:
         if file_path not in by_file:
             by_file[file_path] = []
         by_file[file_path].append((line_num, line_content))
-    
+
     # Display results
     for file_path in sorted(by_file.keys()):
         print(f"\n📄 {file_path}")
         for line_num, line_content in by_file[file_path]:
             print(f"   Line {line_num}: {line_content}")
-    
+
     print(f"\n{'=' * 80}")
     print(f"Total files affected: {len(by_file)}")
     print(f"Total occurrences: {len(results)}")

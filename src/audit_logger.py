@@ -6,7 +6,7 @@ from decimal import Decimal
 
 class AuditLogger:
     """Logs all balance operations for audit trail."""
-    
+
     def __init__(self, logger: logging.Logger):
         """
         Initialize audit logger with Python logger.
@@ -15,7 +15,7 @@ class AuditLogger:
             logger: Python logging.Logger instance
         """
         self.logger = logger
-    
+
     def log_profile_init(self, player: str, game: str, initial_balance: Decimal) -> None:
         """
         Log first-time profile initialization.
@@ -29,7 +29,7 @@ class AuditLogger:
             f"Profile initialized - Player: {player}, Game: {game}, "
             f"Initial balance: {initial_balance}"
         )
-    
+
     def log_profile_update(
         self,
         player: str,
@@ -57,7 +57,7 @@ class AuditLogger:
             f"Balance: {old_balance} → {new_balance} (Δ{delta}), "
             f"Bank change: {bank_change} (coef: {coefficient})"
         )
-    
+
     def log_accrual(
         self,
         player: str,
@@ -80,7 +80,7 @@ class AuditLogger:
             f"Accrual processed - Player: {player}, Game: {game}, "
             f"Points: +{points}, Bank change: +{bank_change} (coef: {coefficient})"
         )
-    
+
     def log_error(self, error: Exception, context: str) -> None:
         """
         Log error with context.

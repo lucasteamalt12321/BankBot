@@ -23,12 +23,12 @@ from src.models.parsing_rule import ParsingRule
 def run_migration():
     """Создает таблицу parsing_rules_config если её нет"""
     inspector = inspect(engine)
-    
+
     if 'parsing_rules_config' not in inspector.get_table_names():
         print("Creating parsing_rules_config table...")
         ParsingRule.__table__.create(engine)
         print("✅ Table parsing_rules_config created successfully")
-        
+
         # Добавляем начальные данные для существующих игр
         print("Adding initial parsing rules...")
         with engine.connect() as conn:
@@ -63,7 +63,7 @@ def run_migration():
                     'config': '{}'
                 }
             ]
-            
+
             for rule in initial_rules:
                 conn.execute(
                     text("""
