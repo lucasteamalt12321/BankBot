@@ -76,6 +76,33 @@ from bot.commands.dnd_commands_ptb import (
     dnd_sessions_command,
 )
 from bot.commands.achievements_commands_ptb import achievements_command
+from bot.commands.admin_commands_ptb import (
+    admin_command,
+    admin_stats_command,
+    admin_adjust_command,
+    admin_addcoins_command,
+    admin_removecoins_command,
+    admin_merge_command,
+    admin_transactions_command,
+    admin_balances_command,
+    admin_users_command,
+    admin_rates_command,
+    admin_rate_command,
+    admin_cleanup_command,
+    admin_shop_add_command,
+    admin_shop_edit_command,
+    admin_games_stats_command,
+    admin_reset_game_command,
+    admin_ban_player_command,
+    admin_health_command,
+    admin_errors_command,
+    admin_backup_command,
+    admin_background_status_command,
+    admin_background_health_command,
+    admin_background_restart_command,
+    admin_parsing_reload_command,
+    admin_parsing_config_command,
+)
 from bot.commands.user_commands import (
     buy_1_command,
     buy_2_command,
@@ -239,31 +266,29 @@ class TelegramBot:
             CommandHandler("clan_join", clan_join_command),
             CommandHandler("clan_leave", clan_leave_command),
             # Админ-команды
-            CommandHandler("admin", self.admin_command),
+            CommandHandler("admin", admin_command),
             CommandHandler("add_points", self.add_points_command),
             CommandHandler("add_admin", self.add_admin_command),
-            CommandHandler("admin_stats", self.admin_stats_command),
-            CommandHandler("admin_adjust", self.admin_adjust_command),
-            CommandHandler("admin_addcoins", self.admin_addcoins_command),
-            CommandHandler("admin_removecoins", self.admin_removecoins_command),
-            CommandHandler("admin_merge", self.admin_merge_command),
-            CommandHandler("admin_transactions", self.admin_transactions_command),
-            CommandHandler(
-                "admin_transaction", self.admin_transactions_command
-            ),  # Алиас
-            CommandHandler("admin_balances", self.admin_balances_command),
-            CommandHandler("admin_users", self.admin_users_command),
-            CommandHandler("admin_rates", self.admin_rates_command),
-            CommandHandler("admin_rate", self.admin_rate_command),
-            CommandHandler("admin_cleanup", self.admin_cleanup_command),
-            CommandHandler("admin_shop_add", self.admin_shop_add_command),
-            CommandHandler("admin_shop_edit", self.admin_shop_edit_command),
-            CommandHandler("admin_games_stats", self.admin_games_stats_command),
-            CommandHandler("admin_reset_game", self.admin_reset_game_command),
-            CommandHandler("admin_ban_player", self.admin_ban_player_command),
-            CommandHandler("admin_health", self.admin_health_command),
-            CommandHandler("admin_errors", self.admin_errors_command),
-            CommandHandler("admin_backup", self.admin_backup_command),
+            CommandHandler("admin_stats", admin_stats_command),
+            CommandHandler("admin_adjust", admin_adjust_command),
+            CommandHandler("admin_addcoins", admin_addcoins_command),
+            CommandHandler("admin_removecoins", admin_removecoins_command),
+            CommandHandler("admin_merge", admin_merge_command),
+            CommandHandler("admin_transactions", admin_transactions_command),
+            CommandHandler("admin_transaction", admin_transactions_command),  # Алиас
+            CommandHandler("admin_balances", admin_balances_command),
+            CommandHandler("admin_users", admin_users_command),
+            CommandHandler("admin_rates", admin_rates_command),
+            CommandHandler("admin_rate", admin_rate_command),
+            CommandHandler("admin_cleanup", admin_cleanup_command),
+            CommandHandler("admin_shop_add", admin_shop_add_command),
+            CommandHandler("admin_shop_edit", admin_shop_edit_command),
+            CommandHandler("admin_games_stats", admin_games_stats_command),
+            CommandHandler("admin_reset_game", admin_reset_game_command),
+            CommandHandler("admin_ban_player", admin_ban_player_command),
+            CommandHandler("admin_health", admin_health_command),
+            CommandHandler("admin_errors", admin_errors_command),
+            CommandHandler("admin_backup", admin_backup_command),
             # Advanced Admin Commands (Task 7.4 and 8.3)
             CommandHandler(
                 "parsing_stats", self.advanced_admin_commands.parsing_stats_command
@@ -274,18 +299,14 @@ class TelegramBot:
             ),
             CommandHandler("add_item", self.advanced_admin_commands.add_item_command),
             # Background Task Management Commands (Task 10.3)
+            CommandHandler("admin_background_status", admin_background_status_command),
+            CommandHandler("admin_background_health", admin_background_health_command),
             CommandHandler(
-                "admin_background_status", self.admin_background_status_command
-            ),
-            CommandHandler(
-                "admin_background_health", self.admin_background_health_command
-            ),
-            CommandHandler(
-                "admin_background_restart", self.admin_background_restart_command
+                "admin_background_restart", admin_background_restart_command
             ),
             # Message Parsing Configuration Commands (Task 11.2)
-            CommandHandler("admin_parsing_reload", self.admin_parsing_reload_command),
-            CommandHandler("admin_parsing_config", self.admin_parsing_config_command),
+            CommandHandler("admin_parsing_reload", admin_parsing_reload_command),
+            CommandHandler("admin_parsing_config", admin_parsing_config_command),
             # Configuration Management Commands (Full Set)
             CommandHandler("reload_config", config_commands.reload_config_handler),
             CommandHandler("config_status", config_commands.config_status_handler),
