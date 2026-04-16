@@ -287,7 +287,7 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| PR01 | Аудит схемы БД против моделей и миграций | P0 | pending |
+| PR01 | Аудит схемы БД против моделей и миграций | P0 | completed |
 | PR02 | Проверка миграций на чистой БД и устранение schema drift | P0 | pending |
 | PR03 | Унификация env-переменных и entrypoint-сценариев | P0 | pending |
 | PR04 | Синхронизация `README.md`, `RUN.md`, `docs/README.md` | P1 | pending |

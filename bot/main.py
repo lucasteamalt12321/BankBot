@@ -10,7 +10,7 @@ import asyncio
 from typing import Optional
 
 from bot.bot import TelegramBot
-from database.database import create_tables
+from database.schema import ensure_schema_up_to_date
 from src.startup_validator import validate_startup
 from src.process_manager import ProcessManager
 
@@ -19,7 +19,7 @@ logger = structlog.get_logger()
 
 class BotApplication:
     """Wrapper for Telegram bot with graceful shutdown support.
-    
+
     Provides unified interface for bot lifecycle management including:
     - Database connection management
     - Background task cleanup
@@ -32,16 +32,16 @@ class BotApplication:
 
     async def shutdown(self) -> bool:
         """Perform graceful shutdown of all resources.
-        
+
         Shuts down in order:
         1. Database connections (engine.dispose)
         2. Background tasks
         3. Bot application
         4. PID file
-        
+
         Each step is isolated - errors in one step don't stop others.
         PID file is always removed, even if other steps fail.
-        
+
         Returns:
             bool: True if all resources cleaned up successfully
         """
@@ -53,6 +53,7 @@ class BotApplication:
         try:
             logger.info("Shutting down database connections")
             import database.database
+
             database.database.engine.dispose()
         except Exception as e:
             errors.append(f"database: {e}")
@@ -61,9 +62,9 @@ class BotApplication:
         # Step 2: Stop background tasks
         if self.bot is not None:
             try:
-                if hasattr(self.bot, 'background_task_manager'):
+                if hasattr(self.bot, "background_task_manager"):
                     btm = self.bot.background_task_manager
-                    if btm is not None and hasattr(btm, 'stop_periodic_cleanup'):
+                    if btm is not None and hasattr(btm, "stop_periodic_cleanup"):
                         logger.info("Stopping background tasks")
                         if asyncio.iscoroutinefunction(btm.stop_periodic_cleanup):
                             await btm.stop_periodic_cleanup()
@@ -76,10 +77,10 @@ class BotApplication:
         # Step 3: Stop bot application
         if self.bot is not None:
             try:
-                if hasattr(self.bot, 'application'):
+                if hasattr(self.bot, "application"):
                     app = self.bot.application
                     if app is not None:
-                        if hasattr(app, 'running') and not app.running:
+                        if hasattr(app, "running") and not app.running:
                             logger.info("Bot application already stopped")
                         else:
                             logger.info("Stopping bot application")
@@ -103,6 +104,7 @@ class BotApplication:
         logger.info("Shutdown completed successfully")
         return True
 
+
 def kill_existing_bot_processes():
     """Убивает все существующие процессы, связанные с ботом"""
     current_pid = os.getpid()
@@ -110,18 +112,22 @@ def kill_existing_bot_processes():
 
     print(f"[KILL] Поиск старых процессов бота (текущий PID: {current_pid})...")
 
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
         try:
             # Получаем командную строку процесса
-            cmdline = proc.info['cmdline']
-            if cmdline and len(cmdline) > 1:  # Убедимся, что есть хотя бы exe и аргумент
-                cmdline_str = ' '.join(cmdline)
+            cmdline = proc.info["cmdline"]
+            if (
+                cmdline and len(cmdline) > 1
+            ):  # Убедимся, что есть хотя бы exe и аргумент
+                cmdline_str = " ".join(cmdline)
                 # Проверяем, содержит ли команда запуск main.py
-                if 'main.py' in cmdline_str and 'python' in cmdline_str.lower():
-                    pid = proc.info['pid']
+                if "main.py" in cmdline_str and "python" in cmdline_str.lower():
+                    pid = proc.info["pid"]
                     if pid != current_pid:
-                        print(f"[KILL] Найден старый процесс бота с PID {pid}, убиваю...")
-                        proc.terminate() # Плавное завершение
+                        print(
+                            f"[KILL] Найден старый процесс бота с PID {pid}, убиваю..."
+                        )
+                        proc.terminate()  # Плавное завершение
                         killed_processes.append((pid, proc))
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
@@ -142,6 +148,7 @@ def kill_existing_bot_processes():
         time.sleep(2)  # Даем время для полного завершения
     else:
         print("[KILL] Старые процессы бота не найдены")
+
 
 def main():
     """Основная функция запуска бота"""
@@ -165,12 +172,13 @@ def main():
     print("[BONUSES] Активированы ежедневные бонусы и задания")
     print("[ADMIN] Доступны административные команды")
 
-    # Создаем таблицы БД при запуске
-    create_tables()
+    # Приводим схему БД к актуальному состоянию через Alembic.
+    ensure_schema_up_to_date()
 
     # Создаем и запускаем бота
     bot = TelegramBot()
     bot.run()
+
 
 if __name__ == "__main__":
     # Bridge-модуль запускается отдельно через bot/bridge/main_bridge.py (aiogram)

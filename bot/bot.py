@@ -12,7 +12,8 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
-from database.database import create_tables, get_db
+from database.database import get_db
+from database.schema import ensure_schema_up_to_date
 from core.systems.shop_system import EnhancedShopSystem
 from core.systems.games_system import GamesSystem
 from core.systems.dnd_system import DndSystem
@@ -798,8 +799,8 @@ class TelegramBot:
             "Starting enhanced bot with background task integration and message parsing..."
         )
 
-        # Создаем таблицы БД
-        create_tables()
+        # Приводим схему БД к актуальному состоянию перед инициализацией систем.
+        ensure_schema_up_to_date()
 
         # Инициализируем системы
         db = next(get_db())

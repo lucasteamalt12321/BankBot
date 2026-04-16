@@ -20,6 +20,16 @@
 
 ## Changelog
 
+### 2026-04-06 (PR01 — schema audit and migration hardening)
+- Выявлено ключевое расхождение: SQLAlchemy metadata описывает 24 таблицы, а ранняя Alembic-цепочка покрывала только базовые таблицы и частичный `users`
+- Исправлен `database/alembic/env.py`: удалён несуществующий импорт `database.models`
+- Добавлена миграция `database/alembic/versions/003_create_missing_tables.py`
+- Добавлен `database/schema.py` с `ensure_schema_up_to_date()`
+- `bot/main.py` и `bot/bot.py` переведены на Alembic-first обновление схемы
+- Проверка на чистой БД `data/test_pr01.db`: миграция до `003` проходит успешно, metadata-таблицы создаются полностью
+- **Ruff**: all checks passed для `bot` и `database`
+- **Тесты**: 745 passed, 10 skipped
+
 ### 2026-04-06 (Post-Release planning)
 - В `memory_bank/projectbrief.md` зафиксирован post-release roadmap на 1-2 недели
 - Добавлен подробный технический план по файлам и модулям

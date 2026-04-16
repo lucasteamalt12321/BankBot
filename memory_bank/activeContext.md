@@ -41,10 +41,17 @@
 - ✅ H06: Redis кэширование — ЗАВЕРШЕНО (utils/redis_cache.py)
 
 ## Post-Release Priorities
-- P0: аудит схемы БД, миграций и runtime-совместимости
+- P0: аудит схемы БД, миграций и runtime-совместимости — выполнен, выявлен incomplete Alembic baseline
 - P0: унификация env-переменных и entrypoint-сценариев
 - P1: синхронизация `README.md`, `RUN.md`, `docs/README.md`
 - P1: устранение оставшихся `pytest` warnings и async warning в background tests
 - P1: smoke startup tests для BankBot, BridgeBot, VK Bot
 - P1: ревизия Docker/Compose и health/readiness checks
 - P2: архитектурная инвентаризация слоёв и сокращение legacy-дублей
+
+## PR01 Result
+- SQLAlchemy metadata содержит 24 таблицы, ранние Alembic-миграции покрывали только часть схемы
+- Исправлен `database/alembic/env.py`: удалён битый импорт `database.models`
+- Добавлена миграция `003_create_missing_tables.py` для создания отсутствующих таблиц из текущего metadata
+- Добавлен helper `database/schema.py` с Alembic-first обновлением схемы и fallback на `create_tables()`
+- `bot/main.py` и `bot/bot.py` переведены на `ensure_schema_up_to_date()`

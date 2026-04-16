@@ -6,7 +6,6 @@ from sqlalchemy import pool
 from alembic import context
 
 from database.database import Base
-from database.models import *  # noqa: F401, F403
 
 config = context.config
 
