@@ -20,6 +20,13 @@
 
 ## Changelog
 
+### 2026-04-06 (Post-Phase 3 — cleanup warnings)
+- Убрана неизвестная pytest-опция `env` из `tests/pytest.ini`
+- Исправлены 3 теста, которые возвращали `bool` вместо падения через `assert`
+- Исправлена проверка в `test_add_admin_verification.py`: поиск пользователя по `telegram_id`, а не по `id`
+- **Тесты**: 745 passed, 10 skipped
+- **Предупреждения pytest**: 5 (было 9)
+
 ### 2026-04-05 (H06 — Redis кэширование)
 - **Создан Redis бэкенд:**
   - `utils/redis_cache.py` — полнофункциональный Redis кэш

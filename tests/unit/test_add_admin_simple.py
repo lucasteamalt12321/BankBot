@@ -21,7 +21,7 @@ class SimpleAdminSystem:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
                 username TEXT,
@@ -29,9 +29,9 @@ class SimpleAdminSystem:
                 balance REAL DEFAULT 0,
                 is_admin BOOLEAN DEFAULT FALSE
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -42,7 +42,7 @@ class SimpleAdminSystem:
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (admin_id) REFERENCES users (id)
             )
-        ''')
+        """)
 
         conn.commit()
         conn.close()
@@ -53,7 +53,9 @@ class SimpleAdminSystem:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def register_user(self, user_id: int, username: str = None, first_name: str = None) -> bool:
+    def register_user(
+        self, user_id: int, username: str = None, first_name: str = None
+    ) -> bool:
         """Register a new user"""
         try:
             conn = self.get_db_connection()
@@ -66,7 +68,7 @@ class SimpleAdminSystem:
 
             cursor.execute(
                 "INSERT INTO users (id, username, first_name, balance, is_admin) VALUES (?, ?, ?, 0, FALSE)",
-                (user_id, username, first_name)
+                (user_id, username, first_name),
             )
 
             conn.commit()
@@ -79,14 +81,14 @@ class SimpleAdminSystem:
     def get_user_by_username(self, username: str):
         """Get user by username"""
         try:
-            clean_username = username.lstrip('@')
+            clean_username = username.lstrip("@")
 
             conn = self.get_db_connection()
             cursor = conn.cursor()
 
             cursor.execute(
                 "SELECT id, username, first_name, balance, is_admin FROM users WHERE username = ?",
-                (clean_username,)
+                (clean_username,),
             )
 
             result = cursor.fetchone()
@@ -94,11 +96,11 @@ class SimpleAdminSystem:
 
             if result:
                 return {
-                    'id': result['id'],
-                    'username': result['username'],
-                    'first_name': result['first_name'],
-                    'balance': result['balance'],
-                    'is_admin': bool(result['is_admin'])
+                    "id": result["id"],
+                    "username": result["username"],
+                    "first_name": result["first_name"],
+                    "balance": result["balance"],
+                    "is_admin": bool(result["is_admin"]),
                 }
             return None
 
@@ -112,8 +114,7 @@ class SimpleAdminSystem:
             cursor = conn.cursor()
 
             cursor.execute(
-                "UPDATE users SET is_admin = ? WHERE id = ?",
-                (is_admin, user_id)
+                "UPDATE users SET is_admin = ? WHERE id = ?", (is_admin, user_id)
             )
 
             if cursor.rowcount == 0:
@@ -138,7 +139,7 @@ class SimpleAdminSystem:
             conn.close()
 
             if result:
-                return bool(result['is_admin'])
+                return bool(result["is_admin"])
             return False
 
         except Exception:
@@ -149,7 +150,7 @@ def test_add_admin_command_requirements():
     """Test that /add_admin command meets all requirements"""
 
     # Create temporary database for testing
-    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
     temp_db.close()
 
     try:
@@ -182,7 +183,7 @@ def test_add_admin_command_requirements():
 
         assert user_with_at is not None, "Should find user with @ prefix"
         assert user_without_at is not None, "Should find user without @ prefix"
-        assert user_with_at['id'] == user_without_at['id'], "Should be same user"
+        assert user_with_at["id"] == user_without_at["id"], "Should be same user"
         print("✅ Username parsing works correctly")
 
         # Requirement 3.2: Set is_admin = TRUE for specified user
@@ -220,7 +221,7 @@ def test_add_admin_command_requirements():
         conn.close()
 
         assert result is not None, "User should exist in database"
-        assert bool(result['is_admin']), "is_admin should be TRUE in database"
+        assert bool(result["is_admin"]), "is_admin should be TRUE in database"
         print("✅ Database record updated correctly")
 
         # Requirement 3.5: Require admin privileges
@@ -243,14 +244,14 @@ def test_add_admin_command_requirements():
         print("✅ User not found handling works correctly")
 
         print("\n🎉 All /add_admin command requirements verified successfully!")
-
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
-        return False
+        raise AssertionError(f"Test failed: {e}") from e
 
     finally:
         # Clean up
@@ -267,7 +268,7 @@ def verify_bot_implementation():
 
     # Check if the bot.py file has the correct implementation
     try:
-        with open('bot/bot.py', 'r', encoding='utf-8') as f:
+        with open("bot/bot.py", "r", encoding="utf-8") as f:
             content = f.read()
 
         # Check for the exact format in the confirmation message
@@ -280,23 +281,23 @@ def verify_bot_implementation():
             print("⚠️  Bot implementation message format needs verification")
 
             # Look for the add_admin_command function
-            if 'def add_admin_command' in content:
+            if "def add_admin_command" in content:
                 print("✅ add_admin_command function exists")
 
                 # Check for admin privilege check
-                if 'is_admin(user.id)' in content:
+                if "is_admin(user.id)" in content:
                     print("✅ Admin privilege check exists")
                 else:
                     print("❌ Admin privilege check missing")
 
                 # Check for username parsing
-                if 'get_user_by_username' in content:
+                if "get_user_by_username" in content:
                     print("✅ Username parsing exists")
                 else:
                     print("❌ Username parsing missing")
 
                 # Check for admin status setting
-                if 'set_admin_status' in content:
+                if "set_admin_status" in content:
                     print("✅ Admin status setting exists")
                 else:
                     print("❌ Admin status setting missing")
@@ -314,7 +315,7 @@ def verify_bot_implementation():
         return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("🚀 Starting /add_admin command verification...")
 
     success1 = test_add_admin_command_requirements()

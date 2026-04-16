@@ -18,7 +18,7 @@ def test_add_admin_command_requirements():
     """Test that /add_admin command meets all requirements"""
 
     # Create temporary database for testing
-    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
     temp_db.close()
 
     try:
@@ -51,7 +51,7 @@ def test_add_admin_command_requirements():
 
         assert user_with_at is not None, "Should find user with @ prefix"
         assert user_without_at is not None, "Should find user without @ prefix"
-        assert user_with_at['id'] == user_without_at['id'], "Should be same user"
+        assert user_with_at["id"] == user_without_at["id"], "Should be same user"
         print("✅ Username parsing works correctly")
 
         # Requirement 3.2: Set is_admin = TRUE for specified user
@@ -84,12 +84,14 @@ def test_add_admin_command_requirements():
         # Check database directly
         conn = admin_system.get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT is_admin FROM users WHERE id = ?", (target_user_id,))
+        cursor.execute(
+            "SELECT is_admin FROM users WHERE telegram_id = ?", (target_user_id,)
+        )
         result = cursor.fetchone()
         conn.close()
 
         assert result is not None, "User should exist in database"
-        assert bool(result['is_admin']), "is_admin should be TRUE in database"
+        assert bool(result["is_admin"]), "is_admin should be TRUE in database"
         print("✅ Database record updated correctly")
 
         # Requirement 3.5: Require admin privileges
@@ -112,12 +114,11 @@ def test_add_admin_command_requirements():
         print("✅ User not found handling works correctly")
 
         print("\n🎉 All /add_admin command requirements verified successfully!")
-
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ Test failed: {e}")
-        return False
+        raise AssertionError(f"Test failed: {e}") from e
 
     finally:
         # Clean up
@@ -131,7 +132,7 @@ def test_add_admin_edge_cases():
     """Test edge cases for /add_admin command"""
 
     # Create temporary database for testing
-    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
     temp_db.close()
 
     try:
@@ -177,11 +178,11 @@ def test_add_admin_edge_cases():
         print("✅ Multiple admin operations handled")
 
         print("\n🎉 All edge cases passed!")
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ Edge case test failed: {e}")
-        return False
+        raise AssertionError(f"Edge case test failed: {e}") from e
 
     finally:
         # Clean up
@@ -191,7 +192,7 @@ def test_add_admin_edge_cases():
             pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("🚀 Starting /add_admin command verification...")
 
     success1 = test_add_admin_command_requirements()
