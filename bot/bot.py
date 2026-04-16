@@ -113,33 +113,6 @@ from bot.commands.user_commands import (
     buy_7_command,
     buy_8_command,
 )
-from bot.commands.admin_commands_ptb import (
-    admin_command,
-    admin_stats_command,
-    admin_adjust_command,
-    admin_addcoins_command,
-    admin_removecoins_command,
-    admin_merge_command,
-    admin_transactions_command,
-    admin_balances_command,
-    admin_users_command,
-    admin_rates_command,
-    admin_rate_command,
-    admin_cleanup_command,
-    admin_shop_add_command,
-    admin_shop_edit_command,
-    admin_games_stats_command,
-    admin_reset_game_command,
-    admin_ban_player_command,
-    admin_health_command,
-    admin_errors_command,
-    admin_backup_command,
-    admin_background_status_command,
-    admin_background_health_command,
-    admin_background_restart_command,
-    admin_parsing_reload_command,
-    admin_parsing_config_command,
-)
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
