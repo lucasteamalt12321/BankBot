@@ -20,6 +20,12 @@
 
 ## Changelog
 
+### 2026-04-06 (Post-Release planning)
+- В `memory_bank/projectbrief.md` зафиксирован post-release roadmap на 1-2 недели
+- Добавлен подробный технический план по файлам и модулям
+- Добавлен post-release backlog `PR01–PR13` с приоритетами `P0/P1/P2`
+- `activeContext.md` обновлён: текущий фокус смещён на пост-релизную стабилизацию и прокачку проекта
+
 ### 2026-04-06 (Post-Phase 3 — cleanup warnings)
 - Убрана неизвестная pytest-опция `env` из `tests/pytest.ini`
 - Исправлены 3 теста, которые возвращали `bool` вместо падения через `assert`

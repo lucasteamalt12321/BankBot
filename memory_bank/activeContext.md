@@ -1,7 +1,7 @@
 # Active Context
 
 ## Текущий фокус
-**Проект полностью завершён! Все фазы (F, G, H) выполнены.**
+**Пост-релизная стабилизация и прокачка проекта: runtime, БД, документация, тесты и деплой.**
 
 ## Статус проекта: 100%
 
@@ -39,3 +39,12 @@
 - ✅ H04: Ruff cleanup — ЗАВЕРШЕНО (F541, F811, E712 автофиксы)
 - ✅ H05: BridgeBot тесты — ЗАВЕРШЕНО (test_bridge_loop_guard, test_bridge_queue)
 - ✅ H06: Redis кэширование — ЗАВЕРШЕНО (utils/redis_cache.py)
+
+## Post-Release Priorities
+- P0: аудит схемы БД, миграций и runtime-совместимости
+- P0: унификация env-переменных и entrypoint-сценариев
+- P1: синхронизация `README.md`, `RUN.md`, `docs/README.md`
+- P1: устранение оставшихся `pytest` warnings и async warning в background tests
+- P1: smoke startup tests для BankBot, BridgeBot, VK Bot
+- P1: ревизия Docker/Compose и health/readiness checks
+- P2: архитектурная инвентаризация слоёв и сокращение legacy-дублей
