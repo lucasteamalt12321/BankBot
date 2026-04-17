@@ -56,6 +56,7 @@
 - `src/config.py` синхронизирован: `DynamicSettings` теперь читает feature flags, cache и debug/test поля так же, как основной `Settings`
 - `RUN.md` и `config/.env.example` синхронизированы с фактическими именами env-переменных и Windows/PowerShell-командами
 - `docs/README.md` переписан как актуальная high-level карта проекта без устаревших метрик, старых путей и неактуальных статусов
+- `README.md` и `docs/DEPLOYMENT.md` синхронизированы с текущими entrypoints, Docker-сценариями и конфигурацией
 - локальная проверка: `py -3.13 -m pytest tests/smoke -v` -> 9 passed
 - локальная проверка: `py -3.13 -m ruff check src/config.py tests/smoke/test_startup.py` -> passed
 

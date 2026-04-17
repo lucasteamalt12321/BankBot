@@ -33,6 +33,10 @@
   - удалены устаревшие метрики, старые команды запуска и неактуальные пометки "в разработке"
   - зафиксированы реальные точки входа: `run_bot.py`, `bot/main.py`, `bridge_bot/main.py`, `vk_bot/main.py`
   - описаны актуальные роли каталогов `bot/`, `bridge_bot/`, `vk_bot/`, `bank_bot/`, `core/`, `src/`, `database/`, `memory_bank/`
+- Переписаны `README.md` и `docs/DEPLOYMENT.md`
+  - `README.md` сокращён до актуального верхнеуровневого описания проекта, запуска, Docker и структуры каталогов
+  - `docs/DEPLOYMENT.md` синхронизирован с текущими entrypoints, `docker-compose.yml`, `Dockerfile`, `config/.env.example` и `src/config.py`
+  - удалены устаревшие env-поля, ранние архитектурные слои и старые deployment-сценарии, не соответствующие текущему коду
 - Локальная проверка на Python 3.13:
   - `py -3.13 -m pytest tests/smoke -v` -> 9 passed
   - `py -3.13 -m ruff check src/config.py tests/smoke/test_startup.py` -> passed
