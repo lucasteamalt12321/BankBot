@@ -1,666 +1,163 @@
-# 🤖 BankBot - Документация проекта
+# BankBot - Документация проекта
 
-**Telegram-бот банк-аггрегатор для LucasTeam**  
-**Версия:** 2.0  
-**Дата:** 2026-02-14
+High-level документация по текущей архитектуре, точкам входа и ключевым модулям проекта.
 
----
+## О проекте
 
-## 📖 Структура документации
+Репозиторий содержит три основных исполняемых компонента:
 
-### 📚 [guides/](guides/) - Руководства
-Актуальная документация по использованию и архитектуре бота:
-- Админские команды
-- Система парсинга
-- Структура проекта
-- Быстрая справка
+- `BankBot` - основной Telegram-бот с банковой логикой, балансами, магазином, достижениями, социальными функциями и парсингом игровых сообщений
+- `BridgeBot` - мост Telegram -> VK для пересылки сообщений и медиа
+- `VK Bot` - отдельная точка входа для VK Long Poll и публикации в VK-канал
 
-### 🔧 [fixes/](fixes/) - История исправлений
-Документация по исправленным багам и проблемам
+Также в проекте есть общие слои конфигурации, базы данных, сервисов и тестов.
 
-### 🔄 [refactoring/](refactoring/) - История рефакторинга
-Документация по проведенному рефакторингу системы
+## Текущее состояние
 
-### 📦 [archive/](archive/) - Архив
-Устаревшая документация, сохраненная для истории
+- основной запуск проекта: `run_bot.py`
+- канонический конфиг: `src/config.py`
+- основной `.env` файл: `config/.env`
+- инициализация схемы БД: `database/schema.py` и `database/initialize_system.py`
+- миграции: `database/alembic/`
+- smoke-проверки запуска: `tests/smoke/test_startup.py`
 
----
+## Точки входа
 
-## 🎯 О проекте
+| Компонент | Точка входа | Назначение |
+|-----------|-------------|------------|
+| BankBot | `run_bot.py` -> `bot.main` | Основной Telegram-бот |
+| BridgeBot | `bridge_bot/main.py` | Пересылка TG -> VK, loop guard, graceful shutdown |
+| VK Bot | `vk_bot/main.py` | Независимый VK Long Poll цикл |
 
-BankBot - многофункциональный Telegram-бот, который объединяет:
+## Архитектура
 
-- 🏦 **Банк-аггрегатор** - автоматический сбор валюты из игровых ботов ✅
-- 🛒 **Магазин** - внутриигровые товары и привилегии ✅
-- 🎮 **Мини-игры** - города, слова, уровни GD 🔧 В разработке
-- 🎲 **D&D мастерская** - система для настольных игр 🔧 В разработке
-- 👥 **Социальные функции** - друзья, кланы, достижения 🔧 В разработке
+### 1. Основной бот
 
----
+Папка `bot/` содержит рабочую точку входа BankBot и orchestration-логику запуска.
 
-## 🚀 Быстрый старт
+Ключевые файлы:
 
-Смотри [guides/QUICK_REFERENCE.md](guides/QUICK_REFERENCE.md) для быстрой справки по командам.
+- `bot/main.py` - startup flow, валидация, schema sync, graceful shutdown
+- `bot/bot.py` - основной класс Telegram-бота и регистрация функциональности
+- `bot/commands/` - модульные обработчики команд
+- `bot/router.py` - маршрутизация и wiring отдельных команд
 
-### ⚠️ Важно: Миграция системы парсинга
+### 2. Bridge и VK интеграция
 
-Проект находится в процессе миграции на новую модульную систему парсинга. 
+Папка `bridge_bot/` содержит мост между Telegram и VK.
 
-- **Текущий статус:** Фаза 0 (завершение реализации)
-- **План миграции:** [MIGRATION_PLAN.md](MIGRATION_PLAN.md)
-- **Быстрый старт:** [QUICK_START_MIGRATION.md](QUICK_START_MIGRATION.md)
+Ключевые файлы:
 
-**Для разработчиков:** Если вы хотите помочь с миграцией, начните с [QUICK_START_MIGRATION.md](QUICK_START_MIGRATION.md)
+- `bridge_bot/main.py` - запуск aiogram-based BridgeBot
+- `bridge_bot/handlers.py` - обработчики bridge-событий
+- `bridge_bot/queue.py` - очередь отправки и rate limiting
+- `bridge_bot/loop_guard.py` - защита от циклов через bot mark
+- `bridge_bot/media.py` - работа с медиа
+- `bridge_bot/vk_publisher.py` - публикация в VK API
+- `bridge_bot/vk_listener.py` - приём сообщений из VK
 
-### Поддерживаемые игры
+Папка `vk_bot/` сохраняет отдельную точку входа для VK Long Poll.
 
-| Игра | Коэффициент | Статус |
-|------|-------------|--------|
-| Shmalala | 1:1 | ✅ Работает |
-| GD Cards | 2:1 | ✅ Работает |
-| True Mafia | 15:1 | 🔧 В разработке |
-| Bunker RP | 20:1 | 🔧 В разработке |
+### 3. Бизнес-логика и data access
 
-### Статистика
+Проект частично разделён на более чистые слои:
 
-- **Строк кода:** 15,000+
-- **Команд бота:** 50+
-- **Тестов:** 273 (100% проходят)
-- **Активных пользователей:** 22+
-- **Файлов:** ~150
+- `bank_bot/repositories/` - repository layer
+- `bank_bot/services/` - service layer
+- `bank_bot/middleware.py` - middleware и обработка ошибок
+- `bank_bot/di.py` - wiring зависимостей
 
----
+При этом в репозитории всё ещё присутствуют legacy и shim-слои в `core/`, `src/` и смежных модулях. Они используются как часть переходной архитектуры и должны рассматриваться как существующий runtime-контур, а не как полностью удалённый legacy.
 
-## 🚀 Быстрый старт
+### 4. Конфигурация
 
-### Установка
+Канонический источник конфигурации - `src/config.py`.
 
-```bash
-# 1. Клонировать репозиторий
-git clone <repository-url>
-cd BankBot
+Что важно:
 
-# 2. Создать виртуальное окружение
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # Linux/Mac
+- настройки читаются из `config/.env` и environment variables
+- `Settings` и runtime helper `get_settings()` используются как общий контракт конфигурации
+- bridge/vk config-модули являются compatibility-обёртками над `src.config`
 
-# 3. Установить зависимости
-pip install -r config/requirements.txt
+### 5. База данных
 
-# 4. Настроить конфигурацию
-copy config\.env.example config\.env
-# Отредактировать config/.env и указать BOT_TOKEN
+Ключевые файлы:
 
-# 5. Инициализировать базу данных
-python database/initialize_system.py
+- `database/connection.py` - подключение и pooling
+- `database/database.py` - модели и metadata
+- `database/schema.py` - приведение схемы к актуальному состоянию
+- `database/initialize_system.py` - bootstrap новой БД
+- `database/alembic/` - Alembic migration chain
 
-# 6. Запустить бота
-python run_bot.py
-```
+Текущий подход:
 
-### Получение токена бота
+- при запуске используется Alembic-first синхронизация схемы
+- если миграционный контур недоступен, предусмотрен fallback на создание таблиц из metadata
 
-1. Напишите [@BotFather](https://t.me/BotFather) в Telegram
-2. Отправьте `/newbot`
-3. Следуйте инструкциям
-4. Скопируйте токен в `config/.env`:
+## Структура проекта
 
-```env
-BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
-ADMIN_USER_IDS=123456789
-```
-
-### Первый запуск
-
-```bash
-python run_bot.py
-```
-
-Отправьте боту `/start` в Telegram для начала работы.
-
----
-
-## 🏗️ Архитектура
-
-### Структура проекта
-
-```
+```text
 BankBot/
-├── run_bot.py              # Точка входа
-│
-├── bot/                    # Telegram-бот
-│   ├── bot.py             # Главная логика (3000+ строк)
-│   ├── main.py            # Инициализация
-│   ├── commands/          # Команды (/admin, /shop, etc)
-│   └── parsers/           # Конфигурация парсеров
-│
-├── core/                   # Бизнес-логика
-│   ├── parsers/           # Парсинг игровых сообщений
-│   ├── handlers/          # Обработчики (покупки, магазин)
-│   ├── managers/          # Менеджеры (админ, задачи, стикеры)
-│   ├── systems/           # Системы (достижения, игры, D&D)
-│   ├── models/            # Модели данных
-│   └── database/          # Работа с БД
-│
-├── database/               # База данных
-│   ├── connection.py      # Централизованное подключение
-│   ├── database.py        # SQLAlchemy модели
-│   ├── initialize_system.py  # Инициализация
-│   ├── create_test_db.py  # Создание тестовых БД
-│   ├── recreate_database.py  # Сброс БД с бэкапом
-│   └── migrations/        # Миграции
-│
-├── data/                   # Данные
-│   └── bot.db             # База данных SQLite
-│
-├── utils/                  # Утилиты
-│   ├── admin/             # Административная система
-│   ├── core/              # Основные утилиты
-│   ├── database/          # Утилиты БД
-│   └── monitoring/        # Мониторинг
-│
-├── config/                 # Конфигурация
-│   ├── .env               # Переменные окружения
-│   ├── bot_config.yaml    # YAML конфигурация
-│   └── requirements.txt   # Зависимости Python
-│
-├── tests/                  # Тесты (273 теста)
-│   ├── unit/              # Unit-тесты (74)
-│   ├── integration/       # Интеграционные (66)
-│   ├── property/          # Property-based (23)
-│   ├── fixtures/          # Общие фикстуры
-│   └── conftest.py        # Конфигурация pytest
-│
-├── examples/               # Примеры использования
-├── scripts/                # Вспомогательные скрипты
-└── docs/                   # Документация
-    ├── README.md          # Главная документация (этот файл)
-    ├── ADMIN_COMMANDS.md  # Справка по админским командам
-    ├── PROJECT_STRUCTURE.md # Детальная структура проекта
-    ├── TESTS_UPDATE_NEEDED.md # Заметки об обновлениях
-    ├── message_parser_system.md # Система парсинга
-    ├── parsing_system_guide.md # Руководство по парсингу
-    └── parsing_system_update.md # Обновления парсинга
+├── run_bot.py
+├── README.md
+├── RUN.md
+├── bot/
+├── bridge_bot/
+├── vk_bot/
+├── bank_bot/
+├── core/
+├── src/
+├── database/
+├── config/
+├── tests/
+├── docs/
+└── memory_bank/
 ```
 
-### Поток обработки сообщения
+### Что где лежит
 
-```
-Пользователь → Telegram API → bot/bot.py → Парсер/Команда → БД → Ответ
-```
+| Путь | Назначение |
+|------|------------|
+| `bot/` | Основной Telegram runtime |
+| `bridge_bot/` | TG -> VK bridge |
+| `vk_bot/` | Отдельный VK entrypoint |
+| `bank_bot/` | Repository/service/middleware слои |
+| `core/` | Legacy и shared модули, используемые текущим runtime |
+| `src/` | Конфигурация, startup validation и часть инфраструктуры |
+| `database/` | Подключение, schema sync, Alembic, bootstrap |
+| `config/` | `.env` templates, YAML/JSON конфиги, dev requirements |
+| `tests/` | Unit, integration, smoke и вспомогательные тесты |
+| `memory_bank/` | Операционный контекст проекта |
 
-### Технологии
+## Запуск и проверка
 
-- **Python 3.8+** - основной язык
-- **python-telegram-bot 20.0+** - Telegram API
-- **SQLAlchemy 2.0+** - ORM
-- **SQLite 3.x** - база данных
-- **pytest** - тестирование
-- **hypothesis** - property-based тестирование
+Актуальный практический сценарий запуска описан в `RUN.md`.
 
----
+Коротко:
 
-## 📋 Команды бота
-
-### Основные команды
-
-```
-/start              - Приветствие и регистрация
-/balance            - Проверить баланс
-/history [N]        - История транзакций (последние N)
-/profile            - Профиль пользователя
-/stats              - Персональная статистика
-```
-
-### Магазин
-
-```
-/shop               - Каталог товаров
-/buy <номер>        - Купить товар по номеру
-/buy_1, /buy_2      - Быстрая покупка
-/buy_contact        - Связь с админом (10 монет)
-/inventory          - Ваши покупки
+```powershell
+Copy-Item config/.env.example config/.env
+py -3.13 -m pip install -r requirements.txt
+py -3.13 database/initialize_system.py
+py -3.13 run_bot.py
 ```
 
-### Парсинг игр
+Для проверки старта:
 
-Бот использует ручной парсинг сообщений от игровых ботов.
-
-**Ручной парсинг:** Ответьте на сообщение игрового бота словом `парсинг`
-
-Поддерживаемые игры:
-- 🎣 Shmalala (рыбалка, крокодил, битвы)
-- 🃏 GD Cards (карточные игры)
-
-### Достижения
-
-```
-/achievements       - Ваши достижения 🔧 В разработке
-/notifications      - Уведомления 🔧 В разработке
-/notifications_clear - Очистить уведомления 🔧 В разработке
+```powershell
+py -3.13 -m pytest tests/smoke -v
+py -3.13 -m ruff check src/config.py tests/smoke/test_startup.py
 ```
 
-### Административные команды
-
-Полный список команд доступен в [ADMIN_COMMANDS.md](ADMIN_COMMANDS.md)
-
-```
-/admin              - Панель администратора (показывает все команды)
-/add_points @user N - Начислить N очков пользователю
-/add_admin @user    - Назначить администратора
-/user_stats @user   - Детальная статистика пользователя
-/parsing_stats [период] - Статистика парсинга (24h, 7d, 30d)
-/broadcast <текст>  - Рассылка всем пользователям
-/add_item           - Добавить товар в магазин
-```
-
-Подробнее: [docs/ADMIN_COMMANDS.md](ADMIN_COMMANDS.md)
-
----
-
-## 💻 Разработка
-
-### Подключение к БД
-
-```python
-# Правильный способ (централизованный)
-from database.connection import get_connection
-
-conn = get_connection()  # Основная БД
-conn = get_connection('test.db')  # Тестовая БД
-```
-
-### Работа с админ-системой
-
-```python
-from utils.admin.admin_system import AdminSystem, admin_required
-
-admin_system = AdminSystem()
-
-# Проверка прав
-if admin_system.is_admin(user_id):
-    # Админские действия
-    pass
-
-# Декоратор для команд
-@admin_required(admin_system)
-async def admin_command(update, context):
-    await update.message.reply_text("Вы администратор!")
-```
-
-### Добавление новой команды
-
-1. Создайте функцию в `bot/bot.py`:
-
-```python
-async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Описание команды"""
-    user = update.effective_user
-    await update.message.reply_text(f"Привет, {user.first_name}!")
-```
-
-2. Зарегистрируйте в `setup_handlers()`:
-
-```python
-def setup_handlers(application):
-    application.add_handler(CommandHandler("mycommand", my_command))
-```
-
-### Парсинг игровых сообщений
-
-```python
-from core.parsers.simple_parser import parse_game_message
-
-result = parse_game_message(message_text)
-if result:
-    game_type = result['type']      # 'fishing', 'cards', etc
-    username = result['user']       # @username
-    amount = result['amount']       # Количество монет
-    currency = result['currency']   # Тип валюты
-```
-
----
-
-## 🧪 Тестирование
-
-### Запуск всех тестов
-
-```bash
-pytest tests/ -v
-```
-
-### Запуск по категориям
-
-```bash
-# Unit-тесты
-pytest tests/unit/ -v
-
-# Интеграционные тесты
-pytest tests/integration/ -v
-
-# Property-based тесты
-pytest tests/property/ -v
-```
-
-### Запуск конкретного теста
-
-```bash
-pytest tests/unit/test_admin_manager.py -v
-pytest tests/unit/test_admin_manager.py::test_is_admin -v
-```
-
-### Использование фикстур
-
-```python
-def test_admin_operations(admin_db):
-    """Тест с готовой БД админ-системы"""
-    cursor = admin_db.cursor()
-    cursor.execute("SELECT * FROM users")
-    # Таблицы уже созданы!
-
-def test_shop_operations(shop_db):
-    """Тест с готовой БД магазина"""
-    cursor = shop_db.cursor()
-    cursor.execute("SELECT * FROM shop_items")
-
-def test_full_system(full_db):
-    """Тест со всеми таблицами"""
-    cursor = full_db.cursor()
-    # Все таблицы доступны
-```
-
-### Статистика тестов
-
-| Категория | Тестов | Статус |
-|-----------|--------|--------|
-| Unit | 74 | ✅ 100% |
-| Integration | 66 | ✅ 100% |
-| Property-based | 23 | ✅ 100% |
-| **Итого** | **273** | **✅ 100%** |
-
----
-
-## 💾 База данных
-
-### Структура
-
-**Основные таблицы:**
-- `users` - пользователи (id, telegram_id, username, balance, is_admin)
-- `transactions` - транзакции (id, user_id, amount, type, timestamp)
-- `shop_items` - товары (id, name, price, category, description)
-- `shop_categories` - категории товаров
-- `user_purchases` - покупки пользователей
-- `achievements` - достижения
-- `notifications` - уведомления
-
-### Инициализация
-
-```bash
-# Полная инициализация системы
-python database/initialize_system.py
-
-# Создание тестовой БД
-python database/create_test_db.py --path test.db
-
-# Инициализация магазина
-python scripts/initialize_shop.py
-```
-
-### Сброс БД
-
-```bash
-# С автоматическим бэкапом
-python database/recreate_database.py
-
-# С тестовыми данными
-python database/recreate_database.py --test-data
-
-# Без бэкапа (опасно!)
-python database/recreate_database.py --skip-backup
-```
-
-### Бэкапы
-
-Автоматические бэкапы создаются в папке `backups/`:
-```
-backups/
-└── bot_backup_20260212_143022.db
-```
-
-### Миграции
-
-```bash
-# Актуальные миграции
-ls database/migrations/*.py
-
-# Архив старых миграций
-ls database/migrations/archive/*.py
-```
-
----
-
-## 🔌 API и интеграции
-
-### Парсер игровых сообщений
-
-**Файл:** `core/parsers/simple_parser.py`
-
-**Функции:**
-- `parse_game_message(text)` - основная функция парсинга
-- `parse_fishing_message(text)` - парсинг рыбалки Shmalala
-- `parse_card_message(text)` - парсинг карт GD Cards
-
-**Пример:**
-
-```python
-from core.parsers.simple_parser import parse_game_message
-
-message = """
-🎣 [Рыбалка] 🎣
-Рыбак: @username
-Монеты: +250 (1500)💰
-"""
-
-result = parse_game_message(message)
-# {
-#     'type': 'fishing',
-#     'user': '@username',
-#     'amount': 250,
-#     'currency': 'coins'
-# }
-```
-
-### Система магазина
-
-**Файл:** `core/systems/shop_system.py`
-
-**Основные функции:**
-- `get_shop_items()` - получить список товаров
-- `purchase_item(user_id, item_id)` - купить товар
-- `get_user_purchases(user_id)` - покупки пользователя
-
-### Система достижений
-
-**Файл:** `core/systems/achievements.py`  
-**Статус:** 🔧 В разработке
-
-**Планируемые функции:**
-- `check_achievements(user_id)` - проверить достижения
-- `unlock_achievement(user_id, achievement_id)` - разблокировать
-- `get_user_achievements(user_id)` - достижения пользователя
-
-### Система рассылки
-
-**Файл:** `core/systems/broadcast_system.py`
-
-**Пример:**
-
-```python
-from core.systems.broadcast_system import BroadcastSystem
-
-broadcast = BroadcastSystem(bot)
-await broadcast.send_to_all("Важное объявление!")
-await broadcast.send_to_admins("Только для админов")
-```
-
----
-
-## 🔧 Утилиты и скрипты
-
-### Проверка цен в магазине
-
-```bash
-python scripts/check_updated_prices.py
-```
-
-### Обновление достижений
-
-```bash
-python scripts/update_achievements.py
-```
-
-### Создание администратора
-
-```bash
-python utils/admin/create_admin.py
-```
-
----
-
-## 🐛 Отладка и мониторинг
-
-### Логи
-
-Бот автоматически логирует все операции. Логи выводятся в консоль.
-
-### Проверка здоровья системы
-
-```bash
-# Через команду бота
-/admin_health
-
-# Или напрямую
-python -c "from utils.monitoring.monitoring_system import check_health; check_health()"
-```
-
-### Мониторинг парсинга
-
-```bash
-# Статистика за 24 часа
-/parsing_stats 24h
-
-# За 7 дней
-/parsing_stats 7d
-
-# За 30 дней
-/parsing_stats 30d
-```
-
----
-
-## 🔒 Безопасность
-
-### Защита
-
-- ✅ Валидация всех входных данных
-- ✅ Защита от SQL-инъекций (SQLAlchemy ORM)
-- ✅ Проверка прав администратора
-- ✅ Ограничение количества транзакций
-- ✅ Проверка дубликатов
-
-### Рекомендации
-
-1. Храните `config/.env` в секрете
-2. Регулярно делайте бэкапы БД
-3. Проверяйте логи на подозрительную активность
-4. Обновляйте зависимости
-
----
-
-## 📞 Поддержка
-
-### Проблемы с запуском
-
-1. Проверьте Python версию: `python --version` (нужен 3.8+)
-2. Проверьте зависимости: `pip list`
-3. Проверьте токен в `config/.env`
-4. Проверьте БД: `ls data/bot.db`
-
-### Проблемы с БД
-
-```bash
-# Пересоздать БД
-python database/recreate_database.py --test-data
-
-# Проверить структуру
-python -c "from database.connection import get_connection; conn = get_connection(); print(conn.execute('SELECT name FROM sqlite_master WHERE type=\"table\"').fetchall())"
-```
-
-### Проблемы с тестами
-
-```bash
-# Очистить кэш pytest
-pytest --cache-clear
-
-# Запустить с подробным выводом
-pytest tests/ -vv
-
-# Запустить конкретный тест
-pytest tests/unit/test_admin_manager.py::test_is_admin -vv
-```
-
----
-
-## 🎓 Обучение
-
-### Для новых разработчиков
-
-1. Прочитайте эту документацию
-2. Изучите структуру проекта
-3. Запустите бота локально
-4. Изучите `bot/bot.py` - главный файл
-5. Посмотрите примеры в `examples/`
-6. Запустите тесты: `pytest tests/ -v`
-
-### Полезные файлы для изучения
-
-- `bot/bot.py` - главная логика бота
-- `database/database.py` - структура БД
-- `core/parsers/simple_parser.py` - парсинг игр
-- `utils/admin/admin_system.py` - админ-система
-- `tests/unit/test_admin_manager.py` - примеры тестов
-
----
-
-## 📝 История изменений
-
-### Версия 2.0 (2026-02-12)
-- ✅ Завершён рефакторинг (4 фазы)
-- ✅ Централизовано подключение к БД
-- ✅ Созданы общие фикстуры для тестов
-- ✅ Удалено ~4000 строк дублированного кода
-- ✅ Организована структура тестов
-- ✅ Обновлена документация
-
-### Версия 1.0 (2026-02-08)
-- ✅ Базовая функциональность бота
-- ✅ Система парсинга игр
-- ✅ Магазин и покупки
-- ✅ Административная панель
-- ✅ 273 теста (100% проходят)
-
----
-
-## 🤝 Вклад в проект
-
-Проект разработан для LucasTeam.
-
-### Контакты
-
-- **Telegram:** @LucasTeamLuke
-- **Проект:** BankBot v2.0
-
----
-
-**🎉 Готово к работе! Отправьте `/start` боту для начала использования.**
+## Документация по разделам
+
+| Файл | Назначение |
+|------|------------|
+| `README.md` | Общая пользовательская документация проекта |
+| `RUN.md` | Актуальная инструкция по запуску |
+| `docs/DEPLOYMENT.md` | Деплой и инфраструктура |
+| `docs/ARCHITECTURE.md` | Дополнительные архитектурные заметки |
+| `docs/API.md` | Внутренние API и интерфейсы |
+| `docs/TESTING_GUIDE.md` | Подход к тестированию |
+
+Исторические документы, планы миграции и промежуточные отчёты в `docs/` сохраняются, но не все из них отражают текущее целевое состояние. Для high-level картины следует опираться на этот файл, `README.md`, `RUN.md` и `memory_bank/`.

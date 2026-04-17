@@ -29,6 +29,10 @@
 - Синхронизированы `RUN.md` и `config/.env.example`
   - `RUN.md` переведён на актуальные `BOT_TOKEN`, `config/.env` и PowerShell-команды для Windows-среды
   - `config/.env.example` переведён на реальные `DB_POOL_MIN` / `DB_POOL_MAX`, удалён устаревший `HOT_RELOAD`
+- Переписан `docs/README.md`
+  - удалены устаревшие метрики, старые команды запуска и неактуальные пометки "в разработке"
+  - зафиксированы реальные точки входа: `run_bot.py`, `bot/main.py`, `bridge_bot/main.py`, `vk_bot/main.py`
+  - описаны актуальные роли каталогов `bot/`, `bridge_bot/`, `vk_bot/`, `bank_bot/`, `core/`, `src/`, `database/`, `memory_bank/`
 - Локальная проверка на Python 3.13:
   - `py -3.13 -m pytest tests/smoke -v` -> 9 passed
   - `py -3.13 -m ruff check src/config.py tests/smoke/test_startup.py` -> passed
