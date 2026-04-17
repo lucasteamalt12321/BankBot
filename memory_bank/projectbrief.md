@@ -288,14 +288,14 @@ https://github.com/lucasteamalt12321/BankBot
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
 | PR01 | Аудит схемы БД против моделей и миграций | P0 | completed |
-| PR02 | Проверка миграций на чистой БД и устранение schema drift | P0 | pending |
-| PR03 | Унификация env-переменных и entrypoint-сценариев | P0 | pending |
-| PR04 | Синхронизация `README.md`, `RUN.md`, `docs/README.md` | P1 | pending |
-| PR05 | Устранение оставшихся `pytest` warnings | P1 | pending |
-| PR06 | Починка async warning в `background_task_manager` тестах | P1 | pending |
-| PR07 | Добавление smoke startup tests для BankBot, BridgeBot, VK Bot | P1 | pending |
-| PR08 | Ревизия Docker/Compose и health/readiness checks | P1 | pending |
-| PR09 | Release checklist и runbook для local/prod запуска | P1 | pending |
+| PR02 | Проверка миграций на чистой БД и устранение schema drift | P0 | completed |
+| PR03 | Унификация env-переменных и entrypoint-сценариев | P0 | completed |
+| PR04 | Синхронизация `README.md`, `RUN.md`, `docs/README.md` | P1 | completed |
+| PR05 | Устранение оставшихся `pytest` warnings | P1 | completed |
+| PR06 | Починка async warning в `background_task_manager` тестах | P1 | completed |
+| PR07 | Добавление smoke startup tests для BankBot, BridgeBot, VK Bot | P1 | completed |
+| PR08 | Ревизия Docker/Compose и health/readiness checks | P1 | completed |
+| PR09 | Release checklist и runbook для local/prod запуска | P1 | completed |
 | PR10 | Архитектурная инвентаризация слоёв `core/src/utils/bank_bot` | P2 | pending |
 | PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | pending |
 | PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | pending |

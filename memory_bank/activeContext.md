@@ -5,7 +5,7 @@
 
 ## Статус проекта: 100%
 
-## Последнее обновление: 2026-04-06
+## Последнее обновление: 2026-04-17
 
 ## Сводка
 | Метрика | Значение |
@@ -14,7 +14,7 @@
 | Удалено | ~3032 строк (77%) |
 | ruff errors | 0 (продакшн) |
 | Тесты unit | 745 passed, 10 skipped |
-| Предупреждения pytest | 5 (было 9) |
+| Предупреждения pytest | 0 в smoke-проверках |
 
 ## Project Deliverables
 - D01-D27: 100% (weights sum = 100 ✓)
@@ -41,13 +41,22 @@
 - ✅ H06: Redis кэширование — ЗАВЕРШЕНО (utils/redis_cache.py)
 
 ## Post-Release Priorities
-- P0: аудит схемы БД, миграций и runtime-совместимости — выполнен, выявлен incomplete Alembic baseline
-- P0: унификация env-переменных и entrypoint-сценариев
-- P1: синхронизация `README.md`, `RUN.md`, `docs/README.md`
-- P1: устранение оставшихся `pytest` warnings и async warning в background tests
-- P1: smoke startup tests для BankBot, BridgeBot, VK Bot
-- P1: ревизия Docker/Compose и health/readiness checks
-- P2: архитектурная инвентаризация слоёв и сокращение legacy-дублей
+- P0: аудит схемы БД, миграций и runtime-совместимости — выполнен (PR01)
+- P0: унификация env-переменных и entrypoint-сценариев — выполнено (PR02-PR03)
+- P1: синхронизация `README.md`, `RUN.md`, `docs/README.md` — выполнено (PR04)
+- P1: устранение оставшихся `pytest` warnings — выполнено (PR05)
+- P1: smoke startup tests для BankBot, BridgeBot, VK Bot — выполнено (PR07)
+- P1: ревизия Docker/Compose — выполнено (PR08)
+- P1: Release checklist и runbook — выполнено (PR09)
+- P2: архитектурная инвентаризация слоёв и сокращение legacy-дублей (PR10-PR13)
+
+## Текущий checkpoint
+- smoke-тесты синхронизированы с текущими экспортами конфигурации и startup flow
+- `tests/pytest.ini` дополнен `asyncio_default_fixture_loop_scope = function`
+- `src/config.py` синхронизирован: `DynamicSettings` теперь читает feature flags, cache и debug/test поля так же, как основной `Settings`
+- `RUN.md` и `config/.env.example` синхронизированы с фактическими именами env-переменных и Windows/PowerShell-командами
+- локальная проверка: `py -3.13 -m pytest tests/smoke -v` -> 9 passed
+- локальная проверка: `py -3.13 -m ruff check src/config.py tests/smoke/test_startup.py` -> passed
 
 ## PR01 Result
 - SQLAlchemy metadata содержит 24 таблицы, ранние Alembic-миграции покрывали только часть схемы

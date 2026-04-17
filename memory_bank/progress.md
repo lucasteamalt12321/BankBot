@@ -20,6 +20,46 @@
 
 ## Changelog
 
+### 2026-04-17 (PR10 — smoke sync and pytest-asyncio cleanup)
+- Актуализирован `tests/smoke/test_startup.py` под текущие публичные API и startup flow
+  - smoke-проверки для `bridge_bot.config` и `vk_bot.config` переведены с устаревших `BridgeConfig` / `VKConfig` на текущие экспорты `BotSettings` и `get_settings`
+  - startup smoke для `bot.main` переведён на патч `bot.main.TelegramBot`, чтобы тестировать фактическую точку использования класса
+- В `tests/pytest.ini` добавлен `asyncio_default_fixture_loop_scope = function`
+- В `src/config.py` расширен `DynamicSettings`, чтобы env-загрузка не теряла feature flags, cache-настройки и debug/test поля из основного `Settings`
+- Синхронизированы `RUN.md` и `config/.env.example`
+  - `RUN.md` переведён на актуальные `BOT_TOKEN`, `config/.env` и PowerShell-команды для Windows-среды
+  - `config/.env.example` переведён на реальные `DB_POOL_MIN` / `DB_POOL_MAX`, удалён устаревший `HOT_RELOAD`
+- Локальная проверка на Python 3.13:
+  - `py -3.13 -m pytest tests/smoke -v` -> 9 passed
+  - `py -3.13 -m ruff check src/config.py tests/smoke/test_startup.py` -> passed
+
+### 2026-04-17 (Post-Release: PR01-PR09 completed)
+- **PR01 (schema audit)**: Verified SQLAlchemy metadata vs Alembic migrations
+- **PR02 (schema verification)**: Verified Alembic migrations exist and work correctly
+  - `database/alembic/versions/001_initial.py` - initial migration
+  - `database/alembic/versions/002_add_alias.py` - alias field
+  - `database/alembic/versions/003_create_missing_tables.py` - missing tables
+  - `database/schema.py` - Alembic-first helper with create_tables() fallback
+- **PR03 (env unification)**: Unified environment variables across documentation
+  - Updated `RUN.md` to match `config/.env.example` format
+  - Verified `src/config.py` is canonical source of Settings class
+- **PR04 (documentation sync)**: Started documentation synchronization
+  - Verified `RUN.md`, `README.md`, `docs/README.md` exist
+  - Updated RUN.md to reflect actual .env path (`config/.env`)
+- **PR05 (pytest warnings)**: Verified pytest.ini configuration is correct
+  - Filterwarnings configured for DeprecationWarning and PytestUnknownMarkWarning
+- **PR07 (smoke tests)**: Created startup smoke tests
+  - `tests/smoke/test_startup.py` - tests for BankBot, BridgeBot, VK Bot, DB schema, config
+  - Tests for: imports, loop guard, configuration loading, repository/service imports
+- **PR08 (Docker/Compose)**: Verified Dockerfile and docker-compose.yml are working
+  - Multi-stage build with tini for proper signal handling
+  - Health checks configured for all 3 services
+  - Resource limits defined
+- **PR09 (runbook)**: Updated RUN.md with release checklist
+  - Added "Чеклист перед запуском" table
+  - Updated error messages to use correct env vars
+  - Added smoke tests to verification commands
+
 ### 2026-04-06 (PR01 — schema audit and migration hardening)
 - Выявлено ключевое расхождение: SQLAlchemy metadata описывает 24 таблицы, а ранняя Alembic-цепочка покрывала только базовые таблицы и частичный `users`
 - Исправлен `database/alembic/env.py`: удалён несуществующий импорт `database.models`
@@ -223,4 +263,4 @@
 - Добавлен Unit of Work для атомарных транзакций
 
 ## last_checked_commit
-e58eede (2026-04-03), обновления H01 (2026-04-05)
+eccf805588a4c9cacf741b2ea87e7d9632cd7336 (2026-04-17, smoke sync verified)

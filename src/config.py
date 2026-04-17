@@ -71,6 +71,24 @@ class Settings(BaseSettings):
     BOT_NAME: str = Field(default="LucasTeam Bot")
     BOT_USERNAME: str = Field(default="")
 
+    # Feature Flags
+    SHOP_ENABLED: bool = Field(default=True)
+    GAMES_ENABLED: bool = Field(default=True)
+    ACHIEVEMENTS_ENABLED: bool = Field(default=True)
+    SOCIAL_FEATURES_ENABLED: bool = Field(default=True)
+    DND_SYSTEM_ENABLED: bool = Field(default=False)
+    PARSING_CHECK_INTERVAL: int = Field(default=60)
+
+    # Performance
+    CACHE_ENABLED: bool = Field(default=False)
+    CACHE_BACKEND: Literal["memory", "redis"] = Field(default="memory")
+    REDIS_URL: str = Field(default="redis://localhost:6379/0")
+    CACHE_TTL: int = Field(default=3600)
+
+    # Development
+    DEBUG: bool = Field(default=False)
+    TEST_MODE: bool = Field(default=False)
+
     @field_validator("BOT_TOKEN")
     @classmethod
     def validate_bot_token(cls, v: str) -> str:
@@ -191,6 +209,18 @@ def _create_settings_with_env_file(env_file: str | None) -> Settings:
         TASK_CHECK_INTERVAL: int = 300
         BOT_NAME: str = "LucasTeam Bot"
         BOT_USERNAME: str = ""
+        SHOP_ENABLED: bool = True
+        GAMES_ENABLED: bool = True
+        ACHIEVEMENTS_ENABLED: bool = True
+        SOCIAL_FEATURES_ENABLED: bool = True
+        DND_SYSTEM_ENABLED: bool = False
+        PARSING_CHECK_INTERVAL: int = 60
+        CACHE_ENABLED: bool = False
+        CACHE_BACKEND: Literal["memory", "redis"] = "memory"
+        REDIS_URL: str = "redis://localhost:6379/0"
+        CACHE_TTL: int = 3600
+        DEBUG: bool = False
+        TEST_MODE: bool = False
 
         model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
             env_file=env_file,
