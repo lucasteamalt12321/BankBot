@@ -2,8 +2,10 @@
 import logging
 import asyncio
 import signal
+import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -119,10 +121,38 @@ from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
 import structlog
 
+
+POLLING_RETRY_DELAY_SECONDS = 5
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = structlog.get_logger()
+
+
+def _normalize_bot_command(message_text: str | None) -> str:
+    """Normalize command text by stripping bot mention and arguments."""
+    if not message_text:
+        return ""
+
+    command = message_text.strip().split(maxsplit=1)[0]
+    return command.split("@", maxsplit=1)[0].lower()
+
+
+def _extract_bot_mentioned_command(message_text: str | None, bot_username: str | None) -> str:
+    """Extract command addressed to this bot via /command@username syntax."""
+    if not message_text or not bot_username:
+        return ""
+
+    command = message_text.strip().split(maxsplit=1)[0]
+    if "@" not in command:
+        return ""
+
+    base_command, mentioned_username = command.split("@", maxsplit=1)
+    if mentioned_username.lower() != bot_username.lstrip("@").lower():
+        return ""
+
+    return base_command.lower()
 
 
 class TelegramBot:
@@ -307,6 +337,11 @@ class TelegramBot:
 
         # Обработка колбэков
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
+
+        # Явный fallback для команд с упоминанием бота (/start@bot_username)
+        self.application.add_handler(
+            MessageHandler(filters.COMMAND, self.handle_mentioned_commands)
+        )
 
         # Обработка всех сообщений
         self.application.add_handler(
@@ -786,6 +821,20 @@ class TelegramBot:
             )
             return
 
+    async def handle_mentioned_commands(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Handle commands addressed via /command@bot_username syntax."""
+        message_text = update.effective_message.text if update.effective_message else None
+        bot_username = settings.BOT_USERNAME or getattr(context.bot, "username", "")
+        mentioned_command = _extract_bot_mentioned_command(
+            message_text,
+            bot_username,
+        )
+
+        if mentioned_command == "/start":
+            await self.welcome_command(update, context)
+
     # DEPRECATED: Автоматический парсинг отключен
     # Используется только ручной парсинг по команде "парсинг"
     # async def process_game_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -893,7 +942,22 @@ class TelegramBot:
                     "Background task system not running - some features may be limited"
                 )
 
-            self.application.run_polling(drop_pending_updates=True, close_loop=False)
+            while not self._shutdown_requested:
+                try:
+                    self.application.run_polling(
+                        drop_pending_updates=True,
+                        close_loop=False,
+                    )
+                    break
+                except (TimedOut, NetworkError) as e:
+                    logger.warning(
+                        "Polling interrupted by transient network error, retrying",
+                        error=str(e),
+                        retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
+                    )
+                    if self._shutdown_requested:
+                        break
+                    time.sleep(POLLING_RETRY_DELAY_SECONDS)
         except KeyboardInterrupt:
             logger.info("Bot stopped by user (Ctrl+C)")
         except Exception as e:

@@ -332,5 +332,50 @@ class TestParserDetection:
         assert result is None
 
 
+class TestCommandNormalization:
+    """Test command normalization for bot mentions."""
+
+    def test_normalize_bot_command_strips_bot_mention(self):
+        """Command with @botname should match the base command."""
+        from bot.bot import _normalize_bot_command
+
+        assert _normalize_bot_command("/start@lt_lo_game_bot") == "/start"
+        assert _normalize_bot_command("/start@lt_lo_game_bot payload") == "/start"
+
+    def test_extract_bot_mentioned_command_matches_configured_username(self):
+        """Only commands addressed to this bot should be extracted."""
+        from bot.bot import _extract_bot_mentioned_command
+
+        assert (
+            _extract_bot_mentioned_command("/start@lt_lo_game_bot", "lt_lo_game_bot")
+            == "/start"
+        )
+        assert (
+            _extract_bot_mentioned_command("/start@other_bot", "lt_lo_game_bot") == ""
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_mentioned_start_uses_runtime_bot_username_when_config_empty(self):
+        """Mentioned /start should work even if BOT_USERNAME is not set in env."""
+        from bot.bot import TelegramBot
+
+        with patch("bot.bot.settings") as mock_settings:
+            mock_settings.BOT_TOKEN = "123456:TEST"
+            mock_settings.BOT_USERNAME = ""
+
+            bot = TelegramBot()
+            bot.welcome_command = AsyncMock()
+
+            update = Mock()
+            update.effective_message = Mock(text="/start@lt_lo_game_bot")
+
+            context = Mock()
+            context.bot = Mock(username="lt_lo_game_bot")
+
+            await bot.handle_mentioned_commands(update, context)
+
+            bot.welcome_command.assert_awaited_once_with(update, context)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
