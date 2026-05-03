@@ -20,6 +20,15 @@
 
 ## Changelog
 
+### 2026-05-03 (Planning — M01 dialog template coder)
+- Добавлен новый модуль в планы с максимальным приоритетом: **M01 — диалоговый кодер текстовых шаблонов**.
+- Создано подробное ТЗ: `memory_bank/dialog_template_coder_module.md`.
+- `projectbrief.md` обновлён: M01 добавлен в `Post-Release Backlog` как `MAX/P0 planned` выше pending-задач `PR10–PR13`.
+- `activeContext.md` обновлён: текущий фокус переключён на M01.
+- Пользователь предоставил полный список 500 троек: `100 пар × 5 модификаторов C`, где `C ∈ {1,2,3,5,10}`.
+- В `dialog_template_coder_module.md` зафиксированы коды 10 шаблонов, правило третьего уровня и задача переноса данных в JSON/код.
+- Пользователь предоставил полную таблицу 10 одиночных значений; все три таблицы данных для M01 теперь определены.
+
 ### 2026-04-17 (PR10 — smoke sync and pytest-asyncio cleanup)
 - Актуализирован `tests/smoke/test_startup.py` под текущие публичные API и startup flow
   - smoke-проверки для `bridge_bot.config` и `vk_bot.config` переведены с устаревших `BridgeConfig` / `VKConfig` на текущие экспорты `BotSettings` и `get_settings`

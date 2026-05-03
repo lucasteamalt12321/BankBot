@@ -287,6 +287,7 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
+| M01 | Новый модуль: диалоговый кодер текстовых шаблонов (`memory_bank/dialog_template_coder_module.md`); все таблицы определены, нужен перенос в JSON/код и реализация | MAX/P0 | planned |
 | PR01 | Аудит схемы БД против моделей и миграций | P0 | completed |
 | PR02 | Проверка миграций на чистой БД и устранение schema drift | P0 | completed |
 | PR03 | Унификация env-переменных и entrypoint-сценариев | P0 | completed |
