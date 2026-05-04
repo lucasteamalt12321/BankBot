@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # Proxy
     PROXY_URL: Optional[str] = Field(default=None)
 
+    # Notifications
+    NTFY_TOPIC: str = Field(default="lucasteam_bankbot_2091908459")
+
     # Background Tasks
     TASK_CHECK_INTERVAL: int = Field(default=300)
 
@@ -210,6 +213,7 @@ def _create_settings_with_env_file(env_file: str | None) -> Settings:
         LOG_LEVEL: str = "INFO"
         LOG_FILE: Optional[str] = None
         PROXY_URL: Optional[str] = None
+        NTFY_TOPIC: str = "lucasteam_bankbot_2091908459"
         TASK_CHECK_INTERVAL: int = 300
         BOT_NAME: str = "LucasTeam Bot"
         BOT_USERNAME: str = ""

@@ -68,6 +68,23 @@ class TemplateCoderDialog:
         response, new_state = self.service.process(message.text, state)
         self._set_state(context, new_state)
         await message.reply_text(response)
+
+        # Отправка системного уведомления для часов
+        try:
+            from utils.monitoring.notification_system import NotificationSystem
+            from database.database import get_db, User
+            
+            db = next(get_db())
+            user_db = db.query(User).filter(User.telegram_id == update.effective_user.id).first()
+            if user_db:
+                # Используем вспомогательный метод напрямую для скорости и отсутствия дублей в TG
+                ns = NotificationSystem(db)
+                await ns._send_to_ntfy("Кодер", response, "coder")
+            db.close()
+        except Exception as e:
+            from bot.bot import logger
+            logger.error(f"Error sending coder notification to ntfy: {e}")
+
         return True
 
     def _get_state(self, context: ContextTypes.DEFAULT_TYPE) -> CoderState:

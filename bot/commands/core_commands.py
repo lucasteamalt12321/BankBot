@@ -206,7 +206,21 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = await update.message.reply_text("🏓 Понг...")
     end_time = datetime.utcnow()
     latency = (end_time - start_time).total_seconds() * 1000
-    await message.edit_text(f"🏓 Понг! (Задержка: {latency:.2f} мс)")
+    response_text = f"🏓 Понг! (Задержка: {latency:.2f} мс)"
+    await message.edit_text(response_text)
+    
+    # Отправка в ntfy для теста часов
+    try:
+        from utils.monitoring.notification_system import NotificationSystem
+        from database.database import get_db, User
+        db = next(get_db())
+        user_db = db.query(User).filter(User.telegram_id == update.effective_user.id).first()
+        if user_db:
+            ns = NotificationSystem(db)
+            await ns._send_to_ntfy("Ping", response_text, "ping")
+        db.close()
+    except Exception:
+        pass
 
 
 async def balance_command(

@@ -8,16 +8,30 @@ import structlog
 logger = structlog.get_logger()
 
 
+import traceback
+import structlog
+import requests
+import json
+from sqlalchemy.orm import Session
+from database.database import UserNotification, User
+from typing import List, Dict, Any
+from datetime import datetime, timedelta
+from src.config import settings
+
+logger = structlog.get_logger()
+
+
 class NotificationSystem:
-    """Система уведомлений"""
+    """Система уведомлений с поддержкой Telegram и ntfy (системные поп-апы)"""
 
     def __init__(self, db: Session, bot=None):
         self.db = db
         self.bot = bot
+        self.ntfy_url = "https://ntfy.sh"
 
     async def send_notification(self, user_id: int, notification_type: str,
                           title: str, message: str, data: Dict = None) -> UserNotification:
-        """Отправка уведомления пользователю и в Telegram"""
+        """Отправка уведомления пользователю, в Telegram и ntfy"""
 
         notification = UserNotification(
             user_id=user_id,
@@ -40,10 +54,9 @@ class NotificationSystem:
             notification_id=notification.id
         )
 
-        # Отправка в Telegram, если доступен бот
+        # 1. Отправка в Telegram
         if self.bot:
             try:
-                # Получаем telegram_id пользователя
                 user = self.db.query(User).filter(User.id == user_id).first()
                 if user and user.telegram_id:
                     formatted_text = f"<b>{title}</b>\n\n{message}"
@@ -56,7 +69,57 @@ class NotificationSystem:
             except Exception as e:
                 logger.error("Failed to send Telegram notification", error=str(e))
 
+        # 2. Отправка в ntfy (системный поп-ап с кнопками)
+        await self._send_to_ntfy(title, message, notification_type)
+
         return notification
+
+    async def _send_to_ntfy(self, title: str, message: str, ntype: str):
+        """Вспомогательный метод для отправки в ntfy.sh"""
+        if not settings.NTFY_TOPIC:
+            return
+
+        try:
+            topic = settings.NTFY_TOPIC
+            
+            # Настройка кнопок
+            actions = [
+                {
+                    "action": "view",
+                    "label": "Открыть Telegram",
+                    "url": "tg://resolve?domain=lt_lo_game_bot",
+                    "clear": True
+                }
+            ]
+            
+            headers = {
+                "Title": title.encode('utf-8'),
+                "Priority": "high",
+                "Tags": "loud_speaker,bank",
+                "Actions": json.dumps(actions)
+            }
+            
+            # Используем прокси если он есть
+            proxies = None
+            if settings.PROXY_URL:
+                proxies = {"http": settings.PROXY_URL, "https": settings.PROXY_URL}
+            
+            # ntfy принимает текст в теле POST запроса
+            response = requests.post(
+                f"{self.ntfy_url}/{topic}",
+                data=message.encode('utf-8'),
+                headers=headers,
+                proxies=proxies,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info("Notification sent to ntfy", topic=topic)
+            else:
+                logger.warning("Failed to send to ntfy", status=response.status_code)
+                
+        except Exception as e:
+            logger.error("Error sending to ntfy", error=str(e))
 
     async def send_transaction_notification(self, user_id: int, amount: int,
                                       transaction_type: str, description: str):

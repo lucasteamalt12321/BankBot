@@ -33,13 +33,12 @@ class TemplateCoderService:
     state_ttl = timedelta(minutes=30)
 
     unknown_message = (
-        "Не понял. Пришлите один из шаблонов: ОК, Да, Спасибо, "
-        '"Спасибо, нет", Великолепно, Спасибо еще раз, Скоро увидимся, '
-        "Скоро буду, Я занят(а), Нет."
+        "Ошибка. Пришлите: ОК, Да, Спс, \"Спс, нет\", Велик, "
+        "Спс ещё, Увидимся, Буду, Занят(а), Нет."
     )
 
     third_step_error_prefix = (
-        "На третьем шаге разрешены только: ОК, Да, Спасибо, Великолепно, Нет."
+        "Шаг 3: только ОК, Да, Спс, Велик, Нет."
     )
 
     def normalize(self, text: str | None) -> int | None:
@@ -169,28 +168,38 @@ class TemplateCoderService:
 
     def _handle_first(self, a_code: int, prefix: str) -> tuple[str, CoderState]:
         template = self.display_template(a_code)
-        lines = [
-            f"{prefix}Вы написали «{template}», что значит «{SINGLE_VALUES[a_code]}».",
-            "Варианты для второго шаблона (любой из 10):",
-        ]
-        lines.extend(
-            f"{self.display_template(b_code)} → «{PAIR_VALUES[(a_code, b_code)]}»"
-            for b_code in range(1, 11)
-        )
+        val = SINGLE_VALUES[a_code].split('/')[0].strip()
+        lines = [f"{prefix}{template}({val}). След:"]
+        
+        for b_code in range(1, 11):
+            t = self.display_template(b_code)
+            short_t = t.replace("Спасибо", "Спс").replace("Великолепно", "Велик")
+            short_t = short_t.replace("Скоро увидимся", "Увидимся").replace("Скоро буду", "Буду")
+            short_t = short_t.replace(" еще раз", "++").replace("\"", "")
+            
+            v = PAIR_VALUES[(a_code, b_code)]
+            v = v.replace("Всё в порядке", "Всё ок").replace("нормально", "норм")
+            v = v.replace("информацию", "инфо").replace("Договорились", "Ок")
+            v = v.replace("Великолепно", "Велик").replace("понимание", "поним")
+            v = v.replace("неохотно", "неохот").replace("принимаю", "прин")
+            
+            lines.append(f"{b_code}.{short_t}: {v}")
+            
         return "\n".join(lines), self._active_state(step=1, a_code=a_code)
 
     def _handle_second(self, a_code: int, b_code: int) -> tuple[str, CoderState]:
-        a_template = self.display_template(a_code)
-        b_template = self.display_template(b_code)
+        a_t = self.display_template(a_code)
+        b_t = self.display_template(b_code)
+        v = PAIR_VALUES[(a_code, b_code)]
         lines = [
-            f"Вы написали «{a_template} → {b_template}», что значит «{PAIR_VALUES[(a_code, b_code)]}».",
-            "Теперь вы можете прислать третий шаблон из списка: ОК, Да, Спасибо, Великолепно, Нет.",
-            "Варианты:",
+            f"{a_t}->{b_t}({v}).",
+            "Шаг 3: ОК,Да,Спс,Велик,Нет",
         ]
-        lines.extend(
-            f"{self.display_template(c_code)} → «{get_triple_value(a_code, b_code, c_code)}»"
-            for c_code in THIRD_STEP_CODES
-        )
+        for c_code in THIRD_STEP_CODES:
+            t = self.display_template(c_code).replace("Спасибо", "Спс").replace("Великолепно", "Велик")
+            val = get_triple_value(a_code, b_code, c_code)
+            lines.append(f"{t}: {val}")
+            
         return "\n".join(lines), self._active_state(
             step=2,
             a_code=a_code,
@@ -203,16 +212,8 @@ class TemplateCoderService:
         b_code: int,
         c_code: int,
     ) -> tuple[str, CoderState]:
-        sequence = " → ".join(
-            [
-                self.display_template(a_code),
-                self.display_template(b_code),
-                self.display_template(c_code),
-            ]
-        )
-        value = get_triple_value(a_code, b_code, c_code)
+        v = get_triple_value(a_code, b_code, c_code)
         return (
-            f"Вы написали «{sequence}», что значит «{value}». Конец последовательности.\n"
-            "Чтобы начать новую, просто напишите новый первый шаблон.",
+            f"Итог: {v}.\nНовый цикл: 1-й шаблон.",
             self.empty_state(),
         )
