@@ -11,12 +11,13 @@ logger = structlog.get_logger()
 class NotificationSystem:
     """Система уведомлений"""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, bot=None):
         self.db = db
+        self.bot = bot
 
-    def send_notification(self, user_id: int, notification_type: str,
+    async def send_notification(self, user_id: int, notification_type: str,
                           title: str, message: str, data: Dict = None) -> UserNotification:
-        """Отправка уведомления пользователю"""
+        """Отправка уведомления пользователю и в Telegram"""
 
         notification = UserNotification(
             user_id=user_id,
@@ -33,15 +34,31 @@ class NotificationSystem:
         self.db.refresh(notification)
 
         logger.info(
-            "Notification sent",
+            "Notification saved to DB",
             user_id=user_id,
             notification_type=notification_type,
             notification_id=notification.id
         )
 
+        # Отправка в Telegram, если доступен бот
+        if self.bot:
+            try:
+                # Получаем telegram_id пользователя
+                user = self.db.query(User).filter(User.id == user_id).first()
+                if user and user.telegram_id:
+                    formatted_text = f"<b>{title}</b>\n\n{message}"
+                    await self.bot.send_message(
+                        chat_id=user.telegram_id,
+                        text=formatted_text,
+                        parse_mode="HTML"
+                    )
+                    logger.info("Notification sent to Telegram", user_id=user.telegram_id)
+            except Exception as e:
+                logger.error("Failed to send Telegram notification", error=str(e))
+
         return notification
 
-    def send_transaction_notification(self, user_id: int, amount: int,
+    async def send_transaction_notification(self, user_id: int, amount: int,
                                       transaction_type: str, description: str):
         """Уведомление о транзакции"""
 
@@ -62,7 +79,7 @@ class NotificationSystem:
 
         message += f"\n\n💳 Новый баланс: {user.balance} монет"
 
-        return self.send_notification(
+        return await self.send_notification(
             user_id=user_id,
             notification_type='transaction',
             title=title,
@@ -74,7 +91,7 @@ class NotificationSystem:
             }
         )
 
-    def send_achievement_notification(self, user_id: int, achievement: Dict):
+    async def send_achievement_notification(self, user_id: int, achievement: Dict):
         """Уведомление о получении достижения"""
 
         title = "🏆 Новое достижение!"
@@ -91,7 +108,7 @@ class NotificationSystem:
         message += f"{achievement.get('description', '')}\n\n"
         message += f"💎 Награда: {achievement.get('points', 0)} очков достижений"
 
-        return self.send_notification(
+        return await self.send_notification(
             user_id=user_id,
             notification_type='achievement',
             title=title,
@@ -104,7 +121,7 @@ class NotificationSystem:
             }
         )
 
-    def send_purchase_notification(self, user_id: int, item_name: str,
+    async def send_purchase_notification(self, user_id: int, item_name: str,
                                    price: int, new_balance: int):
         """Уведомление о покупке"""
 
@@ -113,7 +130,7 @@ class NotificationSystem:
         message += f"💸 Стоимость: {price} монет\n"
         message += f"💳 Новый баланс: {new_balance} монет"
 
-        return self.send_notification(
+        return await self.send_notification(
             user_id=user_id,
             notification_type='purchase',
             title=title,
@@ -125,7 +142,7 @@ class NotificationSystem:
             }
         )
 
-    def send_game_notification(self, user_id: int, game_type: str,
+    async def send_game_notification(self, user_id: int, game_type: str,
                                result: str, reward: int = 0):
         """Уведомление о результате игры"""
 
@@ -144,7 +161,7 @@ class NotificationSystem:
         else:
             message = f"📊 Результат: {result}"
 
-        return self.send_notification(
+        return await self.send_notification(
             user_id=user_id,
             notification_type='game',
             title=title,
@@ -156,10 +173,10 @@ class NotificationSystem:
             }
         )
 
-    def send_system_notification(self, user_id: int, title: str, message: str):
+    async def send_system_notification(self, user_id: int, title: str, message: str):
         """Системное уведомление"""
 
-        return self.send_notification(
+        return await self.send_notification(
             user_id=user_id,
             notification_type='system',
             title=title,

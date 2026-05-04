@@ -37,6 +37,8 @@ from bot.commands.core_commands import (
     history_command,
     profile_command,
     stats_command,
+    ping_command,
+    test_notify_command,
 )
 from bot.commands.shop_commands_ptb import (
     shop_command,
@@ -116,6 +118,7 @@ from bot.commands.user_commands import (
     buy_7_command,
     buy_8_command,
 )
+from bot.template_coder import TemplateCoderDialog
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
@@ -157,7 +160,11 @@ def _extract_bot_mentioned_command(message_text: str | None, bot_username: str |
 
 class TelegramBot:
     def __init__(self):
-        self.application = Application.builder().token(settings.BOT_TOKEN).build()
+        builder = Application.builder().token(settings.BOT_TOKEN)
+        if settings.PROXY_URL:
+            builder.proxy_url(settings.PROXY_URL)
+            builder.get_updates_proxy_url(settings.PROXY_URL)
+        self.application = builder.build()
 
         # Инициализация систем мониторинга и безопасности
         self.monitoring_system = None
@@ -178,6 +185,9 @@ class TelegramBot:
 
         # NEW: Инициализация обработчика парсинга
         self.parsing_handler = ParsingHandler()
+
+        # M01: диалоговый кодер текстовых шаблонов
+        self.template_coder_dialog = TemplateCoderDialog()
 
         # Флаг для graceful shutdown
         self._shutdown_requested = False
@@ -222,6 +232,8 @@ class TelegramBot:
         # Основные команды
         handlers = [
             CommandHandler("start", self.welcome_command),
+            CommandHandler("ping", ping_command),
+            CommandHandler("test_notify", test_notify_command),
             CommandHandler("balance", self.balance_command),
             CommandHandler("history", self.history_command),
             CommandHandler("profile", self.profile_command),
@@ -329,6 +341,10 @@ class TelegramBot:
             CommandHandler("restore_config", config_commands.restore_config_handler),
             CommandHandler("list_backups", config_commands.list_backups_handler),
             CommandHandler("validate_config", config_commands.validate_config_handler),
+            # Диалоговый кодер шаблонов
+            CommandHandler("coder", self.template_coder_dialog.start_command),
+            CommandHandler("reset", self.template_coder_dialog.reset_command),
+            CommandHandler("help", self.template_coder_dialog.help_command),
         ]
 
         for handler in handlers:
@@ -570,7 +586,12 @@ class TelegramBot:
     # ===== Основные команды =====
     async def welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start - приветствие и регистрация."""
+        self.template_coder_dialog.reset_state(context)
         await welcome_command(update, context, self.admin_system, settings, get_db)
+        await update.message.reply_text(
+            self.template_coder_dialog.service.welcome_hint_text(),
+            parse_mode="HTML",
+        )
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /balance - проверка баланса."""
@@ -802,6 +823,9 @@ class TelegramBot:
             f"Message ignored (automatic parsing disabled): {message_text[:50] if message_text else 'No text'}..."
         )
 
+        if await self.template_coder_dialog.handle_text(update, context):
+            return
+
         # Если это личное сообщение от пользователя и не команда, покажем справку
         if chat.type == "private" and not message_text.startswith("/"):
             await update.message.reply_text(
@@ -834,6 +858,12 @@ class TelegramBot:
 
         if mentioned_command == "/start":
             await self.welcome_command(update, context)
+        elif mentioned_command == "/coder":
+            await self.template_coder_dialog.start_command(update, context)
+        elif mentioned_command == "/help":
+            await self.template_coder_dialog.help_command(update, context)
+        elif mentioned_command == "/reset":
+            await self.template_coder_dialog.reset_command(update, context)
 
     # DEPRECATED: Автоматический парсинг отключен
     # Используется только ручной парсинг по команде "парсинг"

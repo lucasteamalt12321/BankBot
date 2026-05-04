@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field(default="INFO")
     LOG_FILE: Optional[str] = Field(default=None)
 
+    # Proxy
+    PROXY_URL: Optional[str] = Field(default=None)
+
     # Background Tasks
     TASK_CHECK_INTERVAL: int = Field(default=300)
 
@@ -206,6 +209,7 @@ def _create_settings_with_env_file(env_file: str | None) -> Settings:
         PARSING_ENABLED: bool = False
         LOG_LEVEL: str = "INFO"
         LOG_FILE: Optional[str] = None
+        PROXY_URL: Optional[str] = None
         TASK_CHECK_INTERVAL: int = 300
         BOT_NAME: str = "LucasTeam Bot"
         BOT_USERNAME: str = ""

@@ -174,11 +174,11 @@ async def buy_command(
             try:
                 from utils.monitoring.notification_system import NotificationSystem
 
-                notification_system = NotificationSystem(db)
+                notification_system = NotificationSystem(db, bot=context.bot)
                 shop_items = shop_manager.get_shop_items()
                 if shop_items and 1 <= item_number <= len(shop_items):
                     item = shop_items[item_number - 1]
-                    notification_system.send_purchase_notification(
+                    await notification_system.send_purchase_notification(
                         user.id,
                         item.name,
                         int(item.price),
@@ -252,11 +252,11 @@ async def _handle_purchase_command(
             try:
                 from utils.monitoring.notification_system import NotificationSystem
 
-                notification_system = NotificationSystem(db)
+                notification_system = NotificationSystem(db, bot=context.bot)
                 shop_items = shop_manager.get_shop_items()
                 if shop_items and 1 <= item_number <= len(shop_items):
                     item = shop_items[item_number - 1]
-                    notification_system.send_purchase_notification(
+                    await notification_system.send_purchase_notification(
                         user.id,
                         item.name,
                         int(item.price),

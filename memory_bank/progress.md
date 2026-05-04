@@ -20,7 +20,17 @@
 
 ## Changelog
 
-### 2026-05-03 (Planning — M01 dialog template coder)
+### 2026-05-04 (Network & Notification Fixes)
+- **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
+- **HTML Escaping Fixes**: Escaped `<` and `>` in `WELCOME_TEXT` and user dynamic data in `core_commands.py` to prevent `BadRequest` errors in Telegram.
+- **Error Handler Improvement**: Added `html.escape` to traceback formatting in `error_handler.py`.
+- **Notification System Upgrade**: 
+  - `NotificationSystem` methods made `async`.
+  - Added real-time Telegram message sending to `NotificationSystem`.
+  - Updated `shop_commands_ptb.py` and `core_commands.py` to use async notifications with the bot instance.
+- **New Commands**: Added `/ping` (latency test) and `/test_notify` (notification popup test).
+- **Environment**: Configured `.env` with `PROXY_URL=http://127.0.0.1:1080` to restore connectivity.
+
 - Добавлен новый модуль в планы с максимальным приоритетом: **M01 — диалоговый кодер текстовых шаблонов**.
 - Создано подробное ТЗ: `memory_bank/dialog_template_coder_module.md`.
 - `projectbrief.md` обновлён: M01 добавлен в `Post-Release Backlog` как `MAX/P0 planned` выше pending-задач `PR10–PR13`.
@@ -28,6 +38,32 @@
 - Пользователь предоставил полный список 500 троек: `100 пар × 5 модификаторов C`, где `C ∈ {1,2,3,5,10}`.
 - В `dialog_template_coder_module.md` зафиксированы коды 10 шаблонов, правило третьего уровня и задача переноса данных в JSON/код.
 - Пользователь предоставил полную таблицу 10 одиночных значений; все три таблицы данных для M01 теперь определены.
+- Начата реализация M01:
+  - создан пакет `bot/template_coder/`;
+  - добавлены `data.py`, `service.py`, `dialog.py`;
+  - подключены `/reset`, `/help` и обработка текстовых шаблонов в `bot/bot.py`;
+  - добавлены unit-тесты `tests/unit/test_template_coder.py`.
+- Проверки: `python -m pytest tests/unit/test_template_coder.py -q` -> 6 passed; `python -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
+- Следующая итерация: перенесены все 500 троек в `bot/template_coder/data.py`, временный fallback генерации удалён.
+- Добавлена `validate_data()` для проверки полноты таблиц: 10 шаблонов, 10 одиночных значений, 100 пар, 500 троек.
+- Добавлен entrypoint `/coder` для запуска нового блока и сброса состояния.
+- `/help` расширен инструкцией по диалоговому кодеру и списком 10 шаблонов; `/reset` сбрасывает состояние кодера.
+- Тесты расширены проверками полноты таблиц и help/start-текста.
+- Проверки после расширения: `python -m pytest tests/unit/test_template_coder.py -q` -> 9 passed; `python -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
+- `/start` синхронизирован с новым блоком: после основного приветствия отправляет отдельную краткую подсказку по диалоговому кодеру.
+- Добавлена поддержка mentioned-команд для групп: `/coder@bot`, `/help@bot`, `/reset@bot`.
+- Тесты расширены до 11 сценариев, включая `/start` hint и `_extract_bot_mentioned_command` для команд нового блока.
+- Проверки: `python -m pytest tests/unit/test_template_coder.py -q` -> 11 passed; `python -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
+- `/start` теперь сбрасывает состояние кодера перед отправкой основного приветствия и подсказки.
+- Добавлен TTL 30 минут: `CoderState.updated_at`, `TemplateCoderService.is_expired()`, авто-сброс устаревшего состояния в `TemplateCoderDialog.handle_text()`.
+- Тесты расширены до 13 сценариев, включая TTL свежего/устаревшего состояния и отсутствие expiry у пустого состояния.
+- Проверки: `python -m pytest tests/unit/test_template_coder.py -q` -> 13 passed; `python -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
+- Финализация M01:
+  - добавлены adapter-level async тесты `TemplateCoderDialog`;
+  - проверены обработка шаблонного текста, игнор обычного текста, сброс устаревшего состояния и `/reset`;
+  - добавлен import smoke для wiring класса `TelegramBot`.
+- M01 переведён в `completed` в `projectbrief.md`.
+- Финальные проверки M01: `python -m pytest tests/unit/test_template_coder.py -q` -> 19 passed; `python -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
 
 ### 2026-04-17 (PR10 — smoke sync and pytest-asyncio cleanup)
 - Актуализирован `tests/smoke/test_startup.py` под текущие публичные API и startup flow

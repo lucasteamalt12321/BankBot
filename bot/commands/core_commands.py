@@ -1,6 +1,7 @@
 """Core user commands: welcome, balance, history, profile, stats."""
 
 import structlog
+import html
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -21,6 +22,8 @@ WELCOME_TEXT = """
 Я автоматически отслеживаю вашу активность в играх и начисляю банковские монеты.
 
 [COMMANDS] <b>🔧 Основные команды:</b>
+/start - запустить бота
+/ping - проверить задержку
 /balance - проверить баланс
 /history - история транзакций  
 /profile - ваш профиль
@@ -28,7 +31,7 @@ WELCOME_TEXT = """
 
 [SHOP] <b>🛒 Магазин:</b>
 /shop - просмотр товаров
-/buy <номер> - купить товар
+/buy &lt;номер&gt; - купить товар
 /buy_1, /buy_2, /buy_3 - быстрая покупка
 /buy_contact - связь с админом (10 очков)
 /inventory - ваши покупки
@@ -40,19 +43,19 @@ WELCOME_TEXT = """
 
 [ADMIN] <b>👨‍💼 Админ-команды:</b>
 /admin - панель администратора
-/add_points <@user> <сумма> - начислить очки
-/add_admin <@user> - назначить админа
+/add_points &lt;@user&gt; &lt;сумма&gt; - начислить очки
+/add_admin &lt;@user&gt; - назначить админа
 /admin_stats - статистика системы
 /admin_users - список пользователей
 /admin_balances - топ по балансу
-/admin_transactions <@user> - транзакции
+/admin_transactions &lt;@user&gt; - транзакции
 /admin_addcoins, /admin_removecoins - управление балансом
 /admin_health - здоровье системы
 
 [ADVANCED] <b>🔧 Расширенные админ-команды:</b>
 /parsing_stats - статистика парсинга
-/user_stats <@user> - детальная статистика
-/broadcast <текст> - рассылка всем
+/user_stats &lt;@user&gt; - детальная статистика
+/broadcast &lt;текст&gt; - рассылка всем
 /add_item - добавить товар в магазин
 
 [CONFIG] <b>⚙️ Конфигурация системы:</b>
@@ -129,9 +132,9 @@ async def welcome_command(
         registration_status = f"❌ Ошибка: {str(e)}"
 
     welcome_text = WELCOME_TEXT.format(
-        name=user.first_name,
-        registration_status=registration_status,
-        admin_status=admin_status,
+        name=html.escape(user.first_name or "Пользователь"),
+        registration_status=html.escape(registration_status),
+        admin_status=html.escape(admin_status),
         user_id=user.id,
     )
 
@@ -152,8 +155,8 @@ async def welcome_command(
             identified_user.created_at
             and (datetime.utcnow() - identified_user.created_at).total_seconds() < 60
         ):
-            notification_system = NotificationSystem(db)
-            notification_system.send_system_notification(
+            notification_system = NotificationSystem(db, bot=context.bot)
+            await notification_system.send_system_notification(
                 identified_user.id,
                 "🎉 Добро пожаловать!",
                 "Вы успешно зарегистрированы в системе. Начните зарабатывать монеты!",
@@ -166,6 +169,44 @@ async def welcome_command(
         logger.error(f"Error processing user in main system: {e}")
     finally:
         db.close()
+
+
+async def test_notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /test_notify - тест всплывающего уведомления."""
+    from utils.monitoring.notification_system import NotificationSystem
+    from database.database import get_db, User
+    
+    user = update.effective_user
+    db = next(get_db())
+    try:
+        user_db = db.query(User).filter(User.telegram_id == user.id).first()
+        if not user_db:
+            await update.message.reply_text("Сначала зарегистрируйтесь через /start")
+            return
+            
+        await update.message.reply_text("🔔 Отправляю тестовое уведомление через 3 секунды...\nЗаблокируйте экран или выйдите из чата!")
+        
+        # Ждем немного, чтобы пользователь успел закрыть чат
+        import asyncio
+        await asyncio.sleep(3)
+        
+        notification_system = NotificationSystem(db, bot=context.bot)
+        await notification_system.send_system_notification(
+            user_db.id,
+            "🔔 ТЕСТ УВЕДОМЛЕНИЯ",
+            "Это тестовое системное уведомление. Если вы видите его на часах — всё работает!"
+        )
+    finally:
+        db.close()
+
+
+async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /ping - проверка работоспособности бота."""
+    start_time = datetime.utcnow()
+    message = await update.message.reply_text("🏓 Понг...")
+    end_time = datetime.utcnow()
+    latency = (end_time - start_time).total_seconds() * 1000
+    await message.edit_text(f"🏓 Понг! (Задержка: {latency:.2f} мс)")
 
 
 async def balance_command(
@@ -187,7 +228,7 @@ async def balance_command(
             text = f"""
 [MONEY] <b>Ваш баланс</b>
 
-[USER] Пользователь: {admin_user['first_name'] or user.first_name or 'Неизвестно'}
+[USER] Пользователь: {html.escape(admin_user['first_name'] or user.first_name or 'Неизвестно')}
 [BALANCE] Баланс: {admin_user['balance']} очков
 [STATUS] Статус: {'Администратор' if admin_user['is_admin'] else 'Пользователь'}
 
@@ -206,7 +247,7 @@ async def balance_command(
                 text = f"""
 [MONEY] <b>Ваш баланс</b>
 
-[USER] Пользователь: {user_db.first_name or ''} {user_db.last_name or ''}
+[USER] Пользователь: {html.escape(user_db.first_name or '')} {html.escape(user_db.last_name or '')}
 [BALANCE] Баланс: {user_db.balance} банковских монет
 [TIME] Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}
 
@@ -268,7 +309,7 @@ async def history_command(
         text = f"""
 [STATS] <b>История транзакций</b>
 
-[USER] Пользователь: {user_db.first_name or ''} {user_db.last_name or ''}
+[USER] Пользователь: {html.escape(user_db.first_name or '')} {html.escape(user_db.last_name or '')}
 [BALANCE] Текущий баланс: {user_db.balance} монет
 [LIST] Показано последних: {len(transactions)} транзакций
 
@@ -278,8 +319,8 @@ async def history_command(
             arrow = "UP" if t.amount > 0 else "DOWN" if t.amount < 0 else "EQUAL"
 
             text += f"[{arrow}] {amount_text} монет\n"
-            text += f"   Тип: {t.transaction_type}\n"
-            text += f"   Описание: {t.description[:50]}...\n"
+            text += f"   Тип: {html.escape(t.transaction_type)}\n"
+            text += f"   Описание: {html.escape(t.description[:50])}...\n"
             text += f"   Дата: {t.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
 
         await update.message.reply_text(text, parse_mode="HTML")
@@ -397,8 +438,8 @@ async def profile_command(
 
 [INFO] <b>Основная информация:</b>
    • ID: {user.id}
-   • Имя: {admin_user['first_name'] or 'Не указано'}
-   • Username: @{admin_user['username'] or 'Не указан'}
+   • Имя: {html.escape(admin_user['first_name'] or 'Не указано')}
+   • Username: @{html.escape(admin_user['username'] or 'Не указан')}
    • Баланс: {int(admin_user['balance'])} очков
 
 [STATS] <b>Статистика:</b>

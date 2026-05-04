@@ -7,6 +7,7 @@
 
 import traceback
 import structlog
+import html
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -76,10 +77,10 @@ class ErrorHandlerMiddleware:
 
         text = (
             f"⚠️ <b>ОШИБКА БОТА</b>\n\n"
-            f"<b>Тип:</b> <code>{error_type}</code>\n"
-            f"<b>Пользователь:</b> {user_info}\n"
-            f"<b>Сообщение:</b> <code>{message_text}</code>\n\n"
-            f"<pre>{tb}</pre>"
+            f"<b>Тип:</b> <code>{html.escape(error_type)}</code>\n"
+            f"<b>Пользователь:</b> {html.escape(user_info)}\n"
+            f"<b>Сообщение:</b> <code>{html.escape(message_text)}</code>\n\n"
+            f"<pre>{html.escape(tb)}</pre>"
         )
 
         try:

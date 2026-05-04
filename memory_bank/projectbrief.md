@@ -287,16 +287,10 @@ https://github.com/lucasteamalt12321/BankBot
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| M01 | Новый модуль: диалоговый кодер текстовых шаблонов (`memory_bank/dialog_template_coder_module.md`); все таблицы определены, нужен перенос в JSON/код и реализация | MAX/P0 | planned |
-| PR01 | Аудит схемы БД против моделей и миграций | P0 | completed |
-| PR02 | Проверка миграций на чистой БД и устранение schema drift | P0 | completed |
-| PR03 | Унификация env-переменных и entrypoint-сценариев | P0 | completed |
-| PR04 | Синхронизация `README.md`, `RUN.md`, `docs/README.md` | P1 | completed |
-| PR05 | Устранение оставшихся `pytest` warnings | P1 | completed |
-| PR06 | Починка async warning в `background_task_manager` тестах | P1 | completed |
-| PR07 | Добавление smoke startup tests для BankBot, BridgeBot, VK Bot | P1 | completed |
-| PR08 | Ревизия Docker/Compose и health/readiness checks | P1 | completed |
-| PR09 | Release checklist и runbook для local/prod запуска | P1 | completed |
+| M01 | Новый модуль: диалоговый кодер текстовых шаблонов | completed | MAX/P0 |
+| PR01-PR09 | Стабилизация и smoke-тесты | completed | P0/P1 |
+| N01 | Прокси и исправление HTML-ошибок | completed | P0 |
+| N02 | Системные уведомления (ntfy/ADB) | in_progress | P1 |
 | PR10 | Архитектурная инвентаризация слоёв `core/src/utils/bank_bot` | P2 | pending |
 | PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | pending |
 | PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | pending |
