@@ -20,26 +20,15 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    return "BankBot is running! Version: 1.0.2 (NET Check)"
+    return "BankBot is running!"
 
 def run_health_server():
     port = int(os.environ.get("PORT", 7860))
     app.run(host='0.0.0.0', port=port)
 
-def check_telegram_connectivity():
-    import urllib.request
-    try:
-        with urllib.request.urlopen("https://api.telegram.org", timeout=10) as response:
-            print(f"[NET] Telegram API status: {response.getcode()}")
-    except Exception as e:
-        print(f"[NET] Failed to connect to Telegram API: {e}")
-
 def main() -> None:
     # Запускаем сервер в отдельном потоке
     threading.Thread(target=run_health_server, daemon=True).start()
-    
-    # Проверка связи
-    check_telegram_connectivity()
     
     """Выбрать и запустить нужный бот."""
     bot_type = sys.argv[1] if len(sys.argv) > 1 else "bank"

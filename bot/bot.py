@@ -178,12 +178,6 @@ class TelegramBot:
         builder.write_timeout(60)
         builder.pool_timeout(60)
         
-        token = settings.BOT_TOKEN
-        if token:
-            logger.info(f"Bot token loaded: {token[:5]}...{token[-5:]}")
-        else:
-            logger.error("BOT_TOKEN is empty!")
-        
         self.application = builder.build()
 
         # Инициализация систем мониторинга и безопасности
