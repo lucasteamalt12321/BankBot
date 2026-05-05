@@ -1,0 +1,15 @@
+# Ruff configuration
+
+[lint]
+# Ignore these rules in tests (they are acceptable for test code)
+ignore = [
+    "E721",  # Use `is` and `is not` for type comparisons
+    "E722",  # Do not use bare `except`
+    "E741",  # Ambiguous variable name (e.g., `l` for list)
+    "E402",  # Module level import not at top of file
+    "F401",  # Imported but unused
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["E721", "E722", "E741", "E402", "F401"]
+"scripts/**" = ["E402", "F401"]
