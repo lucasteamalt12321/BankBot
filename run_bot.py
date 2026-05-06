@@ -30,7 +30,11 @@ def check_telegram_connectivity():
     import urllib.request
     import json
     import os
+    import time
     from src.config import settings
+    
+    print(f"[DIAG] Current System Time: {time.ctime()}")
+    print(f"[DIAG] Proxy Env: HTTP={os.environ.get('http_proxy')}, HTTPS={os.environ.get('https_proxy')}")
     
     token = settings.BOT_TOKEN
     if not token:
@@ -39,24 +43,28 @@ def check_telegram_connectivity():
 
     print(f"[DIAG] Testing Telegram API with token: {token[:10]}...")
     
-    # 1. Check connectivity
+    # 1. Check connectivity with long timeout (30s)
     try:
-        with urllib.request.urlopen("https://api.telegram.org", timeout=10) as response:
+        # Пытаемся подключиться напрямую, игнорируя системные прокси для теста
+        proxy_handler = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(proxy_handler)
+        print("[DIAG] Testing connection to api.telegram.org (No Proxy)...")
+        with opener.open("https://api.telegram.org", timeout=30) as response:
             print(f"[NET] Telegram API status: {response.getcode()}")
     except Exception as e:
-        print(f"[NET] Failed to connect: {e}")
+        print(f"[NET] Direct connection failed: {e}")
 
-    # 2. Webhook Cleanup
+    # 2. Get Me & Webhook Cleanup
     try:
-        with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/getWebhookInfo", timeout=10) as response:
+        print("[DIAG] Attempting getMe and Webhook check...")
+        with opener.open(f"https://api.telegram.org/bot{token}/getWebhookInfo", timeout=30) as response:
             data = json.loads(response.read().decode())
+            print(f"[DIAG] Webhook Info: {data.get('result')}")
             if data.get('result', {}).get('url'):
-                print(f"[DIAG] Deleting webhook: {data['result']['url']}")
-                urllib.request.urlopen(f"https://api.telegram.org/bot{token}/deleteWebhook")
-            else:
-                print("[DIAG] No webhooks detected.")
+                print(f"[DIAG] Deleting webhook...")
+                opener.open(f"https://api.telegram.org/bot{token}/deleteWebhook")
     except Exception as e:
-        print(f"[DIAG] Webhook cleanup failed: {e}")
+        print(f"[DIAG] API check failed: {e}")
 
 def main() -> None:
     # Запускаем сервер в отдельном потоке
