@@ -71,6 +71,9 @@ def check_telegram_connectivity():
             if data.get('result', {}).get('url'):
                 print(f"[DIAG] Deleting webhook...")
                 opener.open(f"https://api.telegram.org/bot{token}/deleteWebhook")
+    except Exception as e:
+        print(f"[DIAG] Webhook check failed: {e}")
+    
     # 3. Test send message to Admin
     try:
         admin_id = settings.ADMIN_TELEGRAM_ID or 2091908459
