@@ -1011,13 +1011,45 @@ class TelegramBot:
             while not self._shutdown_requested:
                 try:
                     logger.info("Starting run_polling with 60s timeout...")
+                    logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
+                    
+                    # Тестируем соединение перед запуском polling
+                    try:
+                        logger.info("Testing connection to Telegram API...")
+                        import asyncio
+                        async def test_connection():
+                            bot = self.application.bot
+                            me = await bot.get_me()
+                            logger.info(f"Bot connected successfully: @{me.username} (ID: {me.id})")
+                            return True
+                        
+                        loop = asyncio.get_event_loop()
+                        connection_ok = loop.run_until_complete(test_connection())
+                        
+                        if not connection_ok:
+                            logger.error("Failed to connect to Telegram API")
+                            time.sleep(POLLING_RETRY_DELAY_SECONDS)
+                            continue
+                            
+                    except Exception as conn_err:
+                        logger.error(f"Connection test failed: {conn_err}")
+                        logger.info(f"Retrying in {POLLING_RETRY_DELAY_SECONDS} seconds...")
+                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
+                        continue
+                    
+                    logger.info(f"Starting polling loop...")
+                    
+                    # Добавляем pool_timeout для облачной среды
                     self.application.run_polling(
                         drop_pending_updates=True,
                         close_loop=False,
                         read_timeout=60,
+                        write_timeout=60,
                         connect_timeout=60,
+                        pool_timeout=60,
                         allowed_updates=Update.ALL_TYPES
                     )
+                    logger.info("Polling started successfully!")
                     break
                 except (TimedOut, NetworkError) as e:
                     logger.warning(
