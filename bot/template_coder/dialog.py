@@ -19,7 +19,7 @@ class TemplateCoderDialog:
     def has_active_state(self, context: ContextTypes.DEFAULT_TYPE) -> bool:
         """Return true if the current chat has a partially entered sequence."""
         state = self._get_state(context)
-        return state.step > 0
+        return not state.is_empty()
 
     def is_template_text(self, text: str | None) -> bool:
         """Return true if text is a known template alias."""
@@ -43,6 +43,12 @@ class TemplateCoderDialog:
         self._set_state(context, self.service.empty_state())
         await update.message.reply_text(self.service.start_text())
 
+    async def done_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Finish current sequence and reset coder state."""
+        state = self._get_state(context)
+        await update.message.reply_text(self.service.done_text(state))
+        self._set_state(context, self.service.empty_state())
+
     async def handle_text(
         self,
         update: Update,
@@ -61,7 +67,7 @@ class TemplateCoderDialog:
         if self.service.is_expired(state):
             state = self.service.empty_state()
             self._set_state(context, state)
-        should_answer = state.step > 0 or self.is_template_text(message.text)
+        should_answer = not state.is_empty() or self.is_template_text(message.text)
         if not should_answer:
             return False
 
@@ -98,6 +104,8 @@ class TemplateCoderDialog:
         if isinstance(raw, dict):
             if raw.get("updated_at") and isinstance(raw["updated_at"], str):
                 raw = {**raw, "updated_at": None}
+            if "history" not in raw:
+                raw = {**raw, "history": []}
             return CoderState(**raw)
         return self.service.empty_state()
 
