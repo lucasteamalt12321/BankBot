@@ -40,6 +40,13 @@ SQLite (data/bot.db)
 - `core/managers/scheduler_manager.py` — apscheduler
 - `core/managers/background_task_manager.py`
 
+### Диалоговый кодер шаблонов
+- `bot/template_coder/service.py` — чистая параметрическая логика кодера без таблиц пар/троек
+- `CoderState` хранит `topic`, `time_minutes`, `intensity`, `politeness`, `confidence`, `repeat_flag`, `history`, `steps`, `updated_at`
+- `apply(state, template)` мутабельно обновляет состояние, `render(state)` детерминированно генерирует фразу
+- Preview следующих вариантов строится через копию состояния + `apply` + `render`, затем сортируется по силе изменения состояния
+- `bot/template_coder/dialog.py` хранит состояние в PTB `chat_data` и реализует команды `/coder`, `/reset`, `/done`, `/help`
+
 ## Соглашения
 
 - Type hints во всех публичных методах
