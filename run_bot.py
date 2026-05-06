@@ -71,8 +71,15 @@ def check_telegram_connectivity():
             if data.get('result', {}).get('url'):
                 print(f"[DIAG] Deleting webhook...")
                 opener.open(f"https://api.telegram.org/bot{token}/deleteWebhook")
+    # 3. Test send message to Admin
+    try:
+        admin_id = settings.ADMIN_TELEGRAM_ID or 2091908459
+        print(f"[DIAG] Sending startup message to admin {admin_id}...")
+        url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={admin_id}&text=🚀+Бот+запущен+на+Hugging+Face+и+готов+к+тестам!"
+        with opener.open(url, timeout=30) as response:
+            print(f"[DIAG] Startup message sent: {response.getcode()}")
     except Exception as e:
-        print(f"[DIAG] API check failed: {e}")
+        print(f"[DIAG] Failed to send startup message: {e}")
 
 def main() -> None:
     # Запускаем сервер в отдельном потоке
