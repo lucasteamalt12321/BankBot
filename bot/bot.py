@@ -360,6 +360,7 @@ class TelegramBot:
             # Диалоговый кодер шаблонов
             CommandHandler("coder", self.template_coder_dialog.start_command),
             CommandHandler("reset", self.template_coder_dialog.reset_command),
+            CommandHandler("done", self.template_coder_dialog.done_command),
             CommandHandler("help", self.template_coder_dialog.help_command),
         ]
 
@@ -883,6 +884,8 @@ class TelegramBot:
             await self.template_coder_dialog.help_command(update, context)
         elif mentioned_command == "/reset":
             await self.template_coder_dialog.reset_command(update, context)
+        elif mentioned_command == "/done":
+            await self.template_coder_dialog.done_command(update, context)
 
     # DEPRECATED: Автоматический парсинг отключен
     # Используется только ручной парсинг по команде "парсинг"
@@ -1013,32 +1016,9 @@ class TelegramBot:
                     logger.info("Starting run_polling with 60s timeout...")
                     logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
                     
-                    # Тестируем соединение перед запуском polling
-                    try:
-                        logger.info("Testing connection to Telegram API...")
-                        async def test_connection():
-                            bot = self.application.bot
-                            me = await bot.get_me()
-                            logger.info(f"Bot connected successfully: @{me.username} (ID: {me.id})")
-                            return True
-                        
-                        loop = asyncio.get_event_loop()
-                        connection_ok = loop.run_until_complete(test_connection())
-                        
-                        if not connection_ok:
-                            logger.error("Failed to connect to Telegram API")
-                            time.sleep(POLLING_RETRY_DELAY_SECONDS)
-                            continue
-                            
-                    except Exception as conn_err:
-                        logger.error(f"Connection test failed: {conn_err}")
-                        logger.info(f"Retrying in {POLLING_RETRY_DELAY_SECONDS} seconds...")
-                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
-                        continue
-                    
                     logger.info(f"Starting polling loop...")
                     
-                    # Добавляем pool_timeout для облачной среды
+                    # Запускаем polling - он сам обработает любые ошибки подключения
                     self.application.run_polling(
                         drop_pending_updates=True,
                         close_loop=False,
