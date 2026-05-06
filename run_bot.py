@@ -27,62 +27,47 @@ def run_health_server():
     app.run(host='0.0.0.0', port=port)
 
 def check_telegram_connectivity():
+    """Быстрая диагностика с минимальными таймаутами для облачной среды"""
     import urllib.request
     import json
     import os
     import time
-    from src.config import settings
     
     print(f"[DIAG] Current System Time: {time.ctime()}")
-    print(f"[DIAG] Proxy Env: HTTP={os.environ.get('http_proxy')}, HTTPS={os.environ.get('https_proxy')}")
+    print(f"[DIAG] Starting quick connectivity check...")
     
-    token = settings.BOT_TOKEN
-    if not token:
-        print("[DIAG] ERROR: BOT_TOKEN is empty!")
-        return
-
-    print(f"[DIAG] Testing Telegram API with token: {token[:10]}...")
-    
-    # 1. Check connectivity with curl (system level)
-    print("[DIAG] Testing connection via system curl...")
-    import subprocess
     try:
-        result = subprocess.run(['curl', '-Is', 'https://api.telegram.org'], capture_output=True, text=True, timeout=15)
-        print(f"[NET] Curl Status: {result.returncode}, Output: {result.stdout.strip()}")
-    except Exception as e:
-        print(f"[NET] Curl failed: {e}")
-
-    # 2. Direct Python connection with extreme timeout
-    try:
+        from src.config import settings
+        token = settings.BOT_TOKEN
+        if not token:
+            print("[DIAG] ERROR: BOT_TOKEN is empty!")
+            return
+        
+        print(f"[DIAG] Token loaded: {token[:10]}...")
+        
+        # Быстрая проверка webhook и его удаление
         proxy_handler = urllib.request.ProxyHandler({})
         opener = urllib.request.build_opener(proxy_handler)
-        print("[DIAG] Testing direct HTTPS connection (45s timeout)...")
-        with opener.open("https://api.telegram.org", timeout=45) as response:
-            print(f"[NET] Telegram API status: {response.getcode()}")
+        
+        try:
+            print("[DIAG] Checking webhook status...")
+            with opener.open(f"https://api.telegram.org/bot{token}/getWebhookInfo", timeout=10) as response:
+                data = json.loads(response.read().decode())
+                webhook_url = data.get('result', {}).get('url', '')
+                if webhook_url:
+                    print(f"[DIAG] Webhook found: {webhook_url}, deleting...")
+                    opener.open(f"https://api.telegram.org/bot{token}/deleteWebhook", timeout=10)
+                    print("[DIAG] Webhook deleted")
+                else:
+                    print("[DIAG] No webhook configured")
+        except Exception as e:
+            print(f"[DIAG] Webhook check failed (non-critical): {e}")
+        
+        print("[DIAG] Connectivity check completed")
+        
     except Exception as e:
-        print(f"[NET] Direct connection failed: {e}")
-
-    # 2. Get Me & Webhook Cleanup
-    try:
-        print("[DIAG] Attempting getMe and Webhook check...")
-        with opener.open(f"https://api.telegram.org/bot{token}/getWebhookInfo", timeout=30) as response:
-            data = json.loads(response.read().decode())
-            print(f"[DIAG] Webhook Info: {data.get('result')}")
-            if data.get('result', {}).get('url'):
-                print(f"[DIAG] Deleting webhook...")
-                opener.open(f"https://api.telegram.org/bot{token}/deleteWebhook")
-    except Exception as e:
-        print(f"[DIAG] Webhook check failed: {e}")
-    
-    # 3. Test send message to Admin
-    try:
-        admin_id = settings.ADMIN_TELEGRAM_ID or 2091908459
-        print(f"[DIAG] Sending startup message to admin {admin_id}...")
-        url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={admin_id}&text=🚀+Бот+запущен+на+Hugging+Face+и+готов+к+тестам!"
-        with opener.open(url, timeout=30) as response:
-            print(f"[DIAG] Startup message sent: {response.getcode()}")
-    except Exception as e:
-        print(f"[DIAG] Failed to send startup message: {e}")
+        print(f"[DIAG] Diagnostic failed: {e}")
+        print("[DIAG] Continuing with bot startup...")
 
 def main() -> None:
     # Запускаем сервер в отдельном потоке
