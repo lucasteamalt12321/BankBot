@@ -43,13 +43,21 @@ def check_telegram_connectivity():
 
     print(f"[DIAG] Testing Telegram API with token: {token[:10]}...")
     
-    # 1. Check connectivity with long timeout (30s)
+    # 1. Check connectivity with curl (system level)
+    print("[DIAG] Testing connection via system curl...")
+    import subprocess
     try:
-        # Пытаемся подключиться напрямую, игнорируя системные прокси для теста
+        result = subprocess.run(['curl', '-Is', 'https://api.telegram.org'], capture_output=True, text=True, timeout=15)
+        print(f"[NET] Curl Status: {result.returncode}, Output: {result.stdout.strip()}")
+    except Exception as e:
+        print(f"[NET] Curl failed: {e}")
+
+    # 2. Direct Python connection with extreme timeout
+    try:
         proxy_handler = urllib.request.ProxyHandler({})
         opener = urllib.request.build_opener(proxy_handler)
-        print("[DIAG] Testing connection to api.telegram.org (No Proxy)...")
-        with opener.open("https://api.telegram.org", timeout=30) as response:
+        print("[DIAG] Testing direct HTTPS connection (45s timeout)...")
+        with opener.open("https://api.telegram.org", timeout=45) as response:
             print(f"[NET] Telegram API status: {response.getcode()}")
     except Exception as e:
         print(f"[NET] Direct connection failed: {e}")
