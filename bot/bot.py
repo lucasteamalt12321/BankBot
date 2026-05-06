@@ -1,6 +1,7 @@
 # bot.py - Объединенный Telegram-бот банк-аггрегатора LucasTeam
 import logging
 import asyncio
+import os
 import signal
 import time
 
@@ -1016,7 +1017,7 @@ class TelegramBot:
                     logger.info("Starting run_polling with 60s timeout...")
                     logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
                     
-                    logger.info(f"Starting polling loop...")
+                    logger.info("Starting polling loop...")
                     
                     # Запускаем polling - он сам обработает любые ошибки подключения
                     self.application.run_polling(
