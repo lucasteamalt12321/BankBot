@@ -1016,7 +1016,6 @@ class TelegramBot:
                     # Тестируем соединение перед запуском polling
                     try:
                         logger.info("Testing connection to Telegram API...")
-                        import asyncio
                         async def test_connection():
                             bot = self.application.bot
                             me = await bot.get_me()

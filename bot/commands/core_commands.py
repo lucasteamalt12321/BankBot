@@ -202,12 +202,38 @@ async def test_notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /ping - проверка работоспособности бота."""
+    from telegram.error import TimedOut, NetworkError
+    import asyncio
+    
     start_time = datetime.utcnow()
-    message = await update.message.reply_text("🏓 Понг...")
-    end_time = datetime.utcnow()
-    latency = (end_time - start_time).total_seconds() * 1000
-    response_text = f"🏓 Понг! (Задержка: {latency:.2f} мс)"
-    await message.edit_text(response_text)
+    
+    # Retry логика для отправки сообщения
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            message = await update.message.reply_text("🏓 Понг...")
+            end_time = datetime.utcnow()
+            latency = (end_time - start_time).total_seconds() * 1000
+            response_text = f"🏓 Понг! (Задержка: {latency:.2f} мс)"
+            
+            try:
+                await message.edit_text(response_text)
+            except (TimedOut, NetworkError):
+                # Если не удалось отредактировать, не критично
+                pass
+            
+            break  # Успешно отправили
+            
+        except (TimedOut, NetworkError) as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
+                continue
+            else:
+                # Последняя попытка не удалась - просто логируем
+                print(f"Failed to send ping response after {max_retries} attempts: {e}")
+                return
     
     # Отправка в ntfy для теста часов
     try:

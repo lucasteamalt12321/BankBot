@@ -8,8 +8,10 @@
 import traceback
 import structlog
 import html
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram.error import TimedOut, NetworkError
 
 from src.config import settings
 
@@ -37,6 +39,17 @@ class ErrorHandlerMiddleware:
             context: Контекст с информацией об ошибке
         """
         error = context.error
+        
+        # Специальная обработка таймаутов - не логируем как критичные
+        if isinstance(error, (TimedOut, NetworkError)):
+            logger.warning(
+                "Network timeout in handler (non-critical)",
+                error_type=type(error).__name__,
+                error_msg=str(error)
+            )
+            # Не уведомляем пользователя при таймаутах - это временная проблема
+            return
+        
         logger.exception("Unhandled exception in handler", exc_info=error)
 
         # Уведомляем пользователя
