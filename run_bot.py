@@ -45,14 +45,30 @@ def check_telegram_connectivity():
     except Exception as e:
         print(f"[DIAG] General internet check failed: {e}")
     
-    # Проверка Telegram API через curl (подробно)
+    # Проверка Telegram API (IPv4)
     try:
-        print("[DIAG] Testing Telegram API via curl -v...")
-        import subprocess
-        result = subprocess.run(['curl', '-Iv', 'https://api.telegram.org'], capture_output=True, text=True, timeout=15)
-        print(f"[DIAG] Curl output:\n{result.stderr}")
+        print("[DIAG] Testing Telegram API (forcing IPv4)...")
+        import socket
+        import urllib.request
+        
+        # Переопределяем поведение сокетов для принудительного IPv4
+        old_getaddrinfo = socket.getaddrinfo
+        def new_getaddrinfo(*args, **kwargs):
+            responses = old_getaddrinfo(*args, **kwargs)
+            return [r for r in responses if r[0] == socket.AF_INET]
+        
+        socket.getaddrinfo = new_getaddrinfo
+        
+        with urllib.request.urlopen("https://api.telegram.org", timeout=10) as resp:
+            print(f"[DIAG] Telegram API (IPv4) status: {resp.getcode()}")
+            
+        # Возвращаем как было
+        socket.getaddrinfo = old_getaddrinfo
     except Exception as e:
-        print(f"[DIAG] Curl check failed: {e}")
+        print(f"[DIAG] Telegram API (IPv4) check failed: {e}")
+        # Обязательно возвращаем как было в случае ошибки
+        import socket
+        socket.getaddrinfo = old_getaddrinfo
 
     try:
         from src.config import settings
