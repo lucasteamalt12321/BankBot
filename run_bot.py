@@ -52,28 +52,22 @@ def check_telegram_connectivity():
             print("[DIAG] ERROR: BOT_TOKEN is empty!")
             return
         
-        print(f"[DIAG] Token loaded: {token[:10]}...")
+        # Очищаем токен от возможных пробелов
+        token = token.strip()
+        print(f"[DIAG] Token loaded (and stripped): {token[:10]}...")
         
-        # Проверка Telegram API Proxy с токеном
+        # Проверка Telegram API Proxy (telegram-proxy.com)
         try:
-            proxy_url = f"https://tg.i-c-a.su/bot{token}/getMe"
-            print(f"[DIAG] Testing Telegram Proxy (i-c-a) with token: {proxy_url[:45]}...")
+            proxy_url = f"https://api.telegram-proxy.com/bot{token}/getMe"
+            print(f"[DIAG] Testing Telegram Proxy (com) with token: {proxy_url[:45]}...")
+            # Используем кастомный Request чтобы выставить Host если нужно, но пока просто так
             with urllib.request.urlopen(proxy_url, timeout=10) as resp:
-                print(f"[DIAG] Proxy status: {resp.getcode()}")
+                print(f"[DIAG] Proxy (com) status: {resp.getcode()}")
                 import json
                 data = json.loads(resp.read().decode())
                 print(f"[DIAG] Bot Me: {data.get('result', {}).get('username')}")
         except Exception as e:
-            print(f"[DIAG] Proxy i-c-a check failed: {e}")
-            
-        # Попробуем другой вариант прокси (без /bot в начале)
-        try:
-            proxy_url = f"https://tg.i-c-a.su/{token}/getMe"
-            print(f"[DIAG] Testing Telegram Proxy (i-c-a, no /bot) with token: {proxy_url[:45]}...")
-            with urllib.request.urlopen(proxy_url, timeout=10) as resp:
-                print(f"[DIAG] Proxy (no /bot) status: {resp.getcode()}")
-        except Exception as e:
-            print(f"[DIAG] Proxy i-c-a (no /bot) check failed: {e}")
+            print(f"[DIAG] Proxy (com) check failed: {e}")
         
         # Быстрая проверка webhook и его удаление
         proxy_handler = urllib.request.ProxyHandler({})
