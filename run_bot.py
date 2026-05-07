@@ -45,9 +45,9 @@ def check_telegram_connectivity():
     except Exception as e:
         print(f"[DIAG] General internet check failed: {e}")
     
-    # Проверка Telegram API Proxy
+    # Проверка Telegram API Proxy (другой)
     try:
-        proxy_url = "https://api.telegram-proxy.org"
+        proxy_url = "https://tgproxy.red"
         print(f"[DIAG] Testing Telegram Proxy ({proxy_url})...")
         with urllib.request.urlopen(proxy_url, timeout=10) as resp:
             print(f"[DIAG] Proxy status: {resp.getcode()}")
