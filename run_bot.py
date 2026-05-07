@@ -45,6 +45,15 @@ def check_telegram_connectivity():
     except Exception as e:
         print(f"[DIAG] General internet check failed: {e}")
     
+    # Проверка Telegram API через curl (подробно)
+    try:
+        print("[DIAG] Testing Telegram API via curl -v...")
+        import subprocess
+        result = subprocess.run(['curl', '-Iv', 'https://api.telegram.org'], capture_output=True, text=True, timeout=15)
+        print(f"[DIAG] Curl output:\n{result.stderr}")
+    except Exception as e:
+        print(f"[DIAG] Curl check failed: {e}")
+
     try:
         from src.config import settings
         token = settings.BOT_TOKEN
