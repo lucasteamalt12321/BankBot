@@ -45,13 +45,14 @@ def check_telegram_connectivity():
     except Exception as e:
         print(f"[DIAG] General internet check failed: {e}")
     
-    # Проверка Telegram API (HTTP)
+    # Проверка Telegram API Proxy
     try:
-        print("[DIAG] Testing Telegram API (HTTP)...")
-        with urllib.request.urlopen("http://api.telegram.org", timeout=10) as resp:
-            print(f"[DIAG] Telegram API (HTTP) status: {resp.getcode()}")
+        proxy_url = "https://api.telegram-proxy.org"
+        print(f"[DIAG] Testing Telegram Proxy ({proxy_url})...")
+        with urllib.request.urlopen(proxy_url, timeout=10) as resp:
+            print(f"[DIAG] Proxy status: {resp.getcode()}")
     except Exception as e:
-        print(f"[DIAG] Telegram API (HTTP) check failed: {e}")
+        print(f"[DIAG] Proxy check failed: {e}")
 
     try:
         from src.config import settings
