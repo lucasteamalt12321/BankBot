@@ -163,10 +163,18 @@ def _extract_bot_mentioned_command(message_text: str | None, bot_username: str |
 
 class TelegramBot:
     def __init__(self):
-        # Отключаем системный прокси для Telegram API на Hugging Face
+        # Принудительно используем IPv4 для обхода проблем с сетью на Hugging Face
         if os.environ.get("SPACE_ID"):
+            import socket
+            old_getaddrinfo = socket.getaddrinfo
+            def new_getaddrinfo(*args, **kwargs):
+                responses = old_getaddrinfo(*args, **kwargs)
+                return [r for r in responses if r[0] == socket.AF_INET]
+            socket.getaddrinfo = new_getaddrinfo
+            logger.info("Forced IPv4 for all network connections")
+            
+            # Также пробуем отключить прокси
             os.environ['NO_PROXY'] = 'api.telegram.org'
-            logger.info("Setting NO_PROXY for api.telegram.org")
             
         builder = Application.builder().token(settings.BOT_TOKEN)
         
