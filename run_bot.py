@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Точка входа для запуска ботов проекта BankBot.
+"""Точка входа для запуска ботов проекта BankBot (Hugging Face deployment).
 
 Использование:
     python run_bot.py           # запустить BankBot (по умолчанию)
