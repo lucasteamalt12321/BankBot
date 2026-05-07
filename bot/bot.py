@@ -173,11 +173,11 @@ class TelegramBot:
             builder.get_updates_proxy_url(proxy)
             logger.info(f"Using proxy: {proxy}")
         
-        # Увеличиваем таймауты для облачного хостинга
-        builder.read_timeout(60)
-        builder.connect_timeout(60)
-        builder.write_timeout(60)
-        builder.pool_timeout(60)
+        # Увеличиваем таймауты для облачного хостинга (но не слишком сильно)
+        builder.read_timeout(30)
+        builder.connect_timeout(20)
+        builder.write_timeout(20)
+        builder.pool_timeout(20)
         
         self.application = builder.build()
 
@@ -1023,10 +1023,10 @@ class TelegramBot:
                     self.application.run_polling(
                         drop_pending_updates=True,
                         close_loop=False,
-                        read_timeout=60,
-                        write_timeout=60,
-                        connect_timeout=60,
-                        pool_timeout=60,
+                        read_timeout=30,
+                        write_timeout=20,
+                        connect_timeout=20,
+                        pool_timeout=20,
                         allowed_updates=Update.ALL_TYPES
                     )
                     logger.info("Polling started successfully!")

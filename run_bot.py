@@ -34,7 +34,16 @@ def check_telegram_connectivity():
     import time
     
     print(f"[DIAG] Current System Time: {time.ctime()}")
+    print(f"[DIAG] Proxy Env: HTTP={os.environ.get('http_proxy')}, HTTPS={os.environ.get('https_proxy')}")
     print(f"[DIAG] Starting quick connectivity check...")
+    
+    # Проверка общего интернета
+    try:
+        print("[DIAG] Testing general internet (google.com)...")
+        with urllib.request.urlopen("https://www.google.com", timeout=10) as resp:
+            print(f"[DIAG] Google status: {resp.getcode()}")
+    except Exception as e:
+        print(f"[DIAG] General internet check failed: {e}")
     
     try:
         from src.config import settings
