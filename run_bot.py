@@ -45,9 +45,9 @@ def check_telegram_connectivity():
     except Exception as e:
         print(f"[DIAG] General internet check failed: {e}")
     
-    # Проверка DNS для прокси
+    # Проверка DNS для прокси (и-к-а)
     try:
-        target = "api.pwrtelegram.xyz"
+        target = "tg.i-c-a.su"
         print(f"[DIAG] Resolving {target}...")
         import socket
         ips = socket.getaddrinfo(target, 443)
