@@ -45,18 +45,6 @@ def check_telegram_connectivity():
     except Exception as e:
         print(f"[DIAG] General internet check failed: {e}")
     
-    # Проверка Telegram API Proxy с токеном
-    try:
-        proxy_url = f"https://tg.i-c-a.su/bot{token}/getMe"
-        print(f"[DIAG] Testing Telegram Proxy with token: {proxy_url[:40]}...")
-        with urllib.request.urlopen(proxy_url, timeout=10) as resp:
-            print(f"[DIAG] Proxy with token status: {resp.getcode()}")
-            import json
-            data = json.loads(resp.read().decode())
-            print(f"[DIAG] Bot Me: {data.get('result', {}).get('username')}")
-    except Exception as e:
-        print(f"[DIAG] Proxy with token check failed: {e}")
-
     try:
         from src.config import settings
         token = settings.BOT_TOKEN
@@ -65,6 +53,27 @@ def check_telegram_connectivity():
             return
         
         print(f"[DIAG] Token loaded: {token[:10]}...")
+        
+        # Проверка Telegram API Proxy с токеном
+        try:
+            proxy_url = f"https://tg.i-c-a.su/bot{token}/getMe"
+            print(f"[DIAG] Testing Telegram Proxy (i-c-a) with token: {proxy_url[:45]}...")
+            with urllib.request.urlopen(proxy_url, timeout=10) as resp:
+                print(f"[DIAG] Proxy status: {resp.getcode()}")
+                import json
+                data = json.loads(resp.read().decode())
+                print(f"[DIAG] Bot Me: {data.get('result', {}).get('username')}")
+        except Exception as e:
+            print(f"[DIAG] Proxy i-c-a check failed: {e}")
+            
+        # Попробуем другой вариант прокси (без /bot в начале)
+        try:
+            proxy_url = f"https://tg.i-c-a.su/{token}/getMe"
+            print(f"[DIAG] Testing Telegram Proxy (i-c-a, no /bot) with token: {proxy_url[:45]}...")
+            with urllib.request.urlopen(proxy_url, timeout=10) as resp:
+                print(f"[DIAG] Proxy (no /bot) status: {resp.getcode()}")
+        except Exception as e:
+            print(f"[DIAG] Proxy i-c-a (no /bot) check failed: {e}")
         
         # Быстрая проверка webhook и его удаление
         proxy_handler = urllib.request.ProxyHandler({})
