@@ -163,6 +163,11 @@ def _extract_bot_mentioned_command(message_text: str | None, bot_username: str |
 
 class TelegramBot:
     def __init__(self):
+        # Отключаем системный прокси для Telegram API на Hugging Face
+        if os.environ.get("SPACE_ID"):
+            os.environ['NO_PROXY'] = 'api.telegram.org'
+            logger.info("Setting NO_PROXY for api.telegram.org")
+            
         builder = Application.builder().token(settings.BOT_TOKEN)
         
         # Настройка прокси и таймаутов
