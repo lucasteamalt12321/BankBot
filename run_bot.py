@@ -45,15 +45,17 @@ def check_telegram_connectivity():
     except Exception as e:
         print(f"[DIAG] General internet check failed: {e}")
     
-    # Проверка DNS для прокси (и-к-а)
+    # Проверка Telegram API Proxy с токеном
     try:
-        target = "tg.i-c-a.su"
-        print(f"[DIAG] Resolving {target}...")
-        import socket
-        ips = socket.getaddrinfo(target, 443)
-        print(f"[DIAG] {target} IPs: {[ip[4][0] for ip in ips]}")
+        proxy_url = f"https://tg.i-c-a.su/bot{token}/getMe"
+        print(f"[DIAG] Testing Telegram Proxy with token: {proxy_url[:40]}...")
+        with urllib.request.urlopen(proxy_url, timeout=10) as resp:
+            print(f"[DIAG] Proxy with token status: {resp.getcode()}")
+            import json
+            data = json.loads(resp.read().decode())
+            print(f"[DIAG] Bot Me: {data.get('result', {}).get('username')}")
     except Exception as e:
-        print(f"[DIAG] {target} resolution failed: {e}")
+        print(f"[DIAG] Proxy with token check failed: {e}")
 
     try:
         from src.config import settings

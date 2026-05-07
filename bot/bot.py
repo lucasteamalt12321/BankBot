@@ -166,10 +166,12 @@ class TelegramBot:
         # Настройка прокси для Hugging Face
         if os.environ.get("SPACE_ID"):
             logger.info("Configuring for Hugging Face environment")
-            # Отключаем системный прокси, который может мешать
-            os.environ['NO_PROXY'] = 'api.telegram.org'
-            
-        builder = Application.builder().token(settings.BOT_TOKEN)
+            # Используем Reverse Proxy для Bot API, так как прямой доступ заблокирован
+            # Настраиваем builder для использования кастомного URL
+            builder = Application.builder().token(settings.BOT_TOKEN).base_url("https://tg.i-c-a.su/bot")
+            logger.info("Using Reverse Proxy: https://tg.i-c-a.su/bot")
+        else:
+            builder = Application.builder().token(settings.BOT_TOKEN)
         
         # Настройка прокси и таймаутов
         proxy = settings.PROXY_URL
