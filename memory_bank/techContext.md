@@ -4,9 +4,15 @@
 
 ### Язык и фреймворки
 - **Python 3.10+** - основной язык разработки
-- **Python 3.12** - зафиксированный локальный runtime для запуска BankBot; Python 3.14 currently incompatible with `python-telegram-bot==20.7` startup path
-- **aiogram 3.x** - асинхронный фреймворк для Telegram Bot API
+- **Python 3.12** - зафиксированный локальный runtime для запуска BankBot
+- **python-telegram-bot 20.x** - асинхронная библиотека для Telegram Bot API
+- **aiogram 3.x** - фреймворк для Bridge-модуля
 - **SQLAlchemy 2.0+** - ORM для работы с базой данных
+
+### Инфраструктура и Деплой
+- **Hugging Face Spaces** - основная платформа для хостинга (Docker SDK)
+- **GitHub** - основной репозиторий кода
+- **Network Strategy**: Использование `base_url` в PTB для обхода блокировок/ограничений в облачных средах.
 - **Structlog** - структурированное логирование
 
 ### База данных

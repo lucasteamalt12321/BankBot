@@ -297,3 +297,4 @@ https://github.com/lucasteamalt12321/BankBot
 | PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | pending |
 | PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | pending |
 | PR13 | Ревизия structured logging и эксплуатационных полей | P2 | pending |
+| HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | P1 | in_progress |

@@ -328,5 +328,12 @@
 - Реализован BalanceManager для обработки балансов
 - Добавлен Unit of Work для атомарных транзакций
 
+### 2026-05-07 (Connectivity & Deployment Fixes)
+- **Hugging Face Deployment**: Initialized deployment to HF Spaces.
+- **Network Diagnostics**: Created `bot/check_proxy.py` to test direct and proxy connections to Telegram API.
+- **Reverse Proxy Test**: Confirmed that IP `195.201.225.248` (tgproxy.me) is reachable from HF environment (Status 200).
+- **Base URL Fix**: Changed `base_url` to `https://api.telegram.org/bot/` (with trailing slash) in `bot/bot.py` as a potential bypass for HF network restrictions.
+- **Dual Push**: Automated pushing to both GitHub (`main`) and Hugging Face (`main`) repositories.
+
 ## last_checked_commit
-eccf805588a4c9cacf741b2ea87e7d9632cd7336 (2026-04-17, smoke sync verified)
+6bf75b8398e82a933f373d577e066a39281a807d (2026-05-07, trailing slash fix)
