@@ -18,9 +18,29 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Микро-сервер для Hugging Face и мониторинга
 app = Flask(__name__)
 
+# Глобальный буфер для логов
+import collections
+log_buffer = collections.deque(maxlen=100)
+
+class LogCapture:
+    def write(self, data):
+        if data.strip():
+            log_buffer.append(data.strip())
+        sys.__stdout__.write(data)
+    def flush(self):
+        sys.__stdout__.flush()
+
+sys.stdout = LogCapture()
+sys.stderr = LogCapture()
+
+@app.route('/logs')
+def get_logs():
+    """Endpoint to view recent logs."""
+    return Response("<pre>" + "\n".join(log_buffer) + "</pre>", mimetype="text/html")
+
 @app.route('/')
 def index():
-    return "BankBot System is Active"
+    return "BankBot System is Active. Check <a href='/logs'>/logs</a> for status."
 
 @app.route('/health')
 def health_check():
