@@ -168,26 +168,23 @@ class TelegramBot:
             logger.info("Configuring for Hugging Face environment (DNS Monkey Patch)")
             
             # ХАК: Подменяем DNS-разрешение для домена tgproxy.me прямо в коде.
-            # Это обходит блокировку DNS на HF и при этом сохраняет валидность SSL-сертификата.
             import socket
             original_getaddrinfo = socket.getaddrinfo
             def patched_getaddrinfo(*args, **kwargs):
                 if args[0] == 'tgproxy.me':
-                    # Подставляем рабочий IP, который мы проверили ранее
                     return original_getaddrinfo('195.201.225.248', *args[1:], **kwargs)
                 return original_getaddrinfo(*args, **kwargs)
             socket.getaddrinfo = patched_getaddrinfo
             
-            # Теперь используем домен, как будто всё нормально
+            # Используем HTTP вместо HTTPS, чтобы избежать обрывов SSL на прокси
+            # Многие Telegram-прокси это поддерживают для стабильности в облаках.
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
-            builder.base_url("https://tgproxy.me/bot/")
+            builder.base_url("http://tgproxy.me/bot/")
             
-            # Таймауты устанавливаем через стандартные методы билдера
-            builder.read_timeout(30)
+            builder.read_timeout(60) # Увеличиваем таймаут до максимума
             builder.connect_timeout(30)
-            builder.pool_timeout(30)
             
-            logger.info("DNS patch applied. Using Base URL: https://tgproxy.me/bot/")
+            logger.info("DNS patch applied. Using HTTP Base URL: http://tgproxy.me/bot/")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды
