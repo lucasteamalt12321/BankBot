@@ -165,31 +165,29 @@ class TelegramBot:
     def __init__(self):
         # Настройка прокси для Hugging Face
         if os.environ.get("SPACE_ID"):
-            logger.info("Configuring for Hugging Face environment (IP-based Proxy)")
-            # Используем прямой IP для обхода DNS-блокировок на HF
-            proxy_ip = "195.201.225.248"
+            logger.info("Configuring for Hugging Face environment (DNS Monkey Patch)")
             
-            import httpx
-            from telegram.request import HTTPXRequest
+            # ХАК: Подменяем DNS-разрешение для домена tgproxy.me прямо в коде.
+            # Это обходит блокировку DNS на HF и при этом сохраняет валидность SSL-сертификата.
+            import socket
+            original_getaddrinfo = socket.getaddrinfo
+            def patched_getaddrinfo(*args, **kwargs):
+                if args[0] == 'tgproxy.me':
+                    # Подставляем рабочий IP, который мы проверили ранее
+                    return original_getaddrinfo('195.201.225.248', *args[1:], **kwargs)
+                return original_getaddrinfo(*args, **kwargs)
+            socket.getaddrinfo = patched_getaddrinfo
             
-            # Создаем кастомный HTTP клиент с отключенной проверкой SSL (так как идем по IP)
-            custom_client = httpx.AsyncClient(verify=False)
-            
-            # Передаем этот клиент в объект запроса PTB
-            request_config = HTTPXRequest(
-                http_client=custom_client,
-                connection_pool_size=8, 
-                read_timeout=30, 
-                write_timeout=30, 
-                connect_timeout=30,
-                pool_timeout=30
-            )
-            
+            # Теперь используем домен, как будто всё нормально
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
-            builder.base_url(f"https://{proxy_ip}/bot/")
-            builder.request(request_config)
+            builder.base_url("https://tgproxy.me/bot/")
             
-            logger.info(f"Using Direct IP Proxy with SSL verification disabled: https://{proxy_ip}/bot/")
+            # Таймауты устанавливаем через стандартные методы билдера
+            builder.read_timeout(30)
+            builder.connect_timeout(30)
+            builder.pool_timeout(30)
+            
+            logger.info("DNS patch applied. Using Base URL: https://tgproxy.me/bot/")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды
