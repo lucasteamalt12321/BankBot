@@ -61,6 +61,14 @@ class ConfigurationManager:
 
             db = next(get_db())
             try:
+                # ПРОВЕРКА: Существует ли таблица в БД?
+                # Это предотвращает ошибки при первом запуске (до миграций)
+                from sqlalchemy import inspect
+                inspector = __import__("sqlalchemy").inspect(db.bind)
+                if not inspector.has_table("parsing_rules"):
+                    logger.warning("Table 'parsing_rules' does not exist yet. Using default rules.")
+                    return self._get_default_parsing_rules()
+
                 # Query active parsing rules from database
                 db_rules = db.query(ParsingRule).filter(ParsingRule.is_active).all()
 
