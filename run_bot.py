@@ -112,24 +112,23 @@ def check_telegram_connectivity():
         token = token.strip()
         print(f"[DIAG] Token loaded (and stripped): {token[:10]}...")
         
-        # Проверка Telegram API Proxy по IP (tgproxy.me)
+        # Проверка Telegram API Proxy по IP (api.telegram-proxy.com)
         try:
-            proxy_ip = "195.201.225.248"
+            proxy_ip = "104.21.75.145" # Cloudflare edge for api.telegram-proxy.com
             proxy_url = f"https://{proxy_ip}/bot{token}/getMe"
-            print(f"[DIAG] Testing Direct IP Proxy ({proxy_ip}) with token...")
+            print(f"[DIAG] Testing Cloudflare Proxy IP ({proxy_ip}) with token...")
             
             import ssl
-            # Отключаем проверку SSL для IP-запроса
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             
             with urllib.request.urlopen(proxy_url, timeout=10, context=ctx) as resp:
-                print(f"[DIAG] Proxy IP status: {resp.getcode()}")
+                print(f"[DIAG] Cloudflare Proxy status: {resp.getcode()}")
                 data = json.loads(resp.read().decode())
                 print(f"[DIAG] Bot Me: {data.get('result', {}).get('username')}")
         except Exception as e:
-            print(f"[DIAG] Proxy IP check failed: {e}")
+            print(f"[DIAG] Cloudflare Proxy check failed: {e}")
         
         # Быстрая проверка webhook и его удаление
         proxy_handler = urllib.request.ProxyHandler({})

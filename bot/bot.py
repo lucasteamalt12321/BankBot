@@ -167,24 +167,24 @@ class TelegramBot:
         if os.environ.get("SPACE_ID"):
             logger.info("Configuring for Hugging Face environment (DNS Monkey Patch)")
             
-            # ХАК: Подменяем DNS-разрешение для домена tgproxy.me прямо в коде.
+            # ХАК: Подменяем DNS-разрешение для домена api.telegram-proxy.com
             import socket
             original_getaddrinfo = socket.getaddrinfo
             def patched_getaddrinfo(*args, **kwargs):
-                if args[0] == 'tgproxy.me':
-                    return original_getaddrinfo('195.201.225.248', *args[1:], **kwargs)
+                if args[0] == 'api.telegram-proxy.com':
+                    # IP для api.telegram-proxy.com (Cloudflare edge)
+                    return original_getaddrinfo('104.21.75.145', *args[1:], **kwargs)
                 return original_getaddrinfo(*args, **kwargs)
             socket.getaddrinfo = patched_getaddrinfo
             
-            # Используем HTTP вместо HTTPS, чтобы избежать обрывов SSL на прокси
-            # Многие Telegram-прокси это поддерживают для стабильности в облаках.
+            # Используем стабильный домен api.telegram-proxy.com
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
-            builder.base_url("http://tgproxy.me/bot/")
+            builder.base_url("https://api.telegram-proxy.com/bot/")
             
-            builder.read_timeout(60) # Увеличиваем таймаут до максимума
+            builder.read_timeout(30)
             builder.connect_timeout(30)
             
-            logger.info("DNS patch applied. Using HTTP Base URL: http://tgproxy.me/bot/")
+            logger.info("DNS patch applied. Using Base URL: https://api.telegram-proxy.com/bot/")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды
