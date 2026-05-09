@@ -154,38 +154,13 @@ def main():
     """Основная функция запуска бота"""
 
     print("[START] Запуск Telegram-бота банк-аггрегатора LucasTeam...")
+    
+    # ПЕРВЫМ ДЕЛОМ: Приводим схему БД к актуальному состоянию через Alembic.
+    # Это должно быть сделано ДО инициализации любых систем, использующих БД.
+    from database.schema import ensure_schema_up_to_date
+    ensure_schema_up_to_date()
 
     # Проверяем, запущены ли мы в облаке (Hugging Face)
-    is_cloud = os.environ.get('SPACE_ID') or os.environ.get('SPACE_AUTHOR_NAME')
-    
-    if is_cloud:
-        print("[CLOUD] Обнаружен запуск в облачной среде, пропускаем некоторые проверки...")
-        # В облаке не убиваем процессы и делаем минимальную валидацию
-        from src.config import settings
-        if not settings.BOT_TOKEN:
-            print("[ERROR] BOT_TOKEN не найден в переменных окружения!")
-            sys.exit(1)
-        print("[VALIDATE] Базовая валидация пройдена")
-    else:
-        # Локальный запуск - полная валидация
-        print("[VALIDATE] Проверка конфигурации...")
-        if not validate_startup():
-            print("[ERROR] Валидация конфигурации не пройдена. Остановка бота.")
-            sys.exit(1)
-        print("[VALIDATE] Конфигурация валидна")
-        
-        # Убиваем старые процессы перед запуском
-        kill_existing_bot_processes()
-
-    print("[INFO] Бот запускается с настройками и расширенным функционалом")
-    print("[GAMES] Поддерживаемые игры: Shmalala, GD Cards, True Mafia, Bunker RP")
-    print("[CURRENCY] Настроена система конвертации валюты из разных источников")
-    print("[SHOP] Загружен магазин товаров и привилегий")
-    print("[BONUSES] Активированы ежедневные бонусы и задания")
-    print("[ADMIN] Доступны административные команды")
-
-    # Приводим схему БД к актуальному состоянию через Alembic.
-    ensure_schema_up_to_date()
 
     # Создаем и запускаем бота
     bot = TelegramBot()

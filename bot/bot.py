@@ -938,9 +938,6 @@ class TelegramBot:
             "Starting enhanced bot with background task integration and message parsing..."
         )
 
-        # Приводим схему БД к актуальному состоянию перед инициализацией систем.
-        ensure_schema_up_to_date()
-
         # Инициализируем системы
         db = next(get_db())
         try:
