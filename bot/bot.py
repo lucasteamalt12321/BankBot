@@ -165,26 +165,35 @@ class TelegramBot:
     def __init__(self):
         # Настройка прокси для Hugging Face
         if os.environ.get("SPACE_ID"):
-            logger.info("Configuring for Hugging Face environment (DNS Monkey Patch)")
+            logger.info("Configuring for Hugging Face environment (Proxy with Host Header)")
             
-            # ХАК: Подменяем DNS-разрешение для домена api.telegram-proxy.com
-            import socket
-            original_getaddrinfo = socket.getaddrinfo
-            def patched_getaddrinfo(*args, **kwargs):
-                if args[0] == 'api.telegram-proxy.com':
-                    # IP для api.telegram-proxy.com (Cloudflare edge)
-                    return original_getaddrinfo('104.21.75.145', *args[1:], **kwargs)
-                return original_getaddrinfo(*args, **kwargs)
-            socket.getaddrinfo = patched_getaddrinfo
+            # Используем рабочий IP прокси-сервера tgproxy.me
+            proxy_ip = "195.201.225.248"
             
-            # Используем стабильный домен api.telegram-proxy.com
+            import httpx
+            from telegram.request import HTTPXRequest
+            
+            # ВАЖНО: Добавляем заголовок Host, чтобы прокси понимал, куда мы идем
+            # и отключаем SSL verification, так как сертификат выдан на домен
+            custom_client = httpx.AsyncClient(
+                verify=False, 
+                headers={"Host": "tgproxy.me"},
+                timeout=httpx.Timeout(30.0, connect=30.0)
+            )
+            
+            # Настраиваем PTB на работу через кастомный клиент (без http_client в init, если он не поддерживается)
+            # Мы будем настраивать клиент при билде
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
-            builder.base_url("https://api.telegram-proxy.com/bot/")
+            builder.base_url(f"https://{proxy_ip}/bot/")
             
-            builder.read_timeout(30)
-            builder.connect_timeout(30)
+            # Попробуем передать клиент напрямую через билдер, если метод существует
+            # Если нет - используем proxy_url с IP
+            try:
+                builder.http_client(custom_client)
+            except AttributeError:
+                pass
             
-            logger.info("DNS patch applied. Using Base URL: https://api.telegram-proxy.com/bot/")
+            logger.info(f"Using IP Proxy {proxy_ip} with custom Host header")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды
@@ -1037,14 +1046,14 @@ class TelegramBot:
                     
                     logger.info("Starting polling loop...")
                     
-                    # Запускаем polling - он сам обработает любые ошибки подключения
-                    # Для HF не передаем таймауты явно, так как они в request_config
+                    # Запускаем polling
                     polling_kwargs = {
                         "drop_pending_updates": True,
                         "close_loop": False,
                         "allowed_updates": Update.ALL_TYPES
                     }
                     
+                    # Для локального запуска оставляем таймауты
                     if not os.environ.get("SPACE_ID"):
                         polling_kwargs.update({
                             "read_timeout": 30,
