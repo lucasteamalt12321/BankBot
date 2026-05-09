@@ -169,35 +169,35 @@ class TelegramBot:
             # Используем прямой IP для обхода DNS-блокировок на HF
             proxy_ip = "195.201.225.248"
             
-            # В PTB 20+ кастомные настройки HTTP передаются через базовый URL
-            # и параметры запроса. Мы просто указываем базовый URL с IP.
-            # Если возникнут проблемы с SSL, PTB сам сообщит.
+            from telegram.request import HTTPXRequest
+            # Настраиваем все таймауты сразу в объекте запроса
+            request_config = HTTPXRequest(
+                connection_pool_size=8, 
+                read_timeout=30, 
+                write_timeout=30, 
+                connect_timeout=30,
+                pool_timeout=30
+            )
+            
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
             builder.base_url(f"https://{proxy_ip}/bot/")
-            
-            # Для отключения проверки SSL в PTB 20.x используется кастомный request
-            from telegram.request import HTTPXRequest
-            request_config = HTTPXRequest(connection_pool_size=8, read_timeout=30, write_timeout=30, connect_timeout=30)
-            # В данной версии мы полагаемся на системный клиент или настраиваем его через build()
             builder.request(request_config)
             
             logger.info(f"Using Direct IP Proxy: https://{proxy_ip}/bot/")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
+            # Увеличиваем таймауты для обычной среды
+            builder.read_timeout(30)
+            builder.connect_timeout(20)
+            builder.write_timeout(20)
+            builder.pool_timeout(20)
         
-        # Настройка прокси и таймаутов
+        # Настройка прокси (для обычной среды)
         proxy = settings.PROXY_URL
-        # Не используем локальный прокси на Hugging Face (определяем по USER=bot в Docker или отсутствию порта 1080)
-        if proxy and not (os.environ.get("SPACE_ID") and "127.0.0.1" in proxy):
+        if proxy and not os.environ.get("SPACE_ID"):
             builder.proxy_url(proxy)
             builder.get_updates_proxy_url(proxy)
             logger.info(f"Using proxy: {proxy}")
-        
-        # Увеличиваем таймауты для облачного хостинга (но не слишком сильно)
-        builder.read_timeout(30)
-        builder.connect_timeout(20)
-        builder.write_timeout(20)
-        builder.pool_timeout(20)
         
         self.application = builder.build()
 
@@ -1040,15 +1040,22 @@ class TelegramBot:
                     logger.info("Starting polling loop...")
                     
                     # Запускаем polling - он сам обработает любые ошибки подключения
-                    self.application.run_polling(
-                        drop_pending_updates=True,
-                        close_loop=False,
-                        read_timeout=30,
-                        write_timeout=20,
-                        connect_timeout=20,
-                        pool_timeout=20,
-                        allowed_updates=Update.ALL_TYPES
-                    )
+                    # Для HF не передаем таймауты явно, так как они в request_config
+                    polling_kwargs = {
+                        "drop_pending_updates": True,
+                        "close_loop": False,
+                        "allowed_updates": Update.ALL_TYPES
+                    }
+                    
+                    if not os.environ.get("SPACE_ID"):
+                        polling_kwargs.update({
+                            "read_timeout": 30,
+                            "write_timeout": 20,
+                            "connect_timeout": 20,
+                            "pool_timeout": 20
+                        })
+                    
+                    self.application.run_polling(**polling_kwargs)
                     logger.info("Polling started successfully!")
                     break
                 except (TimedOut, NetworkError) as e:
