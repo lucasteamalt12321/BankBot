@@ -169,9 +169,15 @@ class TelegramBot:
             # Используем прямой IP для обхода DNS-блокировок на HF
             proxy_ip = "195.201.225.248"
             
+            import httpx
             from telegram.request import HTTPXRequest
-            # Настраиваем все таймауты сразу в объекте запроса
+            
+            # Создаем кастомный HTTP клиент с отключенной проверкой SSL (так как идем по IP)
+            custom_client = httpx.AsyncClient(verify=False)
+            
+            # Передаем этот клиент в объект запроса PTB
             request_config = HTTPXRequest(
+                http_client=custom_client,
                 connection_pool_size=8, 
                 read_timeout=30, 
                 write_timeout=30, 
@@ -183,7 +189,7 @@ class TelegramBot:
             builder.base_url(f"https://{proxy_ip}/bot/")
             builder.request(request_config)
             
-            logger.info(f"Using Direct IP Proxy: https://{proxy_ip}/bot/")
+            logger.info(f"Using Direct IP Proxy with SSL verification disabled: https://{proxy_ip}/bot/")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды
