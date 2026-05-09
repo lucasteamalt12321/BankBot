@@ -11,18 +11,54 @@
 import sys
 import os
 import threading
-from flask import Flask
+from flask import Flask, jsonify, Response
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Микро-сервер для Hugging Face (чтобы Space не засыпал)
+# Микро-сервер для Hugging Face и мониторинга
 app = Flask(__name__)
 
 @app.route('/')
+def index():
+    return "BankBot System is Active"
+
+@app.route('/health')
 def health_check():
-    return "BankBot is running!"
+    """Health check endpoint with DB check."""
+    try:
+        from database.database import get_db
+        db = next(get_db())
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        db.close()
+        return jsonify({"status": "healthy", "service": "BankBot"})
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "error": str(e)}), 500
+
+@app.route("/metrics")
+def metrics():
+    """Prometheus-compatible metrics endpoint."""
+    from database.database import get_db, User, Transaction
+    import time
+    db = next(get_db())
+    try:
+        total_users = db.query(User).count()
+        today = time.time() - 86400
+        today_transactions = db.query(Transaction).filter(Transaction.created_at >= today).count()
+        
+        metrics_text = f"""# HELP bot_users_total Total number of users
+# TYPE bot_users_total gauge
+bot_users_total {total_users}
+
+# HELP bot_transactions_24h Transactions in last 24 hours
+# TYPE bot_transactions_24h counter
+bot_transactions_24h {today_transactions}
+"""
+        return Response(metrics_text, mimetype="text/plain")
+    finally:
+        db.close()
 
 def run_health_server():
+    # Порт 7860 - стандарт для Hugging Face Spaces
     port = int(os.environ.get("PORT", 7860))
     app.run(host='0.0.0.0', port=port)
 
