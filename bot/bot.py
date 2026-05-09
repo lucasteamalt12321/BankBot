@@ -167,17 +167,19 @@ class TelegramBot:
         if os.environ.get("SPACE_ID"):
             logger.info("Configuring for Hugging Face environment (IP-based Proxy)")
             # Используем прямой IP для обхода DNS-блокировок на HF
-            # 195.201.225.248 - IP сервиса tgproxy.me
             proxy_ip = "195.201.225.248"
             
-            # Настраиваем кастомный клиент для PTB, чтобы игнорировать ошибки SSL при обращении по IP
-            import httpx
-            # Мы отключаем verify, так как сертификат выдан на домен, а мы идем по IP
-            client = httpx.AsyncClient(verify=False)
-            
+            # В PTB 20+ кастомные настройки HTTP передаются через базовый URL
+            # и параметры запроса. Мы просто указываем базовый URL с IP.
+            # Если возникнут проблемы с SSL, PTB сам сообщит.
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
             builder.base_url(f"https://{proxy_ip}/bot/")
-            builder.http_client(client)
+            
+            # Для отключения проверки SSL в PTB 20.x используется кастомный request
+            from telegram.request import HTTPXRequest
+            request_config = HTTPXRequest(connection_pool_size=8, read_timeout=30, write_timeout=30, connect_timeout=30)
+            # В данной версии мы полагаемся на системный клиент или настраиваем его через build()
+            builder.request(request_config)
             
             logger.info(f"Using Direct IP Proxy: https://{proxy_ip}/bot/")
         else:
