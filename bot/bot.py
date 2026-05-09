@@ -165,11 +165,22 @@ class TelegramBot:
     def __init__(self):
         # Настройка прокси для Hugging Face
         if os.environ.get("SPACE_ID"):
-            logger.info("Configuring for Hugging Face environment")
-            # Используем Reverse Proxy, так как прямой доступ к api.telegram.org часто заблокирован
-            # api.telegram-proxy.com - стабильное зеркало
-            builder = Application.builder().token(settings.BOT_TOKEN.strip()).base_url("https://api.telegram-proxy.com/bot/")
-            logger.info("Using Reverse Proxy: https://api.telegram-proxy.com/bot/")
+            logger.info("Configuring for Hugging Face environment (IP-based Proxy)")
+            # Используем прямой IP для обхода DNS-блокировок на HF
+            # 195.201.225.248 - IP сервиса tgproxy.me
+            proxy_ip = "195.201.225.248"
+            
+            # Настраиваем кастомный клиент для PTB, чтобы игнорировать ошибки SSL при обращении по IP
+            import httpx
+            # Мы отключаем verify, так как сертификат выдан на домен, а мы идем по IP
+            client = httpx.AsyncClient(verify=False)
+            
+            builder = Application.builder().token(settings.BOT_TOKEN.strip())
+            builder.base_url(f"https://{proxy_ip}/bot/")
+            builder.get_updates_http_client(client)
+            builder.http_client(client)
+            
+            logger.info(f"Using Direct IP Proxy: https://{proxy_ip}/bot/")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
         
