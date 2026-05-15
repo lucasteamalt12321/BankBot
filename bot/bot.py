@@ -171,9 +171,13 @@ class TelegramBot:
         builder.write_timeout(30)
         builder.pool_timeout(30)
         
-        # Настройка для Hugging Face: socket.getaddrinfo monkey patch в run_bot.py
+        # HF: явно устанавливаем get_updates таймауты (иначе connect_timeout=30 используется как read timeout)
         if os.environ.get("SPACE_ID"):
             logger.info("Hugging Face environment detected (DNS bypass via socket.getaddrinfo patch)")
+            builder.get_updates_read_timeout(15)
+            builder.get_updates_connect_timeout(15)
+            builder.get_updates_write_timeout(15)
+            builder.get_updates_pool_timeout(15)
         
         # Настройка прокси (для обычной среды)
         proxy = settings.PROXY_URL
