@@ -181,19 +181,27 @@ class TelegramBot:
                 timeout=httpx.Timeout(30.0, connect=30.0)
             )
             
-            # Настраиваем PTB на работу через кастомный клиент (без http_client в init, если он не поддерживается)
-            # Мы будем настраивать клиент при билде
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
             builder.base_url(f"https://{proxy_ip}/bot/")
             
-            # Попробуем передать клиент напрямую через билдер, если метод существует
-            # Если нет - используем proxy_url с IP
+            # Настраиваем HTTP клиент для API запросов и polling
             try:
                 builder.http_client(custom_client)
             except AttributeError:
                 pass
             
-            logger.info(f"Using IP Proxy {proxy_ip} with custom Host header")
+            # Настраиваем ОТДЕЛЬНЫЙ клиент для get_updates polling (критично!)
+            polling_client = httpx.AsyncClient(
+                verify=False,
+                headers={"Host": "tgproxy.me"},
+                timeout=httpx.Timeout(30.0, connect=30.0)
+            )
+            try:
+                builder.get_updates_http_client(polling_client)
+            except AttributeError:
+                pass
+            
+            logger.info(f"Using IP Proxy {proxy_ip} with custom Host header (verify=False for both API and polling)")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды
