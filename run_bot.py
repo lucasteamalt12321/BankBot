@@ -155,8 +155,25 @@ def check_telegram_connectivity():
         print("[DIAG] Continuing with bot startup...")
 
 def main() -> None:
-    # HF: monkey-patch httpx.AsyncClient ДО импорта PTB для отключения SSL verify
+    # HF: monkey-patch anyio и socket DNS ДО импорта PTB
     if os.environ.get("SPACE_ID"):
+        import socket
+        import anyio._core._sockets as anyio_sockets
+        
+        _original_socket_gai = socket.getaddrinfo
+        def _patched_socket_gai(host, port, *args, **kwargs):
+            if host == "api.telegram.org":
+                host = "149.154.167.220"
+            return _original_socket_gai(host, port, *args, **kwargs)
+        socket.getaddrinfo = _patched_socket_gai
+        
+        _original_anyio_gai = anyio_sockets.getaddrinfo
+        async def _patched_anyio_gai(host, port, *args, **kwargs):
+            if host == "api.telegram.org":
+                host = "149.154.167.220"
+            return await _original_anyio_gai(host, port, *args, **kwargs)
+        anyio_sockets.getaddrinfo = _patched_anyio_gai
+        
         import httpx
         _original_init = httpx.AsyncClient.__init__
         def _patched_init(self, *args, **kwargs):

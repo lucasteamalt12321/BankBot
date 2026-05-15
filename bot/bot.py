@@ -171,10 +171,9 @@ class TelegramBot:
         builder.write_timeout(30)
         builder.pool_timeout(30)
         
-        # HF: используем IP в base_url для обхода DNS полностью
+        # HF: socket.getaddrinfo monkey patch в run_bot.py обходит DNS
         if os.environ.get("SPACE_ID"):
-            logger.info("Hugging Face environment detected (DNS bypass via base_url IP)")
-            builder.base_url("https://149.154.167.220/bot")
+            logger.info("Hugging Face environment detected (DNS bypass via socket.getaddrinfo patch)")
             builder.get_updates_read_timeout(15)
             builder.get_updates_connect_timeout(15)
             builder.get_updates_write_timeout(15)
