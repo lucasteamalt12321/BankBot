@@ -291,7 +291,7 @@ https://github.com/lucasteamalt12321/BankBot
 | PR01-PR09 | Стабилизация и smoke-тесты | completed | P0/P1 |
 | N01 | Прокси и исправление HTML-ошибок | completed | P0 |
 | N02 | Системные уведомления (ntfy/ADB) | completed | P1 |
-| HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | in_progress | P1 |
+| HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | completed | P1 |
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
 

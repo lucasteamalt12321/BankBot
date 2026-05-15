@@ -336,22 +336,16 @@
 - **Dual Push**: Automated pushing to both GitHub (`main`) and Hugging Face (`main`) repositories.
 
 ### 2026-05-15 (HF Deployment — Network Hardening & Runtime Fixes)
-- **Health/Metrics Server**: `run_bot.py` переработан — добавлен Flask-сервер на порту `7860` с endpoints:
-  - `/` — статус страница
-  - `/health` — health check с проверкой БД
-  - `/metrics` — Prometheus-совместимые метрики (users_total, transactions_24h)
-  - `/logs` — захват и просмотр последних 100 строк логов
-- **Docker**: Обновлён `Dockerfile` до `python:3.12-slim`, health check на `localhost:7860/health`, multi-stage build сохранён.
-- **Startup Resilience**: `core/managers/config_manager.py` теперь проверяет существование таблицы `parsing_rules` через `inspector.has_table()` перед запросом, предотвращая crash при первом запуске до миграций.
-- **DB Migrations First**: `bot/main.py` теперь вызывает `ensure_schema_up_to_date()` до инициализации любых систем, использующих БД.
-- **HF Network Evolution** (итеративные фиксы):
-  - Попытка через `api.telegram-proxy.com` → DNS monkey patch для `tgproxy.me` → прямой IP `195.201.225.248`.
-  - Отключение SSL verification (`verify=False`) для IP-based proxy (сертификат выдан на домен).
-  - Кастомный `Host: tgproxy.me` header через `httpx.AsyncClient`.
-  - Safe builder call: `builder.http_client(custom_client)` с fallback через `try/except AttributeError`.
-  - Условие `if os.environ.get("SPACE_ID")` изолирует HF-логику от обычной среды.
-  - Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты (30/20/20/20).
-- **Deployment Docs**: `docs/DEPLOYMENT.md` дополнен разделом Hugging Face Spaces с описанием network strategy, health checks и просмотра логов.
+- **Health/Metrics Server**: Flask на `7860` (`/health`, `/metrics`, `/logs`).
+- **Docker**: `python:3.12-slim`, multi-stage build, health check.
+- **Startup Resilience**: `config_manager` проверяет `inspector.has_table()` перед запросом.
+- **DB Migrations First**: `bot/main.py` — Alembic-first.
+- **HF Network Evolution** (итерации):
+  - Попытка 1: `api.telegram-proxy.com` → DNS блокирует.
+  - Попытка 2: `195.201.225.248` (tgproxy.me) + `verify=False` → SSL mismatch.
+  - Попытка 3: `149.154.167.220` + `Host: api.telegram.org` + monkey-patch `httpx.AsyncClient` → curl OK, PTB "Invalid server response".
+  - Попытка 4: `/etc/hosts` в Dockerfile → read-only, BUILD_ERROR.
+  - **Решение**: monkey-patch `socket.getaddrinfo` в `run_bot.py` — DNS bypass на уровне Python. Работает для всех HTTP-библиотек, SSL валиден (сертификат на `api.telegram.org`).
 
 ### 2026-05-15 (Memory Bank Sync & Deployment Prep)
 - **Memory Bank Sync**: Актуализированы `activeContext.md`, `progress.md`, `projectbrief.md`, `techContext.md` после 15 коммитов деплоя HF.
