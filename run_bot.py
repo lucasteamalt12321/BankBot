@@ -155,15 +155,14 @@ def check_telegram_connectivity():
         print("[DIAG] Continuing with bot startup...")
 
 def main() -> None:
-    # HF: monkey-patch DNS resolution для api.telegram.org
+    # HF: monkey-patch httpx.AsyncClient ДО импорта PTB для отключения SSL verify
     if os.environ.get("SPACE_ID"):
-        import socket
-        _original_getaddrinfo = socket.getaddrinfo
-        def _patched_getaddrinfo(host, port, *args, **kwargs):
-            if host == "api.telegram.org":
-                host = "149.154.167.220"
-            return _original_getaddrinfo(host, port, *args, **kwargs)
-        socket.getaddrinfo = _patched_getaddrinfo
+        import httpx
+        _original_init = httpx.AsyncClient.__init__
+        def _patched_init(self, *args, **kwargs):
+            kwargs.setdefault('verify', False)
+            return _original_init(self, *args, **kwargs)
+        httpx.AsyncClient.__init__ = _patched_init
     
     # Запускаем сервер в отдельном потоке
     threading.Thread(target=run_health_server, daemon=True).start()

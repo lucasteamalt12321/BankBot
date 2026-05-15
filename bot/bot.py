@@ -171,9 +171,10 @@ class TelegramBot:
         builder.write_timeout(30)
         builder.pool_timeout(30)
         
-        # HF: явно устанавливаем get_updates таймауты (иначе connect_timeout=30 используется как read timeout)
+        # HF: используем IP в base_url для обхода DNS полностью
         if os.environ.get("SPACE_ID"):
-            logger.info("Hugging Face environment detected (DNS bypass via socket.getaddrinfo patch)")
+            logger.info("Hugging Face environment detected (DNS bypass via base_url IP)")
+            builder.base_url("https://149.154.167.220/bot")
             builder.get_updates_read_timeout(15)
             builder.get_updates_connect_timeout(15)
             builder.get_updates_write_timeout(15)
