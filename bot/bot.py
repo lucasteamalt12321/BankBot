@@ -1029,7 +1029,8 @@ class TelegramBot:
                     # HF: короткий polling из-за сетевых ограничений (обрыв через ~30s)
                     if os.environ.get("SPACE_ID"):
                         polling_kwargs.update({
-                            "poll_interval": 5,  # Запрашивать каждые 5 сек
+                            "timeout": 10,  # getUpdates timeout (сервер ждёт 10 сек)
+                            "poll_interval": 2,  # Интервал между запросами 2 сек
                             "read_timeout": 15,
                             "write_timeout": 15,
                             "connect_timeout": 15,
@@ -1037,6 +1038,7 @@ class TelegramBot:
                         })
                     else:
                         polling_kwargs.update({
+                            "timeout": 60,
                             "read_timeout": 60,
                             "write_timeout": 30,
                             "connect_timeout": 30,
