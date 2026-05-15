@@ -184,6 +184,7 @@ class TelegramBot:
             
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
             builder.base_url(f"https://{proxy_ip}/bot")
+            builder.get_updates_base_url(f"https://{proxy_ip}/bot")
             
             try:
                 builder.http_client(custom_client)
