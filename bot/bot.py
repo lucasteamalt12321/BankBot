@@ -175,10 +175,10 @@ class TelegramBot:
             
             import httpx
             
-            # Кастомный клиент с verify=False и Host header
+            # Кастомный клиент с verify=False и Host header для api.telegram.org
             custom_client = httpx.AsyncClient(
                 verify=False, 
-                headers={"Host": "tgproxy.me"},
+                headers={"Host": "api.telegram.org"},
                 timeout=httpx.Timeout(30.0, connect=30.0)
             )
             
