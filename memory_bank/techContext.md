@@ -4,15 +4,21 @@
 
 ### Язык и фреймворки
 - **Python 3.10+** - основной язык разработки
-- **Python 3.12** - зафиксированный локальный runtime для запуска BankBot
+- **Python 3.12** - зафиксированный локальный runtime и Docker-образ для BankBot
 - **python-telegram-bot 20.x** - асинхронная библиотека для Telegram Bot API
 - **aiogram 3.x** - фреймворк для Bridge-модуля
 - **SQLAlchemy 2.0+** - ORM для работы с базой данных
+- **Flask** - health/metrics/logs сервер для Hugging Face
 
 ### Инфраструктура и Деплой
 - **Hugging Face Spaces** - основная платформа для хостинга (Docker SDK)
 - **GitHub** - основной репозиторий кода
-- **Network Strategy**: Использование `base_url` в PTB для обхода блокировок/ограничений в облачных средах.
+- **Network Strategy (HF)**: 
+  - IP-based proxy `195.201.225.248` (tgproxy.me) с кастомным `Host` header.
+  - SSL verification отключён (`verify=False`) для IP-прокси (сертификат на домен).
+  - Safe builder: `builder.http_client(custom_client)` с `try/except AttributeError` fallback.
+  - Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты.
+- **Health Server**: Flask на порту `7860` — `/health` (с проверкой БД), `/metrics` (Prometheus), `/logs` (захват stdout/stderr).
 - **Structlog** - структурированное логирование
 
 ### База данных
@@ -59,16 +65,24 @@
 ## Окружение разработки
 
 ### Переменные окружения
-Конфигурация управляется через файл `.env` (не включается в репозиторий):
+Конфигурация управляется через слои env-файлов:
+- `config/.env.shared` — безопасные дефолты (committable)
+- `config/.env.local` — секреты и локальные переопределения (не коммитится)
+- legacy fallback: `config/.env`
+
+Основные переменные:
 - `BOT_TOKEN` — токен Telegram бота
 - `DATABASE_URL` — URL подключения к базе данных
 - `ADMIN_TELEGRAM_ID` — Telegram ID администратора
 - `LOG_LEVEL` — уровень логирования
+- `PROXY_URL` — HTTP-прокси для обычной среды
 - `BRIDGE_ENABLED` — включить Bridge TG ↔ VK (bool)
 - `BRIDGE_TG_CHAT_ID` — ID Telegram-чата для Bridge
 - `VK_TOKEN` — токен VK API (обязателен при BRIDGE_ENABLED=true)
 - `VK_PEER_ID` — peer_id VK-чата для Bridge
 - `APP_ENV` — окружение: dev / prod / test
+- `NTFY_ENABLED`, `NTFY_BASE_URL`, `NTFY_TAGS`, `NTFY_TIMEOUT_SECONDS` — ntfy уведомления
+- `ADB_NOTIFICATIONS_ENABLED`, `ADB_PATH`, `ADB_DEVICE_SERIAL` — ADB уведомления
 
 ### Структура проекта
 ```

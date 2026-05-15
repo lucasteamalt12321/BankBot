@@ -157,10 +157,13 @@ def main():
     
     # ПЕРВЫМ ДЕЛОМ: Приводим схему БД к актуальному состоянию через Alembic.
     # Это должно быть сделано ДО инициализации любых систем, использующих БД.
-    from database.schema import ensure_schema_up_to_date
     ensure_schema_up_to_date()
 
-    # Проверяем, запущены ли мы в облаке (Hugging Face)
+    # Валидируем окружение перед запуском
+    validate_startup()
+
+    # Убиваем старые процессы бота
+    kill_existing_bot_processes()
 
     # Создаем и запускаем бота
     bot = TelegramBot()

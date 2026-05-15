@@ -290,11 +290,13 @@ https://github.com/lucasteamalt12321/BankBot
 | M01 | Новый модуль: диалоговый кодер текстовых шаблонов | completed | MAX/P0 |
 | PR01-PR09 | Стабилизация и smoke-тесты | completed | P0/P1 |
 | N01 | Прокси и исправление HTML-ошибок | completed | P0 |
-| N02 | Системные уведомления (ntfy/ADB) | in_progress | P1 |
+| N02 | Системные уведомления (ntfy/ADB) | completed | P1 |
+| HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | in_progress | P1 |
 
-**N02 notes:** реализован очередной инкремент: multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), добавлены env-настройки ntfy/ADB, исправлен маппинг `telegram_id -> users.id` в `/notifications` и `/notifications_clear`, добавлены unit-тесты `tests/unit/test_notification_system.py`.
+**N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
+
+**HF01 notes:** Flask-сервер на `7860` (`/health`, `/metrics`, `/logs`), Dockerfile `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `http_client` builder fallback, `SPACE_ID` detection, Alembic-first startup, config manager resilience к отсутствующим таблицам.
 | PR10 | Архитектурная инвентаризация слоёв `core/src/utils/bank_bot` | P2 | pending |
 | PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | pending |
 | PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | pending |
 | PR13 | Ревизия structured logging и эксплуатационных полей | P2 | pending |
-| HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | P1 | in_progress |

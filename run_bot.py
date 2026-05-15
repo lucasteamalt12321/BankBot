@@ -91,7 +91,7 @@ def check_telegram_connectivity():
     
     print(f"[DIAG] Current System Time: {time.ctime()}")
     print(f"[DIAG] Proxy Env: HTTP={os.environ.get('http_proxy')}, HTTPS={os.environ.get('https_proxy')}")
-    print(f"[DIAG] Starting quick connectivity check...")
+    print("[DIAG] Starting quick connectivity check...")
     
     # Проверка общего интернета
     try:
