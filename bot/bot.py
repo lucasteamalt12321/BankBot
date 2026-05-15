@@ -170,6 +170,8 @@ class TelegramBot:
         builder.connect_timeout(30)
         builder.write_timeout(30)
         builder.pool_timeout(30)
+        builder.get_updates_read_timeout(60)
+        builder.get_updates_connect_timeout(30)
         
         # Настройка для Hugging Face: socket.getaddrinfo monkey patch в run_bot.py
         if os.environ.get("SPACE_ID"):
@@ -1023,17 +1025,13 @@ class TelegramBot:
                     polling_kwargs = {
                         "drop_pending_updates": True,
                         "close_loop": False,
-                        "allowed_updates": Update.ALL_TYPES
+                        "allowed_updates": Update.ALL_TYPES,
+                        # Таймауты для всех сред
+                        "read_timeout": 60,
+                        "write_timeout": 30,
+                        "connect_timeout": 30,
+                        "pool_timeout": 30,
                     }
-                    
-                    # Для локального запуска оставляем таймауты
-                    if not os.environ.get("SPACE_ID"):
-                        polling_kwargs.update({
-                            "read_timeout": 30,
-                            "write_timeout": 20,
-                            "connect_timeout": 20,
-                            "pool_timeout": 20
-                        })
                     
                     self.application.run_polling(**polling_kwargs)
                     logger.info("Polling started successfully!")
