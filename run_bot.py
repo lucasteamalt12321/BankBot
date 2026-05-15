@@ -155,6 +155,16 @@ def check_telegram_connectivity():
         print("[DIAG] Continuing with bot startup...")
 
 def main() -> None:
+    # HF: monkey-patch DNS resolution для api.telegram.org
+    if os.environ.get("SPACE_ID"):
+        import socket
+        _original_getaddrinfo = socket.getaddrinfo
+        def _patched_getaddrinfo(host, port, *args, **kwargs):
+            if host == "api.telegram.org":
+                host = "149.154.167.220"
+            return _original_getaddrinfo(host, port, *args, **kwargs)
+        socket.getaddrinfo = _patched_getaddrinfo
+    
     # Запускаем сервер в отдельном потоке
     threading.Thread(target=run_health_server, daemon=True).start()
     

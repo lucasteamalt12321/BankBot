@@ -21,9 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# HF workaround: bypass DNS blocking for Telegram API via hosts file
-RUN echo "149.154.167.220 api.telegram.org" >> /etc/hosts
-
 # Copy installed packages from builder
 COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
