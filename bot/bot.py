@@ -167,17 +167,8 @@ class TelegramBot:
         if os.environ.get("SPACE_ID"):
             logger.info("Configuring for Hugging Face environment (Proxy with Host Header)")
             
-            # Глобальный monkey-patch SSL: HF среда требует IP-based proxy,
-            # но сертификат выдан на домен — отключаем verification глобально
-            import ssl
-            _original_ssl_context = ssl.create_default_context
-            def _patched_ssl_context(*args, **kwargs):
-                ctx = _original_ssl_context(*args, **kwargs)
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                return ctx
-            ssl.create_default_context = _patched_ssl_context
-            logger.info("SSL verification globally disabled via monkey patch for HF environment")
+            # ВАЖНО: monkey-patch httpx.AsyncClient применён в run_bot.py ДО импорта PTB
+            # Это гарантирует verify=False для всех HTTP клиентов, включая polling loop
             
             # Используем рабочий IP прокси-сервера tgproxy.me
             proxy_ip = "195.201.225.248"
