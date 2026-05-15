@@ -353,5 +353,13 @@
   - Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты (30/20/20/20).
 - **Deployment Docs**: `docs/DEPLOYMENT.md` дополнен разделом Hugging Face Spaces с описанием network strategy, health checks и просмотра логов.
 
+### 2026-05-15 (Memory Bank Sync & Deployment Prep)
+- **Memory Bank Sync**: Актуализированы `activeContext.md`, `progress.md`, `projectbrief.md`, `techContext.md` после 15 коммитов деплоя HF.
+- **Code Fixes**: Исправлены regression в `bot/main.py` (восстановлены `validate_startup` и `kill_existing_bot_processes` в startup flow), исправлен f-string в `run_bot.py`.
+- **Quality Gate**: `ruff check` — 0 errors; `pytest tests/smoke` — 9/9 passed.
+- **Startup Validation**: `run_bot.py` проходит startup: Flask `7860`, диагностика, Alembic миграции.
+- **Git Commit**: `48780f8` — sync(memory_bank): актуализация после 15 коммитов деплоя HF.
+- **Push Blocked**: `git push origin main` требует интерактивной авторизации GitHub (HTTPS). Требуется действие пользователя или настройка SSH/credentials.
+
 ## last_checked_commit
-f1b2fee fix: attempt custom Host header with IP proxy and safe builder call (2026-05-15)
+48780f8 sync(memory_bank): актуализация после 15 коммитов деплоя HF (2026-05-15)
