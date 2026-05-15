@@ -163,34 +163,12 @@ def _extract_bot_mentioned_command(message_text: str | None, bot_username: str |
 
 class TelegramBot:
     def __init__(self):
-        # Настройка прокси для Hugging Face
+        # Настройка для Hugging Face: /etc/hosts перенаправляет api.telegram.org на IP
         if os.environ.get("SPACE_ID"):
-            logger.info("Configuring for Hugging Face environment (Proxy with Host Header)")
-            
-            # ВАЖНО: monkey-patch httpx.AsyncClient применён в run_bot.py ДО импорта PTB
-            # Это гарантирует verify=False для всех HTTP клиентов, включая polling loop
-            
-            # Используем официальный IP Telegram API (HF блокирует DNS, но IP доступен)
-            proxy_ip = "149.154.167.220"
-            
-            import httpx
-            
-            # Кастомный клиент с verify=False и Host header для api.telegram.org
-            custom_client = httpx.AsyncClient(
-                verify=False, 
-                headers={"Host": "api.telegram.org"},
-                timeout=httpx.Timeout(30.0, connect=30.0)
-            )
+            logger.info("Hugging Face environment detected (DNS bypass via /etc/hosts)")
             
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
-            builder.base_url(f"https://{proxy_ip}/bot")
-            
-            try:
-                builder.http_client(custom_client)
-            except AttributeError:
-                pass
-            
-            logger.info(f"Using IP Proxy {proxy_ip} with custom Host header (SSL verify=False)")
+            # Стандартный base_url — /etc/hosts в Docker перенаправляет DNS
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды

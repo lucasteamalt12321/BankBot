@@ -155,15 +155,6 @@ def check_telegram_connectivity():
         print("[DIAG] Continuing with bot startup...")
 
 def main() -> None:
-    # HF: monkey-patch httpx.AsyncClient ДО импорта PTB
-    if os.environ.get("SPACE_ID"):
-        import httpx
-        _original_init = httpx.AsyncClient.__init__
-        def _patched_init(self, *args, **kwargs):
-            kwargs.setdefault('verify', False)
-            return _original_init(self, *args, **kwargs)
-        httpx.AsyncClient.__init__ = _patched_init
-    
     # Запускаем сервер в отдельном потоке
     threading.Thread(target=run_health_server, daemon=True).start()
     
