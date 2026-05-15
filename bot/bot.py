@@ -163,19 +163,17 @@ def _extract_bot_mentioned_command(message_text: str | None, bot_username: str |
 
 class TelegramBot:
     def __init__(self):
-        # Настройка для Hugging Face: /etc/hosts перенаправляет api.telegram.org на IP
+        builder = Application.builder().token(settings.BOT_TOKEN.strip())
+        
+        # Увеличиваем таймауты для всех сред (HF и обычной)
+        builder.read_timeout(60)
+        builder.connect_timeout(30)
+        builder.write_timeout(30)
+        builder.pool_timeout(30)
+        
+        # Настройка для Hugging Face: socket.getaddrinfo monkey patch в run_bot.py
         if os.environ.get("SPACE_ID"):
-            logger.info("Hugging Face environment detected (DNS bypass via /etc/hosts)")
-            
-            builder = Application.builder().token(settings.BOT_TOKEN.strip())
-            # Стандартный base_url — /etc/hosts в Docker перенаправляет DNS
-        else:
-            builder = Application.builder().token(settings.BOT_TOKEN)
-            # Увеличиваем таймауты для обычной среды
-            builder.read_timeout(30)
-            builder.connect_timeout(20)
-            builder.write_timeout(20)
-            builder.pool_timeout(20)
+            logger.info("Hugging Face environment detected (DNS bypass via socket.getaddrinfo patch)")
         
         # Настройка прокси (для обычной среды)
         proxy = settings.PROXY_URL
