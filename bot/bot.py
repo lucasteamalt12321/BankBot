@@ -167,14 +167,24 @@ class TelegramBot:
         if os.environ.get("SPACE_ID"):
             logger.info("Configuring for Hugging Face environment (Proxy with Host Header)")
             
+            # Глобальный monkey-patch SSL: HF среда требует IP-based proxy,
+            # но сертификат выдан на домен — отключаем verification глобально
+            import ssl
+            _original_ssl_context = ssl.create_default_context
+            def _patched_ssl_context(*args, **kwargs):
+                ctx = _original_ssl_context(*args, **kwargs)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                return ctx
+            ssl.create_default_context = _patched_ssl_context
+            logger.info("SSL verification globally disabled via monkey patch for HF environment")
+            
             # Используем рабочий IP прокси-сервера tgproxy.me
             proxy_ip = "195.201.225.248"
             
             import httpx
-            from telegram.request import HTTPXRequest
             
-            # ВАЖНО: Добавляем заголовок Host, чтобы прокси понимал, куда мы идем
-            # и отключаем SSL verification, так как сертификат выдан на домен
+            # Кастомный клиент с verify=False и Host header
             custom_client = httpx.AsyncClient(
                 verify=False, 
                 headers={"Host": "tgproxy.me"},
@@ -184,24 +194,12 @@ class TelegramBot:
             builder = Application.builder().token(settings.BOT_TOKEN.strip())
             builder.base_url(f"https://{proxy_ip}/bot/")
             
-            # Настраиваем HTTP клиент для API запросов и polling
             try:
                 builder.http_client(custom_client)
             except AttributeError:
                 pass
             
-            # Настраиваем ОТДЕЛЬНЫЙ клиент для get_updates polling (критично!)
-            polling_client = httpx.AsyncClient(
-                verify=False,
-                headers={"Host": "tgproxy.me"},
-                timeout=httpx.Timeout(30.0, connect=30.0)
-            )
-            try:
-                builder.get_updates_http_client(polling_client)
-            except AttributeError:
-                pass
-            
-            logger.info(f"Using IP Proxy {proxy_ip} with custom Host header (verify=False for both API and polling)")
+            logger.info(f"Using IP Proxy {proxy_ip} with custom Host header (SSL verify=False)")
         else:
             builder = Application.builder().token(settings.BOT_TOKEN)
             # Увеличиваем таймауты для обычной среды
