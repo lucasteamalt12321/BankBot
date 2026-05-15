@@ -170,8 +170,8 @@ class TelegramBot:
             # ВАЖНО: monkey-patch httpx.AsyncClient применён в run_bot.py ДО импорта PTB
             # Это гарантирует verify=False для всех HTTP клиентов, включая polling loop
             
-            # Используем рабочий IP прокси-сервера tgproxy.me
-            proxy_ip = "195.201.225.248"
+            # Используем официальный IP Telegram API (HF блокирует DNS, но IP доступен)
+            proxy_ip = "149.154.167.220"
             
             import httpx
             
