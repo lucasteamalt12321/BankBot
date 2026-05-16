@@ -1025,7 +1025,8 @@ class TelegramBot:
                     
                     # Запускаем polling
                     polling_kwargs = {
-                        "drop_pending_updates": True,
+                        # HF нельзя дропать pending updates при reconnect, иначе /start теряется
+                        "drop_pending_updates": not os.environ.get("SPACE_ID"),
                         "close_loop": False,
                         "allowed_updates": Update.ALL_TYPES,
                     }
