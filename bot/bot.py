@@ -168,7 +168,7 @@ class TelegramBot:
         # Увеличиваем таймауты для всех сред (HF и обычной)
         builder.read_timeout(60)
         builder.connect_timeout(30)
-        builder.write_timeout(30)
+        builder.write_timeout(60)
         builder.pool_timeout(30)
         
         # HF: socket.getaddrinfo monkey patch в run_bot.py обходит DNS
@@ -176,7 +176,7 @@ class TelegramBot:
             logger.info("Hugging Face environment detected (DNS bypass via socket.getaddrinfo patch)")
             builder.get_updates_read_timeout(15)
             builder.get_updates_connect_timeout(15)
-            builder.get_updates_write_timeout(15)
+            builder.get_updates_write_timeout(30)
             builder.get_updates_pool_timeout(15)
         
         # Настройка прокси (для обычной среды)
@@ -1036,8 +1036,8 @@ class TelegramBot:
                         polling_kwargs.update({
                             "timeout": 10,  # getUpdates timeout (сервер ждёт 10 сек)
                             "poll_interval": 2,  # Интервал между запросами 2 сек
-                            "read_timeout": 15,
-                            "write_timeout": 15,
+                            "read_timeout": 20,
+                            "write_timeout": 30,
                             "connect_timeout": 15,
                             "pool_timeout": 15,
                         })
