@@ -1016,53 +1016,37 @@ class TelegramBot:
                     "Background task system not running - some features may be limited"
                 )
 
-            while not self._shutdown_requested:
-                try:
-                    logger.info("Starting run_polling with 60s timeout...")
-                    logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
-                    
-                    logger.info("Starting polling loop...")
-                    
-                    # Запускаем polling
-                    polling_kwargs = {
-                        # HF нельзя дропать pending updates при reconnect, иначе /start теряется
-                        "drop_pending_updates": not os.environ.get("SPACE_ID"),
-                        "close_loop": False,
-                        "allowed_updates": Update.ALL_TYPES,
-                    }
-                    
-                    # HF: короткий polling из-за сетевых ограничений (обрыв через ~30s)
-                    if os.environ.get("SPACE_ID"):
-                        polling_kwargs.update({
-                            "timeout": 10,  # getUpdates timeout (сервер ждёт 10 сек)
-                            "poll_interval": 2,  # Интервал между запросами 2 сек
-                            "read_timeout": 20,
-                            "write_timeout": 30,
-                            "connect_timeout": 15,
-                            "pool_timeout": 15,
-                        })
-                    else:
-                        polling_kwargs.update({
-                            "timeout": 60,
-                            "read_timeout": 60,
-                            "write_timeout": 30,
-                            "connect_timeout": 30,
-                            "pool_timeout": 30,
-                        })
-                    
-                    self.application.run_polling(**polling_kwargs)
-                    logger.info("Polling started successfully!")
-                    break
-                except (TimedOut, NetworkError) as e:
-                    logger.warning(
-                        "Polling interrupted by network error, retrying...",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
-                    )
-                    if self._shutdown_requested:
-                        break
-                    time.sleep(POLLING_RETRY_DELAY_SECONDS)
+            logger.info("Starting run_polling...")
+            logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
+            
+            # Запускаем polling
+            polling_kwargs = {
+                "drop_pending_updates": not os.environ.get("SPACE_ID"),
+                "close_loop": False,
+                "allowed_updates": Update.ALL_TYPES,
+            }
+            
+            # HF: короткий polling из-за сетевых ограничений
+            if os.environ.get("SPACE_ID"):
+                polling_kwargs.update({
+                    "timeout": 10,
+                    "poll_interval": 2,
+                    "read_timeout": 20,
+                    "write_timeout": 30,
+                    "connect_timeout": 15,
+                    "pool_timeout": 15,
+                })
+            else:
+                polling_kwargs.update({
+                    "timeout": 60,
+                    "read_timeout": 60,
+                    "write_timeout": 30,
+                    "connect_timeout": 30,
+                    "pool_timeout": 30,
+                })
+            
+            self.application.run_polling(**polling_kwargs)
+            logger.info("Polling stopped.")
         except KeyboardInterrupt:
             logger.info("Bot stopped by user (Ctrl+C)")
         except Exception as e:
