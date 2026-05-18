@@ -42,6 +42,7 @@ from bot.commands.core_commands import (
     test_notify_command,
     short_mode_command,
     long_mode_command,
+    commands_menu_command,
 )
 from bot.commands.shop_commands_ptb import (
     shop_command,
@@ -258,6 +259,7 @@ class TelegramBot:
             CommandHandler("start", self.welcome_command),
             CommandHandler("short", short_mode_command),
             CommandHandler("long", long_mode_command),
+            CommandHandler("commands", commands_menu_command),
             CommandHandler("ping", ping_command),
             CommandHandler("test_notify", test_notify_command),
             CommandHandler("balance", self.balance_command),

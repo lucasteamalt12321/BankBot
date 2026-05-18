@@ -90,12 +90,99 @@ WELCOME_TEXT_SHORT = """Привет, {name}!
 {admin_status}
 ID: {user_id}
 
-Команды: /shop /balance /profile /stats /achievements /ping
-Админ: /admin /admin_stats
-Игры: Shmalala, GD Cards, True Mafia, Bunker RP
+Меню команд: /commands
+Разделы: /commands user, /commands shop, /commands games, /commands admin, /commands config, /commands coder
 
-Начните с /shop !
+Режимы: /short — кратко, /long — подробно.
 """
+
+
+COMMANDS_MENU_TEXT = """📚 Разделы команд
+
+👤 /commands user — профиль, баланс, статистика
+🛒 /commands shop — магазин и покупки
+🎮 /commands games — игры и активность
+🛠 /commands admin — админ-команды
+⚙️ /commands config — конфигурация
+🧩 /commands coder — диалоговый кодер
+
+Режимы ответов: /short или /long
+"""
+
+COMMAND_SECTIONS = {
+    "user": """👤 Пользовательские команды
+/start — старт и краткое меню
+/commands — разделы команд
+/ping — проверить задержку
+/balance — баланс
+/history — история транзакций
+/profile — профиль
+/stats — персональная статистика
+/achievements — достижения
+/notifications — уведомления
+/notifications_clear — очистить уведомления
+""",
+    "shop": """🛒 Магазин
+/shop — список товаров
+/buy <номер> — купить товар
+/buy_1 ... /buy_8 — быстрая покупка
+/buy_contact — связь с админом
+/inventory — ваши покупки
+""",
+    "games": """🎮 Игры и активность
+/games — список мини-игр
+/play — играть
+/join — присоединиться
+/startgame — начать игру
+/turn — ход
+/dnd — D&D меню
+/dnd_create — создать D&D сессию
+/dnd_join — присоединиться к D&D
+/dnd_sessions — список D&D сессий
+/dnd_roll — бросок кубика
+""",
+    "admin": """🛠 Админ-команды
+/admin — админ-панель
+/admin_stats — статистика системы
+/admin_users — пользователи
+/admin_balances — балансы
+/admin_transactions <@user> — транзакции
+/add_points <@user> <сумма> — начислить
+/add_admin <@user> — назначить админа
+/admin_addcoins /admin_removecoins — монеты
+/admin_health — здоровье системы
+/broadcast <текст> — рассылка
+/add_item — добавить товар
+""",
+    "config": """⚙️ Конфигурация
+/reload_config — перезагрузить
+/config_status — статус
+/list_parsing_rules — правила парсинга
+/add_parsing_rule — добавить правило
+/update_parsing_rule — обновить правило
+/export_config — экспорт
+/import_config — импорт
+/backup_config — бэкап
+/restore_config — восстановление
+/list_backups — список бэкапов
+/validate_config — валидация
+""",
+    "coder": """🧩 Диалоговый кодер
+/coder — открыть кодер
+/reset — сбросить
+/done — закончить
+/help — инструкция кодера
+
+Шаблоны: ОК, Да, Спасибо, Спасибо нет, Великолепно, Спасибо еще раз, Скоро увидимся, Скоро буду, Я занят(а), Нет.
+""",
+}
+
+
+async def commands_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню разделов команд или конкретный раздел."""
+    section = context.args[0].lower() if context.args else ""
+    text = COMMAND_SECTIONS.get(section, COMMANDS_MENU_TEXT)
+    await update.message.reply_text(text)
 
 # Хранение режимов пользователей (short/long)
 _user_modes = {}
