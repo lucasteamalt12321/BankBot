@@ -19,6 +19,7 @@ async def shop_command(
     user = update.effective_user
     logger.info(f"Shop command from user {user.id}")
 
+    db = None
     try:
         db = next(get_db())
 
@@ -37,6 +38,9 @@ async def shop_command(
 
 Для связи с администратором используйте /buy_contact"""
         await update.message.reply_text(fallback_text)
+    finally:
+        if db is not None:
+            db.close()
 
 
 async def buy_contact_command(

@@ -14,6 +14,7 @@
 - ✅ D&D command wiring исправлен: `/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions` проходят через wrapper-методы `TelegramBot` с передачей `get_db`.
 - ✅ Игровые подсказки `/play`, `/join`, `/startgame`, `/turn` переведены с транслита на русский и стали понятнее для команд без аргументов.
 - ✅ FB01: добавлена предложка/жалобы — `/feedback <текст>` (`/suggest`, `/complaint`) сохраняет обращения в `data/feedback.jsonl`; `/feedback_list [limit]` показывает последние записи администратору.
+- ✅ PR10-PR13 закрыты: архитектурный runtime/legacy contract зафиксирован в `docs/README.md`, рискованные shim-слои не удалялись, polling kwargs вынесены в чистый builder, UX/watchlist игровых/D&D/shop команд закрыт безопасными правками.
 - ✅ Flask health/metrics/logs сервер на порту `7860` в `run_bot.py`.
 - ✅ Dockerfile обновлён до `python:3.12-slim` с health check на `:7860/health`.
 - ✅ `bot/main.py` — Alembic-first миграции до инициализации систем.
@@ -66,9 +67,10 @@
 - P1: ревизия Docker/Compose — выполнено (PR08)
 - P1: Release checklist и runbook — выполнено (PR09)
 - P2: архитектурная инвентаризация слоёв и сокращение legacy-дублей (PR10-PR13)
+  - ✅ PR10-PR13 completed: documentation-first legacy freeze + safe wiring/runtime cleanup.
 
 ## Текущий checkpoint
-- **HF01 — Deployment Phase**: Flask health/metrics/logs сервер на `7860`, Dockerfile на `python:3.12-slim`, DNS bypass через `socket.getaddrinfo`/`anyio` monkey patch для `api.telegram.org`, `httpx.AsyncClient(verify=False)` в HF, polling retry-loop и safe short `/start`. Нужно продолжать мониторинг HF run logs на `TimedOut`, `RetryAfter` и flood-control симптомы.
+- **HF01 — Deployment Phase**: Flask health/metrics/logs сервер на `7860`, Dockerfile на `python:3.12-slim`, DNS bypass через `socket.getaddrinfo`/`anyio` monkey patch для `api.telegram.org`, `httpx.AsyncClient(verify=False)` в HF, polling retry-loop и safe short `/start`. Polling kwargs вынесены в `build_polling_kwargs(is_hf)` без изменения HF semantics.
 - N02 increment: `NotificationSystem` расширен до multi-transport realtime доставки (`Telegram` + `ntfy` + optional `ADB`).
 - N02 fix: команды `/notifications` и `/notifications_clear` теперь корректно мапят `telegram_id -> users.id`.
 - N02 API cleanup: прямые вызовы `_send_to_ntfy()` заменены на `send_realtime_notification()`.

@@ -163,6 +163,16 @@ class DndSystem:
 
         return dice_roll
 
+    def roll_preview(self, dice_type: str, dice_count: int = 1) -> List[int]:
+        """Бросить кубики без сохранения в сессию."""
+
+        valid_dice = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']
+        if dice_type not in valid_dice or dice_count < 1:
+            return []
+
+        max_value = int(dice_type[1:])
+        return [random.randint(1, max_value) for _ in range(dice_count)]
+
     def create_quest(self, character_id: int, title: str, description: str,
                     reward_xp: int = 0, reward_gold: int = 0) -> Optional[DndQuest]:
         """Создание квеста для персонажа"""

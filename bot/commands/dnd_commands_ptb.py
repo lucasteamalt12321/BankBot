@@ -1,11 +1,12 @@
 """D&D команды для Telegram бота."""
 
 import logging
-import random
 from typing import TYPE_CHECKING
 
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from core.systems.dnd_system import DndSystem
 
 if TYPE_CHECKING:
     from bot.bot import BankBot
@@ -25,40 +26,31 @@ def register_dnd_commands(bot: "BankBot") -> None:
 async def dnd_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /dnd - информация о D&D системе."""
     text = """
-[DICE] <b>D&D Мастерская</b>
+🎲 <b>D&D Мастерская</b>
 
 Система для проведения настольных ролевых игр в Telegram.
 
-[LIST] <b>Основные команды:</b>
+📋 <b>Доступные команды:</b>
 
 1. <b>Создание сессии:</b>
    /dnd_create <название> [описание] - создать новую сессию
 
 2. <b>Присоединение к сессии:</b>
    /dnd_join <id_сессии> - присоединиться к сессии
-   /dnd_sessions - список доступных сессий
+   /dnd_sessions - ваши D&D сессии
 
-3. <b>Управление персонажем:</b>
-   /dnd_character_create - создать персонажа
-   /dnd_character <id> - информация о персонаже
-
-4. <b>Бросок кубиков:</b>
+3. <b>Бросок кубиков:</b>
    /dnd_roll <тип> [модификатор] [цель] - бросок кубиков
    Пример: /dnd_roll d20+5 "Атака мечом"
 
-5. <b>Для мастера:</b>
-   /dnd_start <id_сессии> - начать сессию
-   /dnd_quest <id_персонажа> <название> <описание> - создать квест
-
-[TARGET] <b>Доступные кубики:</b>
+🎯 <b>Доступные кубики:</b>
    d4, d6, d8, d10, d12, d20, d100
 
-[TIPS] <b>Советы:</b>
+💡 <b>Советы:</b>
    • Мастер создает сессию и приглашает игроков
-   • Игроки создают персонажей и присоединяются
    • Используйте бросок кубиков для определения успеха действий
-   • Мастер создает квесты и награждает игроков
-    """
+   • Расширенные персонажи и квесты будут подключены отдельным обновлением
+     """
     await update.message.reply_text(text, parse_mode="HTML")
 
 
@@ -66,8 +58,6 @@ async def dnd_create_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE, get_db
 ) -> None:
     """Команда /dnd_create - создание D&D сессии."""
-    from bot.services.dnd_service import DndSystem
-
     user = update.effective_user
 
     if not context.args:
@@ -86,7 +76,7 @@ async def dnd_create_command(
         session = dnd.create_session(user.id, name, description)
 
         text = f"""
-[DICE] <b>D&D сессия создана!</b>
+🎲 <b>D&D сессия создана!</b>
 
 Название: {name}
 {"Описание: " + description if description else ""}
@@ -94,11 +84,8 @@ ID сессии: {session.id}
 Мастер: {user.first_name}
 Максимум игроков: {session.max_players}
 
-[PEOPLE] Игроки могут присоединиться:
+👥 Игроки могут присоединиться:
 /dnd_join {session.id}
-
-[PLAY] Чтобы начать сессию:
-/dnd_start {session.id}
         """
 
         await update.message.reply_text(text, parse_mode="HTML")
@@ -113,8 +100,6 @@ async def dnd_join_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE, get_db
 ) -> None:
     """Команда /dnd_join - присоединение к D&D сессии."""
-    from bot.services.dnd_service import DndSystem
-
     user = update.effective_user
 
     if not context.args or not context.args[0].isdigit():
@@ -139,8 +124,7 @@ ID сессии: {session_info["id"]}
 Мастер: Пользователь #{session_info["master_id"]}
 Игроков: {session_info["current_players"]}/{session_info["max_players"]}
 
-💡 Создайте персонажа:
-/dnd_character_create {session_id} <имя> <класс>
+💡 Сессия появится в /dnd_sessions у мастера. Расширенные персонажи будут подключены отдельным обновлением.
                     """
 
                 await update.message.reply_text(text, parse_mode="HTML")
@@ -163,8 +147,6 @@ async def dnd_sessions_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE, get_db
 ) -> None:
     """Команда /dnd_sessions - список D&D сессий."""
-    from bot.services.dnd_service import DndSystem
-
     user = update.effective_user
 
     db = next(get_db())
@@ -176,14 +158,14 @@ async def dnd_sessions_command(
             await update.message.reply_text("📭 Вы не участвуете ни в одной D&D сессии")
             return
 
-        text = "[DICE] <b>Ваши D&D сессии</b>\n\n"
+        text = "🎲 <b>Ваши D&D сессии</b>\n\n"
 
         for session in sessions:
             status_icon = {
-                "planning": "[LIST]",
-                "active": "[GAME]",
-                "completed": "[OK]",
-            }.get(session["status"], "[QUESTION]")
+                "planning": "📋",
+                "active": "🎮",
+                "completed": "✅",
+            }.get(session["status"], "❓")
 
             text += f"{status_icon} <b>{session['name']}</b>\n"
             text += f"   ID: {session['id']}\n"
@@ -191,7 +173,7 @@ async def dnd_sessions_command(
             text += f"   Вы: {'Мастер' if session['is_master'] else 'Игрок'}\n"
             text += f"   Создана: {session['created_at'].strftime('%d.%m.%Y')}\n\n"
 
-        text += "[TIP] Присоединиться к сессии: /dnd_join <id>"
+        text += "💡 Присоединиться к сессии: /dnd_join <id>"
 
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
@@ -205,8 +187,6 @@ async def dnd_roll_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE, get_db
 ) -> None:
     """Команда /dnd_roll - бросок кубиков."""
-    from bot.services.dnd_service import DndSystem
-
     user = update.effective_user
 
     if not context.args:
@@ -264,38 +244,45 @@ async def dnd_roll_command(
     try:
         dnd = DndSystem(db)
         sessions = dnd.get_player_sessions(user.id)
-
         active_session = next((s for s in sessions if s["status"] == "active"), None)
+        session_id = active_session["id"] if active_session else None
 
-        if not active_session:
-            await update.message.reply_text(
-                "❌ У вас нет активных D&D сессий.\n"
-                "Сначала присоединитесь к сессии: /dnd_join <id>"
+        if session_id:
+            dice_roll = dnd.roll_dice(
+                user.id,
+                session_id,
+                dice_type,
+                dice_count,
+                modifier,
+                purpose=purpose,
             )
-            return
-
-        results = []
-        for _ in range(dice_count):
-            max_value = int(dice_type[1:])
-            results.append(random.randint(1, max_value))
-
-        result = sum(results)
-        total = result + modifier
+            if not dice_roll:
+                await update.message.reply_text("❌ Не удалось сохранить бросок кубиков.")
+                return
+            result = dice_roll.result
+            total = dice_roll.total
+            results_text = str(result)
+        else:
+            results = dnd.roll_preview(dice_type, dice_count)
+            result = sum(results)
+            total = result + modifier
+            results_text = ", ".join(map(str, results))
 
         text = f"""
-[DICE] <b>Бросок кубиков</b>
+🎲 <b>Бросок кубиков</b>
 
 Игрок: {user.first_name}
 Кубики: {dice_count}{dice_type}
 {"Модификатор: " + ("+" if modifier >= 0 else "") + str(modifier) if modifier != 0 else ""}
 {"Цель: " + purpose if purpose else ""}
+{"Сессия: #" + str(session_id) if session_id else "Сессия: не выбрана, бросок не сохранён"}
 
-[STATS] <b>Результаты:</b>
-   • Выпавшие значения: {", ".join(map(str, results))}
+📊 <b>Результаты:</b>
+   • Выпавшие значения: {results_text}
    • Сумма: {result}
    • {"С модификатором: " + str(total) if modifier != 0 else ""}
 
-[TARGET] <b>Итог:</b> {total}
+🎯 <b>Итог:</b> {total}
         """
 
         await update.message.reply_text(text, parse_mode="HTML")

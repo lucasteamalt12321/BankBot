@@ -70,6 +70,16 @@ High-level документация по текущей архитектуре, 
 
 При этом в репозитории всё ещё присутствуют legacy и shim-слои в `core/`, `src/` и смежных модулях. Они используются как часть переходной архитектуры и должны рассматриваться как существующий runtime-контур, а не как полностью удалённый legacy.
 
+#### Runtime/legacy contract
+
+- `bot/` — канонический Telegram runtime на `python-telegram-bot`; новый command wiring добавлять здесь или в `bot/commands/*_ptb.py`.
+- `bank_bot/` — публичный repository/service namespace и compatibility entrypoints. Re-export файлы (`bank_bot.bot`, `bank_bot.main`, `bank_bot.di`, `bank_bot.middleware`) являются контрактом для тестов и внешних импортов.
+- `core/systems/`, `core/managers/`, `core/parsers/` — активный runtime-контур; не удалять как legacy без отдельной миграции импортов и полного тестового прогона.
+- `core/repositories/*` и `core/services/__init__.py` — shim namespace над `bank_bot.*`; новый код предпочтительно писать в согласованный `bank_bot.*` слой или явно используемый runtime-модуль.
+- `src/config.py`, `src/startup_validator.py`, `src/process_manager.py` — инфраструктурный startup слой; `src/parsers.py` остаётся compatibility façade над `core.parsers`.
+- `utils/simple_db.py`, `utils/admin_system.py`, `utils/compat.py` — frozen deprecated shims: не расширять, не удалять без отдельного migration PR.
+- `bot/commands/shop_commands.py` — aiogram legacy candidate; текущий BankBot runtime использует `shop_commands_ptb.py`.
+
 ### 4. Конфигурация
 
 Канонический источник конфигурации - `src/config.py`.

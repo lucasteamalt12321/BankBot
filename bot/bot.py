@@ -55,6 +55,7 @@ from bot.commands.shop_commands_ptb import (
 )
 from bot.commands.game_commands_ptb import (
     games_command,
+    games_list_command,
     play_command,
     join_command,
     start_game_command,
@@ -140,6 +141,39 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = structlog.get_logger()
+
+
+def build_polling_kwargs(is_hf: bool) -> dict:
+    """Build PTB polling kwargs without changing HF runtime semantics."""
+    polling_kwargs = {
+        "drop_pending_updates": True,
+        "close_loop": False,
+        "allowed_updates": Update.ALL_TYPES,
+    }
+
+    if is_hf:
+        polling_kwargs.update(
+            {
+                "timeout": 10,
+                "poll_interval": 2,
+                "read_timeout": 20,
+                "write_timeout": 30,
+                "connect_timeout": 15,
+                "pool_timeout": 15,
+            }
+        )
+    else:
+        polling_kwargs.update(
+            {
+                "timeout": 60,
+                "read_timeout": 60,
+                "write_timeout": 30,
+                "connect_timeout": 30,
+                "pool_timeout": 30,
+            }
+        )
+
+    return polling_kwargs
 
 
 def _normalize_bot_command(message_text: str | None) -> str:
@@ -261,8 +295,8 @@ class TelegramBot:
         handlers = [
             CommandHandler("start", self.safe_start_command),
             CommandHandler("user", self.profile_command),
-            CommandHandler("shop", self.shop_with_section_command),
-            CommandHandler("games", self.games_with_section_command),
+            CommandHandler("shop", self.shop_command),
+            CommandHandler("games", games_command),
             CommandHandler("admin", self.admin_with_section_command),
             CommandHandler("config", command_section_command),
             CommandHandler("coder", self.coder_with_section_command),
@@ -293,7 +327,7 @@ class TelegramBot:
             CommandHandler("buy_8", buy_8_command),
             CommandHandler("inventory", inventory_command),
             # Мини-игры
-            CommandHandler("games_list", games_command),
+            CommandHandler("games_list", games_list_command),
             CommandHandler("play", play_command),
             CommandHandler("join", join_command),
             CommandHandler("startgame", start_game_command),
@@ -954,7 +988,7 @@ class TelegramBot:
     async def handle_mentioned_commands(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
-        """Handle commands addressed via /command@bot_username syntax."""
+        """Handle supported mentioned commands and unknown command fallback."""
         message_text = update.effective_message.text if update.effective_message else None
         bot_username = settings.BOT_USERNAME or getattr(context.bot, "username", "")
         mentioned_command = _extract_bot_mentioned_command(
@@ -972,6 +1006,10 @@ class TelegramBot:
             await self.template_coder_dialog.reset_command(update, context)
         elif mentioned_command == "/done":
             await self.template_coder_dialog.done_command(update, context)
+        elif update.effective_message:
+            await update.effective_message.reply_text(
+                "Неизвестная команда. Используйте /commands для списка доступных команд."
+            )
 
     # DEPRECATED: Автоматический парсинг отключен
     # Используется только ручной парсинг по команде "парсинг"
@@ -1097,31 +1135,10 @@ class TelegramBot:
             logger.info("Starting run_polling...")
             logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
             
-            polling_kwargs = {
-                "drop_pending_updates": True,
-                "close_loop": False,
-                "allowed_updates": Update.ALL_TYPES,
-            }
-            
-            # HF: короткий polling из-за сетевых ограничений
-            if os.environ.get("SPACE_ID"):
-                polling_kwargs.update({
-                    "timeout": 10,
-                    "poll_interval": 2,
-                    "read_timeout": 20,
-                    "write_timeout": 30,
-                    "connect_timeout": 15,
-                    "pool_timeout": 15,
-                })
-            else:
-                polling_kwargs.update({
-                    "timeout": 60,
-                    "read_timeout": 60,
-                    "write_timeout": 30,
-                    "connect_timeout": 30,
-                    "pool_timeout": 30,
-                })
-            if os.environ.get("SPACE_ID"):
+            is_hf = self._is_hugging_face()
+            polling_kwargs = build_polling_kwargs(is_hf)
+
+            if is_hf:
                 while not self._shutdown_requested:
                     try:
                         self.application.run_polling(**polling_kwargs)

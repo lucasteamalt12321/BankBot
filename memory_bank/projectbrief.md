@@ -299,7 +299,11 @@ https://github.com/lucasteamalt12321/BankBot
 **HF01 notes:** Flask-сервер на `7860` (`/health`, `/metrics`, `/logs`), Dockerfile `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `http_client` builder fallback, `SPACE_ID` detection, Alembic-first startup, config manager resilience к отсутствующим таблицам.
 
 **FB01 notes:** реализованы команды `/feedback <предложение или жалоба>` с алиасами `/suggest` и `/complaint`; обращения сохраняются append-only в `data/feedback.jsonl` с текстом, Telegram ID, username, chat ID, chat type и UTC timestamp. Админ может читать последние обращения через `/feedback_list [limit]` (до 20 записей). Хранилище простое и читаемое ассистентом/разработчиком через файл.
-| PR10 | Архитектурная инвентаризация слоёв `core/src/utils/bank_bot` | P2 | pending |
-| PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | pending |
-| PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | pending |
-| PR13 | Ревизия structured logging и эксплуатационных полей | P2 | pending |
+| PR10 | Архитектурная инвентаризация слоёв `core/src/utils/bank_bot` | P2 | completed |
+| PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | completed |
+| PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | completed |
+| PR13 | Ревизия structured logging и эксплуатационных полей | P2 | completed |
+
+**PR10-PR11 notes:** выполнена инвентаризация слоёв и закреплён runtime/legacy contract в `docs/README.md`. Рискованные runtime-зависимости не удалялись; legacy/shim namespaces (`src.parsers`, `core/repositories`, `utils/*` shims, aiogram `shop_commands.py`) зафиксированы как frozen/compatibility, новый код направлен в канонические слои.
+
+**PR12-PR13 notes:** `bot/bot.py` получил чистый `build_polling_kwargs(is_hf)` без изменения HF timeout/retry semantics; structured polling logs сохранены. UX/watchlist закрыт безопасными runtime-правками: `/shop` и `/games` больше не дублируют вывод, `/games_list` показывает активные сессии, `/dnd_*` исправлены на `core.systems.dnd_system`, неизвестные команды получают fallback-ответ.

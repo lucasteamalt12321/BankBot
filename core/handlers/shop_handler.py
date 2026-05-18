@@ -57,7 +57,9 @@ class ShopHandler:
                 message_lines.append("")  # Empty line for spacing
 
             # Add general instructions
-            message_lines.append("💡 Используйте команды /buy_1, /buy_2, /buy_3 для покупки товаров")
+            message_lines.append(
+                "💡 Используйте /buy <номер> или быстрые команды /buy_1, /buy_2 ..."
+            )
 
             return "\n".join(message_lines)
 

@@ -359,6 +359,9 @@ class GamesSystem:
         ).order_by(GamePlayer.joined_at).all()
 
         player_ids = [p.user_id for p in players]
+        if not player_ids or current_user_id not in player_ids:
+            return current_user_id
+
         current_index = player_ids.index(current_user_id)
 
         next_index = (current_index + 1) % len(player_ids)

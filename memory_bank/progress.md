@@ -46,14 +46,26 @@
 - Updated `/commands` and `/user` section text to mention `/feedback <текст>`.
 - Verification: `python3 -m ruff check bot/bot.py bot/commands/feedback_commands.py` -> passed; `python3 -m pytest tests/smoke -v` -> `9 passed`.
 
+### 2026-05-18 (PR10-PR13 — architecture cleanup and UX watchlist closure)
+- **PR10 completed**: documented canonical layer responsibilities and runtime/legacy boundaries in `docs/README.md`.
+- **PR11 completed**: risky physical deletion of active legacy/shim modules was avoided; shims are frozen/documented instead (`src.parsers`, `core/repositories`, `utils/*` deprecated shims, aiogram `shop_commands.py`).
+- **PR12 completed**: extracted `build_polling_kwargs(is_hf)` in `bot/bot.py` while preserving HF timeout/retry behavior.
+- **PR13 completed**: kept structured HF polling retry logs and improved operational command fallback for unknown commands.
+- **UX/watchlist fixed**:
+  - `/shop` now opens the shop directly without duplicate section preamble.
+  - `/games` opens game help directly; `/games_list` now lists active sessions via `GamesSystem.get_active_sessions()`.
+  - `/startgame` always responds on success, even if session details are incomplete.
+  - `/turn` now reports success/reason/reward/next player instead of falling back to misleading `Ход сделан`.
+  - `/dnd`, `/dnd_create`, `/dnd_join`, `/dnd_sessions`, `/dnd_roll` now use `core.systems.dnd_system.DndSystem` and only advertise currently wired commands.
+  - Unknown commands now receive a `/commands` fallback response instead of silence.
+
 ## Current Known Issues / Watchlist
-- HF networking can still produce Telegram `TimedOut`; retry-loop should keep the process alive, but run logs should be monitored.
+- HF networking can still produce Telegram `TimedOut`; retry-loop should keep the process alive, but run logs should be monitored after deploy.
 - Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` + `drop_pending_updates=True` were added to prevent recurrence.
-- Some command-section wrappers may still duplicate old command output (for example `/shop` shows section text and shop contents); keep only where useful.
-- `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn` should be manually re-tested in Telegram after latest HF rebuild.
+- After deployment, manually smoke-test `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback` in Telegram.
 
 ## last_checked_commit
-- f0dc04b
+- 2026-05-18 (PR10-PR13 local verification before commit)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
