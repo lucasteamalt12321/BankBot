@@ -35,6 +35,8 @@
 - Action taken: HF runtime showed `RUNNING`, but `/health` timed out and run logs endpoint was not practically readable from the current request. Uploaded latest runtime fixes (`bot/bot.py`, core/feedback commands, Memory Bank files) to HF Space and called `restart_space()`.
 - User reported AI01 issue: `/ai@lt_lo_game_bot` with no args answers help, but bare `/ai что это за бот?` in chat does not answer. Need to improve AI-lite topic handling for “what is this bot” and verify bare `/ai` command registration/Telegram group semantics; if group has multiple bots, mentioned `/ai@lt_lo_game_bot <question>` remains the reliable form.
 - Likely root cause found: AI answers were sent with `parse_mode="HTML"`, while answer text contained examples like `/feedback <текст>`. Telegram can reject such messages as invalid HTML tags. Fix: `/ai` without args still sends HTML help, but question answers are sent as plain text; added explicit “what is this bot” topic.
+- User feedback on AI01: current AI-lite is perceived as “very dumb / made from sticks” because it is only a local keyword helper, not a real LLM. Improve positioning and fallback: be honest that it is a free command assistant, handle off-topic questions more naturally, and avoid overclaiming “AI”.
+- New AI02 proposal from Nikita: use a free Hugging Face API to make answers smarter. Keep it optional/free with local AI-lite fallback, short timeouts, response limits, no secret logging, and no dependency on paid providers.
 
 ### 2026-05-18 (HF runtime and command UX stabilization)
 - **HF runtime fix**: `bot/bot.py` now retries `run_polling()` in Hugging Face on transient `TimedOut`/`NetworkError` instead of letting a single Telegram timeout stop the process and move the Space to `RUNTIME_ERROR`.

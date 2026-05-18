@@ -294,6 +294,7 @@ https://github.com/lucasteamalt12321/BankBot
 | HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | completed | P1 |
 | FB01 | Предложка/жалобы для пользователей бота | completed | P1 |
 | AI01 | Бесплатный локальный AI-lite помощник для команд и подсказок | completed | P1 |
+| AI02 | Optional бесплатный Hugging Face Inference API для более умных ответов | pending | P1 |
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
 
@@ -302,6 +303,8 @@ https://github.com/lucasteamalt12321/BankBot
 **FB01 notes:** реализованы команды `/feedback <предложение или жалоба>` с алиасами `/suggest` и `/complaint`; обращения сохраняются в SQLite-таблицу `feedback_entries` с JSONL fallback/debug mirror (`data/feedback.jsonl`): текст, Telegram ID, username, chat ID, chat type и UTC timestamp. Админ может читать последние обращения через `/feedback_list [limit]` (до 20 записей). Для внешнего чтения с HF добавлен защищённый endpoint `GET /feedback?limit=N` с `Authorization: Bearer <FEEDBACK_READ_TOKEN|HF_TOKEN|BOT_TOKEN>`; при сохранении пишется structured log `Feedback saved` с полным текстом обращения.
 
 **AI01 notes:** пользователь попросил добавить ИИ, но обязательно бесплатную реализацию. Реализован локальный AI-lite помощник без платных API, без обязательных внешних ключей и без зависимости от LLM-провайдера. Команды: `/ai <вопрос>`, `/ask <вопрос>`, `/ai_help`. Scope первой версии: подсказки по командам BankBot, режимам `/short`/`/long`, feedback, магазину, играм, D&D, профилю и админским возможностям; короткие HF-safe ответы; отсутствие секретов в логах. Возможность подключения внешнего free/OpenAI-compatible endpoint допускается только как optional env-настройка позже, не как обязательная зависимость.
+
+**AI02 notes:** Никита предложил использовать бесплатный Hugging Face API, чтобы AI был умнее локального keyword-helper. Требование: только optional/free реализация, без обязательной платной зависимости. Дизайн следующей итерации: env-флаги `AI_PROVIDER=huggingface|local`, `HF_INFERENCE_TOKEN`/`HF_TOKEN`, `HF_INFERENCE_MODEL`, короткие таймауты, лимит prompt/response, safe system prompt про BankBot, fallback на локальный AI-lite при quota/rate-limit/network errors. Нельзя ломать HF runtime и нельзя логировать токены/полный приватный prompt.
 | PR10 | Архитектурная инвентаризация слоёв `core/src/utils/bank_bot` | P2 | completed |
 | PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | completed |
 | PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | completed |

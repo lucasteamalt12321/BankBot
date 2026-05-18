@@ -1,6 +1,6 @@
-"""Free local AI-lite assistant without paid API dependencies.
+"""Free local BankBot assistant without paid API dependencies.
 
-The first AI iteration is intentionally deterministic and local: it gives useful
+The first assistant iteration is intentionally deterministic and local: it gives useful
 BankBot navigation/help answers without requiring network calls, API keys, or paid
 LLM providers. This keeps Hugging Face runtime stable and cost-free.
 """
@@ -52,6 +52,39 @@ class AiLiteService:
                     "• /shop — магазин.\n"
                     "• /games — игры.\n"
                     "• /feedback <текст> — отправить идею или проблему."
+                ),
+            ),
+            AiTopic(
+                title="limits",
+                keywords=(
+                    "туп",
+                    "глуп",
+                    "палок",
+                    "отход",
+                    "llm",
+                    "нейросеть",
+                    "настоящий ии",
+                    "умнее",
+                    "smart",
+                ),
+                answer=(
+                    "Честно: сейчас это не большая нейросеть, а бесплатный локальный справочник BankBot.\n"
+                    "Он не ходит в интернет, не использует платные API и поэтому отвечает только по темам бота.\n\n"
+                    "Что он умеет хорошо: команды, магазин, игры, D&D, feedback, профиль и режимы.\n"
+                    "Чтобы сделать его реально умнее, нужен следующий этап: подключить бесплатный локальный LLM "
+                    "или бесплатный внешний endpoint как optional-настройку."
+                ),
+            ),
+            AiTopic(
+                title="smalltalk",
+                keywords=("чай", "кофе", "привет", "hello", "hi", "как дела", "погода"),
+                answer=(
+                    "Я могу поддержать короткий оффтоп, но моя главная роль — справочник по BankBot.\n"
+                    "Про чай: хороший выбор ☕ Если хотите действие в боте, попробуйте:\n"
+                    "• /shop — посмотреть товары.\n"
+                    "• /games — игры.\n"
+                    "• /commands — все команды.\n"
+                    "• /feedback <текст> — предложить, чтобы я стал умнее."
                 ),
             ),
             AiTopic(
@@ -146,15 +179,17 @@ class AiLiteService:
         )
 
     def help_text(self) -> str:
-        """Return AI-lite usage help."""
+        """Return assistant usage help."""
         return (
-            "🤖 <b>AI-lite помощник BankBot</b>\n\n"
-            "Это бесплатный локальный помощник без платных API и внешних ключей.\n\n"
+            "🤖 <b>AI-lite / справочник BankBot</b>\n\n"
+            "Это бесплатный локальный помощник без платных API, внешних ключей и большой LLM.\n"
+            "Он лучше всего работает как навигатор по возможностям BankBot.\n\n"
             "Команды:\n"
             "• /ai &lt;вопрос&gt; — спросить помощника.\n"
             "• /ask &lt;вопрос&gt; — то же самое.\n"
             "• /ai_help — эта справка.\n\n"
-            "Я лучше всего отвечаю про команды, магазин, игры, D&D, feedback, режимы /short и /long."
+            "Темы: команды, магазин, игры, D&D, feedback, профиль, режимы /short и /long.\n"
+            "Важно: в группах надёжнее писать с упоминанием: /ai@lt_lo_game_bot <вопрос>."
         )
 
     def answer(self, question: str) -> str:
@@ -173,7 +208,7 @@ class AiLiteService:
         if not matched_topics:
             return self._fallback_answer(normalized_question)
 
-        response_parts = ["🤖 AI-lite нашёл подходящие подсказки:"]
+        response_parts = ["🤖 Справочник BankBot нашёл подходящие подсказки:"]
         response_parts.extend(topic.answer for topic in matched_topics[:2])
         response_parts.append("\nЕсли нужна полная карта команд — используйте /commands.")
         return self._truncate("\n\n".join(response_parts))
@@ -193,7 +228,8 @@ class AiLiteService:
         """Return a useful answer when no specific topic matched."""
         if self._looks_like_how_to(normalized_question):
             return (
-                "🤖 Я бесплатный AI-lite помощник и могу подсказать команды BankBot.\n\n"
+                "🤖 Я бесплатный локальный справочник BankBot. Я не большая нейросеть, "
+                "зато быстро подсказываю команды без платных API.\n\n"
                 "Чаще всего нужны:\n"
                 "• /commands — все разделы.\n"
                 "• /user — профиль.\n"
@@ -204,9 +240,10 @@ class AiLiteService:
             )
 
         return (
-            "🤖 Я пока бесплатный локальный AI-lite, а не большая LLM.\n"
-            "Могу помогать с командами BankBot: магазин, игры, D&D, feedback, профиль, режимы.\n"
-            "Пример: /ai как посмотреть баланс"
+            "🤖 Я не настоящий большой ИИ, а бесплатный локальный помощник-справочник по BankBot.\n"
+            "На такой вопрос могу ответить только примерно. Лучше спросите про команды бота: "
+            "магазин, игры, D&D, feedback, профиль, режимы.\n"
+            "Примеры: /ai как посмотреть баланс или /ai что это за бот"
         )
 
     @staticmethod

@@ -7,9 +7,11 @@ def test_ai_help_explains_free_local_mode() -> None:
     text = service.help_text()
 
     assert "бесплатный локальный помощник" in text
+    assert "без платных API" in text
+    assert "небольшой" not in text
     assert "/ai" in text
     assert "/ask" in text
-    assert "без платных API" in text
+    assert "/ai@lt_lo_game_bot" in text
 
 
 def test_ai_answers_shop_question() -> None:
@@ -49,6 +51,26 @@ def test_ai_handles_multiple_topics_shortly() -> None:
     assert "Профиль и баланс" in answer
     assert "Игры" in answer
     assert len(answer) < 2500
+
+
+def test_ai_handles_offtopic_tea_without_claiming_llm() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("чай")
+
+    assert "оффтоп" in answer
+    assert "справочник по BankBot" in answer
+    assert "/commands" in answer
+
+
+def test_ai_is_honest_about_limits() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("ты тупой ии из палок?")
+
+    assert "не большая нейросеть" in answer
+    assert "бесплатный локальный справочник" in answer
+    assert "локальный LLM" in answer
 
 
 def test_ai_rejects_too_long_question() -> None:
