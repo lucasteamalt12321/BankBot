@@ -12,6 +12,7 @@ from telegram.error import NetworkError, TimedOut
 from telegram.ext import ContextTypes
 
 from bot.ai import AiLiteService
+from bot.ai.knowledge_updater import update_ai_knowledge_cache
 from bot.commands.core_commands import get_default_user_mode
 from bot.commands.feedback_commands import _append_feedback, _append_feedback_db
 
@@ -218,3 +219,40 @@ async def ai_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     await _reply_text_with_retry(update, ai_lite_service.help_text(), parse_mode="HTML")
+
+
+async def ai_update_knowledge_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    admin_system,
+) -> None:
+    """Admin command: refresh AI-lite knowledge from public canon sources."""
+
+    if not update.message or not update.effective_user:
+        return
+
+    if not admin_system.is_admin(update.effective_user.id):
+        await _reply_text_with_retry(update, "🔒 Эта команда доступна только администратору.")
+        return
+
+    await _reply_text_with_retry(
+        update,
+        "⏳ Обновляю данные ИИ из канала, Google Doc канона и источников уровня Высокий/Средний...",
+    )
+    result = await update_ai_knowledge_cache()
+    loaded_count = ai_lite_service.reload_dynamic_knowledge()
+
+    failed_part = ""
+    if result.failed_urls:
+        failed_part = "\n⚠️ Не удалось загрузить: " + str(len(result.failed_urls))
+
+    await _reply_text_with_retry(
+        update,
+        "✅ База знаний ИИ обновлена.\n"
+        f"• Новых runtime-записей: {result.entries_count}\n"
+        f"• Загружено в AI-lite: {loaded_count}\n"
+        f"• Успешных источников: {len(result.fetched_urls)}\n"
+        f"• Кэш: {result.cache_path}"
+        f"{failed_part}\n\n"
+        "Теперь /ai будет учитывать свежий кэш вместе с встроенным каноном.",
+    )

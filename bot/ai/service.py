@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 
 from bot.ai.knowledge import CANON_DOC_URL, CANON_KNOWLEDGE, PROHIBITED_CANON_KEYWORDS, KnowledgeEntry
+from bot.ai.knowledge_updater import load_dynamic_knowledge
 
 
 MAX_QUESTION_LENGTH = 700
@@ -30,6 +31,7 @@ class AiLiteService:
     """Rule-based local assistant for common BankBot questions."""
 
     def __init__(self) -> None:
+        self.dynamic_knowledge = load_dynamic_knowledge()
         self.topics = (
             AiTopic(
                 title="about",
@@ -222,6 +224,12 @@ class AiLiteService:
         response_parts.append("\nЕсли нужна полная карта команд — используйте /commands.")
         return self._truncate("\n\n".join(response_parts))
 
+    def reload_dynamic_knowledge(self) -> int:
+        """Reload runtime AI knowledge cache and return loaded entries count."""
+
+        self.dynamic_knowledge = load_dynamic_knowledge()
+        return len(self.dynamic_knowledge)
+
     def _match_topics(self, normalized_question: str) -> list[AiTopic]:
         """Return topics ordered by simple keyword score."""
         scored_topics = []
@@ -236,7 +244,7 @@ class AiLiteService:
     def _match_knowledge(self, normalized_question: str) -> list[KnowledgeEntry]:
         """Return canon knowledge entries ordered by simple keyword score."""
         scored_entries = []
-        for entry in CANON_KNOWLEDGE:
+        for entry in (*CANON_KNOWLEDGE, *self.dynamic_knowledge):
             # Longer/specific keywords should beat generic words. Example:
             # "кто такой олеговирус" must prefer the Olegovirus entry over
             # generic canon rules that contain the shorter word "олег".

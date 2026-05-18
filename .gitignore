@@ -38,6 +38,7 @@ config/.env.*.local
 # Database
 *.db
 *.sqlite3
+data/ai_knowledge_cache.json
 
 # IDE
 .idea/

@@ -1,4 +1,8 @@
 from bot.ai.service import AiLiteService, MAX_QUESTION_LENGTH
+from bot.ai.knowledge_updater import (
+    _extract_ranked_source_urls,
+    load_dynamic_knowledge,
+)
 from bot.commands import ai_commands
 from bot.response_modes import compact_reply_text, set_user_mode
 
@@ -179,6 +183,64 @@ def test_ai_answers_high_canon_articles_question() -> None:
     assert "Философия конфет" in answer
     assert "Рейтинг участников чата по системе LTRS" in answer
     assert "https://t.me/lucasteamgroup/30105" in answer
+
+
+def test_extract_ranked_sources_keeps_high_and_medium_only() -> None:
+    text = """
+    🔵 Высокий канон: https://t.me/lucasteamgd/705
+    🟡 Средний канон: https://t.me/lucasteamgroup/123
+    ⚪ Низкий канон: https://t.me/lucasteamgroup/999
+    """
+
+    sources = _extract_ranked_source_urls(text)
+
+    assert ("https://t.me/lucasteamgd/705", "Высокий") in sources
+    assert ("https://t.me/lucasteamgroup/123", "Средний") in sources
+    assert all(url != "https://t.me/lucasteamgroup/999" for url, _level in sources)
+
+
+def test_ai_loads_runtime_knowledge_cache(tmp_path, monkeypatch) -> None:
+    cache_path = tmp_path / "ai_knowledge_cache.json"
+    cache_path.write_text(
+        """
+        {
+          "updated_at": "2026-05-18T00:00:00+00:00",
+          "entries": [
+            {
+              "title": "runtime_test",
+              "keywords": ["свежеканон"],
+              "answer": "📖 Свежеканон из runtime-кэша для ИИ",
+              "source": "https://t.me/lucasteamgd/1",
+              "canon_level": "Высокий"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("bot.ai.service.load_dynamic_knowledge", lambda: load_dynamic_knowledge(cache_path))
+
+    service = AiLiteService()
+    answer = service.answer("что такое свежеканон?")
+
+    assert "Свежеканон из runtime-кэша" in answer
+
+
+async def test_ai_update_knowledge_command_requires_admin(monkeypatch) -> None:
+    replies = []
+
+    class AdminSystem:
+        def is_admin(self, user_id):
+            return False
+
+    async def fake_reply(update, text, **kwargs):
+        replies.append(text)
+
+    monkeypatch.setattr(ai_commands, "_reply_text_with_retry", fake_reply)
+
+    await ai_commands.ai_update_knowledge_command(_FakeUpdate("/ai_update_knowledge"), None, AdminSystem())
+
+    assert "только администратору" in replies[0]
 
 
 def test_global_short_mode_compacts_long_bot_message() -> None:

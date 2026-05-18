@@ -129,7 +129,12 @@ from bot.commands.user_commands import (
     buy_8_command,
 )
 from bot.commands.feedback_commands import feedback_command, feedback_list_command
-from bot.commands.ai_commands import ai_command, ai_help_command, handle_ai_feedback_reply
+from bot.commands.ai_commands import (
+    ai_command,
+    ai_help_command,
+    ai_update_knowledge_command,
+    handle_ai_feedback_reply,
+)
 from bot.template_coder import TemplateCoderDialog
 from bot.response_modes import install_reply_text_short_mode_patch
 from core.managers.background_task_manager import BackgroundTaskManager
@@ -312,6 +317,7 @@ class TelegramBot:
             CommandHandler("ai", ai_command),
             CommandHandler("ask", ai_command),
             CommandHandler("ai_help", ai_help_command),
+            CommandHandler("ai_update_knowledge", self.ai_update_knowledge_command),
             CommandHandler("feedback", feedback_command),
             CommandHandler("suggest", feedback_command),
             CommandHandler("complaint", feedback_command),
@@ -334,7 +340,7 @@ class TelegramBot:
             CommandHandler("buy_6", buy_6_command),
             CommandHandler("buy_7", buy_7_command),
             CommandHandler("buy_8", buy_8_command),
-            CommandHandler("inventory", inventory_command),
+            CommandHandler("inventory", self.inventory_command),
             # Мини-игры
             CommandHandler("games_list", games_list_command),
             CommandHandler("play", play_command),
@@ -353,7 +359,7 @@ class TelegramBot:
             CommandHandler("challenges", challenges_command),
             CommandHandler("streak", motivation_stats_command),
             # Достижения и уведомления
-            CommandHandler("achievements", achievements_command),
+            CommandHandler("achievements", self.achievements_command),
             CommandHandler("notifications", notifications_command),
             CommandHandler("notifications_clear", notifications_clear_command),
             CommandHandler("notify_status", notify_status_command),
@@ -368,29 +374,29 @@ class TelegramBot:
             CommandHandler("clan_join", clan_join_command),
             CommandHandler("clan_leave", clan_leave_command),
             # Админ-команды
-            CommandHandler("admin_panel", admin_command),
+            CommandHandler("admin_panel", self.admin_command),
             CommandHandler("add_points", self.add_points_command),
             CommandHandler("add_admin", self.add_admin_command),
-            CommandHandler("admin_stats", admin_stats_command),
-            CommandHandler("admin_adjust", admin_adjust_command),
-            CommandHandler("admin_addcoins", admin_addcoins_command),
-            CommandHandler("admin_removecoins", admin_removecoins_command),
-            CommandHandler("admin_merge", admin_merge_command),
-            CommandHandler("admin_transactions", admin_transactions_command),
-            CommandHandler("admin_transaction", admin_transactions_command),  # Алиас
-            CommandHandler("admin_balances", admin_balances_command),
-            CommandHandler("admin_users", admin_users_command),
-            CommandHandler("admin_rates", admin_rates_command),
-            CommandHandler("admin_rate", admin_rate_command),
-            CommandHandler("admin_cleanup", admin_cleanup_command),
-            CommandHandler("admin_shop_add", admin_shop_add_command),
-            CommandHandler("admin_shop_edit", admin_shop_edit_command),
-            CommandHandler("admin_games_stats", admin_games_stats_command),
-            CommandHandler("admin_reset_game", admin_reset_game_command),
-            CommandHandler("admin_ban_player", admin_ban_player_command),
-            CommandHandler("admin_health", admin_health_command),
-            CommandHandler("admin_errors", admin_errors_command),
-            CommandHandler("admin_backup", admin_backup_command),
+            CommandHandler("admin_stats", self.admin_stats_command),
+            CommandHandler("admin_adjust", self.admin_adjust_command),
+            CommandHandler("admin_addcoins", self.admin_addcoins_command),
+            CommandHandler("admin_removecoins", self.admin_removecoins_command),
+            CommandHandler("admin_merge", self.admin_merge_command),
+            CommandHandler("admin_transactions", self.admin_transactions_command),
+            CommandHandler("admin_transaction", self.admin_transactions_command),  # Алиас
+            CommandHandler("admin_balances", self.admin_balances_command),
+            CommandHandler("admin_users", self.admin_users_command),
+            CommandHandler("admin_rates", self.admin_rates_command),
+            CommandHandler("admin_rate", self.admin_rate_command),
+            CommandHandler("admin_cleanup", self.admin_cleanup_command),
+            CommandHandler("admin_shop_add", self.admin_shop_add_command),
+            CommandHandler("admin_shop_edit", self.admin_shop_edit_command),
+            CommandHandler("admin_games_stats", self.admin_games_stats_command),
+            CommandHandler("admin_reset_game", self.admin_reset_game_command),
+            CommandHandler("admin_ban_player", self.admin_ban_player_command),
+            CommandHandler("admin_health", self.admin_health_command),
+            CommandHandler("admin_errors", self.admin_errors_command),
+            CommandHandler("admin_backup", self.admin_backup_command),
             # Advanced Admin Commands (Task 7.4 and 8.3)
             CommandHandler(
                 "parsing_stats", self.advanced_admin_commands.parsing_stats_command
@@ -401,14 +407,14 @@ class TelegramBot:
             ),
             CommandHandler("add_item", self.advanced_admin_commands.add_item_command),
             # Background Task Management Commands (Task 10.3)
-            CommandHandler("admin_background_status", admin_background_status_command),
-            CommandHandler("admin_background_health", admin_background_health_command),
+            CommandHandler("admin_background_status", self.admin_background_status_command),
+            CommandHandler("admin_background_health", self.admin_background_health_command),
             CommandHandler(
                 "admin_background_restart", admin_background_restart_command
             ),
             # Message Parsing Configuration Commands (Task 11.2)
-            CommandHandler("admin_parsing_reload", admin_parsing_reload_command),
-            CommandHandler("admin_parsing_config", admin_parsing_config_command),
+            CommandHandler("admin_parsing_reload", self.admin_parsing_reload_command),
+            CommandHandler("admin_parsing_config", self.admin_parsing_config_command),
             # Configuration Management Commands (Full Set)
             CommandHandler("reload_config", config_commands.reload_config_handler),
             CommandHandler("config_status", config_commands.config_status_handler),
@@ -719,7 +725,7 @@ class TelegramBot:
     async def admin_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать раздел админ-команд и старую админ-панель."""
         await update.message.reply_text(COMMAND_SECTIONS["admin"])
-        await admin_command(update, context)
+        await self.admin_command(update, context)
 
     async def coder_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать раздел кодера и запустить старый /coder."""
@@ -783,10 +789,94 @@ class TelegramBot:
         """Команда /inventory - инвентарь."""
         await inventory_command(update, context, get_db)
 
+    async def achievements_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Команда /achievements - достижения."""
+        await achievements_command(update, context, get_db)
+
+    async def ai_update_knowledge_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Команда /ai_update_knowledge - обновить данные ИИ."""
+        await ai_update_knowledge_command(update, context, self.admin_system)
+
     # ===== Админ-команды =====
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin - панель администратора с точным форматом вывода"""
         await admin_command(update, context, self.admin_system, get_db)
+
+    async def admin_balances_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Команда /admin_balances - балансы пользователей."""
+        await admin_balances_command(update, context, self.admin_system, get_db)
+
+    async def admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_stats_command(update, context, self.admin_system, get_db)
+
+    async def admin_adjust_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_adjust_command(update, context, self.admin_system, get_db)
+
+    async def admin_addcoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_addcoins_command(update, context, self.admin_system, get_db)
+
+    async def admin_removecoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_removecoins_command(update, context, self.admin_system, get_db)
+
+    async def admin_merge_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_merge_command(update, context, self.admin_system, get_db)
+
+    async def admin_transactions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_transactions_command(update, context, self.admin_system, get_db)
+
+    async def admin_users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_users_command(update, context, self.admin_system, get_db)
+
+    async def admin_rates_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_rates_command(update, context, self.admin_system)
+
+    async def admin_rate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_rate_command(update, context, self.admin_system)
+
+    async def admin_cleanup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_cleanup_command(update, context, self.admin_system, get_db)
+
+    async def admin_shop_add_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_shop_add_command(update, context, self.admin_system, get_db)
+
+    async def admin_shop_edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_shop_edit_command(update, context, self.admin_system, get_db)
+
+    async def admin_games_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_games_stats_command(update, context, self.admin_system, get_db)
+
+    async def admin_reset_game_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_reset_game_command(update, context, self.admin_system, get_db)
+
+    async def admin_ban_player_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_ban_player_command(update, context, self.admin_system, get_db)
+
+    async def admin_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_health_command(update, context, self.admin_system, get_db)
+
+    async def admin_errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_errors_command(update, context, self.admin_system, get_db)
+
+    async def admin_backup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_backup_command(update, context, self.admin_system, get_db)
+
+    async def admin_background_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_background_status_command(update, context, self.admin_system, get_db)
+
+    async def admin_background_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_background_health_command(update, context, self.admin_system, get_db)
+
+    async def admin_parsing_reload_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_parsing_reload_command(update, context, self.admin_system, get_db)
+
+    async def admin_parsing_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await admin_parsing_config_command(update, context, self.admin_system, get_db)
 
     async def add_points_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
