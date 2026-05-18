@@ -91,7 +91,7 @@ WELCOME_TEXT_SHORT = """Привет, {name}!
 ID: {user_id}
 
 Меню команд: /commands
-Разделы: /commands user, /commands shop, /commands games, /commands admin, /commands config, /commands coder
+Разделы: /user /shop /games /admin /config /coder
 
 Режимы: /short — кратко, /long — подробно.
 """
@@ -99,12 +99,12 @@ ID: {user_id}
 
 COMMANDS_MENU_TEXT = """📚 Разделы команд
 
-👤 /commands user — профиль, баланс, статистика
-🛒 /commands shop — магазин и покупки
-🎮 /commands games — игры и активность
-🛠 /commands admin — админ-команды
-⚙️ /commands config — конфигурация
-🧩 /commands coder — диалоговый кодер
+👤 /user — профиль, баланс, статистика
+🛒 /shop — магазин и покупки
+🎮 /games — игры и активность
+🛠 /admin — админ-команды
+⚙️ /config — конфигурация
+🧩 /coder — диалоговый кодер
 
 Режимы ответов: /short или /long
 """
@@ -123,14 +123,14 @@ COMMAND_SECTIONS = {
 /notifications_clear — очистить уведомления
 """,
     "shop": """🛒 Магазин
-/shop — список товаров
+/items — список товаров
 /buy <номер> — купить товар
 /buy_1 ... /buy_8 — быстрая покупка
 /buy_contact — связь с админом
 /inventory — ваши покупки
 """,
     "games": """🎮 Игры и активность
-/games — список мини-игр
+/games_list — список мини-игр
 /play — играть
 /join — присоединиться
 /startgame — начать игру
@@ -142,7 +142,7 @@ COMMAND_SECTIONS = {
 /dnd_roll — бросок кубика
 """,
     "admin": """🛠 Админ-команды
-/admin — админ-панель
+/admin_panel — админ-панель
 /admin_stats — статистика системы
 /admin_users — пользователи
 /admin_balances — балансы
@@ -168,7 +168,7 @@ COMMAND_SECTIONS = {
 /validate_config — валидация
 """,
     "coder": """🧩 Диалоговый кодер
-/coder — открыть кодер
+/coder_start — открыть кодер
 /reset — сбросить
 /done — закончить
 /help — инструкция кодера
@@ -181,6 +181,13 @@ COMMAND_SECTIONS = {
 async def commands_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать меню разделов команд или конкретный раздел."""
     section = context.args[0].lower() if context.args else ""
+    text = COMMAND_SECTIONS.get(section, COMMANDS_MENU_TEXT)
+    await update.message.reply_text(text)
+
+
+async def command_section_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать раздел по короткой команде: /user, /shop, /games и т.д."""
+    section = update.message.text.split()[0].lstrip("/").lower()
     text = COMMAND_SECTIONS.get(section, COMMANDS_MENU_TEXT)
     await update.message.reply_text(text)
 

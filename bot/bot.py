@@ -43,6 +43,7 @@ from bot.commands.core_commands import (
     short_mode_command,
     long_mode_command,
     commands_menu_command,
+    command_section_command,
 )
 from bot.commands.shop_commands_ptb import (
     shop_command,
@@ -257,6 +258,12 @@ class TelegramBot:
         # Основные команды
         handlers = [
             CommandHandler("start", self.welcome_command),
+            CommandHandler("user", command_section_command),
+            CommandHandler("shop", command_section_command),
+            CommandHandler("games", command_section_command),
+            CommandHandler("admin", command_section_command),
+            CommandHandler("config", command_section_command),
+            CommandHandler("coder", command_section_command),
             CommandHandler("short", short_mode_command),
             CommandHandler("long", long_mode_command),
             CommandHandler("commands", commands_menu_command),
@@ -267,7 +274,7 @@ class TelegramBot:
             CommandHandler("profile", self.profile_command),
             CommandHandler("stats", self.stats_command),
             # Магазин
-            CommandHandler("shop", self.shop_command),
+            CommandHandler("items", self.shop_command),
             CommandHandler("buy_contact", self.buy_contact_command),
             CommandHandler("buy", self.buy_command),
             CommandHandler("buy_1", buy_1_command),
@@ -280,7 +287,7 @@ class TelegramBot:
             CommandHandler("buy_8", buy_8_command),
             CommandHandler("inventory", inventory_command),
             # Мини-игры
-            CommandHandler("games", games_command),
+            CommandHandler("games_list", games_command),
             CommandHandler("play", play_command),
             CommandHandler("join", join_command),
             CommandHandler("startgame", start_game_command),
@@ -312,7 +319,7 @@ class TelegramBot:
             CommandHandler("clan_join", clan_join_command),
             CommandHandler("clan_leave", clan_leave_command),
             # Админ-команды
-            CommandHandler("admin", admin_command),
+            CommandHandler("admin_panel", admin_command),
             CommandHandler("add_points", self.add_points_command),
             CommandHandler("add_admin", self.add_admin_command),
             CommandHandler("admin_stats", admin_stats_command),
@@ -372,7 +379,7 @@ class TelegramBot:
             CommandHandler("list_backups", config_commands.list_backups_handler),
             CommandHandler("validate_config", config_commands.validate_config_handler),
             # Диалоговый кодер шаблонов
-            CommandHandler("coder", self.template_coder_dialog.start_command),
+            CommandHandler("coder_start", self.template_coder_dialog.start_command),
             CommandHandler("reset", self.template_coder_dialog.reset_command),
             CommandHandler("done", self.template_coder_dialog.done_command),
             CommandHandler("help", self.template_coder_dialog.help_command),
