@@ -11,7 +11,8 @@ def test_ai_help_explains_free_local_mode() -> None:
     assert "небольшой" not in text
     assert "/ai" in text
     assert "/ask" in text
-    assert "/ai@lt_lo_game_bot" in text
+    assert "/ai@lt_lo_game_bot &lt;вопрос&gt;" in text
+    assert "/ai@lt_lo_game_bot <вопрос>" not in text
 
 
 def test_ai_answers_shop_question() -> None:

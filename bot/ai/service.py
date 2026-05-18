@@ -189,7 +189,7 @@ class AiLiteService:
             "• /ask &lt;вопрос&gt; — то же самое.\n"
             "• /ai_help — эта справка.\n\n"
             "Темы: команды, магазин, игры, D&D, feedback, профиль, режимы /short и /long.\n"
-            "Важно: в группах надёжнее писать с упоминанием: /ai@lt_lo_game_bot <вопрос>."
+            "Важно: в группах надёжнее писать с упоминанием: /ai@lt_lo_game_bot &lt;вопрос&gt;."
         )
 
     def answer(self, question: str) -> str:
