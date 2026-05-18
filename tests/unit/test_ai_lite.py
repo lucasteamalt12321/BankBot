@@ -115,6 +115,17 @@ def test_ai_answers_ltl_and_teaology_question() -> None:
     assert len(answer) < 2500
 
 
+def test_ai_short_mode_compacts_canon_answer() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("чай", mode="short")
+
+    assert "Коротко по канону" in answer
+    assert "Включите /long" in answer
+    assert "Источник: Google Doc" not in answer
+    assert len(answer) < 500
+
+
 def test_ai_warns_about_prohibited_canon_topics() -> None:
     service = AiLiteService()
 

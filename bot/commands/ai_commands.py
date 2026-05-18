@@ -10,6 +10,7 @@ from telegram.error import NetworkError, TimedOut
 from telegram.ext import ContextTypes
 
 from bot.ai import AiLiteService
+from bot.commands.core_commands import get_default_user_mode
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,8 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await _reply_text_with_retry(update, ai_lite_service.help_text(), parse_mode="HTML")
         return
 
-    await _reply_text_with_retry(update, ai_lite_service.answer(question))
+    mode = get_default_user_mode(update.effective_user.id if update.effective_user else None)
+    await _reply_text_with_retry(update, ai_lite_service.answer(question, mode=mode))
 
 
 async def ai_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

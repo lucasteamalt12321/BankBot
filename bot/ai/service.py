@@ -195,7 +195,7 @@ class AiLiteService:
             "Важно: в группах надёжнее писать с упоминанием: /ai@lt_lo_game_bot &lt;вопрос&gt;."
         )
 
-    def answer(self, question: str) -> str:
+    def answer(self, question: str, *, mode: str = "long") -> str:
         """Answer a user question using local keyword routing."""
         normalized_question = self._normalize(question)
         if not normalized_question:
@@ -209,6 +209,8 @@ class AiLiteService:
 
         matched_knowledge = self._match_knowledge(normalized_question)
         if matched_knowledge:
+            if mode == "short":
+                return self._format_short_knowledge_answer(matched_knowledge[:2])
             return self._format_knowledge_answer(matched_knowledge[:2], normalized_question)
 
         matched_topics = self._match_topics(normalized_question)
@@ -241,6 +243,34 @@ class AiLiteService:
 
         scored_entries.sort(key=lambda item: (-item[0], item[1]))
         return [entry for _score, _title, entry in scored_entries]
+
+    def _format_short_knowledge_answer(self, entries: list[KnowledgeEntry]) -> str:
+        """Format compact canon answers for /short mode."""
+        summaries = {
+            "ltl_parasite": (
+                "LTL-паразит — вымышленный пародийный агент, не связанный с реальным Лукой; "
+                "главные симптомы: СГД и СНЧ («чай»/горячие напитки)."
+            ),
+            "teaology": (
+                "Чайная религия — высокий канон: Чай/Великий Лист/Настой, "
+                "молитвы заканчиваются «eight-nine»."
+            ),
+            "olegovirus": (
+                "Олеговирус — вымышленный пародийный вирус с тиками, личностями "
+                "Степан/Иван/диктатор и антигенами KHM/POST."
+            ),
+            "glossary": "Глоссарий содержит термины: eight-nine, KHM, POST, СГД, СНЧ, LTRS, Хранитель конфет и др.",
+            "high_canon_articles": "Высокий канон: «Чайная религия», «Философия конфет», «Рейтинг LTRS™».",
+            "candy_economy": "Конфетная экономика — правила наград за Nine Circles, инфляция счастья и парадокс ожидания.",
+            "ltrs": "LTRS — рейтинг участников по хаосу/олегообразности и экспрессивности/LTL-заражённости.",
+            "canon_rules": "Канон запрещает внешность, семейные темы и реальные диагнозы; Лука/LucasTeam и Олег/Степан — правильные имена.",
+            "canon_levels": "Уровни канона: высокий, средний и низкий/неканон; высокий обычно требует одобрения Луки и Олега.",
+            "canon_history": "История канона: дисс-треки, Олеговирус/LTL, Тень агента, конфеты, Чайная религия и LTRS.",
+            "sources": "Источник: Google Doc канона и Telegram-посты с треками/статьями.",
+        }
+
+        lines = [summaries.get(entry.title, entry.answer.split("\n", maxsplit=1)[0]) for entry in entries]
+        return self._truncate("🤖 Коротко по канону:\n" + "\n".join(f"• {line}" for line in lines) + "\n\nВключите /long для подробностей.")
 
     def _format_knowledge_answer(self, entries: list[KnowledgeEntry], normalized_question: str) -> str:
         """Format answers from the offline canon knowledge base."""

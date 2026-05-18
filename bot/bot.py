@@ -3,10 +3,8 @@ import logging
 import asyncio
 import os
 import signal
-import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -137,8 +135,6 @@ from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
 import structlog
 
 
-POLLING_RETRY_DELAY_SECONDS = 5
-
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -148,7 +144,10 @@ logger = structlog.get_logger()
 def build_polling_kwargs(is_hf: bool) -> dict:
     """Build PTB polling kwargs without changing HF runtime semantics."""
     polling_kwargs = {
-        "drop_pending_updates": True,
+        # HF networking can produce transient getUpdates timeouts. Do not drop
+        # pending updates there: otherwise commands sent during reconnects are
+        # silently discarded. Local/dev startup can still drop stale updates.
+        "drop_pending_updates": not is_hf,
         "close_loop": False,
         "allowed_updates": Update.ALL_TYPES,
     }
@@ -1160,42 +1159,8 @@ class TelegramBot:
             is_hf = self._is_hugging_face()
             polling_kwargs = build_polling_kwargs(is_hf)
 
-            if is_hf:
-                first_polling_start = True
-                while not self._shutdown_requested:
-                    try:
-                        current_polling_kwargs = {
-                            **polling_kwargs,
-                            # Drop stale updates only once after container start. On HF
-                            # transient getUpdates timeouts can force polling retries;
-                            # dropping pending updates on every retry loses fresh user
-                            # commands like `/ai чай` sent during the unstable window.
-                            "drop_pending_updates": first_polling_start,
-                        }
-                        self.application.run_polling(**current_polling_kwargs)
-                        logger.info("Polling stopped.")
-                        break
-                    except (TimedOut, NetworkError) as e:
-                        first_polling_start = False
-                        logger.warning(
-                            "Polling interrupted by transient Telegram network error, retrying...",
-                            error=str(e),
-                            error_type=type(e).__name__,
-                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
-                        )
-                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
-                    except Exception as e:
-                        first_polling_start = False
-                        logger.error(
-                            "Polling crashed in Hugging Face environment, retrying to keep Space alive...",
-                            error=str(e),
-                            error_type=type(e).__name__,
-                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
-                        )
-                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
-            else:
-                self.application.run_polling(**polling_kwargs)
-                logger.info("Polling stopped.")
+            self.application.run_polling(**polling_kwargs)
+            logger.info("Polling stopped.")
         except KeyboardInterrupt:
             logger.info("Bot stopped by user (Ctrl+C)")
         except Exception as e:
