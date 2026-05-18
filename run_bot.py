@@ -106,11 +106,12 @@ def index():
 def health_check():
     """Health check endpoint with DB check."""
     try:
-        from database.database import get_db
         from database.connection import get_database_backend
-        db = next(get_db())
-        db.execute(__import__("sqlalchemy").text("SELECT 1"))
-        db.close()
+        from database.database import engine
+        from sqlalchemy import text
+
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
         return jsonify({
             "status": "healthy",
             "service": "BankBot",

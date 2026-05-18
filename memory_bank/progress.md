@@ -34,6 +34,8 @@
 - HF deploy check: duplicate public/secret `DATABASE_URL` caused `CONFIG_ERROR`; public variable was removed and secret kept.
 - Supabase direct URI `db.xrrdliznuyausiutxqwv.supabase.co:5432` failed from Hugging Face with IPv6 `Network is unreachable`. Next action: replace secret with Supabase Transaction pooler URI (`*.pooler.supabase.com:6543`, usually IPv4-friendly) or temporarily remove `DATABASE_URL` to restore SQLite fallback while obtaining pooler URI.
 - DB01 regression reported after deploy: `/user@lt_lo_game_bot` fails with `'AdminSystem' object has no attribute 'get_db_connection'`. Root cause: some profile/admin command code still expects the legacy `AdminSystem.get_db_connection()` compatibility method removed during SQLAlchemy conversion. Hotfix: restore compatibility or migrate remaining call sites.
+- New direct user-reported P1 bug: after DB01 hotfix deploy, bot does not answer `/user@lt_lo_game_bot` or `/start@lt_lo_game_bot`. Diagnose HF runtime/polling/logs without manual `getUpdates`; likely polling crash, DB startup issue, or handler blocking after PostgreSQL switch.
+- HF runtime was `RUNNING`, but `/health` timed out. Likely PostgreSQL connection attempts can hang without a short DBAPI connect timeout. Hotfix in progress: add `connect_timeout` for PostgreSQL engines and simplify `/health` DB check via `engine.connect()`.
 
 ### 2026-05-18 (AI01 — free local AI-lite assistant)
 - Started AI01: add a free local AI-lite assistant without paid API keys or mandatory external providers.

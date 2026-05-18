@@ -18,6 +18,7 @@
 - ✅ DB01 implementation step: env aliases, Alembic URL override, empty PostgreSQL bootstrap, SQLAlchemy-based AdminSystem, and DB backend health diagnostics added locally. Needs Supabase `DATABASE_URL`/`POSTGRES_URL` secret in HF before production persistence is active.
 - 🔴 DB01 deploy issue: Supabase direct URI on `db.xrrdliznuyausiutxqwv.supabase.co:5432` is unreachable from HF over IPv6. Use Supabase Transaction pooler URI on `*.pooler.supabase.com:6543` or temporarily remove `DATABASE_URL` to restore SQLite fallback.
 - 🔴 DB01 regression: `/user@lt_lo_game_bot` fails because legacy profile code calls `AdminSystem.get_db_connection()` after AdminSystem SQLAlchemy migration. Restore compatibility immediately.
+- 🔴 Current direct user-reported bug: bot does not answer `/user@lt_lo_game_bot` or `/start@lt_lo_game_bot` after DB01 hotfix deploy. Must diagnose via HF runtime/logs without `getUpdates`.
 - ✅ AI01 implemented locally: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; даёт подсказки по командам, играм, магазину, feedback и режимам ответов без риска платных API и HF-зависаний.
 - 🔴 Новая проблема в очереди: после `/feedback тест` команда `/start@lt_lo_game_bot` не отвечает. Диагностика должна идти через HF runtime/log endpoints, без ручного `getUpdates`, чтобы не мешать polling.
 - 🔴 Новая AI01 проблема: `/ai@lt_lo_game_bot` отвечает справкой, но bare `/ai что это за бот?` в чате не отвечает. Нужно улучшить ответ на “что это за бот” и проверить bare-command handling vs group mention semantics.

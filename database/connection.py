@@ -55,6 +55,15 @@ def _get_pool_settings() -> dict:
         return {"pool_size": 2, "max_overflow": 8, "pool_timeout": 30, "pool_pre_ping": True}
 
 
+def _get_connect_args(db_url: str) -> dict:
+    """Return DBAPI connect args with short cloud-safe timeouts."""
+    if db_url.startswith("sqlite"):
+        return {"check_same_thread": False}
+    if db_url.startswith("postgresql"):
+        return {"connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT_SECONDS", "5"))}
+    return {}
+
+
 def create_pooled_engine(db_url: Optional[str] = None):
     """Create SQLAlchemy engine with QueuePool.
 
@@ -77,11 +86,16 @@ def create_pooled_engine(db_url: Optional[str] = None):
     if db_url.startswith("sqlite"):
         return create_engine(
             db_url,
-            connect_args={"check_same_thread": False},
+            connect_args=_get_connect_args(db_url),
             pool_pre_ping=pool_kwargs["pool_pre_ping"],
         )
 
-    return create_engine(db_url, poolclass=QueuePool, **pool_kwargs)
+    return create_engine(
+        db_url,
+        poolclass=QueuePool,
+        connect_args=_get_connect_args(db_url),
+        **pool_kwargs,
+    )
 
 
 def get_database_backend(db_url: Optional[str] = None) -> str:
