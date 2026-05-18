@@ -2,10 +2,11 @@
 
 import structlog
 import html
-import os
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from bot.response_modes import get_default_user_mode, get_user_mode, set_user_mode
 
 logger = structlog.get_logger()
 
@@ -203,22 +204,6 @@ async def command_section_command(update: Update, context: ContextTypes.DEFAULT_
     text = COMMAND_SECTIONS.get(section, COMMANDS_MENU_TEXT)
     await update.message.reply_text(text)
 
-# Хранение режимов пользователей (short/long)
-_user_modes = {}
-
-
-def get_user_mode(user_id: int | None) -> str | None:
-    """Return explicitly selected response mode for a Telegram user."""
-    if user_id is None:
-        return None
-    return _user_modes.get(user_id)
-
-
-def get_default_user_mode(user_id: int | None) -> str:
-    """Return selected mode or environment-specific default mode."""
-    return get_user_mode(user_id) or ("short" if os.environ.get("SPACE_ID") else "long")
-
-
 def get_welcome_text(name, registration_status, admin_status, user_id):
     """Выбирает короткий или длинный welcome текст."""
     mode = get_default_user_mode(user_id)
@@ -241,14 +226,14 @@ def get_welcome_text(name, registration_status, admin_status, user_id):
 async def short_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Включить короткий режим ответов."""
     user_id = update.effective_user.id
-    _user_modes[user_id] = "short"
+    set_user_mode(user_id, "short")
     await update.message.reply_text("✅ Короткий режим включен. Используйте /long для полных ответов.")
 
 
 async def long_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Включить длинный режим ответов."""
     user_id = update.effective_user.id
-    _user_modes[user_id] = "long"
+    set_user_mode(user_id, "long")
     await update.message.reply_text("✅ Длинный режим включен. Используйте /short для кратких ответов.")
 
 

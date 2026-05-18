@@ -1,4 +1,5 @@
 from bot.ai.service import AiLiteService, MAX_QUESTION_LENGTH
+from bot.response_modes import compact_reply_text, set_user_mode
 
 
 def test_ai_help_explains_free_local_mode() -> None:
@@ -166,3 +167,25 @@ def test_ai_answers_high_canon_articles_question() -> None:
     assert "Философия конфет" in answer
     assert "Рейтинг участников чата по системе LTRS" in answer
     assert "https://t.me/lucasteamgroup/30105" in answer
+
+
+def test_global_short_mode_compacts_long_bot_message() -> None:
+    user_id = 123456
+    set_user_mode(user_id, "short")
+    long_text = "\n".join(f"Строка {index}: подробное описание раздела и команды" for index in range(30))
+
+    compacted = compact_reply_text(long_text, user_id)
+
+    assert len(compacted) < len(long_text)
+    assert "/long — полный ответ" in compacted
+    assert "Строка 29" not in compacted
+
+
+def test_global_long_mode_keeps_full_bot_message() -> None:
+    user_id = 654321
+    set_user_mode(user_id, "long")
+    long_text = "\n".join(f"Строка {index}: подробное описание раздела и команды" for index in range(30))
+
+    compacted = compact_reply_text(long_text, user_id)
+
+    assert compacted == long_text

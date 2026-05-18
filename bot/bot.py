@@ -129,6 +129,7 @@ from bot.commands.user_commands import (
 from bot.commands.feedback_commands import feedback_command, feedback_list_command
 from bot.commands.ai_commands import ai_command, ai_help_command
 from bot.template_coder import TemplateCoderDialog
+from bot.response_modes import install_reply_text_short_mode_patch
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
@@ -204,6 +205,7 @@ def _extract_bot_mentioned_command(message_text: str | None, bot_username: str |
 
 class TelegramBot:
     def __init__(self):
+        install_reply_text_short_mode_patch()
         builder = Application.builder().token(settings.BOT_TOKEN.strip())
         
         # Увеличиваем таймауты для всех сред (HF и обычной)
