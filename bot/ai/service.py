@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from bot.ai.knowledge import CANON_DOC_URL, CANON_KNOWLEDGE, PROHIBITED_CANON_KEYWORDS, KnowledgeEntry
+
 
 MAX_QUESTION_LENGTH = 700
 MAX_RESPONSE_LENGTH = 2500
@@ -188,7 +190,8 @@ class AiLiteService:
             "• /ai &lt;вопрос&gt; — спросить помощника.\n"
             "• /ask &lt;вопрос&gt; — то же самое.\n"
             "• /ai_help — эта справка.\n\n"
-            "Темы: команды, магазин, игры, D&D, feedback, профиль, режимы /short и /long.\n"
+            "Темы: команды, магазин, игры, D&D, feedback, профиль, режимы /short и /long, "
+            "а также канон Олеговируса/LTL-паразита.\n"
             "Важно: в группах надёжнее писать с упоминанием: /ai@lt_lo_game_bot &lt;вопрос&gt;."
         )
 
@@ -203,6 +206,10 @@ class AiLiteService:
                 "Вопрос слишком длинный для бесплатного AI-lite режима. "
                 f"Сократите его до {MAX_QUESTION_LENGTH} символов."
             )
+
+        matched_knowledge = self._match_knowledge(normalized_question)
+        if matched_knowledge:
+            return self._format_knowledge_answer(matched_knowledge[:2], normalized_question)
 
         matched_topics = self._match_topics(normalized_question)
         if not matched_topics:
@@ -224,6 +231,33 @@ class AiLiteService:
         scored_topics.sort(key=lambda item: (-item[0], item[1]))
         return [topic for _score, _title, topic in scored_topics]
 
+    def _match_knowledge(self, normalized_question: str) -> list[KnowledgeEntry]:
+        """Return canon knowledge entries ordered by simple keyword score."""
+        scored_entries = []
+        for entry in CANON_KNOWLEDGE:
+            score = sum(1 for keyword in entry.keywords if keyword in normalized_question)
+            if score:
+                scored_entries.append((score, entry.title, entry))
+
+        scored_entries.sort(key=lambda item: (-item[0], item[1]))
+        return [entry for _score, _title, entry in scored_entries]
+
+    def _format_knowledge_answer(self, entries: list[KnowledgeEntry], normalized_question: str) -> str:
+        """Format answers from the offline canon knowledge base."""
+        response_parts = ["🤖 Нашёл ответ в локальной базе канона:"]
+        if any(keyword in normalized_question for keyword in PROHIBITED_CANON_KEYWORDS):
+            response_parts.append(
+                "⚠️ Напоминание: канон запрещает использовать внешность реальных людей, "
+                "семейные обстоятельства и реальные медицинские диагнозы без явного письменного разрешения обоих авторов."
+            )
+
+        response_parts.extend(entry.answer for entry in entries)
+        response_parts.append(
+            "\nИсточник: Google Doc «Вселенная Олеговируса и LTL-паразита: канон» "
+            f"({CANON_DOC_URL})."
+        )
+        return self._truncate("\n\n".join(response_parts))
+
     def _fallback_answer(self, normalized_question: str) -> str:
         """Return a useful answer when no specific topic matched."""
         if self._looks_like_how_to(normalized_question):
@@ -242,8 +276,8 @@ class AiLiteService:
         return (
             "🤖 Я не настоящий большой ИИ, а бесплатный локальный помощник-справочник по BankBot.\n"
             "На такой вопрос могу ответить только примерно. Лучше спросите про команды бота: "
-            "магазин, игры, D&D, feedback, профиль, режимы.\n"
-            "Примеры: /ai как посмотреть баланс или /ai что это за бот"
+            "магазин, игры, D&D, feedback, профиль, режимы или канон Олеговируса/LTL.\n"
+            "Примеры: /ai как посмотреть баланс или /ai что такое Олеговирус"
         )
 
     @staticmethod

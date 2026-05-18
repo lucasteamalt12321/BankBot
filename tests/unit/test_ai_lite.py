@@ -13,6 +13,7 @@ def test_ai_help_explains_free_local_mode() -> None:
     assert "/ask" in text
     assert "/ai@lt_lo_game_bot &lt;вопрос&gt;" in text
     assert "/ai@lt_lo_game_bot <вопрос>" not in text
+    assert "канон Олеговируса/LTL-паразита" in text
 
 
 def test_ai_answers_shop_question() -> None:
@@ -57,7 +58,7 @@ def test_ai_handles_multiple_topics_shortly() -> None:
 def test_ai_handles_offtopic_tea_without_claiming_llm() -> None:
     service = AiLiteService()
 
-    answer = service.answer("чай")
+    answer = service.answer("кофе")
 
     assert "оффтоп" in answer
     assert "справочник по BankBot" in answer
@@ -89,3 +90,68 @@ def test_ai_fallback_suggests_commands() -> None:
 
     assert "/commands" in answer
     assert "/feedback <текст>" in answer
+
+
+def test_ai_answers_olegovirus_canon_question() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("что такое Олеговирус и KHM?")
+
+    assert "локальной базе канона" in answer
+    assert "Олеговирус" in answer
+    assert "KHM" in answer
+    assert "не равный реальному Олегу" in answer
+    assert "Google Doc" in answer
+
+
+def test_ai_answers_ltl_and_teaology_question() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("что такое LTL-паразит и Чайная религия?")
+
+    assert "LTL-паразит" in answer
+    assert "СНЧ" in answer
+    assert "Чайная религия" in answer
+    assert len(answer) < 2500
+
+
+def test_ai_warns_about_prohibited_canon_topics() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("можно ли писать про внешность реальных людей в каноне?")
+
+    assert "канон запрещает" in answer
+    assert "внешность реальных людей" in answer
+    assert "медицинские диагнозы" in answer
+
+
+def test_ai_answers_canon_sources_question() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("какие есть источники канона и документ?")
+
+    assert "Основной источник" in answer
+    assert "docs.google.com" in answer
+    assert "Рейтинг LTRS" in answer
+
+
+def test_ai_answers_glossary_post_question() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("что значит антиген POST в глоссарии?")
+
+    assert "Глоссарий канона" in answer
+    assert "Антиген POST" in answer
+    assert "прилипание к чужим текстам" in answer
+
+
+def test_ai_answers_high_canon_articles_question() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("какие статьи высокого канона?")
+
+    assert "Статьи высокого канона" in answer
+    assert "Чайная религия (Teaology)" in answer
+    assert "Философия конфет" in answer
+    assert "Рейтинг участников чата по системе LTRS" in answer
+    assert "https://t.me/lucasteamgroup/30105" in answer
