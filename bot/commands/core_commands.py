@@ -2,6 +2,7 @@
 
 import structlog
 import html
+import os
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -82,6 +83,56 @@ WELCOME_TEXT = """
 [TIP] <b>💡 Совет:</b> Начните с /shop для покупок!
 """
 
+# Короткий welcome для HF (быстрая отправка)
+WELCOME_TEXT_SHORT = """Привет, {name}!
+
+{registration_status}
+{admin_status}
+ID: {user_id}
+
+Команды: /shop /balance /profile /stats /achievements /ping
+Админ: /admin /admin_stats
+Игры: Shmalala, GD Cards, True Mafia, Bunker RP
+
+Начните с /shop !
+"""
+
+# Хранение режимов пользователей (short/long)
+_user_modes = {}
+
+def get_welcome_text(name, registration_status, admin_status, user_id):
+    """Выбирает короткий или длинный welcome текст."""
+    is_hf = os.environ.get("SPACE_ID")
+    mode = _user_modes.get(user_id, "short" if is_hf else "long")
+    
+    if mode == "short":
+        return WELCOME_TEXT_SHORT.format(
+            name=html.escape(name or "Пользователь"),
+            registration_status=html.escape(registration_status),
+            admin_status=html.escape(admin_status),
+            user_id=user_id,
+        )
+    return WELCOME_TEXT.format(
+        name=html.escape(name or "Пользователь"),
+        registration_status=html.escape(registration_status),
+        admin_status=html.escape(admin_status),
+        user_id=user_id,
+    )
+
+
+async def short_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Включить короткий режим ответов."""
+    user_id = update.effective_user.id
+    _user_modes[user_id] = "short"
+    await update.message.reply_text("✅ Короткий режим включен. Используйте /long для полных ответов.")
+
+
+async def long_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Включить длинный режим ответов."""
+    user_id = update.effective_user.id
+    _user_modes[user_id] = "long"
+    await update.message.reply_text("✅ Длинный режим включен. Используйте /short для кратких ответов.")
+
 
 async def welcome_command(
     update: Update,
@@ -131,11 +182,11 @@ async def welcome_command(
         logger.error(f"Error in admin system registration: {e}")
         registration_status = f"❌ Ошибка: {str(e)}"
 
-    welcome_text = WELCOME_TEXT.format(
-        name=html.escape(user.first_name or "Пользователь"),
-        registration_status=html.escape(registration_status),
-        admin_status=html.escape(admin_status),
-        user_id=user.id,
+    welcome_text = get_welcome_text(
+        user.first_name or "Пользователь",
+        registration_status,
+        admin_status,
+        user.id,
     )
 
     await update.message.reply_text(welcome_text, parse_mode="HTML")

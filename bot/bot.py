@@ -40,6 +40,8 @@ from bot.commands.core_commands import (
     stats_command,
     ping_command,
     test_notify_command,
+    short_mode_command,
+    long_mode_command,
 )
 from bot.commands.shop_commands_ptb import (
     shop_command,
