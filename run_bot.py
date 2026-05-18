@@ -68,15 +68,23 @@ def get_feedback():
     if not _is_authorized_feedback_request():
         return jsonify({"error": "unauthorized"}), 401
 
-    import json
-
     try:
         limit = max(1, min(int(request.args.get("limit", 20)), 100))
     except ValueError:
         limit = 20
 
+    try:
+        from bot.commands.feedback_commands import _read_feedback_entries_db
+
+        entries = _read_feedback_entries_db(limit)
+        return jsonify({"entries": entries, "count": len(entries), "storage": "sqlite"})
+    except Exception as e:
+        print(f"[FEEDBACK] SQLite read failed, falling back to JSONL: {e}")
+
+    import json
+
     if not os.path.exists(FEEDBACK_FILE):
-        return jsonify({"entries": [], "count": 0, "path": FEEDBACK_FILE})
+        return jsonify({"entries": [], "count": 0, "path": FEEDBACK_FILE, "storage": "jsonl"})
 
     entries = []
     with open(FEEDBACK_FILE, encoding="utf-8") as file:
@@ -88,7 +96,7 @@ def get_feedback():
         except json.JSONDecodeError:
             continue
 
-    return jsonify({"entries": entries, "count": len(entries), "path": FEEDBACK_FILE})
+    return jsonify({"entries": entries, "count": len(entries), "path": FEEDBACK_FILE, "storage": "jsonl"})
 
 @app.route('/')
 def index():

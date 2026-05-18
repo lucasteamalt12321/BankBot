@@ -7,8 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
+from sqlalchemy import text
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from database.database import get_db
 
 
 FEEDBACK_FILE = Path("data/feedback.jsonl")
@@ -44,6 +47,74 @@ def _append_feedback(entry: dict) -> None:
     FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
     with FEEDBACK_FILE.open("a", encoding="utf-8") as file:
         file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _ensure_feedback_table(db) -> None:
+    """Create feedback table when migrations do not have it yet."""
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS feedback_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                type TEXT NOT NULL,
+                text TEXT NOT NULL,
+                telegram_id INTEGER,
+                username TEXT,
+                first_name TEXT,
+                chat_id INTEGER,
+                chat_type TEXT
+            )
+            """
+        )
+    )
+    db.commit()
+
+
+def _append_feedback_db(entry: dict) -> None:
+    """Append feedback entry to SQLite storage."""
+    db = next(get_db())
+    try:
+        _ensure_feedback_table(db)
+        db.execute(
+            text(
+                """
+                INSERT INTO feedback_entries (
+                    created_at, type, text, telegram_id, username,
+                    first_name, chat_id, chat_type
+                ) VALUES (
+                    :created_at, :type, :text, :telegram_id, :username,
+                    :first_name, :chat_id, :chat_type
+                )
+                """
+            ),
+            entry,
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _read_feedback_entries_db(limit: int) -> list[dict]:
+    """Read latest feedback entries from SQLite storage."""
+    db = next(get_db())
+    try:
+        _ensure_feedback_table(db)
+        rows = db.execute(
+            text(
+                """
+                SELECT created_at, type, text, telegram_id, username,
+                       first_name, chat_id, chat_type
+                FROM feedback_entries
+                ORDER BY id DESC
+                LIMIT :limit
+                """
+            ),
+            {"limit": limit},
+        ).mappings()
+        return [dict(row) for row in reversed(list(rows))]
+    finally:
+        db.close()
 
 
 def _read_feedback_entries(limit: int) -> list[dict]:
@@ -85,6 +156,13 @@ async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "chat_id": chat.id,
         "chat_type": chat.type,
     }
+    try:
+        _append_feedback_db(entry)
+        storage = "sqlite"
+    except Exception as e:
+        logger.error("Failed to save feedback to SQLite", error=str(e))
+        storage = "jsonl"
+
     _append_feedback(entry)
     logger.info(
         "Feedback saved",
@@ -94,6 +172,7 @@ async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         chat_id=chat.id,
         chat_type=chat.type,
         storage_path=str(FEEDBACK_FILE),
+        storage=storage,
     )
 
     await update.message.reply_text(
@@ -118,7 +197,11 @@ async def feedback_list_command(
     if context.args and context.args[0].isdigit():
         limit = max(1, min(int(context.args[0]), 20))
 
-    entries = _read_feedback_entries(limit)
+    try:
+        entries = _read_feedback_entries_db(limit)
+    except Exception as e:
+        logger.error("Failed to read feedback from SQLite", error=str(e))
+        entries = _read_feedback_entries(limit)
     if not entries:
         await update.message.reply_text("📭 Предложений и жалоб пока нет.")
         return
