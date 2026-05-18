@@ -621,31 +621,24 @@ async def profile_command(
             )
             return
 
-        conn = admin_system.get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user.id,))
-        user_row = cursor.fetchone()
-        internal_id = user_row["id"] if user_row else None
-
         total_transactions = 0
         total_deposits = 0
-        if internal_id:
-            cursor.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE user_id = ?",
-                (internal_id,),
-            )
-            result = cursor.fetchone()
-            total_transactions = result["count"] if result else 0
+        db = next(db_get_db())
+        try:
+            from database.database import Transaction, User
 
-            cursor.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE user_id = ? AND amount > 0",
-                (internal_id,),
-            )
-            result = cursor.fetchone()
-            total_deposits = result["count"] if result else 0
-
-        conn.close()
+            user_db = db.query(User).filter(User.telegram_id == user.id).first()
+            if user_db:
+                total_transactions = (
+                    db.query(Transaction).filter(Transaction.user_id == user_db.id).count()
+                )
+                total_deposits = (
+                    db.query(Transaction)
+                    .filter(Transaction.user_id == user_db.id, Transaction.amount > 0)
+                    .count()
+                )
+        finally:
+            db.close()
 
         text = f"""
 [USER] <b>Ваш профиль</b>

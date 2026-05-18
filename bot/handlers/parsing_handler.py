@@ -9,6 +9,8 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 
+from sqlalchemy import text
+
 from src.classifier import MessageClassifier
 from src.parsers import (
     ProfileParser, AccrualParser, FishingParser, KarmaParser,
@@ -266,33 +268,46 @@ class ParsingHandler:
                         current_balance = user_data['balance']
                         new_balance = current_balance + bank_coins
 
-                        # Update balance
-                        conn = admin_system.get_db_connection()
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-                            (new_balance, user.id)
-                        )
-                        conn.commit()
+                        from database.database import SessionLocal
 
-                        # Add transaction record
-                        cursor.execute(
-                            "SELECT id FROM users WHERE telegram_id = ?",
-                            (user.id,)
-                        )
-                        user_row = cursor.fetchone()
-                        if user_row:
-                            from datetime import datetime
-                            cursor.execute(
-                                """INSERT INTO transactions 
-                                   (user_id, amount, transaction_type, description, created_at)
-                                   VALUES (?, ?, ?, ?, ?)""",
-                                (user_row['id'], bank_coins, 'accrual', 
-                                 f"Парсинг: {message_type}", datetime.now())
+                        db = SessionLocal()
+                        try:
+                            db.execute(
+                                text(
+                                    """
+                                    UPDATE users
+                                    SET balance = :balance
+                                    WHERE telegram_id = :telegram_id
+                                    """
+                                ),
+                                {"balance": new_balance, "telegram_id": user.id},
                             )
-                            conn.commit()
 
-                        conn.close()
+                            user_row = db.execute(
+                                text("SELECT id FROM users WHERE telegram_id = :telegram_id"),
+                                {"telegram_id": user.id},
+                            ).mappings().first()
+                            if user_row:
+                                db.execute(
+                                    text(
+                                        """
+                                        INSERT INTO transactions
+                                            (user_id, amount, transaction_type, description, created_at)
+                                        VALUES
+                                            (:user_id, :amount, :transaction_type, :description, :created_at)
+                                        """
+                                    ),
+                                    {
+                                        "user_id": user_row["id"],
+                                        "amount": bank_coins,
+                                        "transaction_type": "accrual",
+                                        "description": f"Парсинг: {message_type}",
+                                        "created_at": datetime.now(),
+                                    },
+                                )
+                            db.commit()
+                        finally:
+                            db.close()
 
                         details.append(f"\n💰 Новый баланс: {new_balance} очков")
                         logger.info(f"Balance updated for user {user.id}: {current_balance} -> {new_balance}")

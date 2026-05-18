@@ -3,6 +3,12 @@
 ## Текущий фокус
 **P0 фокус: DB01 — переход production/HF с ephemeral SQLite на persistent PostgreSQL/Supabase.** Причина: при restart/rebuild Hugging Face локальная БД может обнуляться. AI02 отложен после DB01.
 
+## Приоритет обработки задач
+1. Баги, на которые прямо указывает пользователь.
+2. Баги из `/feedback`.
+3. Текущий фокус разработки.
+4. Советы/улучшения из `/feedback`.
+
 ## Статус проекта: 100% (базовый функционал) + HF Deployment ✅
 
 ## Последнее обновление: 2026-05-18
@@ -10,6 +16,8 @@
 ## Выполнено недавно
 - 🔄 DB01 in progress: добавить PostgreSQL/Supabase production storage через env (`DATABASE_URL`/`POSTGRES_URL`) с SQLite local/dev fallback; проверить Alembic/schema startup и health endpoint.
 - ✅ DB01 implementation step: env aliases, Alembic URL override, empty PostgreSQL bootstrap, SQLAlchemy-based AdminSystem, and DB backend health diagnostics added locally. Needs Supabase `DATABASE_URL`/`POSTGRES_URL` secret in HF before production persistence is active.
+- 🔴 DB01 deploy issue: Supabase direct URI on `db.xrrdliznuyausiutxqwv.supabase.co:5432` is unreachable from HF over IPv6. Use Supabase Transaction pooler URI on `*.pooler.supabase.com:6543` or temporarily remove `DATABASE_URL` to restore SQLite fallback.
+- 🔴 DB01 regression: `/user@lt_lo_game_bot` fails because legacy profile code calls `AdminSystem.get_db_connection()` after AdminSystem SQLAlchemy migration. Restore compatibility immediately.
 - ✅ AI01 implemented locally: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; даёт подсказки по командам, играм, магазину, feedback и режимам ответов без риска платных API и HF-зависаний.
 - 🔴 Новая проблема в очереди: после `/feedback тест` команда `/start@lt_lo_game_bot` не отвечает. Диагностика должна идти через HF runtime/log endpoints, без ручного `getUpdates`, чтобы не мешать polling.
 - 🔴 Новая AI01 проблема: `/ai@lt_lo_game_bot` отвечает справкой, но bare `/ai что это за бот?` в чате не отвечает. Нужно улучшить ответ на “что это за бот” и проверить bare-command handling vs group mention semantics.

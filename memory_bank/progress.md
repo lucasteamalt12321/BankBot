@@ -21,6 +21,7 @@
 ## Changelog
 
 ### 2026-05-18 (DB01 — persistent PostgreSQL/Supabase storage)
+- User-defined priority order recorded: (1) direct user-reported bugs, (2) bugs from `/feedback`, (3) current development focus, (4) suggestions from `/feedback`.
 - Started DB01 as P0/first-priority task after user reported HF DB resets on restart/rebuild.
 - Problem: local SQLite/data storage on Hugging Face is ephemeral; users, balances, feedback, game sessions, and runtime state can be lost.
 - Target: production/HF must use persistent PostgreSQL, e.g. Supabase, through env (`DATABASE_URL`/`POSTGRES_URL`), with SQLite kept as local/dev fallback.
@@ -30,6 +31,9 @@
 - Added empty-DB bootstrap path: create SQLAlchemy metadata tables and stamp Alembic head, avoiding legacy SQLite-specific baseline SQL on fresh PostgreSQL/Supabase.
 - Converted `utils.admin.admin_system.AdminSystem` from raw sqlite3/PRAGMA queries to SQLAlchemy sessions/text queries so admin registration/balance/transactions work on PostgreSQL.
 - `/health` now includes `database` backend after a real `SELECT 1` DB check.
+- HF deploy check: duplicate public/secret `DATABASE_URL` caused `CONFIG_ERROR`; public variable was removed and secret kept.
+- Supabase direct URI `db.xrrdliznuyausiutxqwv.supabase.co:5432` failed from Hugging Face with IPv6 `Network is unreachable`. Next action: replace secret with Supabase Transaction pooler URI (`*.pooler.supabase.com:6543`, usually IPv4-friendly) or temporarily remove `DATABASE_URL` to restore SQLite fallback while obtaining pooler URI.
+- DB01 regression reported after deploy: `/user@lt_lo_game_bot` fails with `'AdminSystem' object has no attribute 'get_db_connection'`. Root cause: some profile/admin command code still expects the legacy `AdminSystem.get_db_connection()` compatibility method removed during SQLAlchemy conversion. Hotfix: restore compatibility or migrate remaining call sites.
 
 ### 2026-05-18 (AI01 — free local AI-lite assistant)
 - Started AI01: add a free local AI-lite assistant without paid API keys or mandatory external providers.

@@ -90,12 +90,17 @@ async def buy_contact_command(
         await update.message.reply_text("Вы купили контакт. Администратор свяжется с вами.")
 
         try:
-            conn = admin_system.get_db_connection()
-            cursor = conn.cursor()
+            from database.database import User
 
-            cursor.execute("SELECT telegram_id FROM users WHERE is_admin = TRUE")
-            admin_ids = [row["telegram_id"] for row in cursor.fetchall()]
-            conn.close()
+            db = next(get_db())
+            try:
+                admin_ids = [
+                    admin.telegram_id
+                    for admin in db.query(User).filter(User.is_admin.is_(True)).all()
+                    if admin.telegram_id
+                ]
+            finally:
+                db.close()
 
             username_display = f"@{user.username}" if user.username else f"#{user.id}"
             admin_message = (

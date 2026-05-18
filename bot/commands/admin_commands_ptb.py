@@ -813,22 +813,20 @@ async def admin_transactions_command(
     try:
         admin_user = admin_system.get_user_by_username(user_identifier)
         if admin_user:
-            conn = admin_system.get_db_connection()
-            cursor = conn.cursor()
+            db = next(get_db())
+            try:
+                from database.database import Transaction
+                from sqlalchemy import desc
 
-            cursor.execute(
-                """
-                SELECT amount, type, created_at, description 
-                FROM transactions 
-                WHERE user_id = ? 
-                ORDER BY created_at DESC 
-                LIMIT ?
-            """,
-                (admin_user["id"], limit),
-            )
-
-            transactions = cursor.fetchall()
-            conn.close()
+                transactions = (
+                    db.query(Transaction)
+                    .filter(Transaction.user_id == admin_user["id"])
+                    .order_by(desc(Transaction.created_at))
+                    .limit(limit)
+                    .all()
+                )
+            finally:
+                db.close()
 
             text = f"""📊 <b>Транзакции пользователя</b>
 
@@ -841,15 +839,13 @@ async def admin_transactions_command(
                 text += "📭 Транзакций не найдено"
             else:
                 for t in transactions:
-                    amount_text = (
-                        f"+{t['amount']}" if t["amount"] > 0 else str(t["amount"])
-                    )
-                    emoji = "⬆️" if t["amount"] > 0 else "⬇️" if t["amount"] < 0 else "➡️"
+                    amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
+                    emoji = "⬆️" if t.amount > 0 else "⬇️" if t.amount < 0 else "➡️"
 
                     text += f"{emoji} {amount_text} очков\n"
-                    text += f"   Тип: {t['type']}\n"
-                    text += f"   Описание: {t['description'] or 'Нет описания'}\n"
-                    text += f"   Дата: {t['created_at']}\n\n"
+                    text += f"   Тип: {t.transaction_type}\n"
+                    text += f"   Описание: {t.description or 'Нет описания'}\n"
+                    text += f"   Дата: {t.created_at}\n\n"
 
             await update.message.reply_text(text, parse_mode="HTML")
             return
