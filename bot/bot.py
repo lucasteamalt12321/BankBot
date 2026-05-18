@@ -258,7 +258,7 @@ class TelegramBot:
 
         # Основные команды
         handlers = [
-            CommandHandler("start", self.welcome_command),
+            CommandHandler("start", self.safe_start_command),
             CommandHandler("user", command_section_command),
             CommandHandler("shop", self.shop_with_section_command),
             CommandHandler("games", self.games_with_section_command),
@@ -626,6 +626,24 @@ class TelegramBot:
             db.close()
 
     # ===== Основные команды =====
+    def _is_hugging_face(self) -> bool:
+        return bool(os.environ.get("SPACE_ID"))
+
+    async def safe_start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Безопасный /start для HF: один короткий ответ без welcome-цепочки."""
+        if not self._is_hugging_face():
+            await self.welcome_command(update, context)
+            return
+
+        if not update.message:
+            return
+
+        self.template_coder_dialog.reset_state(context)
+        await update.message.reply_text(
+            "Привет! Бот работает.\n"
+            "Команды: /commands, /user, /shop, /games, /admin, /config, /coder."
+        )
+
     async def welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start - приветствие и регистрация."""
         self.template_coder_dialog.reset_state(context)
@@ -1055,7 +1073,7 @@ class TelegramBot:
             logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
             
             polling_kwargs = {
-                "drop_pending_updates": not os.environ.get("SPACE_ID"),
+                "drop_pending_updates": True,
                 "close_loop": False,
                 "allowed_updates": Update.ALL_TYPES,
             }
