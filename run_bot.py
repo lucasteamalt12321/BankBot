@@ -11,7 +11,8 @@
 import sys
 import os
 import threading
-from flask import Flask, jsonify, Response
+import hmac
+from flask import Flask, jsonify, Response, request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,6 +22,7 @@ app = Flask(__name__)
 # Глобальный буфер для логов
 import collections
 log_buffer = collections.deque(maxlen=100)
+FEEDBACK_FILE = "data/feedback.jsonl"
 
 class LogCapture:
     def write(self, data):
@@ -37,6 +39,56 @@ sys.stderr = LogCapture()
 def get_logs():
     """Endpoint to view recent logs."""
     return Response("<pre>" + "\n".join(log_buffer) + "</pre>", mimetype="text/html")
+
+def _is_authorized_feedback_request():
+    """Validate feedback API token from Authorization header or query string."""
+    expected_token = os.environ.get("FEEDBACK_READ_TOKEN") or os.environ.get("HF_TOKEN")
+    if not expected_token:
+        try:
+            from src.config import settings
+
+            expected_token = settings.BOT_TOKEN.strip()
+        except Exception:
+            expected_token = ""
+
+    if not expected_token:
+        return False
+
+    auth_header = request.headers.get("Authorization", "")
+    bearer_prefix = "Bearer "
+    if auth_header.startswith(bearer_prefix):
+        return hmac.compare_digest(auth_header[len(bearer_prefix):], expected_token)
+
+    return hmac.compare_digest(request.args.get("token", ""), expected_token)
+
+
+@app.route('/feedback')
+def get_feedback():
+    """Read recent feedback entries from JSONL storage for external diagnostics."""
+    if not _is_authorized_feedback_request():
+        return jsonify({"error": "unauthorized"}), 401
+
+    import json
+
+    try:
+        limit = max(1, min(int(request.args.get("limit", 20)), 100))
+    except ValueError:
+        limit = 20
+
+    if not os.path.exists(FEEDBACK_FILE):
+        return jsonify({"entries": [], "count": 0, "path": FEEDBACK_FILE})
+
+    entries = []
+    with open(FEEDBACK_FILE, encoding="utf-8") as file:
+        lines = file.readlines()[-limit:]
+
+    for line in lines:
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    return jsonify({"entries": entries, "count": len(entries), "path": FEEDBACK_FILE})
 
 @app.route('/')
 def index():

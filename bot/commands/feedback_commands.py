@@ -6,12 +6,27 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import structlog
 from telegram import Update
 from telegram.ext import ContextTypes
 
 
 FEEDBACK_FILE = Path("data/feedback.jsonl")
 MAX_FEEDBACK_PREVIEW_LENGTH = 800
+logger = structlog.get_logger()
+
+
+FEEDBACK_HELP_TEXT = """💬 <b>Предложения и жалобы</b>
+
+/feedback &lt;текст&gt; — отправить предложение или жалобу
+/suggest &lt;текст&gt; — алиас для предложения
+/complaint &lt;текст&gt; — алиас для жалобы
+
+Для администратора:
+/feedback_list [количество] — показать последние обращения
+
+Пример:
+/feedback Добавьте команду для просмотра топа игроков"""
 
 
 def _feedback_text_from_args(context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -55,10 +70,7 @@ async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     feedback_text = _feedback_text_from_args(context)
     if not feedback_text:
-        await update.message.reply_text(
-            "Используйте: /feedback <предложение или жалоба>\n"
-            "Например: /feedback Добавьте команду для просмотра топа игроков"
-        )
+        await update.message.reply_text(FEEDBACK_HELP_TEXT, parse_mode="HTML")
         return
 
     user = update.effective_user
@@ -74,6 +86,15 @@ async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "chat_type": chat.type,
     }
     _append_feedback(entry)
+    logger.info(
+        "Feedback saved",
+        feedback_text=feedback_text,
+        telegram_id=user.id,
+        username=user.username,
+        chat_id=chat.id,
+        chat_type=chat.type,
+        storage_path=str(FEEDBACK_FILE),
+    )
 
     await update.message.reply_text(
         "✅ Спасибо! Предложение/жалоба сохранены и будут прочитаны разработчиком."

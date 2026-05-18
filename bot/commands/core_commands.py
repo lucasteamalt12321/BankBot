@@ -120,6 +120,8 @@ COMMAND_SECTIONS = {
 /profile — профиль
 /stats — персональная статистика
 /feedback <текст> — предложение или жалоба
+/suggest <текст> — алиас предложения
+/complaint <текст> — алиас жалобы
 /achievements — достижения
 /notifications — уведомления
 /notifications_clear — очистить уведомления

@@ -995,16 +995,24 @@ class TelegramBot:
             message_text,
             bot_username,
         )
+        normalized_command = _normalize_bot_command(message_text)
+        command = mentioned_command or normalized_command
 
-        if mentioned_command == "/start":
-            await self.welcome_command(update, context)
-        elif mentioned_command == "/coder":
+        if command == "/start":
+            await self.safe_start_command(update, context)
+        elif command == "/commands":
+            await commands_menu_command(update, context)
+        elif command == "/feedback_list":
+            await self.feedback_list_command(update, context)
+        elif command in {"/feedback", "/suggest", "/complaint"}:
+            await feedback_command(update, context)
+        elif command == "/coder":
             await self.template_coder_dialog.start_command(update, context)
-        elif mentioned_command == "/help":
+        elif command == "/help":
             await self.template_coder_dialog.help_command(update, context)
-        elif mentioned_command == "/reset":
+        elif command == "/reset":
             await self.template_coder_dialog.reset_command(update, context)
-        elif mentioned_command == "/done":
+        elif command == "/done":
             await self.template_coder_dialog.done_command(update, context)
         elif update.effective_message:
             await update.effective_message.reply_text(

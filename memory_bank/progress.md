@@ -41,10 +41,13 @@
 - Added `bot/commands/feedback_commands.py`.
 - Added `/feedback <text>` command for user suggestions and complaints.
 - Added aliases `/suggest` and `/complaint` to the same feedback handler.
+- `/feedback` without text now shows a feedback command menu with `/feedback`, `/suggest`, `/complaint`, and admin `/feedback_list`.
 - Feedback is saved as append-only JSONL in `data/feedback.jsonl` with UTC timestamp, text, Telegram ID, username, first name, chat ID, and chat type.
 - Added admin-only `/feedback_list [limit]` command to read the latest saved entries from Telegram; limit is clamped to 1–20.
 - Updated `/commands` and `/user` section text to mention `/feedback <текст>`.
 - Verification: `python3 -m ruff check bot/bot.py bot/commands/feedback_commands.py` -> passed; `python3 -m pytest tests/smoke -v` -> `9 passed`.
+- Added external feedback reader for HF: `GET /feedback?limit=N` in `run_bot.py`, protected by `Authorization: Bearer <FEEDBACK_READ_TOKEN|HF_TOKEN>` or `?token=...`.
+- Added structured `Feedback saved` log with full feedback text and metadata when feedback is stored.
 
 ### 2026-05-18 (PR10-PR13 — architecture cleanup and UX watchlist closure)
 - **PR10 completed**: documented canonical layer responsibilities and runtime/legacy boundaries in `docs/README.md`.
