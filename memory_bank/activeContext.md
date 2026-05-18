@@ -9,11 +9,11 @@
 
 ## Выполнено недавно
 - ✅ HF polling hardening: `run_polling()` в HF обёрнут в retry-loop для `TimedOut`/`NetworkError`, чтобы один сетевой таймаут Telegram не переводил Space в `RUNTIME_ERROR`.
-- ✅ HF `/start` safety: на Hugging Face `/start` отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; `drop_pending_updates=True` сбрасывает накопленные апдейты после рестарта.
+- ✅ HF `/start` safety: на Hugging Face `/start` по умолчанию отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; если пользователь включил `/long`, `/start` уважает режим и отдаёт полный welcome. `drop_pending_updates=True` сбрасывает накопленные апдейты после рестарта.
 - ✅ Командная иерархия уточнена: `/commands` — список разделов, `/user` — профиль игрока, `/shop`/`games`/`admin`/`coder` сохраняют старый функционал или разделные подсказки по назначению.
 - ✅ D&D command wiring исправлен: `/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions` проходят через wrapper-методы `TelegramBot` с передачей `get_db`.
 - ✅ Игровые подсказки `/play`, `/join`, `/startgame`, `/turn` переведены с транслита на русский и стали понятнее для команд без аргументов.
-- ✅ FB01: добавлена предложка/жалобы — `/feedback <текст>` (`/suggest`, `/complaint`) сохраняет обращения в `data/feedback.jsonl`; `/feedback_list [limit]` показывает последние записи администратору.
+- ✅ FB01: добавлена предложка/жалобы — `/feedback <текст>` (`/suggest`, `/complaint`) сохраняет обращения в SQLite-таблицу `feedback_entries` с JSONL fallback; `/feedback_list [limit]` показывает последние записи администратору.
 - ✅ PR10-PR13 закрыты: архитектурный runtime/legacy contract зафиксирован в `docs/README.md`, рискованные shim-слои не удалялись, polling kwargs вынесены в чистый builder, UX/watchlist игровых/D&D/shop команд закрыт безопасными правками.
 - ✅ Flask health/metrics/logs сервер на порту `7860` в `run_bot.py`.
 - ✅ Dockerfile обновлён до `python:3.12-slim` с health check на `:7860/health`.
@@ -77,7 +77,7 @@
 - N02 tests: `tests/unit/test_notification_system.py` — realtime fanout, ADB command build, user-id mapping.
 - N02 command wiring: `/notify_status` и `/test_adb` подключены в `bot/bot.py`.
 - M01: completed — диалоговый кодер текстовых шаблонов с `/coder`, `/help`, `/reset`, TTL 30 минут, 19 unit-тестов.
-- FB01: completed — пользовательская предложка и жалобы с JSONL-хранилищем и админским просмотром.
+- FB01: completed — пользовательская предложка и жалобы с SQLite-хранилищем, JSONL fallback, админским просмотром и защищённым external reader `/feedback`.
 - Startup resilience: `config_manager` проверяет `inspector.has_table("parsing_rules")` до запроса; `bot/main.py` делает `ensure_schema_up_to_date()` первым делом.
 - Runtime lesson: локальный BankBot — только `Python 3.12`; `3.14` вызывает crash в `python-telegram-bot==20.7`.
 - Env split: `config/.env.shared` (committable) + `config/.env.local` (secrets), fallback на legacy `config/.env`.

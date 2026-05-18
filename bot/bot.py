@@ -45,6 +45,7 @@ from bot.commands.core_commands import (
     commands_menu_command,
     command_section_command,
     COMMAND_SECTIONS,
+    get_user_mode,
 )
 from bot.commands.shop_commands_ptb import (
     shop_command,
@@ -678,6 +679,10 @@ class TelegramBot:
             return
 
         self.template_coder_dialog.reset_state(context)
+        if get_user_mode(update.effective_user.id if update.effective_user else None) == "long":
+            await self.welcome_command(update, context)
+            return
+
         await update.message.reply_text(
             "Привет! Бот работает.\n"
             "Команды: /commands, /user, /shop, /games, /admin, /config, /coder."

@@ -73,7 +73,8 @@ def _ensure_feedback_table(db) -> None:
 
 def _append_feedback_db(entry: dict) -> None:
     """Append feedback entry to SQLite storage."""
-    db = next(get_db())
+    db_generator = get_db()
+    db = next(db_generator)
     try:
         _ensure_feedback_table(db)
         db.execute(
@@ -92,12 +93,16 @@ def _append_feedback_db(entry: dict) -> None:
         )
         db.commit()
     finally:
-        db.close()
+        try:
+            next(db_generator)
+        except StopIteration:
+            pass
 
 
 def _read_feedback_entries_db(limit: int) -> list[dict]:
     """Read latest feedback entries from SQLite storage."""
-    db = next(get_db())
+    db_generator = get_db()
+    db = next(db_generator)
     try:
         _ensure_feedback_table(db)
         rows = db.execute(
@@ -114,7 +119,10 @@ def _read_feedback_entries_db(limit: int) -> list[dict]:
         ).mappings()
         return [dict(row) for row in reversed(list(rows))]
     finally:
-        db.close()
+        try:
+            next(db_generator)
+        except StopIteration:
+            pass
 
 
 def _read_feedback_entries(limit: int) -> list[dict]:

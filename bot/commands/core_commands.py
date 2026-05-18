@@ -198,11 +198,23 @@ async def command_section_command(update: Update, context: ContextTypes.DEFAULT_
 # Хранение режимов пользователей (short/long)
 _user_modes = {}
 
+
+def get_user_mode(user_id: int | None) -> str | None:
+    """Return explicitly selected response mode for a Telegram user."""
+    if user_id is None:
+        return None
+    return _user_modes.get(user_id)
+
+
+def get_default_user_mode(user_id: int | None) -> str:
+    """Return selected mode or environment-specific default mode."""
+    return get_user_mode(user_id) or ("short" if os.environ.get("SPACE_ID") else "long")
+
+
 def get_welcome_text(name, registration_status, admin_status, user_id):
     """Выбирает короткий или длинный welcome текст."""
-    is_hf = os.environ.get("SPACE_ID")
-    mode = _user_modes.get(user_id, "short" if is_hf else "long")
-    
+    mode = get_default_user_mode(user_id)
+
     if mode == "short":
         return WELCOME_TEXT_SHORT.format(
             name=html.escape(name or "Пользователь"),

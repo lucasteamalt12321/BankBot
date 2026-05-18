@@ -42,12 +42,14 @@
 - Added `/feedback <text>` command for user suggestions and complaints.
 - Added aliases `/suggest` and `/complaint` to the same feedback handler.
 - `/feedback` without text now shows a feedback command menu with `/feedback`, `/suggest`, `/complaint`, and admin `/feedback_list`.
-- Feedback is saved as append-only JSONL in `data/feedback.jsonl` with UTC timestamp, text, Telegram ID, username, first name, chat ID, and chat type.
-- Added admin-only `/feedback_list [limit]` command to read the latest saved entries from Telegram; limit is clamped to 1–20.
+- Feedback is saved primarily in SQLite table `feedback_entries` with UTC timestamp, text, Telegram ID, username, first name, chat ID, and chat type. Append-only `data/feedback.jsonl` remains as fallback/debug mirror.
+- Added admin-only `/feedback_list [limit]` command to read the latest saved entries from SQLite with JSONL fallback; limit is clamped to 1–20.
 - Updated `/commands` and `/user` section text to mention `/feedback <текст>`.
 - Verification: `python3 -m ruff check bot/bot.py bot/commands/feedback_commands.py` -> passed; `python3 -m pytest tests/smoke -v` -> `9 passed`.
-- Added external feedback reader for HF: `GET /feedback?limit=N` in `run_bot.py`, protected by `Authorization: Bearer <FEEDBACK_READ_TOKEN|HF_TOKEN>` or `?token=...`.
+- Added external feedback reader for HF: `GET /feedback?limit=N` in `run_bot.py`, protected by `Authorization: Bearer <FEEDBACK_READ_TOKEN|HF_TOKEN|BOT_TOKEN>` or `?token=...`.
 - Added structured `Feedback saved` log with full feedback text and metadata when feedback is stored.
+- Fixed: JSONL-only feedback storage on HF could confirm save but later show empty `/feedback_list`; SQLite `feedback_entries` is now primary storage and JSONL remains fallback/debug mirror.
+- Fixed: `/long` mode did not affect HF `/start` because `safe_start_command` always forced the short text. HF `/start` now delegates to full `welcome_command` when the user mode is `long`.
 
 ### 2026-05-18 (PR10-PR13 — architecture cleanup and UX watchlist closure)
 - **PR10 completed**: documented canonical layer responsibilities and runtime/legacy boundaries in `docs/README.md`.
@@ -65,7 +67,7 @@
 ## Current Known Issues / Watchlist
 - HF networking can still produce Telegram `TimedOut`; retry-loop should keep the process alive, but run logs should be monitored after deploy.
 - Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` + `drop_pending_updates=True` were added to prevent recurrence.
-- After deployment, manually smoke-test `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback` in Telegram.
+- After deployment, manually smoke-test `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback`, `/long`→`/start`, `/feedback_list` in Telegram.
 
 ## last_checked_commit
 - 2026-05-18 (PR10-PR13 local verification before commit)
