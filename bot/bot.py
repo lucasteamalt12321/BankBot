@@ -3,8 +3,10 @@ import logging
 import asyncio
 import os
 import signal
+import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -140,6 +142,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = structlog.get_logger()
+POLLING_RETRY_DELAY_SECONDS = 5
 
 
 def build_polling_kwargs(is_hf: bool) -> dict:
@@ -1164,7 +1167,32 @@ class TelegramBot:
             is_hf = self._is_hugging_face()
             polling_kwargs = build_polling_kwargs(is_hf)
 
-            self.application.run_polling(**polling_kwargs)
+            if is_hf:
+                # HF can raise transient TimedOut from getUpdates and stop the
+                # whole polling loop. Keep the Space alive, but never drop
+                # pending updates on retries so user commands are preserved.
+                while not self._shutdown_requested:
+                    try:
+                        self.application.run_polling(**polling_kwargs)
+                        break
+                    except (TimedOut, NetworkError) as e:
+                        logger.warning(
+                            "Polling interrupted by transient Telegram network error, retrying...",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
+                        )
+                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
+                    except Exception as e:
+                        logger.error(
+                            "Polling crashed in Hugging Face environment, retrying to keep Space alive...",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
+                        )
+                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
+            else:
+                self.application.run_polling(**polling_kwargs)
             logger.info("Polling stopped.")
         except KeyboardInterrupt:
             logger.info("Bot stopped by user (Ctrl+C)")
