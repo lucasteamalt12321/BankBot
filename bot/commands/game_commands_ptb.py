@@ -49,7 +49,10 @@ async def play_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         await update.message.reply_text(
-            "Ukazhite tip igry:\n/play cities\n/play killer_words\n/play gd_levels"
+            "Укажите тип игры:\n"
+            "/play cities — Города\n"
+            "/play killer_words — слова, которые могут убить\n"
+            "/play gd_levels — уровни Geometry Dash"
         )
         return
 
@@ -58,7 +61,7 @@ async def play_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if game_type not in valid_games:
         await update.message.reply_text(
-            f"Neizvestnyy tip igry. Dostupnye: {', '.join(valid_games)}"
+            f"Неизвестный тип игры. Доступные: {', '.join(valid_games)}"
         )
         return
 
@@ -82,7 +85,7 @@ ID игры: {session.id}
         """
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        await update.message.reply_text(f"Ошибка: {str(e)}")
     finally:
         db.close()
 
@@ -92,7 +95,7 @@ async def join_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     if not context.args or not context.args[0].isdigit():
-        await update.message.reply_text("Ispolzuyte: /join <id_igry>")
+        await update.message.reply_text("Используйте: /join <id_игры>")
         return
 
     session_id = int(context.args[0])
@@ -104,19 +107,19 @@ async def join_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if success:
             await update.message.reply_text(
-                f"Vy prisoyedinilis k igre #{session_id}\n"
-                f"Ozhidayte nachala igry ot sozdatelya."
+                f"Вы присоединились к игре #{session_id}\n"
+                "Ожидайте начала игры от создателя."
             )
         else:
             await update.message.reply_text(
-                "Ne udalos prisoyedinit k igre. Vozmozhnye prichiny:\n"
-                "• Igra uzhe nachalas\n"
-                "• Vy uzhe uchastvuyete v igre\n"
-                "• Dostignut limit igrokov\n"
-                "• Igra ne naidena"
+                "Не удалось присоединиться к игре. Возможные причины:\n"
+                "• Игра уже началась\n"
+                "• Вы уже участвуете в игре\n"
+                "• Достигнут лимит игроков\n"
+                "• Игра не найдена"
             )
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        await update.message.reply_text(f"Ошибка: {str(e)}")
     finally:
         db.close()
 
@@ -126,7 +129,10 @@ async def start_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user = update.effective_user
 
     if not context.args or not context.args[0].isdigit():
-        await update.message.reply_text("Ispolzuyte: /startgame <id_igry>")
+        await update.message.reply_text(
+            "Используйте: /startgame <id_игры>\n"
+            "ID игры появляется после /play <тип_игры>."
+        )
         return
 
     session_id = int(context.args[0])
@@ -150,26 +156,26 @@ async def start_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
                 if current_player:
                     text = f"""
-[GAME] <b>Igra #{session_id} nachalas!</b>
+[GAME] <b>Игра #{session_id} началась!</b>
 
-Tip igry: {session_info["game_type"]}
-Tekushchiy igrok: Пользователь #{current_player["user_id"]}
-Kolichestvo igrokov: {len(session_info["players"])}
+Тип игры: {session_info["game_type"]}
+Текущий игрок: Пользователь #{current_player["user_id"]}
+Количество игроков: {len(session_info["players"])}
 
-[TIP] Tekushchiy igrok mozhet sdelat khod:
-/turn {session_id} <vash_khod>
+[TIP] Текущий игрок может сделать ход:
+/turn {session_id} <ваш_ход>
                     """
                     await update.message.reply_text(text, parse_mode="HTML")
         else:
             await update.message.reply_text(
-                "Ne udalos nachat igru. Vozmozhnye prichiny:\n"
-                "• Vy ne sozdatel igry\n"
-                "• Igra uzhe nachalas\n"
-                "• Nedostatochno igrokov (minimum 2)\n"
-                "• Igra ne naidena"
+                "Не удалось начать игру. Возможные причины:\n"
+                "• Вы не создатель игры\n"
+                "• Игра уже началась\n"
+                "• Недостаточно игроков (минимум 2)\n"
+                "• Игра не найдена"
             )
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        await update.message.reply_text(f"Ошибка: {str(e)}")
     finally:
         db.close()
 
@@ -179,14 +185,17 @@ async def game_turn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     if len(context.args) < 2:
-        await update.message.reply_text("Ispolzuyte: /turn <id_igry> <vash_khod>")
+        await update.message.reply_text(
+            "Используйте: /turn <id_игры> <ваш_ход>\n"
+            "Например: /turn 1 Москва"
+        )
         return
 
     try:
         session_id = int(context.args[0])
         turn_input = " ".join(context.args[1:])
     except ValueError:
-        await update.message.reply_text("Nevernyy format komandy")
+        await update.message.reply_text("Неверный формат команды")
         return
 
     db = next(get_db())
@@ -195,11 +204,11 @@ async def game_turn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session_info = games.get_game_session_info(session_id)
 
         if not session_info or session_info["status"] != "active":
-            await update.message.reply_text("Igra ne aktivna ili ne naidena")
+            await update.message.reply_text("Игра не активна или не найдена")
             return
 
         if session_info["current_player_id"] != user.id:
-            await update.message.reply_text("Seichas ne vash khod")
+            await update.message.reply_text("Сейчас не ваш ход")
             return
 
         if session_info["game_type"] == "cities":
@@ -209,11 +218,11 @@ async def game_turn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif session_info["game_type"] == "gd_levels":
             result = games.process_gd_levels_turn(session_id, user.id, turn_input)
         else:
-            await update.message.reply_text("Neizvestnyy tip igry")
+            await update.message.reply_text("Неизвестный тип игры")
             return
 
-        await update.message.reply_text(result.get("message", "Khod sdelan"))
+        await update.message.reply_text(result.get("message", "Ход сделан"))
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        await update.message.reply_text(f"Ошибка: {str(e)}")
     finally:
         db.close()

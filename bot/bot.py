@@ -295,10 +295,10 @@ class TelegramBot:
             CommandHandler("turn", game_turn_command),
             # D&D
             CommandHandler("dnd", dnd_command),
-            CommandHandler("dnd_create", dnd_create_command),
-            CommandHandler("dnd_join", dnd_join_command),
-            CommandHandler("dnd_roll", dnd_roll_command),
-            CommandHandler("dnd_sessions", dnd_sessions_command),
+            CommandHandler("dnd_create", self.dnd_create_command),
+            CommandHandler("dnd_join", self.dnd_join_command),
+            CommandHandler("dnd_roll", self.dnd_roll_command),
+            CommandHandler("dnd_sessions", self.dnd_sessions_command),
             # Мотивация
             CommandHandler("daily", daily_bonus_command),
             CommandHandler("bonus", daily_bonus_command),
@@ -673,6 +673,22 @@ class TelegramBot:
         """Показать раздел кодера и запустить старый /coder."""
         await update.message.reply_text(COMMAND_SECTIONS["coder"])
         await self.template_coder_dialog.start_command(update, context)
+
+    async def dnd_create_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Создать D&D-сессию с доступом к get_db."""
+        await dnd_create_command(update, context, get_db)
+
+    async def dnd_join_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Присоединиться к D&D-сессии с доступом к get_db."""
+        await dnd_join_command(update, context, get_db)
+
+    async def dnd_roll_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Бросить D&D-кубики с доступом к get_db."""
+        await dnd_roll_command(update, context, get_db)
+
+    async def dnd_sessions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать D&D-сессии с доступом к get_db."""
+        await dnd_sessions_command(update, context, get_db)
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /balance - проверка баланса."""
