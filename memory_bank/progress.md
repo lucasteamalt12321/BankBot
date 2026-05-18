@@ -38,6 +38,9 @@
 - HF runtime was `RUNNING`, but `/health` timed out. Likely PostgreSQL connection attempts can hang without a short DBAPI connect timeout. Hotfix in progress: add `connect_timeout` for PostgreSQL engines and simplify `/health` DB check via `engine.connect()`.
 - New direct user-reported P1 bug: `/start@lt_lo_game_bot` and `/user@lt_lo_game_bot` now answer, but `/ai@lt_lo_game_bot` with no args does not. Likely root cause: AI help is sent with `parse_mode="HTML"` and contains unescaped `/ai@lt_lo_game_bot <вопрос>`, so Telegram rejects invalid HTML.
 - Feedback endpoint check after PostgreSQL switch returned JSONL fallback with `count=0`; root cause: `feedback_entries` helper used SQLite-only `INTEGER PRIMARY KEY AUTOINCREMENT`, which fails on PostgreSQL. Hotfix: generate dialect-specific ID column (`SERIAL` on PostgreSQL) and report actual DB backend in `/feedback` response.
+- Supabase pooler activation completed: HF secret `DATABASE_URL` was corrected to one-line Session Pooler URI and `/health` confirmed `{"database":"postgresql","service":"BankBot","status":"healthy"}`.
+- Direct user-reported regressions fixed and deployed: `/start@lt_lo_game_bot`, `/user@lt_lo_game_bot`, `/ai@lt_lo_game_bot` no-args HTML escaping, PostgreSQL connect timeout, and remaining legacy sqlite calls in bot runtime.
+- Feedback DB hotfix deployed: `feedback_entries` DDL is now dialect-aware (`SERIAL` on PostgreSQL, `AUTOINCREMENT` on SQLite). Need final live `/feedback?limit=N` re-check after HF startup settles.
 
 ### 2026-05-18 (AI01 — free local AI-lite assistant)
 - Started AI01: add a free local AI-lite assistant without paid API keys or mandatory external providers.
@@ -104,7 +107,8 @@
 ## Current Known Issues / Watchlist
 - HF networking can still produce Telegram `TimedOut`; retry-loop should keep the process alive, but run logs should be monitored after deploy.
 - Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` + `drop_pending_updates=True` were added to prevent recurrence.
-- After deployment, manually smoke-test `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback`, `/long`→`/start`, `/feedback_list` in Telegram.
+- After deployment, manually smoke-test `/start`, `/user`, `/ai`, `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback`, `/long`→`/start`, `/feedback_list` in Telegram.
+- Verify external `/feedback?limit=N` returns `storage=postgresql` instead of JSONL fallback after the latest feedback DDL hotfix is live.
 
 ## last_checked_commit
 - 2026-05-18 (PR10-PR13 local verification before commit)

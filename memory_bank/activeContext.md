@@ -1,7 +1,7 @@
 # Active Context
 
 ## Текущий фокус
-**P0 фокус: DB01 — переход production/HF с ephemeral SQLite на persistent PostgreSQL/Supabase.** Причина: при restart/rebuild Hugging Face локальная БД может обнуляться. AI02 отложен после DB01.
+**P0 фокус: DB01 — production/HF переведён на persistent PostgreSQL/Supabase, идёт стабилизация PostgreSQL-регрессий.** Причина: при restart/rebuild Hugging Face локальная БД обнулялась. AI02 отложен до закрытия DB01/feedback-регрессий.
 
 ## Приоритет обработки задач
 1. Баги, на которые прямо указывает пользователь.
@@ -14,16 +14,14 @@
 ## Последнее обновление: 2026-05-18
 
 ## Выполнено недавно
-- 🔄 DB01 in progress: добавить PostgreSQL/Supabase production storage через env (`DATABASE_URL`/`POSTGRES_URL`) с SQLite local/dev fallback; проверить Alembic/schema startup и health endpoint.
-- ✅ DB01 implementation step: env aliases, Alembic URL override, empty PostgreSQL bootstrap, SQLAlchemy-based AdminSystem, and DB backend health diagnostics added locally. Needs Supabase `DATABASE_URL`/`POSTGRES_URL` secret in HF before production persistence is active.
-- 🔴 DB01 deploy issue: Supabase direct URI on `db.xrrdliznuyausiutxqwv.supabase.co:5432` is unreachable from HF over IPv6. Use Supabase Transaction pooler URI on `*.pooler.supabase.com:6543` or temporarily remove `DATABASE_URL` to restore SQLite fallback.
-- 🔴 DB01 regression: `/user@lt_lo_game_bot` fails because legacy profile code calls `AdminSystem.get_db_connection()` after AdminSystem SQLAlchemy migration. Restore compatibility immediately.
-- 🔴 Current direct user-reported bug: bot does not answer `/user@lt_lo_game_bot` or `/start@lt_lo_game_bot` after DB01 hotfix deploy. Must diagnose via HF runtime/logs without `getUpdates`.
-- 🔴 Current direct user-reported bug: `/ai@lt_lo_game_bot` with no args does not answer while `/start` and `/user` do. Fix AI help HTML escaping.
+- ✅ DB01 production activation: Hugging Face `DATABASE_URL` secret установлен на Supabase Session Pooler (`aws-0-eu-west-1.pooler.supabase.com:5432`), `/health` показывает `database=postgresql`.
+- ✅ DB01 implementation: env aliases, Alembic URL override, empty PostgreSQL bootstrap, SQLAlchemy-based AdminSystem, DB backend health diagnostics, PostgreSQL connect timeout.
+- ✅ DB01 deploy issue resolved: duplicate public/secret `DATABASE_URL` fixed; direct IPv6 URI replaced with Supabase pooler URI.
+- ✅ DB01 regressions fixed: `/user`, `/start`, AI help, parsing/admin/shop legacy sqlite call sites migrated or fixed; `/health` stable on PostgreSQL.
+- 🔄 Current priority check: feedback endpoint after PostgreSQL switch was falling back to JSONL due to SQLite-only `AUTOINCREMENT`; dialect-specific feedback DDL was implemented and deployed, final live re-check still needed after HF startup settles.
 - ✅ AI01 implemented locally: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; даёт подсказки по командам, играм, магазину, feedback и режимам ответов без риска платных API и HF-зависаний.
-- 🔴 Новая проблема в очереди: после `/feedback тест` команда `/start@lt_lo_game_bot` не отвечает. Диагностика должна идти через HF runtime/log endpoints, без ручного `getUpdates`, чтобы не мешать polling.
-- 🔴 Новая AI01 проблема: `/ai@lt_lo_game_bot` отвечает справкой, но bare `/ai что это за бот?` в чате не отвечает. Нужно улучшить ответ на “что это за бот” и проверить bare-command handling vs group mention semantics.
-- 🔴 AI01 feedback: пользователи воспринимают текущий AI-lite как слишком тупой, потому что это keyword helper, а не LLM. Нужно честнее позиционировать его как бесплатный справочник/помощник по командам и улучшить fallback на оффтоп.
+- ✅ Earlier `/start`, `/user`, `/ai` direct user-reported regressions have corresponding hotfixes deployed to HF.
+- ✅ AI01 feedback handled: текущий AI-lite честно позиционируется как бесплатный справочник/помощник по командам, fallback на оффтоп улучшен.
 - 💡 AI02 proposal: Никита предложил бесплатный Hugging Face API для более умных ответов. Делать только optional/free, с локальным AI-lite fallback и без риска для HF runtime.
 - ✅ HF polling hardening: `run_polling()` в HF обёрнут в retry-loop для `TimedOut`/`NetworkError`, чтобы один сетевой таймаут Telegram не переводил Space в `RUNTIME_ERROR`.
 - ✅ HF `/start` safety: на Hugging Face `/start` по умолчанию отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; если пользователь включил `/long`, `/start` уважает режим и отдаёт полный welcome. `drop_pending_updates=True` сбрасывает накопленные апдейты после рестарта.
