@@ -44,6 +44,7 @@ from bot.commands.core_commands import (
     long_mode_command,
     commands_menu_command,
     command_section_command,
+    COMMAND_SECTIONS,
 )
 from bot.commands.shop_commands_ptb import (
     shop_command,
@@ -259,11 +260,11 @@ class TelegramBot:
         handlers = [
             CommandHandler("start", self.welcome_command),
             CommandHandler("user", command_section_command),
-            CommandHandler("shop", command_section_command),
-            CommandHandler("games", command_section_command),
-            CommandHandler("admin", command_section_command),
+            CommandHandler("shop", self.shop_with_section_command),
+            CommandHandler("games", self.games_with_section_command),
+            CommandHandler("admin", self.admin_with_section_command),
             CommandHandler("config", command_section_command),
-            CommandHandler("coder", command_section_command),
+            CommandHandler("coder", self.coder_with_section_command),
             CommandHandler("short", short_mode_command),
             CommandHandler("long", long_mode_command),
             CommandHandler("commands", commands_menu_command),
@@ -633,6 +634,27 @@ class TelegramBot:
             self.template_coder_dialog.service.welcome_hint_text(),
             parse_mode="HTML",
         )
+
+
+    async def shop_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать раздел магазина и старый функционал /shop."""
+        await update.message.reply_text(COMMAND_SECTIONS["shop"])
+        await self.shop_command(update, context)
+
+    async def games_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать раздел игр и старый функционал /games."""
+        await update.message.reply_text(COMMAND_SECTIONS["games"])
+        await games_command(update, context)
+
+    async def admin_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать раздел админ-команд и старую админ-панель."""
+        await update.message.reply_text(COMMAND_SECTIONS["admin"])
+        await admin_command(update, context)
+
+    async def coder_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать раздел кодера и запустить старый /coder."""
+        await update.message.reply_text(COMMAND_SECTIONS["coder"])
+        await self.template_coder_dialog.start_command(update, context)
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /balance - проверка баланса."""
