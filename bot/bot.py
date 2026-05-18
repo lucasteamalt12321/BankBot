@@ -129,6 +129,7 @@ from bot.commands.user_commands import (
     buy_8_command,
 )
 from bot.commands.feedback_commands import feedback_command, feedback_list_command
+from bot.commands.ai_commands import ai_command, ai_help_command
 from bot.template_coder import TemplateCoderDialog
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
@@ -304,6 +305,9 @@ class TelegramBot:
             CommandHandler("short", short_mode_command),
             CommandHandler("long", long_mode_command),
             CommandHandler("commands", commands_menu_command),
+            CommandHandler("ai", ai_command),
+            CommandHandler("ask", ai_command),
+            CommandHandler("ai_help", ai_help_command),
             CommandHandler("feedback", feedback_command),
             CommandHandler("suggest", feedback_command),
             CommandHandler("complaint", feedback_command),
@@ -685,7 +689,7 @@ class TelegramBot:
 
         await update.message.reply_text(
             "Привет! Бот работает.\n"
-            "Команды: /commands, /user, /shop, /games, /admin, /config, /coder."
+            "Команды: /commands, /user, /shop, /games, /admin, /config, /coder, /ai."
         )
 
     async def welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -981,6 +985,7 @@ class TelegramBot:
                 "/profile - ваш профиль\n"
                 "/shop - магазин товаров\n"
                 "/games - мини-игры\n"
+                "/ai <вопрос> - бесплатный AI-lite помощник\n"
                 "/dnd - D&D мастерская\n"
                 "/daily - ежедневный бонус\n"
                 "/challenges - задания\n\n"
@@ -1007,6 +1012,10 @@ class TelegramBot:
             await self.safe_start_command(update, context)
         elif command == "/commands":
             await commands_menu_command(update, context)
+        elif command in {"/ai", "/ask"}:
+            await ai_command(update, context)
+        elif command == "/ai_help":
+            await ai_help_command(update, context)
         elif command == "/feedback_list":
             await self.feedback_list_command(update, context)
         elif command in {"/feedback", "/suggest", "/complaint"}:

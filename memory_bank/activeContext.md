@@ -1,13 +1,15 @@
 # Active Context
 
 ## Текущий фокус
-**Hugging Face runtime стабилизируется после сетевых таймаутов Telegram.** Health endpoint отвечает, `socket.getaddrinfo` monkey patch остаётся активным, polling теперь перезапускается после transient timeout вместо завершения процесса.
+**Добавляется бесплатный локальный AI-lite помощник без платных API.** HF runtime остаётся стабильным: health endpoint отвечает, `socket.getaddrinfo` monkey patch остаётся активным, polling перезапускается после transient timeout вместо завершения процесса.
 
 ## Статус проекта: 100% (базовый функционал) + HF Deployment ✅
 
 ## Последнее обновление: 2026-05-18
 
 ## Выполнено недавно
+- ✅ AI01 implemented locally: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; даёт подсказки по командам, играм, магазину, feedback и режимам ответов без риска платных API и HF-зависаний.
+- 🔴 Новая проблема в очереди: после `/feedback тест` команда `/start@lt_lo_game_bot` не отвечает. Диагностика должна идти через HF runtime/log endpoints, без ручного `getUpdates`, чтобы не мешать polling.
 - ✅ HF polling hardening: `run_polling()` в HF обёрнут в retry-loop для `TimedOut`/`NetworkError`, чтобы один сетевой таймаут Telegram не переводил Space в `RUNTIME_ERROR`.
 - ✅ HF `/start` safety: на Hugging Face `/start` по умолчанию отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; если пользователь включил `/long`, `/start` уважает режим и отдаёт полный welcome. `drop_pending_updates=True` сбрасывает накопленные апдейты после рестарта.
 - ✅ Командная иерархия уточнена: `/commands` — список разделов, `/user` — профиль игрока, `/shop`/`games`/`admin`/`coder` сохраняют старый функционал или разделные подсказки по назначению.
@@ -78,6 +80,7 @@
 - N02 command wiring: `/notify_status` и `/test_adb` подключены в `bot/bot.py`.
 - M01: completed — диалоговый кодер текстовых шаблонов с `/coder`, `/help`, `/reset`, TTL 30 минут, 19 unit-тестов.
 - FB01: completed — пользовательская предложка и жалобы с SQLite-хранилищем, JSONL fallback, админским просмотром и защищённым external reader `/feedback`.
+- AI01: completed locally — `bot/ai/service.py`, `bot/commands/ai_commands.py`, команды `/ai`, `/ask`, `/ai_help`, unit-тесты без внешних API.
 - Startup resilience: `config_manager` проверяет `inspector.has_table("parsing_rules")` до запроса; `bot/main.py` делает `ensure_schema_up_to_date()` первым делом.
 - Runtime lesson: локальный BankBot — только `Python 3.12`; `3.14` вызывает crash в `python-telegram-bot==20.7`.
 - Env split: `config/.env.shared` (committable) + `config/.env.local` (secrets), fallback на legacy `config/.env`.

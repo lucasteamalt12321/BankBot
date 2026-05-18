@@ -20,6 +20,20 @@
 
 ## Changelog
 
+### 2026-05-18 (AI01 — free local AI-lite assistant)
+- Started AI01: add a free local AI-lite assistant without paid API keys or mandatory external providers.
+- Target commands: `/ai <question>`, `/ask <question>`, `/ai_help`.
+- Scope: command/navigation help, game/shop/feedback/mode hints, safe short responses for Hugging Face.
+- User constraint: implementation must be free by default; no paid API dependency is acceptable for the baseline.
+- Implemented `bot/ai/service.py` with deterministic keyword-routed local answers and no network/API key dependency.
+- Added `bot/commands/ai_commands.py` and wired `/ai`, `/ask`, `/ai_help` in `bot/bot.py`, including mentioned-command fallback.
+- Updated `/commands`, private-message help, and short HF `/start` command list to mention `/ai`.
+- Added `tests/unit/test_ai_lite.py` for free-mode help, topic routing, fallback, and prompt length guard.
+
+### 2026-05-18 (New issue queue)
+- User reported after sending `/feedback тест`: `/start@lt_lo_game_bot` does not answer. Must diagnose HF runtime/logs without manual `getUpdates` to avoid interfering with polling. Check whether latest local/GitHub fixes were deployed to Hugging Face, whether polling is alive, and whether mentioned-command fallback handles `/start@lt_lo_game_bot` correctly after deploy.
+- Action taken: HF runtime showed `RUNNING`, but `/health` timed out and run logs endpoint was not practically readable from the current request. Uploaded latest runtime fixes (`bot/bot.py`, core/feedback commands, Memory Bank files) to HF Space and called `restart_space()`.
+
 ### 2026-05-18 (HF runtime and command UX stabilization)
 - **HF runtime fix**: `bot/bot.py` now retries `run_polling()` in Hugging Face on transient `TimedOut`/`NetworkError` instead of letting a single Telegram timeout stop the process and move the Space to `RUNTIME_ERROR`.
 - **HF safe `/start`**: `/start` is routed through `safe_start_command` on HF and sends one short response only. This avoids long welcome spam and template-coder hint spam in groups after restarts.

@@ -40,6 +40,7 @@ High-level документация по текущей архитектуре, 
 - `bot/main.py` - startup flow, валидация, schema sync, graceful shutdown
 - `bot/bot.py` - основной класс Telegram-бота и регистрация функциональности
 - `bot/commands/` - модульные обработчики команд
+- `bot/ai/` - бесплатный локальный AI-lite помощник без платных API; команды `/ai`, `/ask`, `/ai_help`
 - `bot/router.py` - маршрутизация и wiring отдельных команд
 - `bot/template_coder/` - параметрический диалоговый кодер 10 шаблонов без таблиц пар/троек; хранит состояние в `chat_data`, поддерживает `/coder`, `/reset`, `/done`, `/help`
 
