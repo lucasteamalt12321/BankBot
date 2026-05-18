@@ -256,6 +256,8 @@ class TelegramBot:
         # Основные команды
         handlers = [
             CommandHandler("start", self.welcome_command),
+            CommandHandler("short", short_mode_command),
+            CommandHandler("long", long_mode_command),
             CommandHandler("ping", ping_command),
             CommandHandler("test_notify", test_notify_command),
             CommandHandler("balance", self.balance_command),
