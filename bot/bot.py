@@ -1161,12 +1161,22 @@ class TelegramBot:
             polling_kwargs = build_polling_kwargs(is_hf)
 
             if is_hf:
+                first_polling_start = True
                 while not self._shutdown_requested:
                     try:
-                        self.application.run_polling(**polling_kwargs)
+                        current_polling_kwargs = {
+                            **polling_kwargs,
+                            # Drop stale updates only once after container start. On HF
+                            # transient getUpdates timeouts can force polling retries;
+                            # dropping pending updates on every retry loses fresh user
+                            # commands like `/ai чай` sent during the unstable window.
+                            "drop_pending_updates": first_polling_start,
+                        }
+                        self.application.run_polling(**current_polling_kwargs)
                         logger.info("Polling stopped.")
                         break
                     except (TimedOut, NetworkError) as e:
+                        first_polling_start = False
                         logger.warning(
                             "Polling interrupted by transient Telegram network error, retrying...",
                             error=str(e),
@@ -1175,6 +1185,7 @@ class TelegramBot:
                         )
                         time.sleep(POLLING_RETRY_DELAY_SECONDS)
                     except Exception as e:
+                        first_polling_start = False
                         logger.error(
                             "Polling crashed in Hugging Face environment, retrying to keep Space alive...",
                             error=str(e),
