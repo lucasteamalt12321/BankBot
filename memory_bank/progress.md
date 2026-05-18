@@ -37,6 +37,15 @@
   - GitHub commits pushed through `f0dc04b fix(bot): корректные ответы игровых команд`.
   - Hugging Face Space `LucasTeam/BankBot` updated via `huggingface_hub.HfApi().upload_file()` for touched files.
 
+### 2026-05-18 (FB01 — feedback/suggestions inbox)
+- Added `bot/commands/feedback_commands.py`.
+- Added `/feedback <text>` command for user suggestions and complaints.
+- Added aliases `/suggest` and `/complaint` to the same feedback handler.
+- Feedback is saved as append-only JSONL in `data/feedback.jsonl` with UTC timestamp, text, Telegram ID, username, first name, chat ID, and chat type.
+- Added admin-only `/feedback_list [limit]` command to read the latest saved entries from Telegram; limit is clamped to 1–20.
+- Updated `/commands` and `/user` section text to mention `/feedback <текст>`.
+- Verification: `python3 -m ruff check bot/bot.py bot/commands/feedback_commands.py` -> passed; `python3 -m pytest tests/smoke -v` -> `9 passed`.
+
 ## Current Known Issues / Watchlist
 - HF networking can still produce Telegram `TimedOut`; retry-loop should keep the process alive, but run logs should be monitored.
 - Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` + `drop_pending_updates=True` were added to prevent recurrence.

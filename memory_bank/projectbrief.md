@@ -292,10 +292,13 @@ https://github.com/lucasteamalt12321/BankBot
 | N01 | Прокси и исправление HTML-ошибок | completed | P0 |
 | N02 | Системные уведомления (ntfy/ADB) | completed | P1 |
 | HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | completed | P1 |
+| FB01 | Предложка/жалобы для пользователей бота | completed | P1 |
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
 
 **HF01 notes:** Flask-сервер на `7860` (`/health`, `/metrics`, `/logs`), Dockerfile `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `http_client` builder fallback, `SPACE_ID` detection, Alembic-first startup, config manager resilience к отсутствующим таблицам.
+
+**FB01 notes:** реализованы команды `/feedback <предложение или жалоба>` с алиасами `/suggest` и `/complaint`; обращения сохраняются append-only в `data/feedback.jsonl` с текстом, Telegram ID, username, chat ID, chat type и UTC timestamp. Админ может читать последние обращения через `/feedback_list [limit]` (до 20 записей). Хранилище простое и читаемое ассистентом/разработчиком через файл.
 | PR10 | Архитектурная инвентаризация слоёв `core/src/utils/bank_bot` | P2 | pending |
 | PR11 | Сокращение legacy-дублей и shim-слоёв | P2 | pending |
 | PR12 | Упрощение wiring и startup-кода в `bot/bot.py` и entrypoints | P2 | pending |

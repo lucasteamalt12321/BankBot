@@ -126,6 +126,7 @@ from bot.commands.user_commands import (
     buy_7_command,
     buy_8_command,
 )
+from bot.commands.feedback_commands import feedback_command, feedback_list_command
 from bot.template_coder import TemplateCoderDialog
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
@@ -268,6 +269,10 @@ class TelegramBot:
             CommandHandler("short", short_mode_command),
             CommandHandler("long", long_mode_command),
             CommandHandler("commands", commands_menu_command),
+            CommandHandler("feedback", feedback_command),
+            CommandHandler("suggest", feedback_command),
+            CommandHandler("complaint", feedback_command),
+            CommandHandler("feedback_list", self.feedback_list_command),
             CommandHandler("ping", ping_command),
             CommandHandler("test_notify", test_notify_command),
             CommandHandler("balance", self.balance_command),
@@ -689,6 +694,10 @@ class TelegramBot:
     async def dnd_sessions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать D&D-сессии с доступом к get_db."""
         await dnd_sessions_command(update, context, get_db)
+
+    async def feedback_list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать последние предложения и жалобы администратору."""
+        await feedback_list_command(update, context, settings.ADMIN_TELEGRAM_ID)
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /balance - проверка баланса."""

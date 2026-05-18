@@ -105,6 +105,7 @@ COMMANDS_MENU_TEXT = """📚 Разделы команд
 🛠 /admin — админ-команды
 ⚙️ /config — конфигурация
 🧩 /coder — диалоговый кодер
+💬 /feedback — предложения и жалобы
 
 Режимы ответов: /short или /long
 """
@@ -118,6 +119,7 @@ COMMAND_SECTIONS = {
 /history — история транзакций
 /profile — профиль
 /stats — персональная статистика
+/feedback <текст> — предложение или жалоба
 /achievements — достижения
 /notifications — уведомления
 /notifications_clear — очистить уведомления

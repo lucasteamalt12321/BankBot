@@ -13,6 +13,7 @@
 - ✅ Командная иерархия уточнена: `/commands` — список разделов, `/user` — профиль игрока, `/shop`/`games`/`admin`/`coder` сохраняют старый функционал или разделные подсказки по назначению.
 - ✅ D&D command wiring исправлен: `/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions` проходят через wrapper-методы `TelegramBot` с передачей `get_db`.
 - ✅ Игровые подсказки `/play`, `/join`, `/startgame`, `/turn` переведены с транслита на русский и стали понятнее для команд без аргументов.
+- ✅ FB01: добавлена предложка/жалобы — `/feedback <текст>` (`/suggest`, `/complaint`) сохраняет обращения в `data/feedback.jsonl`; `/feedback_list [limit]` показывает последние записи администратору.
 - ✅ Flask health/metrics/logs сервер на порту `7860` в `run_bot.py`.
 - ✅ Dockerfile обновлён до `python:3.12-slim` с health check на `:7860/health`.
 - ✅ `bot/main.py` — Alembic-first миграции до инициализации систем.
@@ -74,6 +75,7 @@
 - N02 tests: `tests/unit/test_notification_system.py` — realtime fanout, ADB command build, user-id mapping.
 - N02 command wiring: `/notify_status` и `/test_adb` подключены в `bot/bot.py`.
 - M01: completed — диалоговый кодер текстовых шаблонов с `/coder`, `/help`, `/reset`, TTL 30 минут, 19 unit-тестов.
+- FB01: completed — пользовательская предложка и жалобы с JSONL-хранилищем и админским просмотром.
 - Startup resilience: `config_manager` проверяет `inspector.has_table("parsing_rules")` до запроса; `bot/main.py` делает `ensure_schema_up_to_date()` первым делом.
 - Runtime lesson: локальный BankBot — только `Python 3.12`; `3.14` вызывает crash в `python-telegram-bot==20.7`.
 - Env split: `config/.env.shared` (committable) + `config/.env.local` (secrets), fallback на legacy `config/.env`.
