@@ -14,6 +14,28 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.
 _engine = None
 
 
+def normalize_database_url(db_url: str) -> str:
+    """Normalize database URL aliases for SQLAlchemy."""
+    if db_url.startswith("postgres://"):
+        return "postgresql://" + db_url[len("postgres://"):]
+    return db_url
+
+
+def resolve_database_url(default_sqlite: str | None = None) -> str:
+    """Resolve production DB URL with SQLite fallback for local/dev."""
+    for env_name in ("DATABASE_URL", "POSTGRES_URL", "SUPABASE_DB_URL"):
+        value = os.environ.get(env_name)
+        if value:
+            return normalize_database_url(value)
+
+    try:
+        from config.settings import bot_settings
+
+        return normalize_database_url(bot_settings.DATABASE_URL)
+    except Exception:
+        return default_sqlite or f"sqlite:///{DB_PATH}"
+
+
 def _get_pool_settings() -> dict:
     """Read pool settings from config/settings.py if available.
 
@@ -46,12 +68,9 @@ def create_pooled_engine(db_url: Optional[str] = None):
         SQLAlchemy Engine with connection pooling.
     """
     if db_url is None:
-        try:
-            from config.settings import bot_settings
-
-            db_url = bot_settings.DATABASE_URL
-        except Exception:
-            db_url = f"sqlite:///{DB_PATH}"
+        db_url = resolve_database_url()
+    else:
+        db_url = normalize_database_url(db_url)
 
     pool_kwargs = _get_pool_settings()
 
@@ -63,6 +82,16 @@ def create_pooled_engine(db_url: Optional[str] = None):
         )
 
     return create_engine(db_url, poolclass=QueuePool, **pool_kwargs)
+
+
+def get_database_backend(db_url: Optional[str] = None) -> str:
+    """Return simplified database backend name for diagnostics."""
+    resolved_url = resolve_database_url() if db_url is None else normalize_database_url(db_url)
+    if resolved_url.startswith("postgresql"):
+        return "postgresql"
+    if resolved_url.startswith("sqlite"):
+        return "sqlite"
+    return resolved_url.split(":", maxsplit=1)[0]
 
 
 def get_pooled_engine():

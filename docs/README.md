@@ -90,6 +90,7 @@ High-level документация по текущей архитектуре, 
 - настройки читаются из `config/.env` и environment variables
 - `Settings` и runtime helper `get_settings()` используются как общий контракт конфигурации
 - bridge/vk config-модули являются compatibility-обёртками над `src.config`
+- production/Hugging Face БД должна задаваться через `DATABASE_URL`; также поддерживаются aliases `POSTGRES_URL` и `SUPABASE_DB_URL`. `postgres://` автоматически нормализуется в `postgresql://`. SQLite остаётся local/dev fallback.
 
 ### 5. База данных
 
@@ -105,6 +106,8 @@ High-level документация по текущей архитектуре, 
 
 - при запуске используется Alembic-first синхронизация схемы
 - если миграционный контур недоступен, предусмотрен fallback на создание таблиц из metadata
+- для пустой PostgreSQL/Supabase БД runtime создаёт таблицы из SQLAlchemy metadata и делает Alembic stamp head; это обходит старые SQLite-specific baseline migrations и сохраняет дальнейший Alembic-контур
+- `/health` проверяет `SELECT 1` и возвращает активный backend (`sqlite` или `postgresql`)
 
 ## Структура проекта
 

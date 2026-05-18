@@ -1,13 +1,15 @@
 # Active Context
 
 ## Текущий фокус
-**Добавляется бесплатный локальный AI-lite помощник без платных API.** HF runtime остаётся стабильным: health endpoint отвечает, `socket.getaddrinfo` monkey patch остаётся активным, polling перезапускается после transient timeout вместо завершения процесса.
+**P0 фокус: DB01 — переход production/HF с ephemeral SQLite на persistent PostgreSQL/Supabase.** Причина: при restart/rebuild Hugging Face локальная БД может обнуляться. AI02 отложен после DB01.
 
 ## Статус проекта: 100% (базовый функционал) + HF Deployment ✅
 
 ## Последнее обновление: 2026-05-18
 
 ## Выполнено недавно
+- 🔄 DB01 in progress: добавить PostgreSQL/Supabase production storage через env (`DATABASE_URL`/`POSTGRES_URL`) с SQLite local/dev fallback; проверить Alembic/schema startup и health endpoint.
+- ✅ DB01 implementation step: env aliases, Alembic URL override, empty PostgreSQL bootstrap, SQLAlchemy-based AdminSystem, and DB backend health diagnostics added locally. Needs Supabase `DATABASE_URL`/`POSTGRES_URL` secret in HF before production persistence is active.
 - ✅ AI01 implemented locally: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; даёт подсказки по командам, играм, магазину, feedback и режимам ответов без риска платных API и HF-зависаний.
 - 🔴 Новая проблема в очереди: после `/feedback тест` команда `/start@lt_lo_game_bot` не отвечает. Диагностика должна идти через HF runtime/log endpoints, без ручного `getUpdates`, чтобы не мешать polling.
 - 🔴 Новая AI01 проблема: `/ai@lt_lo_game_bot` отвечает справкой, но bare `/ai что это за бот?` в чате не отвечает. Нужно улучшить ответ на “что это за бот” и проверить bare-command handling vs group mention semantics.

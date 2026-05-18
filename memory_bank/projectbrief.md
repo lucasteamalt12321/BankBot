@@ -291,12 +291,15 @@ https://github.com/lucasteamalt12321/BankBot
 | PR01-PR09 | Стабилизация и smoke-тесты | completed | P0/P1 |
 | N01 | Прокси и исправление HTML-ошибок | completed | P0 |
 | N02 | Системные уведомления (ntfy/ADB) | completed | P1 |
+| DB01 | Persistent PostgreSQL/Supabase storage для production/HF | in_progress | P0 |
 | HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | completed | P1 |
 | FB01 | Предложка/жалобы для пользователей бота | completed | P1 |
 | AI01 | Бесплатный локальный AI-lite помощник для команд и подсказок | completed | P1 |
 | AI02 | Optional бесплатный Hugging Face Inference API для более умных ответов | pending | P1 |
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
+
+**DB01 notes:** P0 / первая очередь. Проблема: на Hugging Face локальная SQLite/data storage ephemeral, при restart/rebuild база может обнуляться, теряются users, balances, feedback, game sessions и runtime state. Цель: production/HF должен использовать persistent PostgreSQL, например Supabase, через `DATABASE_URL`/`POSTGRES_URL`/`SUPABASE_DB_URL`; SQLite оставить local/dev fallback. Реализовано локально: aliases DB URL, нормализация `postgres://` → `postgresql://`, Alembic URL override, bootstrap пустой PostgreSQL БД из SQLAlchemy metadata + Alembic stamp head, SQLAlchemy-based `AdminSystem`, `/health` с backend diagnostic. Для production activation нужно добавить Supabase connection string в HF secrets/env; секреты не хранить в git. Если текущие данные доступны — предусмотреть миграцию/экспорт перед переключением.
 
 **HF01 notes:** Flask-сервер на `7860` (`/health`, `/metrics`, `/logs`), Dockerfile `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `http_client` builder fallback, `SPACE_ID` detection, Alembic-first startup, config manager resilience к отсутствующим таблицам.
 

@@ -107,10 +107,15 @@ def health_check():
     """Health check endpoint with DB check."""
     try:
         from database.database import get_db
+        from database.connection import get_database_backend
         db = next(get_db())
         db.execute(__import__("sqlalchemy").text("SELECT 1"))
         db.close()
-        return jsonify({"status": "healthy", "service": "BankBot"})
+        return jsonify({
+            "status": "healthy",
+            "service": "BankBot",
+            "database": get_database_backend(),
+        })
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
 

@@ -17,6 +17,25 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def normalize_database_url(url: str) -> str:
+    """Normalize DB URL aliases accepted by cloud providers."""
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
+def _prepare_database_env() -> None:
+    """Allow POSTGRES_URL/SUPABASE_DB_URL as production aliases for DATABASE_URL."""
+    if os.getenv("DATABASE_URL"):
+        os.environ["DATABASE_URL"] = normalize_database_url(os.environ["DATABASE_URL"])
+        return
+
+    for alias in ("POSTGRES_URL", "SUPABASE_DB_URL"):
+        if os.getenv(alias):
+            os.environ["DATABASE_URL"] = normalize_database_url(os.environ[alias])
+            return
+
+
 class Settings(BaseSettings):
     """Application settings with validation.
 
@@ -135,7 +154,7 @@ class Settings(BaseSettings):
         """Validate DATABASE_URL is not empty and has valid format."""
         if not v:
             raise ValueError("DATABASE_URL cannot be empty")
-        return v
+        return normalize_database_url(v)
 
     @field_validator("LOG_LEVEL")
     @classmethod
@@ -181,6 +200,7 @@ def get_settings() -> Settings:
 
     Loads from environment-specific .env file based on ENV variable.
     """
+    _prepare_database_env()
     env = os.getenv("ENV", os.getenv("APP_ENV", "development"))
     env_map = {"dev": "development", "prod": "production"}
     env = env_map.get(env, env)
@@ -282,7 +302,7 @@ def _create_settings_with_env_file(env_file: str | list[str] | None) -> Settings
         def validate_database_url(cls, v: str) -> str:
             if not v:
                 raise ValueError("DATABASE_URL cannot be empty")
-            return v
+            return normalize_database_url(v)
 
         @field_validator("LOG_LEVEL")
         @classmethod

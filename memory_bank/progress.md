@@ -20,6 +20,17 @@
 
 ## Changelog
 
+### 2026-05-18 (DB01 — persistent PostgreSQL/Supabase storage)
+- Started DB01 as P0/first-priority task after user reported HF DB resets on restart/rebuild.
+- Problem: local SQLite/data storage on Hugging Face is ephemeral; users, balances, feedback, game sessions, and runtime state can be lost.
+- Target: production/HF must use persistent PostgreSQL, e.g. Supabase, through env (`DATABASE_URL`/`POSTGRES_URL`), with SQLite kept as local/dev fallback.
+- Requirements: PostgreSQL-compatible Alembic/schema startup, no secrets in git, health endpoint checks production DB, feedback/users/balances/transactions use production DB, docs and smoke/config coverage updated.
+- Implemented DB URL resolution aliases: `DATABASE_URL`, `POSTGRES_URL`, `SUPABASE_DB_URL`; `postgres://` is normalized to `postgresql://`.
+- Updated Alembic config/runtime to use the resolved env DB URL instead of hardcoded `sqlite:///data/bot.db`.
+- Added empty-DB bootstrap path: create SQLAlchemy metadata tables and stamp Alembic head, avoiding legacy SQLite-specific baseline SQL on fresh PostgreSQL/Supabase.
+- Converted `utils.admin.admin_system.AdminSystem` from raw sqlite3/PRAGMA queries to SQLAlchemy sessions/text queries so admin registration/balance/transactions work on PostgreSQL.
+- `/health` now includes `database` backend after a real `SELECT 1` DB check.
+
 ### 2026-05-18 (AI01 — free local AI-lite assistant)
 - Started AI01: add a free local AI-lite assistant without paid API keys or mandatory external providers.
 - Target commands: `/ai <question>`, `/ask <question>`, `/ai_help`.
