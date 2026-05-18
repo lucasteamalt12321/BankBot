@@ -1,4 +1,5 @@
 from bot.ai.service import AiLiteService, MAX_QUESTION_LENGTH
+from bot.commands import ai_commands
 from bot.response_modes import compact_reply_text, set_user_mode
 
 
@@ -200,3 +201,76 @@ def test_global_long_mode_keeps_full_bot_message() -> None:
     compacted = compact_reply_text(long_text, user_id)
 
     assert compacted == long_text
+
+
+class _FakeUser:
+    id = 101
+    username = "tester"
+    first_name = "Test"
+
+
+class _FakeChat:
+    id = -100
+    type = "supergroup"
+
+
+class _FakeMessage:
+    def __init__(self, text: str, reply_to_message=None, message_id: int = 10):
+        self.text = text
+        self.reply_to_message = reply_to_message
+        self.message_id = message_id
+        self.chat = _FakeChat()
+
+
+class _FakeUpdate:
+    def __init__(self, text: str, reply_to_message=None):
+        self.message = _FakeMessage(text, reply_to_message=reply_to_message)
+        self.effective_user = _FakeUser()
+        self.effective_chat = _FakeChat()
+
+
+async def test_ai_negative_feedback_asks_for_improvement(monkeypatch) -> None:
+    ai_commands._pending_ai_improvements.clear()
+    saved_entries = []
+    replies = []
+
+    def fake_save(entry):
+        saved_entries.append(entry)
+
+    async def fake_reply(update, text, **kwargs):
+        replies.append(text)
+
+    monkeypatch.setattr(ai_commands, "_save_ai_feedback", fake_save)
+    monkeypatch.setattr(ai_commands, "_reply_text_with_retry", fake_reply)
+
+    ai_message = _FakeMessage("🤖 Коротко по канону:\n• Олеговирус — вымышленный", message_id=77)
+    handled = await ai_commands.handle_ai_feedback_reply(_FakeUpdate("-", ai_message), None)
+
+    assert handled is True
+    assert saved_entries[0]["type"] == "ai_feedback_negative"
+    assert saved_entries[0]["ai_answer"].startswith("🤖")
+    assert "Что улучшить" in replies[0]
+
+
+async def test_ai_improvement_text_is_saved_after_minus(monkeypatch) -> None:
+    ai_commands._pending_ai_improvements.clear()
+    saved_entries = []
+    replies = []
+
+    def fake_save(entry):
+        saved_entries.append(entry)
+
+    async def fake_reply(update, text, **kwargs):
+        replies.append(text)
+
+    monkeypatch.setattr(ai_commands, "_save_ai_feedback", fake_save)
+    monkeypatch.setattr(ai_commands, "_reply_text_with_retry", fake_reply)
+
+    ai_message = _FakeMessage("🤖 Коротко по канону:\n• Олеговирус — вымышленный", message_id=78)
+    await ai_commands.handle_ai_feedback_reply(_FakeUpdate("-", ai_message), None)
+    handled = await ai_commands.handle_ai_feedback_reply(_FakeUpdate("Добавить примеры KHM и POST"), None)
+
+    assert handled is True
+    assert saved_entries[-1]["type"] == "ai_feedback_improvement"
+    assert saved_entries[-1]["text"] == "Добавить примеры KHM и POST"
+    assert "сохранено" in replies[-1]

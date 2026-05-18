@@ -127,7 +127,7 @@ from bot.commands.user_commands import (
     buy_8_command,
 )
 from bot.commands.feedback_commands import feedback_command, feedback_list_command
-from bot.commands.ai_commands import ai_command, ai_help_command
+from bot.commands.ai_commands import ai_command, ai_help_command, handle_ai_feedback_reply
 from bot.template_coder import TemplateCoderDialog
 from bot.response_modes import install_reply_text_short_mode_patch
 from core.managers.background_task_manager import BackgroundTaskManager
@@ -966,6 +966,9 @@ class TelegramBot:
                 # NEW: Use unified parsing handler
                 await self.parsing_handler.handle_manual_parsing(update, context)
                 return
+
+        if await handle_ai_feedback_reply(update, context):
+            return
 
         # Пропускаем все остальные сообщения - автоматический парсинг отключен
         # Обработка только по команде "парсинг"
