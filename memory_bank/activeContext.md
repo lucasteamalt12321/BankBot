@@ -1,13 +1,18 @@
 # Active Context
 
 ## Текущий фокус
-**Деплой на Hugging Face Spaces завершён.** Бот работает стабильно: polling loop активен, health endpoint отвечает, SSL/DNS проблемы решены через `socket.getaddrinfo` monkey patch.
+**Hugging Face runtime стабилизируется после сетевых таймаутов Telegram.** Health endpoint отвечает, `socket.getaddrinfo` monkey patch остаётся активным, polling теперь перезапускается после transient timeout вместо завершения процесса.
 
 ## Статус проекта: 100% (базовый функционал) + HF Deployment ✅
 
-## Последнее обновление: 2026-05-15
+## Последнее обновление: 2026-05-18
 
 ## Выполнено недавно
+- ✅ HF polling hardening: `run_polling()` в HF обёрнут в retry-loop для `TimedOut`/`NetworkError`, чтобы один сетевой таймаут Telegram не переводил Space в `RUNTIME_ERROR`.
+- ✅ HF `/start` safety: на Hugging Face `/start` отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; `drop_pending_updates=True` сбрасывает накопленные апдейты после рестарта.
+- ✅ Командная иерархия уточнена: `/commands` — список разделов, `/user` — профиль игрока, `/shop`/`games`/`admin`/`coder` сохраняют старый функционал или разделные подсказки по назначению.
+- ✅ D&D command wiring исправлен: `/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions` проходят через wrapper-методы `TelegramBot` с передачей `get_db`.
+- ✅ Игровые подсказки `/play`, `/join`, `/startgame`, `/turn` переведены с транслита на русский и стали понятнее для команд без аргументов.
 - ✅ Flask health/metrics/logs сервер на порту `7860` в `run_bot.py`.
 - ✅ Dockerfile обновлён до `python:3.12-slim` с health check на `:7860/health`.
 - ✅ `bot/main.py` — Alembic-first миграции до инициализации систем.
@@ -62,7 +67,7 @@
 - P2: архитектурная инвентаризация слоёв и сокращение legacy-дублей (PR10-PR13)
 
 ## Текущий checkpoint
-- **HF01 — Deployment Phase**: Flask health/metrics/logs сервер на `7860`, Dockerfile на `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `builder.http_client()` fallback. Осталась валидация полного цикла в HF среде.
+- **HF01 — Deployment Phase**: Flask health/metrics/logs сервер на `7860`, Dockerfile на `python:3.12-slim`, DNS bypass через `socket.getaddrinfo`/`anyio` monkey patch для `api.telegram.org`, `httpx.AsyncClient(verify=False)` в HF, polling retry-loop и safe short `/start`. Нужно продолжать мониторинг HF run logs на `TimedOut`, `RetryAfter` и flood-control симптомы.
 - N02 increment: `NotificationSystem` расширен до multi-transport realtime доставки (`Telegram` + `ntfy` + optional `ADB`).
 - N02 fix: команды `/notifications` и `/notifications_clear` теперь корректно мапят `telegram_id -> users.id`.
 - N02 API cleanup: прямые вызовы `_send_to_ntfy()` заменены на `send_realtime_notification()`.

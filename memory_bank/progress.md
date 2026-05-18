@@ -20,6 +20,32 @@
 
 ## Changelog
 
+### 2026-05-18 (HF runtime and command UX stabilization)
+- **HF runtime fix**: `bot/bot.py` now retries `run_polling()` in Hugging Face on transient `TimedOut`/`NetworkError` instead of letting a single Telegram timeout stop the process and move the Space to `RUNTIME_ERROR`.
+- **HF safe `/start`**: `/start` is routed through `safe_start_command` on HF and sends one short response only. This avoids long welcome spam and template-coder hint spam in groups after restarts.
+- **Pending updates safety**: `drop_pending_updates=True` is used for polling startup to avoid processing old accumulated `/start@bot` messages after HF rebuild/restart.
+- **Command hierarchy correction**: `/commands` remains the command-section menu; `/user` now opens the player profile instead of duplicating the section list.
+- **Game/D&D command fixes**:
+  - D&D commands requiring database access (`/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions`) are wired through `TelegramBot` wrapper methods that pass `get_db`.
+  - `/dnd_roll` without arguments should now show usage help instead of failing through the global error handler.
+  - `/play`, `/join`, `/startgame`, `/turn` usage/error messages were converted from transliteration to Russian.
+- **Verification**:
+  - `python3 -m ruff check bot/bot.py` -> passed after HF polling and safe-start fixes.
+  - `python3 -m ruff check bot/bot.py bot/commands/game_commands_ptb.py bot/commands/dnd_commands_ptb.py` -> passed after game/D&D fixes.
+  - `python3 -m pytest tests/smoke -v` -> `9 passed` after each fix batch.
+- **Deployments**:
+  - GitHub commits pushed through `f0dc04b fix(bot): корректные ответы игровых команд`.
+  - Hugging Face Space `LucasTeam/BankBot` updated via `huggingface_hub.HfApi().upload_file()` for touched files.
+
+## Current Known Issues / Watchlist
+- HF networking can still produce Telegram `TimedOut`; retry-loop should keep the process alive, but run logs should be monitored.
+- Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` + `drop_pending_updates=True` were added to prevent recurrence.
+- Some command-section wrappers may still duplicate old command output (for example `/shop` shows section text and shop contents); keep only where useful.
+- `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn` should be manually re-tested in Telegram after latest HF rebuild.
+
+## last_checked_commit
+- f0dc04b
+
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
 - **HTML Escaping Fixes**: Escaped `<` and `>` in `WELCOME_TEXT` and user dynamic data in `core_commands.py` to prevent `BadRequest` errors in Telegram.

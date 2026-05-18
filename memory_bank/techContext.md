@@ -13,10 +13,12 @@
 ### Инфраструктура и Деплой
 - **Hugging Face Spaces** - основная платформа для хостинга (Docker SDK)
 - **GitHub** - основной репозиторий кода
-- **Network Strategy (HF)**: 
-  - IP-based proxy `195.201.225.248` (tgproxy.me) с кастомным `Host` header.
-  - SSL verification отключён (`verify=False`) для IP-прокси (сертификат на домен).
-  - Safe builder: `builder.http_client(custom_client)` с `try/except AttributeError` fallback.
+- **Network Strategy (HF)**:
+  - DNS bypass в `run_bot.py`: monkey patch `socket.getaddrinfo` и `anyio._core._sockets.getaddrinfo`, чтобы `api.telegram.org` резолвился в Telegram IP `149.154.167.220`.
+  - HF httpx workaround: `httpx.AsyncClient.__init__` получает `verify=False` по умолчанию, чтобы пережить TLS/IP mismatch в облачной среде.
+  - `bot/bot.py`: `run_polling()` в HF запускается с короткими timeout-параметрами и retry-loop для transient `TimedOut`/`NetworkError`.
+  - `drop_pending_updates=True` на polling startup, чтобы после HF rebuild не обрабатывать накопленные старые команды из групп.
+  - HF `/start` использует `safe_start_command`: один короткий ответ без длинного welcome и без дополнительного template-coder hint.
   - Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты.
 - **Health Server**: Flask на порту `7860` — `/health` (с проверкой БД), `/metrics` (Prometheus), `/logs` (захват stdout/stderr).
 - **Structlog** - структурированное логирование
