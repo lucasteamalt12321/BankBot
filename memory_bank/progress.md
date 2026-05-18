@@ -37,6 +37,7 @@
 - New direct user-reported P1 bug: after DB01 hotfix deploy, bot does not answer `/user@lt_lo_game_bot` or `/start@lt_lo_game_bot`. Diagnose HF runtime/polling/logs without manual `getUpdates`; likely polling crash, DB startup issue, or handler blocking after PostgreSQL switch.
 - HF runtime was `RUNNING`, but `/health` timed out. Likely PostgreSQL connection attempts can hang without a short DBAPI connect timeout. Hotfix in progress: add `connect_timeout` for PostgreSQL engines and simplify `/health` DB check via `engine.connect()`.
 - New direct user-reported P1 bug: `/start@lt_lo_game_bot` and `/user@lt_lo_game_bot` now answer, but `/ai@lt_lo_game_bot` with no args does not. Likely root cause: AI help is sent with `parse_mode="HTML"` and contains unescaped `/ai@lt_lo_game_bot <вопрос>`, so Telegram rejects invalid HTML.
+- Feedback endpoint check after PostgreSQL switch returned JSONL fallback with `count=0`; root cause: `feedback_entries` helper used SQLite-only `INTEGER PRIMARY KEY AUTOINCREMENT`, which fails on PostgreSQL. Hotfix: generate dialect-specific ID column (`SERIAL` on PostgreSQL) and report actual DB backend in `/feedback` response.
 
 ### 2026-05-18 (AI01 — free local AI-lite assistant)
 - Started AI01: add a free local AI-lite assistant without paid API keys or mandatory external providers.

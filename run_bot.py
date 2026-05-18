@@ -64,7 +64,7 @@ def _is_authorized_feedback_request():
 
 @app.route('/feedback')
 def get_feedback():
-    """Read recent feedback entries from JSONL storage for external diagnostics."""
+    """Read recent feedback entries from DB storage for external diagnostics."""
     if not _is_authorized_feedback_request():
         return jsonify({"error": "unauthorized"}), 401
 
@@ -77,9 +77,15 @@ def get_feedback():
         from bot.commands.feedback_commands import _read_feedback_entries_db
 
         entries = _read_feedback_entries_db(limit)
-        return jsonify({"entries": entries, "count": len(entries), "storage": "sqlite"})
+        from database.connection import get_database_backend
+
+        return jsonify({
+            "entries": entries,
+            "count": len(entries),
+            "storage": get_database_backend(),
+        })
     except Exception as e:
-        print(f"[FEEDBACK] SQLite read failed, falling back to JSONL: {e}")
+        print(f"[FEEDBACK] DB read failed, falling back to JSONL: {e}")
 
     import json
 

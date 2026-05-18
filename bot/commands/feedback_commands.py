@@ -51,11 +51,12 @@ def _append_feedback(entry: dict) -> None:
 
 def _ensure_feedback_table(db) -> None:
     """Create feedback table when migrations do not have it yet."""
+    id_column = "SERIAL PRIMARY KEY" if db.bind.dialect.name == "postgresql" else "INTEGER PRIMARY KEY AUTOINCREMENT"
     db.execute(
         text(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS feedback_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {id_column},
                 created_at TEXT NOT NULL,
                 type TEXT NOT NULL,
                 text TEXT NOT NULL,
