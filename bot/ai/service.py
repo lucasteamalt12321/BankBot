@@ -237,10 +237,18 @@ class AiLiteService:
         """Return canon knowledge entries ordered by simple keyword score."""
         scored_entries = []
         for entry in CANON_KNOWLEDGE:
-            score = sum(1 for keyword in entry.keywords if keyword in normalized_question)
+            # Longer/specific keywords should beat generic words. Example:
+            # "кто такой олеговирус" must prefer the Olegovirus entry over
+            # generic canon rules that contain the shorter word "олег".
+            score = sum(len(keyword) for keyword in entry.keywords if keyword in normalized_question)
             if score:
                 scored_entries.append((score, entry.title, entry))
 
+        if not scored_entries:
+            return []
+
+        max_score = max(score for score, _title, _entry in scored_entries)
+        scored_entries = [item for item in scored_entries if item[0] >= max_score * 0.5]
         scored_entries.sort(key=lambda item: (-item[0], item[1]))
         return [entry for _score, _title, entry in scored_entries]
 

@@ -103,6 +103,17 @@ def test_ai_answers_olegovirus_canon_question() -> None:
     assert "KHM" in answer
     assert "не равный реальному Олегу" in answer
     assert "Google Doc" in answer
+    assert "Запрещены темы внешности" not in answer
+
+
+def test_ai_prefers_specific_olegovirus_over_generic_canon_rules() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("кто такой олеговирус?", mode="short")
+
+    assert "Олеговирус — вымышленный" in answer
+    assert "Канон запрещает" not in answer
+    assert "Лука/LucasTeam" not in answer
 
 
 def test_ai_answers_ltl_and_teaology_question() -> None:
