@@ -259,7 +259,7 @@ class TelegramBot:
         # Основные команды
         handlers = [
             CommandHandler("start", self.safe_start_command),
-            CommandHandler("user", command_section_command),
+            CommandHandler("user", self.profile_command),
             CommandHandler("shop", self.shop_with_section_command),
             CommandHandler("games", self.games_with_section_command),
             CommandHandler("admin", self.admin_with_section_command),
