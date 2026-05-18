@@ -51,6 +51,11 @@
 - Added `bot/commands/ai_commands.py` and wired `/ai`, `/ask`, `/ai_help` in `bot/bot.py`, including mentioned-command fallback.
 - Updated `/commands`, private-message help, and short HF `/start` command list to mention `/ai`.
 - Added `tests/unit/test_ai_lite.py` for free-mode help, topic routing, fallback, and prompt length guard.
+- Extended AI01 with offline canon knowledge base from Google Doc `Вселенная Олеговируса и LTL-паразита: канон` (`bot/ai/knowledge.py`): Olegovirus, LTL-паразит, Teaology, candy economy/Nine Circles, LTRS, glossary, high-canon article links and source metadata.
+- Added global response modes (`bot/response_modes.py`): `/short` compacts long bot replies across sections via `Message.reply_text` patch, `/long` keeps full messages. AI canon answers now respect the same mode.
+- Fixed AI canon relevance ranking: specific long keywords (`олеговирус`, `ltl-паразит`, etc.) beat generic words (`олег`, `канон`) so answers do not include unrelated rules/prohibitions.
+- HF deployment commits: GitHub through `c4b0215 fix(ai): prefer specific canon matches`; Hugging Face through `f0991c2` for AI ranking and `7f19c9e` for global response modes.
+- Verification: `python -m ruff check bot/response_modes.py bot/bot.py bot/commands/core_commands.py bot/commands/ai_commands.py bot/ai tests/unit/test_ai_lite.py` -> passed; `python -m pytest tests/unit/test_ai_lite.py -q` -> 19 passed; `python -m pytest tests/smoke -q` with dummy `BOT_TOKEN`/`ADMIN_TELEGRAM_ID` -> 9 passed.
 
 ### 2026-05-18 (New issue queue)
 - User reported after sending `/feedback тест`: `/start@lt_lo_game_bot` does not answer. Must diagnose HF runtime/logs without manual `getUpdates` to avoid interfering with polling. Check whether latest local/GitHub fixes were deployed to Hugging Face, whether polling is alive, and whether mentioned-command fallback handles `/start@lt_lo_game_bot` correctly after deploy.
@@ -61,9 +66,9 @@
 - New AI02 proposal from Nikita: use a free Hugging Face API to make answers smarter. Keep it optional/free with local AI-lite fallback, short timeouts, response limits, no secret logging, and no dependency on paid providers.
 
 ### 2026-05-18 (HF runtime and command UX stabilization)
-- **HF runtime fix**: `bot/bot.py` now retries `run_polling()` in Hugging Face on transient `TimedOut`/`NetworkError` instead of letting a single Telegram timeout stop the process and move the Space to `RUNTIME_ERROR`.
+- **HF runtime fix revised**: external retry-loop around `run_polling()` was removed again because it could repeatedly restart polling and drop/skip updates. PTB handles polling; HF uses `drop_pending_updates=False` to preserve user commands during transient network instability.
 - **HF safe `/start`**: `/start` is routed through `safe_start_command` on HF and sends one short response only. This avoids long welcome spam and template-coder hint spam in groups after restarts.
-- **Pending updates safety**: `drop_pending_updates=True` is used for polling startup to avoid processing old accumulated `/start@bot` messages after HF rebuild/restart.
+- **Pending updates safety**: after live testing, HF now keeps pending updates (`drop_pending_updates=False`) because dropping them on reconnect caused user commands such as `/ai ...` to disappear during unstable Telegram networking. Safe `/start` still prevents long-message floods.
 - **Command hierarchy correction**: `/commands` remains the command-section menu; `/user` now opens the player profile instead of duplicating the section list.
 - **Game/D&D command fixes**:
   - D&D commands requiring database access (`/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions`) are wired through `TelegramBot` wrapper methods that pass `get_db`.
@@ -105,13 +110,13 @@
   - Unknown commands now receive a `/commands` fallback response instead of silence.
 
 ## Current Known Issues / Watchlist
-- HF networking can still produce Telegram `TimedOut`; retry-loop should keep the process alive, but run logs should be monitored after deploy.
-- Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` + `drop_pending_updates=True` were added to prevent recurrence.
+- HF networking can still produce Telegram `TimedOut`; PTB polling should remain active, but run logs should be monitored after deploy.
+- Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` remains the mitigation; do not re-enable blanket `drop_pending_updates=True` on HF unless command loss is acceptable.
 - After deployment, manually smoke-test `/start`, `/user`, `/ai`, `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback`, `/long`→`/start`, `/feedback_list` in Telegram.
 - Verify external `/feedback?limit=N` returns `storage=postgresql` instead of JSONL fallback after the latest feedback DDL hotfix is live.
 
 ## last_checked_commit
-- 2026-05-18 (PR10-PR13 local verification before commit)
+- c4b02156f8ba6622202beed9b7750a3f946cffed (2026-05-18, AI canon ranking + global response modes synced)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.

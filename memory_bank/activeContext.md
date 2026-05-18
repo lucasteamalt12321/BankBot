@@ -19,12 +19,12 @@
 - ✅ DB01 deploy issue resolved: duplicate public/secret `DATABASE_URL` fixed; direct IPv6 URI replaced with Supabase pooler URI.
 - ✅ DB01 regressions fixed: `/user`, `/start`, AI help, parsing/admin/shop legacy sqlite call sites migrated or fixed; `/health` stable on PostgreSQL.
 - 🔄 Current priority check: feedback endpoint after PostgreSQL switch was falling back to JSONL due to SQLite-only `AUTOINCREMENT`; dialect-specific feedback DDL was implemented and deployed, final live re-check still needed after HF startup settles.
-- ✅ AI01 implemented locally: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; даёт подсказки по командам, играм, магазину, feedback и режимам ответов без риска платных API и HF-зависаний.
+- ✅ AI01 implemented/deployed: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; отвечает по командам BankBot и локальной базе канона Олеговируса/LTL из Google Doc.
 - ✅ Earlier `/start`, `/user`, `/ai` direct user-reported regressions have corresponding hotfixes deployed to HF.
-- ✅ AI01 feedback handled: текущий AI-lite честно позиционируется как бесплатный справочник/помощник по командам, fallback на оффтоп улучшен.
+- ✅ AI01 canon/UX handled: добавлены `bot/ai/knowledge.py`, глоссарий, статьи высокого канона, short/long ответы; исправлено ранжирование, чтобы `олеговирус` не подтягивал нерелевантные правила/запреты.
 - 💡 AI02 proposal: Никита предложил бесплатный Hugging Face API для более умных ответов. Делать только optional/free, с локальным AI-lite fallback и без риска для HF runtime.
-- ✅ HF polling hardening: `run_polling()` в HF обёрнут в retry-loop для `TimedOut`/`NetworkError`, чтобы один сетевой таймаут Telegram не переводил Space в `RUNTIME_ERROR`.
-- ✅ HF `/start` safety: на Hugging Face `/start` по умолчанию отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; если пользователь включил `/long`, `/start` уважает режим и отдаёт полный welcome. `drop_pending_updates=True` сбрасывает накопленные апдейты после рестарта.
+- ✅ HF polling hardening revised: внешний retry-loop вокруг `run_polling()` убран; PTB сам ведёт polling, а на HF `drop_pending_updates=False`, чтобы команды не терялись при сетевой нестабильности.
+- ✅ HF `/start` safety: на Hugging Face `/start` по умолчанию отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; если пользователь включил `/long`, `/start` уважает режим и отдаёт полный welcome. `drop_pending_updates=False` на HF сохраняет команды при сетевых reconnect.
 - ✅ Командная иерархия уточнена: `/commands` — список разделов, `/user` — профиль игрока, `/shop`/`games`/`admin`/`coder` сохраняют старый функционал или разделные подсказки по назначению.
 - ✅ D&D command wiring исправлен: `/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions` проходят через wrapper-методы `TelegramBot` с передачей `get_db`.
 - ✅ Игровые подсказки `/play`, `/join`, `/startgame`, `/turn` переведены с транслита на русский и стали понятнее для команд без аргументов.
@@ -37,6 +37,7 @@
 - ✅ HF Network: IP proxy + `Host: tgproxy.me` + `verify=False` + safe `http_client` builder.
 - ✅ Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты.
 - ✅ `docs/DEPLOYMENT.md` — раздел Hugging Face Spaces с operational notes.
+- ✅ Global response modes: `bot/response_modes.py` патчит `Message.reply_text`; в `/short` длинные ответы всех разделов автоматически компактятся, в `/long` отправляется полный текст.
 
 
 ## Сводка
@@ -85,7 +86,7 @@
   - ✅ PR10-PR13 completed: documentation-first legacy freeze + safe wiring/runtime cleanup.
 
 ## Текущий checkpoint
-- **HF01 — Deployment Phase**: Flask health/metrics/logs сервер на `7860`, Dockerfile на `python:3.12-slim`, DNS bypass через `socket.getaddrinfo`/`anyio` monkey patch для `api.telegram.org`, `httpx.AsyncClient(verify=False)` в HF, polling retry-loop и safe short `/start`. Polling kwargs вынесены в `build_polling_kwargs(is_hf)` без изменения HF semantics.
+- **HF01 — Deployment Phase**: Flask health/metrics/logs сервер на `7860`, Dockerfile на `python:3.12-slim`, DNS bypass через `socket.getaddrinfo`/`anyio` monkey patch для `api.telegram.org`, `httpx.AsyncClient(verify=False)` в HF, safe short `/start`; внешний polling retry-loop снят, `drop_pending_updates=False` на HF.
 - N02 increment: `NotificationSystem` расширен до multi-transport realtime доставки (`Telegram` + `ntfy` + optional `ADB`).
 - N02 fix: команды `/notifications` и `/notifications_clear` теперь корректно мапят `telegram_id -> users.id`.
 - N02 API cleanup: прямые вызовы `_send_to_ntfy()` заменены на `send_realtime_notification()`.
@@ -93,7 +94,7 @@
 - N02 command wiring: `/notify_status` и `/test_adb` подключены в `bot/bot.py`.
 - M01: completed — диалоговый кодер текстовых шаблонов с `/coder`, `/help`, `/reset`, TTL 30 минут, 19 unit-тестов.
 - FB01: completed — пользовательская предложка и жалобы с SQLite-хранилищем, JSONL fallback, админским просмотром и защищённым external reader `/feedback`.
-- AI01: completed locally — `bot/ai/service.py`, `bot/commands/ai_commands.py`, команды `/ai`, `/ask`, `/ai_help`, unit-тесты без внешних API.
+- AI01: completed/deployed — `bot/ai/service.py`, `bot/ai/knowledge.py`, `bot/commands/ai_commands.py`, команды `/ai`, `/ask`, `/ai_help`, локальная canon KB, global `/short`/`/long`, 19 AI/unit tests без внешних API.
 - Startup resilience: `config_manager` проверяет `inspector.has_table("parsing_rules")` до запроса; `bot/main.py` делает `ensure_schema_up_to_date()` первым делом.
 - Runtime lesson: локальный BankBot — только `Python 3.12`; `3.14` вызывает crash в `python-telegram-bot==20.7`.
 - Env split: `config/.env.shared` (committable) + `config/.env.local` (secrets), fallback на legacy `config/.env`.
