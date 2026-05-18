@@ -1054,7 +1054,6 @@ class TelegramBot:
             logger.info("Starting run_polling...")
             logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
             
-            # Запускаем polling
             polling_kwargs = {
                 "drop_pending_updates": not os.environ.get("SPACE_ID"),
                 "close_loop": False,
@@ -1079,9 +1078,31 @@ class TelegramBot:
                     "connect_timeout": 30,
                     "pool_timeout": 30,
                 })
-            
-            self.application.run_polling(**polling_kwargs)
-            logger.info("Polling stopped.")
+            if os.environ.get("SPACE_ID"):
+                while not self._shutdown_requested:
+                    try:
+                        self.application.run_polling(**polling_kwargs)
+                        logger.info("Polling stopped.")
+                        break
+                    except (TimedOut, NetworkError) as e:
+                        logger.warning(
+                            "Polling interrupted by transient Telegram network error, retrying...",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
+                        )
+                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
+                    except Exception as e:
+                        logger.error(
+                            "Polling crashed in Hugging Face environment, retrying to keep Space alive...",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
+                        )
+                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
+            else:
+                self.application.run_polling(**polling_kwargs)
+                logger.info("Polling stopped.")
         except KeyboardInterrupt:
             logger.info("Bot stopped by user (Ctrl+C)")
         except Exception as e:
