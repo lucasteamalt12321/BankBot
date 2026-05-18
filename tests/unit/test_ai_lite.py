@@ -22,6 +22,16 @@ def test_ai_answers_shop_question() -> None:
     assert "/buy <номер>" in answer
 
 
+def test_ai_answers_about_bot_question() -> None:
+    service = AiLiteService()
+
+    answer = service.answer("что это за бот?")
+
+    assert "BankBot LucasTeam" in answer
+    assert "/commands" in answer
+    assert "/feedback <текст>" in answer
+
+
 def test_ai_answers_feedback_question() -> None:
     service = AiLiteService()
 

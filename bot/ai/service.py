@@ -30,6 +30,31 @@ class AiLiteService:
     def __init__(self) -> None:
         self.topics = (
             AiTopic(
+                title="about",
+                keywords=(
+                    "что это",
+                    "кто ты",
+                    "за бот",
+                    "какой бот",
+                    "о боте",
+                    "bankbot",
+                    "lucasteam",
+                    "бот",
+                    "about",
+                ),
+                answer=(
+                    "🤖 Это BankBot LucasTeam — Telegram-бот для игровой банковской системы.\n"
+                    "Он помогает с балансом, профилем, магазином, мини-играми, D&D, "
+                    "предложениями/жалобами и подсказками по командам.\n\n"
+                    "Быстрый старт:\n"
+                    "• /commands — все разделы.\n"
+                    "• /user — профиль.\n"
+                    "• /shop — магазин.\n"
+                    "• /games — игры.\n"
+                    "• /feedback <текст> — отправить идею или проблему."
+                ),
+            ),
+            AiTopic(
                 title="feedback",
                 keywords=("feedback", "фидбек", "предлож", "жалоб", "suggest", "complaint"),
                 answer=(

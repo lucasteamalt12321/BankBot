@@ -22,7 +22,11 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     question = _question_from_args(context)
-    await update.message.reply_text(ai_lite_service.answer(question), parse_mode="HTML")
+    if not question:
+        await update.message.reply_text(ai_lite_service.help_text(), parse_mode="HTML")
+        return
+
+    await update.message.reply_text(ai_lite_service.answer(question))
 
 
 async def ai_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
