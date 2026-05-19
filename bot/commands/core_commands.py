@@ -84,21 +84,9 @@ WELCOME_TEXT = """
 """
 
 SHORT_WELCOME_TEXT = """
-[BANK] LucasTeam BankBot
-Привет, {name}!
-Регистрация: {registration_status}
-ID: {user_id}
-
-Основное:
-/balance — баланс
-/profile — профиль
-/stats — статистика
-/shop — магазин
-/games — игры
-/ai — помощник
-/admin — админ-панель
-/long — полный режим для себя
-/long_all — полный режим для всех
+LucasTeam BankBot готов.
+Команды: /balance, /profile, /shop, /games, /ai, /admin.
+Полный список: /long
 """
 
 
