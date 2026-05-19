@@ -654,10 +654,6 @@ class TelegramBot:
         """Команда /start - приветствие и регистрация."""
         self.template_coder_dialog.reset_state(context)
         await welcome_command(update, context, self.admin_system, settings, get_db)
-        await update.message.reply_text(
-            self.template_coder_dialog.service.welcome_hint_text(),
-            parse_mode="HTML",
-        )
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /balance - проверка баланса."""
