@@ -5,6 +5,7 @@ from telegram.ext import ContextTypes
 
 from database.database import get_db
 from core.systems.games_system import GamesSystem
+from bot.short_mode import is_short_mode
 
 
 GAME_TYPE_LABELS = {
@@ -16,6 +17,16 @@ GAME_TYPE_LABELS = {
 
 async def games_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /games - информация о мини-играх"""
+    if is_short_mode(context):
+        await update.message.reply_text(
+            "Мини-игры:\n"
+            "/play cities — города\n"
+            "/play killer_words — слова\n"
+            "/play gd_levels — GD уровни\n"
+            "/join <id>, /startgame <id>, /turn <ход>"
+        )
+        return
+
     text = """
 🎮 <b>Мини-игры</b>
 

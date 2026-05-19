@@ -1,12 +1,11 @@
 """Core user commands: welcome, balance, history, profile, stats."""
 
-import html
 import structlog
+import html
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
-
-from bot.response_modes import WATCH_TEMPLATES_HINT, get_default_user_mode, get_user_mode, set_all_user_modes, set_user_mode
+from bot.short_mode import is_short_mode
 
 logger = structlog.get_logger()
 
@@ -84,231 +83,21 @@ WELCOME_TEXT = """
 [TIP] <b>💡 Совет:</b> Начните с /shop для покупок!
 """
 
-# Короткий welcome для HF (быстрая отправка)
-WELCOME_TEXT_SHORT = """Привет, {name}!
-
-{registration_status}
-{admin_status}
+SHORT_WELCOME_TEXT = """
+[BANK] LucasTeam BankBot
+Привет, {name}!
+Регистрация: {registration_status}
 ID: {user_id}
 
-Меню команд: /commands
-Разделы: /user /shop /games /admin /config /coder
-
-Режимы: /short — кратко, /long — подробно.
-"""
-
-WELCOME_TEXT_WATCH = """Привет, {name}!
-{registration_status}
-ID: {user_id}
-/commands
-"""
-
-
-COMMANDS_MENU_TEXT = """📚 Разделы команд
-
-👤 /user — профиль, баланс, статистика
-🛒 /shop — магазин и покупки
-🎮 /games — игры и активность
-🛠 /admin — админ-команды
-⚙️ /config — конфигурация
-🧩 /coder — диалоговый кодер
-🤖 /ai — бесплатный AI-lite помощник
-💬 /feedback — предложения и жалобы
-
-Режимы ответов: /short, /long или /watch
-"""
-
-COMMAND_SECTIONS = {
-    "user": """👤 Пользовательские команды
-/start — старт и краткое меню
-/commands — разделы команд
-/ping — проверить задержку
+Основное:
 /balance — баланс
-/history — история транзакций
 /profile — профиль
-/stats — персональная статистика
-/feedback <текст> — предложение или жалоба
-/suggest <текст> — алиас предложения
-/complaint <текст> — алиас жалобы
-/achievements — достижения
-/notifications — уведомления
-/notifications_clear — очистить уведомления
-""",
-    "shop": """🛒 Магазин
-/items — список товаров
-/buy <номер> — купить товар
-/buy_1 ... /buy_8 — быстрая покупка
-/buy_contact — связь с админом
-/inventory — ваши покупки
-""",
-    "games": """🎮 Игры и активность
-/games_list — список мини-игр
-/play — играть
-/join — присоединиться
-/startgame — начать игру
-/turn — ход
-/dnd — D&D меню
-/dnd_create — создать D&D сессию
-/dnd_join — присоединиться к D&D
-/dnd_sessions — список D&D сессий
-/dnd_roll — бросок кубика
-""",
-    "admin": """🛠 Админ-команды
-/admin_panel — админ-панель
-/admin_stats — статистика системы
-/admin_users — пользователи
-/admin_balances — балансы
-/admin_transactions <@user> — транзакции
-/long_all — подробный режим всем
-/short_all — короткий режим всем
-/watch_all — режим часов всем
-/add_points <@user> <сумма> — начислить
-/add_admin <@user> — назначить админа
-/admin_addcoins /admin_removecoins — монеты
-/admin_health — здоровье системы
-/broadcast <текст> — рассылка
-/add_item — добавить товар
-""",
-    "config": """⚙️ Конфигурация
-/reload_config — перезагрузить
-/config_status — статус
-/list_parsing_rules — правила парсинга
-/add_parsing_rule — добавить правило
-/update_parsing_rule — обновить правило
-/export_config — экспорт
-/import_config — импорт
-/backup_config — бэкап
-/restore_config — восстановление
-/list_backups — список бэкапов
-/validate_config — валидация
-""",
-    "coder": """🧩 Диалоговый кодер
-/coder_start — открыть кодер
-/reset — сбросить
-/done — закончить
-/help — инструкция кодера
-
-Шаблоны часов: ОК, Да, Спасибо, Спасибо нет, Великолепно, Спасибо еще раз, Скоро увидимся, Скоро буду, Я занят(а), Нет.
-""",
-    "ai": """🤖 AI-lite помощник
-/ai <вопрос> — спросить бесплатного локального помощника
-/ask <вопрос> — алиас /ai
-/ai_help — справка по AI-lite
-
-Помощник работает без платных API и внешних ключей. Лучше всего отвечает про команды BankBot, магазин, игры, D&D, feedback, профиль и режимы /short /long /watch.
-""",
-}
-
-
-async def commands_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать меню разделов команд или конкретный раздел."""
-    section = context.args[0].lower() if context.args else ""
-    text = COMMAND_SECTIONS.get(section, COMMANDS_MENU_TEXT)
-    await update.message.reply_text(text)
-
-
-async def command_section_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать раздел по короткой команде: /user, /shop, /games и т.д."""
-    section = update.message.text.split()[0].lstrip("/").lower()
-    text = COMMAND_SECTIONS.get(section, COMMANDS_MENU_TEXT)
-    await update.message.reply_text(text)
-
-def get_welcome_text(name, registration_status, admin_status, user_id):
-    """Выбирает короткий или длинный welcome текст."""
-    mode = get_default_user_mode(user_id)
-
-    if mode == "watch":
-        return WELCOME_TEXT_WATCH.format(
-            name=html.escape(name or "Пользователь"),
-            registration_status=html.escape(registration_status),
-            user_id=user_id,
-        )
-    if mode == "short":
-        return WELCOME_TEXT_SHORT.format(
-            name=html.escape(name or "Пользователь"),
-            registration_status=html.escape(registration_status),
-            admin_status=html.escape(admin_status),
-            user_id=user_id,
-        )
-    return WELCOME_TEXT.format(
-        name=html.escape(name or "Пользователь"),
-        registration_status=html.escape(registration_status),
-        admin_status=html.escape(admin_status),
-        user_id=user_id,
-    )
-
-
-async def short_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Включить короткий режим ответов."""
-    user_id = update.effective_user.id
-    set_user_mode(user_id, "short")
-    await update.message.reply_text("✅ Короткий режим включен. Используйте /long для полных ответов.")
-
-
-async def long_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Включить длинный режим ответов."""
-    user_id = update.effective_user.id
-    set_user_mode(user_id, "long")
-    await update.message.reply_text("✅ Длинный режим включен. Используйте /short для кратких ответов.")
-
-
-async def watch_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Включить режим ответов для часов."""
-    user_id = update.effective_user.id
-    set_user_mode(user_id, "watch")
-    await update.message.reply_text(
-        "⌚ Часы:\n"
-        "ОК=профиль\n"
-        "Да=админ\n"
-        "Спасибо=баланс\n"
-        "Спасибо нет=магазин\n"
-        "Великолепно=игры\n"
-        "Спасибо еще раз=AI\n"
-        "Скоро увидимся=команды\n"
-        "Скоро буду=уведомления\n"
-        "Я занят(а)=watch\n"
-        "Нет=отмена"
-    )
-
-
-async def short_all_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system):
-    """Админ-команда: включить короткий режим для всех пользователей."""
-    user_id = update.effective_user.id if update.effective_user else None
-    if not admin_system.is_admin(user_id):
-        await update.message.reply_text("❌ Доступ запрещен. Команда доступна только администраторам.")
-        return
-
-    set_all_user_modes("short")
-    await update.message.reply_text(
-        "✅ Короткий режим включен для всех пользователей. Каждый всё ещё может выбрать /long лично."
-    )
-
-
-async def long_all_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system):
-    """Админ-команда: включить длинный режим для всех пользователей."""
-    user_id = update.effective_user.id if update.effective_user else None
-    if not admin_system.is_admin(user_id):
-        await update.message.reply_text("❌ Доступ запрещен. Команда доступна только администраторам.")
-        return
-
-    set_all_user_modes("long")
-    await update.message.reply_text(
-        "✅ Длинный режим включен для всех пользователей. Каждый всё ещё может выбрать /short лично."
-    )
-
-
-async def watch_all_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system):
-    """Админ-команда: включить режим часов для всех пользователей."""
-    user_id = update.effective_user.id if update.effective_user else None
-    if not admin_system.is_admin(user_id):
-        await update.message.reply_text("❌ Доступ запрещен. Команда доступна только администраторам.")
-        return
-
-    set_all_user_modes("watch")
-    await update.message.reply_text(
-        "⌚ Режим часов включен для всех. Каждый всё ещё может выбрать /short или /long лично. "
-        f"{WATCH_TEMPLATES_HINT}"
-    )
+/stats — статистика
+/shop — магазин
+/games — игры
+/long — полный режим для себя
+/long_all — полный режим для всех
+"""
 
 
 async def welcome_command(
@@ -359,6 +148,16 @@ async def welcome_command(
         logger.error(f"Error in admin system registration: {e}")
         registration_status = f"❌ Ошибка: {str(e)}"
 
+    template = SHORT_WELCOME_TEXT if is_short_mode(context) else WELCOME_TEXT
+    welcome_text = template.format(
+        name=html.escape(user.first_name or "Пользователь"),
+        registration_status=html.escape(registration_status),
+        admin_status=html.escape(admin_status),
+        user_id=user.id,
+    )
+
+    await update.message.reply_text(welcome_text, parse_mode="HTML")
+
     db = next(db_get_db())
     try:
         from utils.core.user_manager import UserManager
@@ -369,11 +168,6 @@ async def welcome_command(
             user.username or user.first_name,
             user.id,
         )
-
-        if registration_status.startswith("❌"):
-            registration_status = "✅ Пользователь зарегистрирован"
-            if admin_system.is_admin(user.id):
-                admin_status = "✅ Права администратора активны"
 
         if (
             identified_user.created_at
@@ -393,15 +187,6 @@ async def welcome_command(
         logger.error(f"Error processing user in main system: {e}")
     finally:
         db.close()
-
-    welcome_text = get_welcome_text(
-        user.first_name or "Пользователь",
-        registration_status,
-        admin_status,
-        user.id,
-    )
-
-    await update.message.reply_text(welcome_text, parse_mode="HTML")
 
 
 async def test_notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -503,6 +288,13 @@ async def balance_command(
         admin_user = admin_system.get_user_by_id(user.id)
 
         if admin_user:
+            if is_short_mode(context):
+                await update.message.reply_text(
+                    f"Баланс: {admin_user['balance']} очков\n"
+                    f"Статус: {'админ' if admin_user['is_admin'] else 'пользователь'}"
+                )
+                return
+
             text = f"""
 [MONEY] <b>Ваш баланс</b>
 
@@ -522,6 +314,12 @@ async def balance_command(
             user_db = db.query(User).filter(User.telegram_id == user.id).first()
 
             if user_db:
+                if is_short_mode(context):
+                    await update.message.reply_text(
+                        f"Баланс: {user_db.balance} монет\n/history — операции"
+                    )
+                    return
+
                 text = f"""
 [MONEY] <b>Ваш баланс</b>
 
@@ -582,6 +380,14 @@ async def history_command(
 
         if not transactions:
             await update.message.reply_text("📭 У вас пока нет транзакций")
+            return
+
+        if is_short_mode(context):
+            lines = [f"История: {len(transactions)} операций. Баланс: {user_db.balance}"]
+            for t in transactions[:5]:
+                amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
+                lines.append(f"{amount_text} — {html.escape(t.description[:30])}")
+            await update.message.reply_text("\n".join(lines))
             return
 
         text = f"""
@@ -685,24 +491,40 @@ async def profile_command(
             )
             return
 
+        conn = admin_system.get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user.id,))
+        user_row = cursor.fetchone()
+        internal_id = user_row["id"] if user_row else None
+
         total_transactions = 0
         total_deposits = 0
-        db = next(db_get_db())
-        try:
-            from database.database import Transaction, User
+        if internal_id:
+            cursor.execute(
+                "SELECT COUNT(*) as count FROM transactions WHERE user_id = ?",
+                (internal_id,),
+            )
+            result = cursor.fetchone()
+            total_transactions = result["count"] if result else 0
 
-            user_db = db.query(User).filter(User.telegram_id == user.id).first()
-            if user_db:
-                total_transactions = (
-                    db.query(Transaction).filter(Transaction.user_id == user_db.id).count()
-                )
-                total_deposits = (
-                    db.query(Transaction)
-                    .filter(Transaction.user_id == user_db.id, Transaction.amount > 0)
-                    .count()
-                )
-        finally:
-            db.close()
+            cursor.execute(
+                "SELECT COUNT(*) as count FROM transactions WHERE user_id = ? AND amount > 0",
+                (internal_id,),
+            )
+            result = cursor.fetchone()
+            total_deposits = result["count"] if result else 0
+
+        conn.close()
+
+        if is_short_mode(context):
+            await update.message.reply_text(
+                f"Профиль: {html.escape(admin_user['first_name'] or 'Без имени')}\n"
+                f"Баланс: {int(admin_user['balance'])}\n"
+                f"Транзакций: {total_transactions}\n"
+                f"Статус: {'админ' if admin_user['is_admin'] else 'пользователь'}"
+            )
+            return
 
         text = f"""
 [USER] <b>Ваш профиль</b>
@@ -788,6 +610,17 @@ async def stats_command(
             Transaction.user_id == user_db.id,
             Transaction.created_at >= week_ago,
         ).count()
+
+        if is_short_mode(context):
+            await update.message.reply_text(
+                f"Статистика:\n"
+                f"Заработано: {total_earned}\n"
+                f"Потрачено: {total_spent}\n"
+                f"Баланс: {user_db.balance}\n"
+                f"Покупок: {total_purchases}\n"
+                f"За неделю операций: {week_transactions}"
+            )
+            return
 
         text = f"""
 [CHART] <b>Ваша статистика</b>

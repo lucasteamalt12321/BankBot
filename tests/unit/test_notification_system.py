@@ -9,13 +9,13 @@ from bot.commands.notification_commands_ptb import (
     notify_status_command,
     notifications_clear_command,
     notifications_command,
-    test_adb_command,
+    test_adb_command as adb_command,
 )
 from utils.monitoring.notification_system import NotificationSystem
 
 
 @pytest.mark.asyncio
-async def test_send_realtime_notification_uses_telegram_ntfy_and_adb() -> None:
+async def test_send_realtime_notification_skips_watch_transports() -> None:
     notification_system = NotificationSystem(db=Mock(), bot=AsyncMock())
     user = SimpleNamespace(telegram_id=123456)
 
@@ -32,8 +32,8 @@ async def test_send_realtime_notification_uses_telegram_ntfy_and_adb() -> None:
         )
 
     send_tg.assert_awaited_once_with(user, "Test", "Body")
-    send_ntfy.assert_awaited_once_with("Test", "Body", "system")
-    send_adb.assert_awaited_once_with("Test", "Body", "system")
+    send_ntfy.assert_not_awaited()
+    send_adb.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -155,6 +155,7 @@ async def test_notify_status_command_shows_transport_flags() -> None:
     update.message.reply_text.assert_awaited_once()
     reply_text = update.message.reply_text.await_args.args[0]
     assert "Telegram realtime: <b>on</b>" in reply_text
+    assert "watch mode: <b>off временно</b>" in reply_text
     assert "ntfy topic: <code>topic-name</code>" in reply_text
     assert "adb: <b>off</b>" in reply_text
 
@@ -170,7 +171,7 @@ async def test_test_adb_command_reports_disabled_transport() -> None:
         patch("bot.commands.notification_commands_ptb.settings") as mocked_settings,
     ):
         mocked_settings.ADB_NOTIFICATIONS_ENABLED = False
-        await test_adb_command(update, context)
+        await adb_command(update, context)
 
     update.message.reply_text.assert_awaited_once_with(
         "ADB-уведомления отключены. Установите ADB_NOTIFICATIONS_ENABLED=true и попробуйте снова."

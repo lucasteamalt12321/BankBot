@@ -78,8 +78,10 @@ class NotificationSystem:
         """Deliver notification through enabled realtime transports."""
 
         await self._send_to_telegram(user, title, message)
-        await self._send_to_ntfy(title, message, notification_type)
-        await self._send_to_adb(title, message, notification_type)
+        logger.info(
+            "Watch notification mode is temporarily disabled",
+            notification_type=notification_type,
+        )
 
     async def _send_to_telegram(
         self,

@@ -1,56 +1,29 @@
 # Active Context
 
 ## Текущий фокус
-**Главный продуктовый фокус — PARSE01: production E2E автоматический парсинг игровых сообщений.** DB01/HF/runtime/UX уже стабилизировались как фундамент для парсинга; AI02 остаётся следующим P1 после прямых багов и PARSE01.
+**Деплой на Hugging Face и отладка сети.** Настройка бота для работы в среде Hugging Face Spaces, обход сетевых ограничений через `base_url` и проверку доступности Telegram API.
 
-## Приоритет обработки задач
-1. Баги, на которые прямо указывает пользователь.
-2. Баги из `/feedback`.
-3. Текущий фокус разработки.
-4. Советы/улучшения из `/feedback`.
+## Статус проекта: 100% (базовый функционал) + HF Deployment Phase
 
-## Статус проекта: 90% (канонически по Project Deliverables) + HF Deployment ✅
-
-## Последнее обновление: 2026-05-19
+## Последнее обновление: 2026-05-12
 
 ## Выполнено недавно
-- ✅ DB01 production activation: Hugging Face `DATABASE_URL` secret установлен на Supabase Session Pooler (`aws-0-eu-west-1.pooler.supabase.com:5432`), `/health` показывает `database=postgresql`.
-- ✅ DB01 implementation: env aliases, Alembic URL override, empty PostgreSQL bootstrap, SQLAlchemy-based AdminSystem, DB backend health diagnostics, PostgreSQL connect timeout.
-- ✅ DB01 deploy issue resolved: duplicate public/secret `DATABASE_URL` fixed; direct IPv6 URI replaced with Supabase pooler URI.
-- ✅ DB01 regressions fixed: `/user`, `/start`, AI help, parsing/admin/shop legacy sqlite call sites migrated or fixed; `/health` stable on PostgreSQL.
-- ✅ DB01 final verification: `/health` возвращает `database=postgresql`, external `/feedback?limit=N` возвращает `storage=postgresql`; SQLite fallback больше не используется в production health/feedback path.
-- ✅ AI01 implemented/deployed: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; отвечает по командам BankBot и локальной базе канона Олеговируса/LTL из Google Doc.
-- ✅ Earlier `/start`, `/user`, `/ai` direct user-reported regressions have corresponding hotfixes deployed to HF.
-- ✅ AI01 canon/UX handled: добавлены `bot/ai/knowledge.py`, глоссарий, статьи высокого канона, short/long ответы; исправлено ранжирование, чтобы `олеговирус` не подтягивал нерелевантные правила/запреты.
-- 🔄 Next focus AI02: Никита предложил бесплатный Hugging Face API для более умных ответов. Делать только optional/free, с локальным AI-lite fallback, короткими timeout, лимитами prompt/response и без логирования секретов.
-- ✅ HF polling hardening revised: внешний retry-loop вокруг `run_polling()` убран; PTB сам ведёт polling, а на HF `drop_pending_updates=False`, чтобы команды не терялись при сетевой нестабильности.
-- ✅ HF `/start` safety: на Hugging Face `/start` по умолчанию отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; если пользователь включил `/long`, `/start` уважает режим и отдаёт полный welcome. `drop_pending_updates=False` на HF сохраняет команды при сетевых reconnect.
-- ✅ Командная иерархия уточнена: `/commands` — список разделов, `/user` — профиль игрока, `/shop`/`games`/`admin`/`coder` сохраняют старый функционал или разделные подсказки по назначению.
-- ✅ D&D command wiring исправлен: `/dnd_create`, `/dnd_join`, `/dnd_roll`, `/dnd_sessions` проходят через wrapper-методы `TelegramBot` с передачей `get_db`.
-- ✅ Игровые подсказки `/play`, `/join`, `/startgame`, `/turn` переведены с транслита на русский и стали понятнее для команд без аргументов.
-- ✅ FB01: добавлена предложка/жалобы — `/feedback <текст>` (`/suggest`, `/complaint`) сохраняет обращения в SQLite-таблицу `feedback_entries` с JSONL fallback; `/feedback_list [limit]` показывает последние записи администратору.
-- ✅ PR10-PR13 закрыты: архитектурный runtime/legacy contract зафиксирован в `docs/README.md`, рискованные shim-слои не удалялись, polling kwargs вынесены в чистый builder, UX/watchlist игровых/D&D/shop команд закрыт безопасными правками.
-- ✅ Flask health/metrics/logs сервер на порту `7860` в `run_bot.py`.
-- ✅ Dockerfile обновлён до `python:3.12-slim` с health check на `:7860/health`.
-- ✅ `bot/main.py` — Alembic-first миграции до инициализации систем.
-- ✅ `config_manager` — защита от отсутствующих таблиц БД при первом запуске.
-- ✅ HF Network: IP proxy + `Host: tgproxy.me` + `verify=False` + safe `http_client` builder.
-- ✅ Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты.
-- ✅ `docs/DEPLOYMENT.md` — раздел Hugging Face Spaces с operational notes.
-- ✅ Global response modes: `bot/response_modes.py` патчит `Message.reply_text`; в `/short` длинные ответы всех разделов автоматически компактятся, в `/long` отправляется полный текст.
-- ✅ Response mode scope change: `/short` и `/long` работают как личный выбор пользователя; админские `/short_all` и `/long_all` задают общий default всем, после чего каждый пользователь может снова выбрать личный режим.
-- ✅ Watch mode documented/implemented: `/watch` и `/watch_all`, сверхкороткие ответы для часов и управление через 10 шаблонов (`ОК`, `Да`, `Спасибо`, `Спасибо нет`, `Великолепно`, `Спасибо еще раз`, `Скоро увидимся`, `Скоро буду`, `Я занят(а)`, `Нет`); `Я занят(а)` включает watch mode для конкретного пользователя.
-- ✅ Documentation refresh: `README.md`, `RUN.md`, `docs/README.md` синхронизированы с текущими BankBot возможностями, HF/PostgreSQL runtime, response modes, feedback, AI-lite и админ-командами.
-- 🔄 Product positioning corrected: парсинг игровых сообщений зафиксирован как самая важная цель проекта; текущий банк/админка/PostgreSQL/HF/feedback/watch/AI-lite описаны как фундамент вокруг парсинга, а не замена парсинга. Автоматический production E2E parsing выделен как PARSE01/in_progress.
-- ✅ Документация уточнена: для пользовательской проверки проект клонировать не нужно, актуальный bot можно тестировать в https://t.me/lucasteamgroup; локальный запуск нужен только для разработки.
-- 🔄 Project Deliverables пересчитаны на 90/100: D10 и D18 оставлены `in_progress`, потому что production E2E parsing ещё не завершён.
+- ✅ Поддержка прокси в `src/config.py` и `bot/bot.py`.
+- ✅ Реализован скрипт `bot/check_proxy.py` для диагностики сетевых соединений.
+- ✅ Проверена доступность IP Telegram API (tgproxy.me) из среды Hugging Face (Status 200).
+- ✅ Настроен `bot.py` на использование `base_url="https://api.telegram.org/bot/"` с завершающим слэшем для обхода фильтров.
+- ✅ Проект успешно пушится на GitHub и Hugging Face одновременно.
+- 🔄 HF deploy hardening: текущая попытка убирает нестабильный IP/Host-header hack и переводит Telegram network config на явный `TELEGRAM_BASE_URL` + обычные PTB timeout/proxy настройки.
+- 🔄 HF network follow-up: прямой `api.telegram.org` из Space уходит в TLS timeout; добавлен Hugging Face fallback `http://tgproxy.me/bot/` при отсутствии явного `TELEGRAM_BASE_URL`.
+- 🔄 HF VPN option: начата интеграция sing-box в Docker runtime; секрет `VPN_SUBSCRIPTION_URL` должен храниться только в Hugging Face Space secrets, локальный proxy — `http://127.0.0.1:1080`.
+- 🔄 HF VPN parser: subscription определён как base64-список VLESS URI; добавлена генерация sing-box config из VLESS Reality nodes.
+- 🔄 HF VPN parser fix: неподдерживаемый `xhttp` node пропускается; при local proxy Telegram base_url остаётся `api.telegram.org`.
 
 
 ## Сводка
 | Метрика | Значение |
 |---------|----------|
-| Канонический прогресс | 90/100 |
-| bot/bot.py | modular runtime, размер меняется по hotfix-итерациям |
+| bot/bot.py | 891 строк (было 3923) |
 | Удалено | ~3032 строк (77%) |
 | ruff errors | 0 (продакшн) |
 | Тесты unit | 745 passed, 10 skipped |
@@ -90,22 +63,47 @@
 - P1: ревизия Docker/Compose — выполнено (PR08)
 - P1: Release checklist и runbook — выполнено (PR09)
 - P2: архитектурная инвентаризация слоёв и сокращение legacy-дублей (PR10-PR13)
-  - ✅ PR10-PR13 completed: documentation-first legacy freeze + safe wiring/runtime cleanup.
 
 ## Текущий checkpoint
-- **HF01 — Deployment Phase**: Flask health/metrics/logs сервер на `7860`, Dockerfile на `python:3.12-slim`, DNS bypass через `socket.getaddrinfo`/`anyio` monkey patch для `api.telegram.org`, `httpx.AsyncClient(verify=False)` в HF, safe short `/start`; внешний polling retry-loop снят, `drop_pending_updates=False` на HF.
 - N02 increment: `NotificationSystem` расширен до multi-transport realtime доставки (`Telegram` + `ntfy` + optional `ADB`).
-- N02 fix: команды `/notifications` и `/notifications_clear` теперь корректно мапят `telegram_id -> users.id`.
-- N02 API cleanup: прямые вызовы `_send_to_ntfy()` заменены на `send_realtime_notification()`.
-- N02 tests: `tests/unit/test_notification_system.py` — realtime fanout, ADB command build, user-id mapping.
-- N02 command wiring: `/notify_status` и `/test_adb` подключены в `bot/bot.py`.
-- M01: completed — диалоговый кодер текстовых шаблонов с `/coder`, `/help`, `/reset`, TTL 30 минут, 19 unit-тестов.
-- FB01: completed — пользовательская предложка и жалобы с SQLite-хранилищем, JSONL fallback, админским просмотром и защищённым external reader `/feedback`.
-- AI01: completed/deployed — `bot/ai/service.py`, `bot/ai/knowledge.py`, `bot/commands/ai_commands.py`, команды `/ai`, `/ask`, `/ai_help`, локальная canon KB, global `/short`/`/long`, 19 AI/unit tests без внешних API.
-- Startup resilience: `config_manager` проверяет `inspector.has_table("parsing_rules")` до запроса; `bot/main.py` делает `ensure_schema_up_to_date()` первым делом.
-- Runtime lesson: локальный BankBot — только `Python 3.12`; `3.14` вызывает crash в `python-telegram-bot==20.7`.
-- Env split: `config/.env.shared` (committable) + `config/.env.local` (secrets), fallback на legacy `config/.env`.
-- Документация: `README.md`, `RUN.md`, `docs/README.md`, `docs/DEPLOYMENT.md` синхронизированы с текущим кодом и деплоем.
+- N02 fix: команды `/notifications` и `/notifications_clear` теперь корректно мапят `telegram_id -> users.id`, чтобы читать/очищать `user_notifications` для правильного пользователя.
+- N02 API cleanup: прямые вызовы приватного `_send_to_ntfy()` в `ping` и template coder заменены на публичный `send_realtime_notification()`.
+- N02 config: в `src/config.py` и `config/.env.example` добавлены `NTFY_ENABLED`, `NTFY_BASE_URL`, `NTFY_TAGS`, `NTFY_TIMEOUT_SECONDS`, `ADB_NOTIFICATIONS_ENABLED`, `ADB_PATH`, `ADB_DEVICE_SERIAL`.
+- N02 tests: добавлен `tests/unit/test_notification_system.py` для realtime fanout, ADB command build и notification command user-id mapping.
+- N02 command wiring: диагностические команды `/notify_status` и `/test_adb` подключены в `bot/bot.py`.
+- N02 diagnostics: `notify_status_command` больше не использует заглушку `if True`, статус Telegram realtime определяется по конфигурации `BOT_TOKEN`.
+- N02 tests increment: в `tests/unit/test_notification_system.py` добавлены проверки для `notify_status_command` и disabled-сценария `test_adb_command`.
+- Локальная валидация в текущей среде: `py -3.12 -m ruff check bot/commands/notification_commands_ptb.py tests/unit/test_notification_system.py bot/bot.py utils/monitoring/notification_system.py` -> passed; `pytest` не запущен, т.к. в доступных Python 3.12/3.14 отсутствует установленный модуль `pytest`.
+- Runtime lesson: локальный запуск основного BankBot зафиксирован на `Python 3.12`; на `Python 3.14` воспроизведён crash внутри `python-telegram-bot==20.7` при инициализации `Updater`.
+- Runtime docs sync: `README.md`, `RUN.md`, `docs/README.md`, `docs/DEPLOYMENT.md` обновлены и теперь явно требуют `py -3.12` для локального запуска и проверок.
+- Runtime verification: `py -3.12 -m pip install -r requirements-dev.txt` -> completed; `py -3.12 run_bot.py` проходит startup, wiring handlers и background tasks, после чего упирается в сетевой `httpx.ConnectError` при polling (внешняя доступность Telegram API/прокси), а не в runtime-ошибки Python/PTB.
+- Env split: конфигурация разделена на два слоя — коммитируемый `config/.env.shared` и локальный секретный `config/.env.local`; загрузка реализована в `src/config.py` с fallback на legacy `config/.env`.
+- Env templates: `config/.env.example` заменён на `config/.env.shared.example` и `config/.env.local.example`; `.gitignore` обновлён так, чтобы `config/.env.local*` не коммитился, а `config/.env.shared` мог коммититься.
+- Env startup validation: `src/startup_validator.py` теперь считает валидными `config/.env.shared` / `config/.env.local`; smoke-запуск с новой схемой проходит.
+- M01: пользователь предоставил полный список 500 троек `(A,B,C)`; в ТЗ зафиксирован статус данных и правило третьего уровня `{1,2,3,5,10}`.
+- M01: пользователь предоставил таблицу 10 одиночных значений; все данные для модуля теперь определены.
+- M01 implementation in progress: добавлены `bot/template_coder/*`, подключение в `bot/bot.py`, unit-тесты `tests/unit/test_template_coder.py`.
+- M01 data migration: 10 одиночных значений, 100 пар и все 500 троек перенесены в `bot/template_coder/data.py`; временный fallback генерации троек удалён.
+- M01 validation: `validate_data()` проверяет полноту таблиц 10/100/500 при импорте.
+- M01 commands: добавлен пользовательский entrypoint `/coder`, `/help` показывает описание модуля и 10 шаблонов, `/reset` сбрасывает состояние.
+- M01 `/start`: основной `/start` дополнительно отправляет краткую подсказку по диалоговому кодеру и командам `/coder`, `/reset`, `/help`.
+- M01 group command routing: `handle_mentioned_commands` поддерживает `/coder@bot`, `/help@bot`, `/reset@bot` наряду с `/start@bot`.
+- M01 `/start` теперь полноценно сбрасывает состояние диалогового кодера перед приветствием, как требует ТЗ.
+- M01 TTL: состояние содержит `updated_at`; активная последовательность сбрасывается после 30 минут бездействия.
+- M01 adapter tests: покрыты обработка шаблона, игнор обычного текста без активного состояния, auto-reset expired state, `/reset` command.
+- M01 status: completed на уровне кода и unit/smoke-проверок.
+- Short mode default: краткий режим обычных меню включён по умолчанию. `/short` и `/long` управляют кратким/полным режимом для одного пользователя; `/short_all` и `/long_all` управляют кратким/полным режимом для всех. Это не режим часов и не алиас кодера.
+- Watch mode temporary disable: realtime-уведомления на часы через `ntfy`/`ADB` временно отключены в `NotificationSystem.send_realtime_notification()`, при этом `/short` и `/short_all` остаются рабочими командами краткого режима.
+- Локальная проверка: `python -m pytest tests/unit/test_template_coder.py -q` -> 19 passed; `python -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
+- Локальная проверка aliases fix: `python3 -m pytest tests/unit/test_template_coder.py -q` -> 22 passed; `python3 -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
+- smoke-тесты синхронизированы с текущими экспортами конфигурации и startup flow
+- `tests/pytest.ini` дополнен `asyncio_default_fixture_loop_scope = function`
+- `src/config.py` синхронизирован: `DynamicSettings` теперь читает feature flags, cache и debug/test поля так же, как основной `Settings`
+- `RUN.md` и `config/.env.example` синхронизированы с фактическими именами env-переменных и Windows/PowerShell-командами
+- `docs/README.md` переписан как актуальная high-level карта проекта без устаревших метрик, старых путей и неактуальных статусов
+- `README.md` и `docs/DEPLOYMENT.md` синхронизированы с текущими entrypoints, Docker-сценариями и конфигурацией
+- локальная проверка: `py -3.13 -m pytest tests/smoke -v` -> 9 passed
+- локальная проверка: `py -3.13 -m ruff check src/config.py tests/smoke/test_startup.py` -> passed
 
 ## PR01 Result
 - SQLAlchemy metadata содержит 24 таблицы, ранние Alembic-миграции покрывали только часть схемы

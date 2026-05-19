@@ -3,6 +3,7 @@
 import structlog
 from telegram import Update
 from telegram.ext import ContextTypes
+from bot.short_mode import is_short_mode
 
 logger = structlog.get_logger()
 
@@ -27,6 +28,12 @@ async def shop_command(
 
         shop_handler = ShopHandler(db)
         shop_display = shop_handler.display_shop(user.id)
+        if is_short_mode(context):
+            lines = shop_display.splitlines()
+            compact_lines = [line for line in lines if line.strip()][:12]
+            shop_display = "\n".join(compact_lines)
+            if len(lines) > len(compact_lines):
+                shop_display += "\n...\n/buy <номер> — купить, /long — полный список для себя"
 
         await update.message.reply_text(shop_display)
 

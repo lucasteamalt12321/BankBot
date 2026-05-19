@@ -202,6 +202,8 @@
   - добавлен import smoke для wiring класса `TelegramBot`.
 - M01 переведён в `completed` в `projectbrief.md`.
 - Финальные проверки M01: `python -m pytest tests/unit/test_template_coder.py -q` -> 19 passed; `python -m ruff check bot/template_coder tests/unit/test_template_coder.py bot/bot.py` -> passed.
+- Краткий режим обычных меню сделан режимом по умолчанию. `/short` и `/long` реализованы как персональный краткий/полный режим; `/short_all` и `/long_all` — как общий режим для всех. Это не режим часов и не справка кодера.
+- Временно отключён режим часов: `send_realtime_notification()` больше не отправляет в `ntfy`/`ADB`, но сохраняет Telegram realtime. Команды `/short` и `/short_all` не отключались.
 
 ### 2026-04-17 (PR10 — smoke sync and pytest-asyncio cleanup)
 - Актуализирован `tests/smoke/test_startup.py` под текущие публичные API и startup flow

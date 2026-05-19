@@ -73,16 +73,18 @@ async def notify_status_command(update: Update, context: ContextTypes.DEFAULT_TY
     """Show current notification transport status and configuration."""
     _ = context
     telegram_realtime_enabled = bool(settings.BOT_TOKEN)
+    watch_mode_enabled = False
 
     lines = [
         "<b>Статус уведомлений</b>",
         "",
         f"• Telegram realtime: <b>{'on' if telegram_realtime_enabled else 'off'}</b>",
-        f"• ntfy: <b>{'on' if settings.NTFY_ENABLED else 'off'}</b>",
+        f"• watch mode: <b>{'on' if watch_mode_enabled else 'off временно'}</b>",
+        f"• ntfy: <b>{'on' if settings.NTFY_ENABLED and watch_mode_enabled else 'off'}</b>",
         f"• ntfy topic: <code>{settings.NTFY_TOPIC}</code>",
         f"• ntfy base URL: <code>{settings.NTFY_BASE_URL}</code>",
         f"• proxy: <code>{settings.PROXY_URL or 'not set'}</code>",
-        f"• adb: <b>{'on' if settings.ADB_NOTIFICATIONS_ENABLED else 'off'}</b>",
+        f"• adb: <b>{'on' if settings.ADB_NOTIFICATIONS_ENABLED and watch_mode_enabled else 'off'}</b>",
         f"• adb path: <code>{settings.ADB_PATH}</code>",
         f"• adb serial: <code>{settings.ADB_DEVICE_SERIAL or 'default device'}</code>",
         "",

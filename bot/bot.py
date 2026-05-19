@@ -4,6 +4,7 @@ import asyncio
 import os
 import signal
 import time
+from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import NetworkError, TimedOut
@@ -40,16 +41,6 @@ from bot.commands.core_commands import (
     stats_command,
     ping_command,
     test_notify_command,
-    short_mode_command,
-    long_mode_command,
-    watch_mode_command,
-    short_all_mode_command,
-    long_all_mode_command,
-    watch_all_mode_command,
-    commands_menu_command,
-    command_section_command,
-    COMMAND_SECTIONS,
-    get_user_mode,
 )
 from bot.commands.shop_commands_ptb import (
     shop_command,
@@ -60,7 +51,6 @@ from bot.commands.shop_commands_ptb import (
 )
 from bot.commands.game_commands_ptb import (
     games_command,
-    games_list_command,
     play_command,
     join_command,
     start_game_command,
@@ -132,91 +122,22 @@ from bot.commands.user_commands import (
     buy_7_command,
     buy_8_command,
 )
-from bot.commands.feedback_commands import feedback_command, feedback_list_command
-from bot.commands.ai_commands import (
-    ai_command,
-    ai_help_command,
-    ai_update_knowledge_command,
-    handle_ai_feedback_reply,
-)
 from bot.template_coder import TemplateCoderDialog
-from bot.response_modes import install_reply_text_short_mode_patch
+from bot.short_mode import long_all_command, long_command, short_all_command, short_command
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
 from bot.handlers import ParsingHandler  # NEW: Unified parsing handler
 import structlog
 
 
+POLLING_RETRY_DELAY_SECONDS = 5
+TELEGRAM_DEFAULT_BASE_URL = "https://api.telegram.org/bot/"
+HF_FALLBACK_TELEGRAM_BASE_URL = "http://tgproxy.me/bot/"
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = structlog.get_logger()
-POLLING_RETRY_DELAY_SECONDS = 10
-
-WATCH_TEMPLATE_ACTIONS = {
-    "ок": ("Профиль", "profile_command"),
-    "да": ("Админка", "admin_with_section_command"),
-    "спасибо": ("Баланс", "balance_command"),
-    "спасибо нет": ("Магазин", "shop_command"),
-    "спасибо, нет": ("Магазин", "shop_command"),
-    "великолепно": ("Игры", "games_command"),
-    "спасибо еще раз": ("AI help", "ai_help"),
-    "скорo увидимся": ("Команды", "commands_menu"),
-    "скоро увидимся": ("Команды", "commands_menu"),
-    "скоро буду": ("Уведомления", "notifications"),
-    "я занят(а)": ("Режим часов", "watch_mode"),
-    "нет": ("Отмена", "cancel"),
-}
-
-WATCH_ACTION_PROMPT = (
-    "⌚ Часы:\n"
-    "ОК=профиль\n"
-    "Да=админ\n"
-    "Спасибо=баланс\n"
-    "Спасибо нет=магазин\n"
-    "Великолепно=игры\n"
-    "Спасибо еще раз=AI\n"
-    "Скоро увидимся=команды\n"
-    "Скоро буду=уведомления\n"
-    "Я занят(а)=watch\n"
-    "Нет=отмена"
-)
-
-
-def build_polling_kwargs(is_hf: bool) -> dict:
-    """Build PTB polling kwargs without changing HF runtime semantics."""
-    polling_kwargs = {
-        # HF networking can produce transient getUpdates timeouts. Do not drop
-        # pending updates there: otherwise commands sent during reconnects are
-        # silently discarded. Local/dev startup can still drop stale updates.
-        "drop_pending_updates": not is_hf,
-        "close_loop": False,
-        "allowed_updates": Update.ALL_TYPES,
-    }
-
-    if is_hf:
-        polling_kwargs.update(
-            {
-                "timeout": 30,
-                "poll_interval": 1,
-                "read_timeout": 45,
-                "write_timeout": 30,
-                "connect_timeout": 15,
-                "pool_timeout": 15,
-            }
-        )
-    else:
-        polling_kwargs.update(
-            {
-                "timeout": 60,
-                "read_timeout": 60,
-                "write_timeout": 30,
-                "connect_timeout": 30,
-                "pool_timeout": 30,
-            }
-        )
-
-    return polling_kwargs
 
 
 def _normalize_bot_command(message_text: str | None) -> str:
@@ -244,32 +165,23 @@ def _extract_bot_mentioned_command(message_text: str | None, bot_username: str |
     return base_command.lower()
 
 
+def _mask_proxy_url(proxy_url: str) -> str:
+    """Mask proxy credentials before logging."""
+    parsed = urlparse(proxy_url)
+    if not parsed.password:
+        return proxy_url
+
+    host = parsed.hostname or ""
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    username = parsed.username or ""
+    netloc = f"{username}:***@{host}"
+    return parsed._replace(netloc=netloc).geturl()
+
+
 class TelegramBot:
     def __init__(self):
-        install_reply_text_short_mode_patch()
-        builder = Application.builder().token(settings.BOT_TOKEN.strip())
-        
-        # Увеличиваем таймауты для всех сред (HF и обычной)
-        builder.read_timeout(60)
-        builder.connect_timeout(30)
-        builder.write_timeout(60)
-        builder.pool_timeout(30)
-        
-        # HF: socket.getaddrinfo monkey patch в run_bot.py обходит DNS
-        if os.environ.get("SPACE_ID"):
-            logger.info("Hugging Face environment detected (DNS bypass via socket.getaddrinfo patch)")
-            builder.get_updates_read_timeout(15)
-            builder.get_updates_connect_timeout(15)
-            builder.get_updates_write_timeout(30)
-            builder.get_updates_pool_timeout(15)
-        
-        # Настройка прокси (для обычной среды)
-        proxy = settings.PROXY_URL
-        if proxy and not os.environ.get("SPACE_ID"):
-            builder.proxy_url(proxy)
-            builder.get_updates_proxy_url(proxy)
-            logger.info(f"Using proxy: {proxy}")
-        
+        builder = self._create_application_builder()
         self.application = builder.build()
 
         # Инициализация систем мониторинга и безопасности
@@ -305,6 +217,43 @@ class TelegramBot:
         self.setup_handlers()
         self.setup_error_handler()
 
+    def _create_application_builder(self):
+        """Create PTB ApplicationBuilder with HF-safe network settings."""
+        token = settings.BOT_TOKEN.strip()
+        builder = Application.builder().token(token)
+
+        builder.read_timeout(30)
+        builder.connect_timeout(20)
+        builder.write_timeout(20)
+        builder.pool_timeout(20)
+
+        base_url = os.environ.get("TELEGRAM_BASE_URL")
+        if not base_url and os.environ.get("SPACE_ID") and not settings.PROXY_URL:
+            base_url = HF_FALLBACK_TELEGRAM_BASE_URL
+        if not base_url:
+            base_url = settings.TELEGRAM_BASE_URL
+        base_url = base_url.strip()
+        if not base_url.endswith("/"):
+            base_url = f"{base_url}/"
+
+        if os.environ.get("SPACE_ID"):
+            logger.info(
+                "Configuring Telegram client for Hugging Face",
+                base_url=base_url,
+            )
+
+        if base_url != TELEGRAM_DEFAULT_BASE_URL:
+            builder.base_url(base_url)
+            logger.info("Using custom Telegram base_url", base_url=base_url)
+
+        proxy = settings.PROXY_URL
+        if proxy:
+            builder.proxy_url(proxy)
+            builder.get_updates_proxy_url(proxy)
+            logger.info("Using Telegram proxy", proxy=_mask_proxy_url(proxy))
+
+        return builder
+
     def is_background_system_running(self) -> bool:
         """
         Проверяет, запущена ли система фоновых задач (Task 11.3)
@@ -337,28 +286,7 @@ class TelegramBot:
 
         # Основные команды
         handlers = [
-            CommandHandler("start", self.safe_start_command),
-            CommandHandler("user", self.profile_command),
-            CommandHandler("shop", self.shop_command),
-            CommandHandler("games", games_command),
-            CommandHandler("admin", self.admin_with_section_command),
-            CommandHandler("config", command_section_command),
-            CommandHandler("coder", self.coder_with_section_command),
-            CommandHandler("short", short_mode_command),
-            CommandHandler("long", long_mode_command),
-            CommandHandler("watch", watch_mode_command),
-            CommandHandler("short_all", self.short_all_mode_command),
-            CommandHandler("long_all", self.long_all_mode_command),
-            CommandHandler("watch_all", self.watch_all_mode_command),
-            CommandHandler("commands", commands_menu_command),
-            CommandHandler("ai", ai_command),
-            CommandHandler("ask", ai_command),
-            CommandHandler("ai_help", ai_help_command),
-            CommandHandler("ai_update_knowledge", self.ai_update_knowledge_command),
-            CommandHandler("feedback", feedback_command),
-            CommandHandler("suggest", feedback_command),
-            CommandHandler("complaint", feedback_command),
-            CommandHandler("feedback_list", self.feedback_list_command),
+            CommandHandler("start", self.welcome_command),
             CommandHandler("ping", ping_command),
             CommandHandler("test_notify", test_notify_command),
             CommandHandler("balance", self.balance_command),
@@ -366,7 +294,7 @@ class TelegramBot:
             CommandHandler("profile", self.profile_command),
             CommandHandler("stats", self.stats_command),
             # Магазин
-            CommandHandler("items", self.shop_command),
+            CommandHandler("shop", self.shop_command),
             CommandHandler("buy_contact", self.buy_contact_command),
             CommandHandler("buy", self.buy_command),
             CommandHandler("buy_1", buy_1_command),
@@ -377,26 +305,26 @@ class TelegramBot:
             CommandHandler("buy_6", buy_6_command),
             CommandHandler("buy_7", buy_7_command),
             CommandHandler("buy_8", buy_8_command),
-            CommandHandler("inventory", self.inventory_command),
+            CommandHandler("inventory", inventory_command),
             # Мини-игры
-            CommandHandler("games_list", games_list_command),
+            CommandHandler("games", games_command),
             CommandHandler("play", play_command),
             CommandHandler("join", join_command),
             CommandHandler("startgame", start_game_command),
             CommandHandler("turn", game_turn_command),
             # D&D
             CommandHandler("dnd", dnd_command),
-            CommandHandler("dnd_create", self.dnd_create_command),
-            CommandHandler("dnd_join", self.dnd_join_command),
-            CommandHandler("dnd_roll", self.dnd_roll_command),
-            CommandHandler("dnd_sessions", self.dnd_sessions_command),
+            CommandHandler("dnd_create", dnd_create_command),
+            CommandHandler("dnd_join", dnd_join_command),
+            CommandHandler("dnd_roll", dnd_roll_command),
+            CommandHandler("dnd_sessions", dnd_sessions_command),
             # Мотивация
             CommandHandler("daily", daily_bonus_command),
             CommandHandler("bonus", daily_bonus_command),
             CommandHandler("challenges", challenges_command),
             CommandHandler("streak", motivation_stats_command),
             # Достижения и уведомления
-            CommandHandler("achievements", self.achievements_command),
+            CommandHandler("achievements", achievements_command),
             CommandHandler("notifications", notifications_command),
             CommandHandler("notifications_clear", notifications_clear_command),
             CommandHandler("notify_status", notify_status_command),
@@ -411,29 +339,29 @@ class TelegramBot:
             CommandHandler("clan_join", clan_join_command),
             CommandHandler("clan_leave", clan_leave_command),
             # Админ-команды
-            CommandHandler("admin_panel", self.admin_command),
+            CommandHandler("admin", admin_command),
             CommandHandler("add_points", self.add_points_command),
             CommandHandler("add_admin", self.add_admin_command),
-            CommandHandler("admin_stats", self.admin_stats_command),
-            CommandHandler("admin_adjust", self.admin_adjust_command),
-            CommandHandler("admin_addcoins", self.admin_addcoins_command),
-            CommandHandler("admin_removecoins", self.admin_removecoins_command),
-            CommandHandler("admin_merge", self.admin_merge_command),
-            CommandHandler("admin_transactions", self.admin_transactions_command),
-            CommandHandler("admin_transaction", self.admin_transactions_command),  # Алиас
-            CommandHandler("admin_balances", self.admin_balances_command),
-            CommandHandler("admin_users", self.admin_users_command),
-            CommandHandler("admin_rates", self.admin_rates_command),
-            CommandHandler("admin_rate", self.admin_rate_command),
-            CommandHandler("admin_cleanup", self.admin_cleanup_command),
-            CommandHandler("admin_shop_add", self.admin_shop_add_command),
-            CommandHandler("admin_shop_edit", self.admin_shop_edit_command),
-            CommandHandler("admin_games_stats", self.admin_games_stats_command),
-            CommandHandler("admin_reset_game", self.admin_reset_game_command),
-            CommandHandler("admin_ban_player", self.admin_ban_player_command),
-            CommandHandler("admin_health", self.admin_health_command),
-            CommandHandler("admin_errors", self.admin_errors_command),
-            CommandHandler("admin_backup", self.admin_backup_command),
+            CommandHandler("admin_stats", admin_stats_command),
+            CommandHandler("admin_adjust", admin_adjust_command),
+            CommandHandler("admin_addcoins", admin_addcoins_command),
+            CommandHandler("admin_removecoins", admin_removecoins_command),
+            CommandHandler("admin_merge", admin_merge_command),
+            CommandHandler("admin_transactions", admin_transactions_command),
+            CommandHandler("admin_transaction", admin_transactions_command),  # Алиас
+            CommandHandler("admin_balances", admin_balances_command),
+            CommandHandler("admin_users", admin_users_command),
+            CommandHandler("admin_rates", admin_rates_command),
+            CommandHandler("admin_rate", admin_rate_command),
+            CommandHandler("admin_cleanup", admin_cleanup_command),
+            CommandHandler("admin_shop_add", admin_shop_add_command),
+            CommandHandler("admin_shop_edit", admin_shop_edit_command),
+            CommandHandler("admin_games_stats", admin_games_stats_command),
+            CommandHandler("admin_reset_game", admin_reset_game_command),
+            CommandHandler("admin_ban_player", admin_ban_player_command),
+            CommandHandler("admin_health", admin_health_command),
+            CommandHandler("admin_errors", admin_errors_command),
+            CommandHandler("admin_backup", admin_backup_command),
             # Advanced Admin Commands (Task 7.4 and 8.3)
             CommandHandler(
                 "parsing_stats", self.advanced_admin_commands.parsing_stats_command
@@ -444,14 +372,14 @@ class TelegramBot:
             ),
             CommandHandler("add_item", self.advanced_admin_commands.add_item_command),
             # Background Task Management Commands (Task 10.3)
-            CommandHandler("admin_background_status", self.admin_background_status_command),
-            CommandHandler("admin_background_health", self.admin_background_health_command),
+            CommandHandler("admin_background_status", admin_background_status_command),
+            CommandHandler("admin_background_health", admin_background_health_command),
             CommandHandler(
                 "admin_background_restart", admin_background_restart_command
             ),
             # Message Parsing Configuration Commands (Task 11.2)
-            CommandHandler("admin_parsing_reload", self.admin_parsing_reload_command),
-            CommandHandler("admin_parsing_config", self.admin_parsing_config_command),
+            CommandHandler("admin_parsing_reload", admin_parsing_reload_command),
+            CommandHandler("admin_parsing_config", admin_parsing_config_command),
             # Configuration Management Commands (Full Set)
             CommandHandler("reload_config", config_commands.reload_config_handler),
             CommandHandler("config_status", config_commands.config_status_handler),
@@ -471,7 +399,12 @@ class TelegramBot:
             CommandHandler("list_backups", config_commands.list_backups_handler),
             CommandHandler("validate_config", config_commands.validate_config_handler),
             # Диалоговый кодер шаблонов
-            CommandHandler("coder_start", self.template_coder_dialog.start_command),
+            CommandHandler("coder", self.template_coder_dialog.start_command),
+            # Краткий режим обычных меню, не режим часов и не кодер.
+            CommandHandler("short", short_command),
+            CommandHandler("short_all", short_all_command),
+            CommandHandler("long", long_command),
+            CommandHandler("long_all", long_all_command),
             CommandHandler("reset", self.template_coder_dialog.reset_command),
             CommandHandler("done", self.template_coder_dialog.done_command),
             CommandHandler("help", self.template_coder_dialog.help_command),
@@ -717,28 +650,6 @@ class TelegramBot:
             db.close()
 
     # ===== Основные команды =====
-    def _is_hugging_face(self) -> bool:
-        return bool(os.environ.get("SPACE_ID"))
-
-    async def safe_start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Безопасный /start для HF: один короткий ответ без welcome-цепочки."""
-        if not self._is_hugging_face():
-            await self.welcome_command(update, context)
-            return
-
-        if not update.message:
-            return
-
-        self.template_coder_dialog.reset_state(context)
-        if get_user_mode(update.effective_user.id if update.effective_user else None) == "long":
-            await self.welcome_command(update, context)
-            return
-
-        await update.message.reply_text(
-            "Привет! Бот работает.\n"
-            "Команды: /commands, /user, /shop, /games, /admin, /config, /coder, /ai."
-        )
-
     async def welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start - приветствие и регистрация."""
         self.template_coder_dialog.reset_state(context)
@@ -747,62 +658,6 @@ class TelegramBot:
             self.template_coder_dialog.service.welcome_hint_text(),
             parse_mode="HTML",
         )
-
-
-    async def shop_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать раздел магазина и старый функционал /shop."""
-        await update.message.reply_text(COMMAND_SECTIONS["shop"])
-        await self.shop_command(update, context)
-
-    async def games_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать раздел игр и старый функционал /games."""
-        await update.message.reply_text(COMMAND_SECTIONS["games"])
-        await games_command(update, context)
-
-    async def admin_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать админ-команды с учётом short/long режима пользователя."""
-        if get_user_mode(update.effective_user.id if update.effective_user else None) == "long":
-            await self.admin_command(update, context)
-            return
-
-        await update.message.reply_text(COMMAND_SECTIONS["admin"])
-
-    async def coder_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать раздел кодера и запустить старый /coder."""
-        await update.message.reply_text(COMMAND_SECTIONS["coder"])
-        await self.template_coder_dialog.start_command(update, context)
-
-    async def dnd_create_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Создать D&D-сессию с доступом к get_db."""
-        await dnd_create_command(update, context, get_db)
-
-    async def dnd_join_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Присоединиться к D&D-сессии с доступом к get_db."""
-        await dnd_join_command(update, context, get_db)
-
-    async def dnd_roll_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Бросить D&D-кубики с доступом к get_db."""
-        await dnd_roll_command(update, context, get_db)
-
-    async def dnd_sessions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать D&D-сессии с доступом к get_db."""
-        await dnd_sessions_command(update, context, get_db)
-
-    async def feedback_list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать последние предложения и жалобы администратору."""
-        await feedback_list_command(update, context, settings.ADMIN_TELEGRAM_ID)
-
-    async def short_all_mode_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /short_all - включить короткий режим всем пользователям."""
-        await short_all_mode_command(update, context, self.admin_system)
-
-    async def long_all_mode_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /long_all - включить длинный режим всем пользователям."""
-        await long_all_mode_command(update, context, self.admin_system)
-
-    async def watch_all_mode_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /watch_all - включить режим часов всем пользователям."""
-        await watch_all_mode_command(update, context, self.admin_system)
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /balance - проверка баланса."""
@@ -841,94 +696,10 @@ class TelegramBot:
         """Команда /inventory - инвентарь."""
         await inventory_command(update, context, get_db)
 
-    async def achievements_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Команда /achievements - достижения."""
-        await achievements_command(update, context, get_db)
-
-    async def ai_update_knowledge_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Команда /ai_update_knowledge - обновить данные ИИ."""
-        await ai_update_knowledge_command(update, context, self.admin_system)
-
     # ===== Админ-команды =====
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin - панель администратора с точным форматом вывода"""
         await admin_command(update, context, self.admin_system, get_db)
-
-    async def admin_balances_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Команда /admin_balances - балансы пользователей."""
-        await admin_balances_command(update, context, self.admin_system, get_db)
-
-    async def admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_stats_command(update, context, self.admin_system, get_db)
-
-    async def admin_adjust_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_adjust_command(update, context, self.admin_system, get_db)
-
-    async def admin_addcoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_addcoins_command(update, context, self.admin_system, get_db)
-
-    async def admin_removecoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_removecoins_command(update, context, self.admin_system, get_db)
-
-    async def admin_merge_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_merge_command(update, context, self.admin_system, get_db)
-
-    async def admin_transactions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_transactions_command(update, context, self.admin_system, get_db)
-
-    async def admin_users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_users_command(update, context, self.admin_system, get_db)
-
-    async def admin_rates_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_rates_command(update, context, self.admin_system)
-
-    async def admin_rate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_rate_command(update, context, self.admin_system)
-
-    async def admin_cleanup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_cleanup_command(update, context, self.admin_system, get_db)
-
-    async def admin_shop_add_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_shop_add_command(update, context, self.admin_system, get_db)
-
-    async def admin_shop_edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_shop_edit_command(update, context, self.admin_system, get_db)
-
-    async def admin_games_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_games_stats_command(update, context, self.admin_system, get_db)
-
-    async def admin_reset_game_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_reset_game_command(update, context, self.admin_system, get_db)
-
-    async def admin_ban_player_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_ban_player_command(update, context, self.admin_system, get_db)
-
-    async def admin_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_health_command(update, context, self.admin_system, get_db)
-
-    async def admin_errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_errors_command(update, context, self.admin_system, get_db)
-
-    async def admin_backup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_backup_command(update, context, self.admin_system, get_db)
-
-    async def admin_background_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_background_status_command(update, context, self.admin_system, get_db)
-
-    async def admin_background_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_background_health_command(update, context, self.admin_system, get_db)
-
-    async def admin_parsing_reload_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_parsing_reload_command(update, context, self.admin_system, get_db)
-
-    async def admin_parsing_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await admin_parsing_config_command(update, context, self.admin_system, get_db)
 
     async def add_points_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -1112,12 +883,6 @@ class TelegramBot:
                 await self.parsing_handler.handle_manual_parsing(update, context)
                 return
 
-        if await handle_ai_feedback_reply(update, context):
-            return
-
-        if await self.handle_watch_template_action(update, context):
-            return
-
         # Пропускаем все остальные сообщения - автоматический парсинг отключен
         # Обработка только по команде "парсинг"
         logger.debug(
@@ -1137,7 +902,6 @@ class TelegramBot:
                 "/profile - ваш профиль\n"
                 "/shop - магазин товаров\n"
                 "/games - мини-игры\n"
-                "/ai <вопрос> - бесплатный AI-lite помощник\n"
                 "/dnd - D&D мастерская\n"
                 "/daily - ежедневный бонус\n"
                 "/challenges - задания\n\n"
@@ -1147,110 +911,35 @@ class TelegramBot:
             )
             return
 
-    async def handle_watch_template_action(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> bool:
-        """Handle smartwatch quick-reply templates as command shortcuts."""
-        if not update.message or not update.effective_user:
-            return False
-        text = (update.message.text or "").strip().lower().replace("ё", "е")
-        if text == "я занят(а)" and get_user_mode(update.effective_user.id) != "watch":
-            await watch_mode_command(update, context)
-            return True
-
-        if get_user_mode(update.effective_user.id) != "watch":
-            return False
-
-        action = WATCH_TEMPLATE_ACTIONS.get(text)
-        if not action:
-            return False
-
-        action_name, handler_name = action
-        await update.message.reply_text(f"⌚ {action_name}")
-
-        if handler_name == "cancel":
-            await update.message.reply_text(WATCH_ACTION_PROMPT)
-        elif handler_name == "profile_command":
-            await self.profile_command(update, context)
-        elif handler_name == "admin_with_section_command":
-            await self.admin_with_section_command(update, context)
-        elif handler_name == "balance_command":
-            await self.balance_command(update, context)
-        elif handler_name == "shop_command":
-            await self.shop_command(update, context)
-        elif handler_name == "games_command":
-            await games_command(update, context)
-        elif handler_name == "ai_help":
-            await ai_help_command(update, context)
-        elif handler_name == "commands_menu":
-            await commands_menu_command(update, context)
-        elif handler_name == "notifications":
-            await notifications_command(update, context)
-        elif handler_name == "watch_mode":
-            await watch_mode_command(update, context)
-        return True
-
     async def handle_mentioned_commands(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
-        """Handle supported mentioned commands and unknown command fallback."""
+        """Handle commands addressed via /command@bot_username syntax."""
         message_text = update.effective_message.text if update.effective_message else None
         bot_username = settings.BOT_USERNAME or getattr(context.bot, "username", "")
         mentioned_command = _extract_bot_mentioned_command(
             message_text,
             bot_username,
         )
-        normalized_command = _normalize_bot_command(message_text)
-        command = mentioned_command or normalized_command
 
-        if command == "/start":
-            await self.safe_start_command(update, context)
-        elif command == "/admin":
-            await self.admin_with_section_command(update, context)
-        elif command == "/admin_panel":
-            await self.admin_command(update, context)
-        elif command == "/add_points":
-            await self.add_points_command(update, context)
-        elif command == "/admin_addcoins":
-            await self.admin_addcoins_command(update, context)
-        elif command == "/admin_removecoins":
-            await self.admin_removecoins_command(update, context)
-        elif command == "/admin_adjust":
-            await self.admin_adjust_command(update, context)
-        elif command == "/commands":
-            await commands_menu_command(update, context)
-        elif command in {"/ai", "/ask"}:
-            await ai_command(update, context)
-        elif command == "/ai_help":
-            await ai_help_command(update, context)
-        elif command == "/feedback_list":
-            await self.feedback_list_command(update, context)
-        elif command == "/short":
-            await short_mode_command(update, context)
-        elif command == "/long":
-            await long_mode_command(update, context)
-        elif command == "/watch":
-            await watch_mode_command(update, context)
-        elif command == "/short_all":
-            await self.short_all_mode_command(update, context)
-        elif command == "/long_all":
-            await self.long_all_mode_command(update, context)
-        elif command == "/watch_all":
-            await self.watch_all_mode_command(update, context)
-        elif command in {"/feedback", "/suggest", "/complaint"}:
-            await feedback_command(update, context)
-        elif command == "/coder":
+        if mentioned_command == "/start":
+            await self.welcome_command(update, context)
+        elif mentioned_command == "/coder":
             await self.template_coder_dialog.start_command(update, context)
-        elif command == "/help":
+        elif mentioned_command == "/short":
+            await short_command(update, context)
+        elif mentioned_command == "/short_all":
+            await short_all_command(update, context)
+        elif mentioned_command == "/long":
+            await long_command(update, context)
+        elif mentioned_command == "/long_all":
+            await long_all_command(update, context)
+        elif mentioned_command == "/help":
             await self.template_coder_dialog.help_command(update, context)
-        elif command == "/reset":
+        elif mentioned_command == "/reset":
             await self.template_coder_dialog.reset_command(update, context)
-        elif command == "/done":
+        elif mentioned_command == "/done":
             await self.template_coder_dialog.done_command(update, context)
-        elif update.effective_message:
-            await update.effective_message.reply_text(
-                "Неизвестная команда. Используйте /commands для списка доступных команд."
-            )
 
     # DEPRECATED: Автоматический парсинг отключен
     # Используется только ручной парсинг по команде "парсинг"
@@ -1373,38 +1062,42 @@ class TelegramBot:
                     "Background task system not running - some features may be limited"
                 )
 
-            logger.info("Starting run_polling...")
-            logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
-            
-            is_hf = self._is_hugging_face()
-            polling_kwargs = build_polling_kwargs(is_hf)
+            while not self._shutdown_requested:
+                try:
+                    logger.info("Starting run_polling with 60s timeout...")
+                    logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
 
-            if is_hf:
-                while not self._shutdown_requested:
-                    try:
-                        self.application.run_polling(**polling_kwargs)
-                        logger.warning(
-                            "Polling returned in Hugging Face environment, restarting to keep bot alive...",
-                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
-                        )
-                    except (TimedOut, NetworkError) as e:
-                        logger.warning(
-                            "Polling interrupted by transient Telegram network error, retrying...",
-                            error=str(e),
-                            error_type=type(e).__name__,
-                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Polling crashed in Hugging Face environment, retrying to keep Space alive...",
-                            error=str(e),
-                            error_type=type(e).__name__,
-                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
-                        )
+                    logger.info("Starting polling loop...")
+
+                    # Запускаем polling
+                    polling_kwargs = {
+                        "drop_pending_updates": True,
+                        "close_loop": False,
+                        "allowed_updates": Update.ALL_TYPES
+                    }
+
+                    # Для локального запуска оставляем таймауты
+                    if not os.environ.get("SPACE_ID"):
+                        polling_kwargs.update({
+                            "read_timeout": 30,
+                            "write_timeout": 20,
+                            "connect_timeout": 20,
+                            "pool_timeout": 20
+                        })
+
+                    self.application.run_polling(**polling_kwargs)
+                    logger.info("Polling started successfully!")
+                    break
+                except (TimedOut, NetworkError) as e:
+                    logger.warning(
+                        "Polling interrupted by network error, retrying...",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
+                    )
+                    if self._shutdown_requested:
+                        break
                     time.sleep(POLLING_RETRY_DELAY_SECONDS)
-            else:
-                self.application.run_polling(**polling_kwargs)
-            logger.info("Polling stopped.")
         except KeyboardInterrupt:
             logger.info("Bot stopped by user (Ctrl+C)")
         except Exception as e:
