@@ -7,16 +7,50 @@ Fallback path: create missing tables from metadata if Alembic is unavailable.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from database.connection import resolve_database_url
 from database.database import Base, create_tables, engine
 
 logger = logging.getLogger(__name__)
+
+
+def _is_hugging_face() -> bool:
+    """Return True when running inside Hugging Face Spaces."""
+    return bool(os.environ.get("SPACE_ID"))
+
+
+def _ensure_hf_critical_schema() -> None:
+    """Apply tiny idempotent HF schema repairs without blocking on Alembic."""
+    with engine.begin() as connection:
+        if engine.dialect.name == "postgresql":
+            connection.execute(text("ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS response_mode_settings (
+                    id SERIAL PRIMARY KEY,
+                    telegram_id BIGINT UNIQUE,
+                    mode VARCHAR(16) NOT NULL,
+                    is_global BOOLEAN NOT NULL DEFAULT false,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_response_mode_settings_global
+                ON response_mode_settings (is_global)
+                """
+            )
+        )
 
 
 def _is_empty_database() -> bool:
@@ -37,6 +71,14 @@ def ensure_schema_up_to_date(config_path: str = "alembic.ini") -> None:
     if not config_file.exists():
         logger.warning("Alembic config not found, falling back to create_tables")
         create_tables()
+        return
+
+    if _is_hugging_face():
+        try:
+            _ensure_hf_critical_schema()
+            logger.info("HF critical schema repairs applied")
+        except Exception as exc:
+            logger.warning("HF critical schema repair failed", exc_info=exc)
         return
 
     try:

@@ -42,6 +42,10 @@ from bot.commands.core_commands import (
     test_notify_command,
     short_mode_command,
     long_mode_command,
+    watch_mode_command,
+    short_all_mode_command,
+    long_all_mode_command,
+    watch_all_mode_command,
     commands_menu_command,
     command_section_command,
     COMMAND_SECTIONS,
@@ -147,7 +151,36 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = structlog.get_logger()
-POLLING_RETRY_DELAY_SECONDS = 5
+POLLING_RETRY_DELAY_SECONDS = 10
+
+WATCH_TEMPLATE_ACTIONS = {
+    "ок": ("Профиль", "profile_command"),
+    "да": ("Админка", "admin_with_section_command"),
+    "спасибо": ("Баланс", "balance_command"),
+    "спасибо нет": ("Магазин", "shop_command"),
+    "спасибо, нет": ("Магазин", "shop_command"),
+    "великолепно": ("Игры", "games_command"),
+    "спасибо еще раз": ("AI help", "ai_help"),
+    "скорo увидимся": ("Команды", "commands_menu"),
+    "скоро увидимся": ("Команды", "commands_menu"),
+    "скоро буду": ("Уведомления", "notifications"),
+    "я занят(а)": ("Режим часов", "watch_mode"),
+    "нет": ("Отмена", "cancel"),
+}
+
+WATCH_ACTION_PROMPT = (
+    "⌚ Часы:\n"
+    "ОК=профиль\n"
+    "Да=админ\n"
+    "Спасибо=баланс\n"
+    "Спасибо нет=магазин\n"
+    "Великолепно=игры\n"
+    "Спасибо еще раз=AI\n"
+    "Скоро увидимся=команды\n"
+    "Скоро буду=уведомления\n"
+    "Я занят(а)=watch\n"
+    "Нет=отмена"
+)
 
 
 def build_polling_kwargs(is_hf: bool) -> dict:
@@ -164,9 +197,9 @@ def build_polling_kwargs(is_hf: bool) -> dict:
     if is_hf:
         polling_kwargs.update(
             {
-                "timeout": 10,
-                "poll_interval": 2,
-                "read_timeout": 20,
+                "timeout": 30,
+                "poll_interval": 1,
+                "read_timeout": 45,
                 "write_timeout": 30,
                 "connect_timeout": 15,
                 "pool_timeout": 15,
@@ -313,6 +346,10 @@ class TelegramBot:
             CommandHandler("coder", self.coder_with_section_command),
             CommandHandler("short", short_mode_command),
             CommandHandler("long", long_mode_command),
+            CommandHandler("watch", watch_mode_command),
+            CommandHandler("short_all", self.short_all_mode_command),
+            CommandHandler("long_all", self.long_all_mode_command),
+            CommandHandler("watch_all", self.watch_all_mode_command),
             CommandHandler("commands", commands_menu_command),
             CommandHandler("ai", ai_command),
             CommandHandler("ask", ai_command),
@@ -723,9 +760,12 @@ class TelegramBot:
         await games_command(update, context)
 
     async def admin_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать раздел админ-команд и старую админ-панель."""
+        """Показать админ-команды с учётом short/long режима пользователя."""
+        if get_user_mode(update.effective_user.id if update.effective_user else None) == "long":
+            await self.admin_command(update, context)
+            return
+
         await update.message.reply_text(COMMAND_SECTIONS["admin"])
-        await self.admin_command(update, context)
 
     async def coder_with_section_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать раздел кодера и запустить старый /coder."""
@@ -751,6 +791,18 @@ class TelegramBot:
     async def feedback_list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать последние предложения и жалобы администратору."""
         await feedback_list_command(update, context, settings.ADMIN_TELEGRAM_ID)
+
+    async def short_all_mode_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /short_all - включить короткий режим всем пользователям."""
+        await short_all_mode_command(update, context, self.admin_system)
+
+    async def long_all_mode_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /long_all - включить длинный режим всем пользователям."""
+        await long_all_mode_command(update, context, self.admin_system)
+
+    async def watch_all_mode_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /watch_all - включить режим часов всем пользователям."""
+        await watch_all_mode_command(update, context, self.admin_system)
 
     async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /balance - проверка баланса."""
@@ -1063,6 +1115,9 @@ class TelegramBot:
         if await handle_ai_feedback_reply(update, context):
             return
 
+        if await self.handle_watch_template_action(update, context):
+            return
+
         # Пропускаем все остальные сообщения - автоматический парсинг отключен
         # Обработка только по команде "парсинг"
         logger.debug(
@@ -1092,6 +1147,49 @@ class TelegramBot:
             )
             return
 
+    async def handle_watch_template_action(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> bool:
+        """Handle smartwatch quick-reply templates as command shortcuts."""
+        if not update.message or not update.effective_user:
+            return False
+        text = (update.message.text or "").strip().lower().replace("ё", "е")
+        if text == "я занят(а)" and get_user_mode(update.effective_user.id) != "watch":
+            await watch_mode_command(update, context)
+            return True
+
+        if get_user_mode(update.effective_user.id) != "watch":
+            return False
+
+        action = WATCH_TEMPLATE_ACTIONS.get(text)
+        if not action:
+            return False
+
+        action_name, handler_name = action
+        await update.message.reply_text(f"⌚ {action_name}")
+
+        if handler_name == "cancel":
+            await update.message.reply_text(WATCH_ACTION_PROMPT)
+        elif handler_name == "profile_command":
+            await self.profile_command(update, context)
+        elif handler_name == "admin_with_section_command":
+            await self.admin_with_section_command(update, context)
+        elif handler_name == "balance_command":
+            await self.balance_command(update, context)
+        elif handler_name == "shop_command":
+            await self.shop_command(update, context)
+        elif handler_name == "games_command":
+            await games_command(update, context)
+        elif handler_name == "ai_help":
+            await ai_help_command(update, context)
+        elif handler_name == "commands_menu":
+            await commands_menu_command(update, context)
+        elif handler_name == "notifications":
+            await notifications_command(update, context)
+        elif handler_name == "watch_mode":
+            await watch_mode_command(update, context)
+        return True
+
     async def handle_mentioned_commands(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
@@ -1107,6 +1205,18 @@ class TelegramBot:
 
         if command == "/start":
             await self.safe_start_command(update, context)
+        elif command == "/admin":
+            await self.admin_with_section_command(update, context)
+        elif command == "/admin_panel":
+            await self.admin_command(update, context)
+        elif command == "/add_points":
+            await self.add_points_command(update, context)
+        elif command == "/admin_addcoins":
+            await self.admin_addcoins_command(update, context)
+        elif command == "/admin_removecoins":
+            await self.admin_removecoins_command(update, context)
+        elif command == "/admin_adjust":
+            await self.admin_adjust_command(update, context)
         elif command == "/commands":
             await commands_menu_command(update, context)
         elif command in {"/ai", "/ask"}:
@@ -1115,6 +1225,18 @@ class TelegramBot:
             await ai_help_command(update, context)
         elif command == "/feedback_list":
             await self.feedback_list_command(update, context)
+        elif command == "/short":
+            await short_mode_command(update, context)
+        elif command == "/long":
+            await long_mode_command(update, context)
+        elif command == "/watch":
+            await watch_mode_command(update, context)
+        elif command == "/short_all":
+            await self.short_all_mode_command(update, context)
+        elif command == "/long_all":
+            await self.long_all_mode_command(update, context)
+        elif command == "/watch_all":
+            await self.watch_all_mode_command(update, context)
         elif command in {"/feedback", "/suggest", "/complaint"}:
             await feedback_command(update, context)
         elif command == "/coder":
@@ -1258,13 +1380,13 @@ class TelegramBot:
             polling_kwargs = build_polling_kwargs(is_hf)
 
             if is_hf:
-                # HF can raise transient TimedOut from getUpdates and stop the
-                # whole polling loop. Keep the Space alive, but never drop
-                # pending updates on retries so user commands are preserved.
                 while not self._shutdown_requested:
                     try:
                         self.application.run_polling(**polling_kwargs)
-                        break
+                        logger.warning(
+                            "Polling returned in Hugging Face environment, restarting to keep bot alive...",
+                            retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
+                        )
                     except (TimedOut, NetworkError) as e:
                         logger.warning(
                             "Polling interrupted by transient Telegram network error, retrying...",
@@ -1272,7 +1394,6 @@ class TelegramBot:
                             error_type=type(e).__name__,
                             retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
                         )
-                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
                     except Exception as e:
                         logger.error(
                             "Polling crashed in Hugging Face environment, retrying to keep Space alive...",
@@ -1280,7 +1401,7 @@ class TelegramBot:
                             error_type=type(e).__name__,
                             retry_delay_seconds=POLLING_RETRY_DELAY_SECONDS,
                         )
-                        time.sleep(POLLING_RETRY_DELAY_SECONDS)
+                    time.sleep(POLLING_RETRY_DELAY_SECONDS)
             else:
                 self.application.run_polling(**polling_kwargs)
             logger.info("Polling stopped.")

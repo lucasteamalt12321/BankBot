@@ -35,7 +35,7 @@ https://github.com/lucasteamalt12321/BankBot
 | D07 | Рефакторинг bot.py на модули | completed | 5 |
 | D08 | Middleware обработки ошибок | completed | 5 |
 | D09 | Graceful shutdown | completed | 4 |
-| D10 | ParserRegistry + конфигурация парсинга в БД | completed | 5 |
+| D10 | ParserRegistry + конфигурация парсинга в БД (инфраструктура) | completed | 5 |
 | D11 | Блокировки балансов + Unit of Work | completed | 5 |
 | D12 | Connection pooling | completed | 3 |
 | D13 | Аудит SQL injection | completed | 5 |
@@ -55,6 +55,8 @@ https://github.com/lucasteamalt12321/BankBot
 **Sum: 5+5+4+3+7+5+5+5+4+5+5+3+5+4+3+4+3+3+3+2+3+4+4+3+3 = 100**
 
 **Процент выполнения:** 100% (D01–D27 completed = 100/100)
+
+**Важное уточнение по парсингу:** таблица D01-D27 отражает завершение базового инфраструктурного roadmap, а не полную готовность production E2E автоматического парсинга. Парсинг игровых сообщений остаётся главной продуктовой целью проекта; текущий completed-статус D10 означает наличие ParserRegistry/конфигурации/ручного контура, но стабилизация автоматического парсинга на реальных игровых сообщениях должна вестись как новый post-release deliverable.
 
 ---
 
@@ -291,17 +293,20 @@ https://github.com/lucasteamalt12321/BankBot
 | PR01-PR09 | Стабилизация и smoke-тесты | completed | P0/P1 |
 | N01 | Прокси и исправление HTML-ошибок | completed | P0 |
 | N02 | Системные уведомления (ntfy/ADB) | completed | P1 |
-| DB01 | Persistent PostgreSQL/Supabase storage для production/HF | in_progress | P0 |
+| DB01 | Persistent PostgreSQL/Supabase storage для production/HF | completed | P0 |
 | HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | completed | P1 |
 | FB01 | Предложка/жалобы для пользователей бота | completed | P1 |
 | AI01 | Бесплатный локальный AI-lite помощник для команд и подсказок | completed | P1 |
 | AI02 | Optional бесплатный Hugging Face Inference API для более умных ответов | pending | P1 |
+| PARSE01 | Production E2E автоматический парсинг игровых сообщений | in_progress | P0 |
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
 
-**DB01 notes:** P0 / первая очередь. Проблема: на Hugging Face локальная SQLite/data storage ephemeral, при restart/rebuild база могла обнуляться. Production/HF подключён к persistent Supabase PostgreSQL через HF Secret `DATABASE_URL` с Session Pooler URI; `/health` подтверждает `database=postgresql`. Реализовано: aliases DB URL, нормализация `postgres://` → `postgresql://`, Alembic URL override, bootstrap пустой PostgreSQL БД из SQLAlchemy metadata + Alembic stamp head, SQLAlchemy-based `AdminSystem`, PostgreSQL connect timeout, `/health` с backend diagnostic. SQLite оставлен local/dev fallback. Открыто для закрытия DB01: финально проверить `/feedback?limit=N` на `storage=postgresql`, `/feedback_list`, и базовые команды после latest HF deploy.
+**DB01 notes:** P0 / первая очередь. Проблема: на Hugging Face локальная SQLite/data storage ephemeral, при restart/rebuild база могла обнуляться. Production/HF подключён к persistent Supabase PostgreSQL через HF Secret `DATABASE_URL` с Session Pooler URI; `/health` подтверждает `database=postgresql`, external `/feedback?limit=N` подтверждает `storage=postgresql`. Реализовано: aliases DB URL, нормализация `postgres://` → `postgresql://`, Alembic URL override, bootstrap пустой PostgreSQL БД из SQLAlchemy metadata + Alembic stamp head, SQLAlchemy-based `AdminSystem`, PostgreSQL connect timeout, `/health` с backend diagnostic, dialect-aware feedback DDL. SQLite оставлен local/dev fallback. DB01 completed; мониторить Supabase limits/latency и runtime-команды после deploy.
 
 **HF01 notes:** Flask-сервер на `7860` (`/health`, `/metrics`, `/logs`), Dockerfile `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `http_client` builder fallback, `SPACE_ID` detection, Alembic-first startup, config manager resilience к отсутствующим таблицам.
+
+**PARSE01 notes:** Это главный продуктовый фокус после стабилизации runtime/DB/UX. Требуется довести автоматический парсинг реальных игровых сообщений до production E2E: fixtures реальных сообщений, правила по поддерживаемым играм, мониторинг successful/failed parses, понятные админские diagnostics и защита от ложных начислений. Текущий ручной/инфраструктурный контур не считать полноценным завершением этого результата.
 
 **FB01 notes:** реализованы команды `/feedback <предложение или жалоба>` с алиасами `/suggest` и `/complaint`; обращения сохраняются в SQLite-таблицу `feedback_entries` с JSONL fallback/debug mirror (`data/feedback.jsonl`): текст, Telegram ID, username, chat ID, chat type и UTC timestamp. Админ может читать последние обращения через `/feedback_list [limit]` (до 20 записей). Для внешнего чтения с HF добавлен защищённый endpoint `GET /feedback?limit=N` с `Authorization: Bearer <FEEDBACK_READ_TOKEN|HF_TOKEN|BOT_TOKEN>`; при сохранении пишется structured log `Feedback saved` с полным текстом обращения.
 

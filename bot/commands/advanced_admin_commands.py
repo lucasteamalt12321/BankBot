@@ -5,6 +5,7 @@ Implements Requirements 7.1, 7.2, 7.3, 7.4, 8.1, 8.2, 10.1, 10.4, 10.5
 """
 
 import structlog
+import html
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -105,11 +106,12 @@ class AdvancedAdminCommands:
 
             try:
                 from core.services.broadcast_service import BroadcastService
-                broadcast_service = BroadcastService(svc.user_repo)
+                broadcast_service = BroadcastService(svc.session, context.bot)
+                safe_broadcast_message = html.escape(broadcast_message)
 
                 await update.message.reply_text(
                     f"📢 <b>Начинаю рассылку...</b>\n\n"
-                    f"<b>Сообщение:</b>\n{broadcast_message}\n\n⏳ Пожалуйста, подождите...",
+                    f"<b>Сообщение:</b>\n{safe_broadcast_message}\n\n⏳ Пожалуйста, подождите...",
                     parse_mode="HTML",
                 )
 
@@ -136,7 +138,7 @@ class AdvancedAdminCommands:
             except Exception as e:
                 logger.error("Error in broadcast command", error=str(e), user_id=user.id)
                 await update.message.reply_text(
-                    "❌ <b>Ошибка</b>\n\nПроизошла ошибка при рассылке.",
+                    f"❌ <b>Ошибка</b>\n\nПроизошла ошибка при рассылке: {html.escape(str(e))}",
                     parse_mode="HTML",
                 )
 

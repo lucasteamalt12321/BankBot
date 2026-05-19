@@ -29,17 +29,20 @@
 - Docker
 - Docker Compose
 
-Текущий контейнерный образ собирается на `python:3.11-slim`, что отражено в `Dockerfile`.
+Текущий контейнерный образ собирается на `python:3.12-slim`, что отражено в `Dockerfile`.
 
 ## Конфигурация
 
-Основной env-файл:
+Основные env-файлы:
 
-- `config/.env`
+- `config/.env.shared` — безопасный committable слой
+- `config/.env.local` — локальные секреты и приватные значения
+- `config/.env` — legacy fallback
 
-Шаблон:
+Шаблоны:
 
-- `config/.env.example`
+- `config/.env.shared.example`
+- `config/.env.local.example`
 
 Канонический код конфигурации:
 
@@ -52,6 +55,8 @@ BOT_TOKEN=your_bot_token_here
 ADMIN_TELEGRAM_ID=123456789
 DATABASE_URL=sqlite:///data/bot.db
 ```
+
+Для production/Hugging Face `DATABASE_URL` должен быть Secret с PostgreSQL/Supabase URL. Также поддерживаются aliases `POSTGRES_URL` и `SUPABASE_DB_URL`.
 
 Дополнительно для bridge/VK:
 
@@ -82,7 +87,8 @@ py -3.12 -m pip install -r requirements.txt
 ### 2. Подготовка конфигурации
 
 ```powershell
-Copy-Item config/.env.example config/.env
+Copy-Item config/.env.shared.example config/.env.shared
+Copy-Item config/.env.local.example config/.env.local
 ```
 
 ### 3. Подготовка директорий и БД
@@ -152,6 +158,7 @@ docker-compose down
 
 - при запуске используется Alembic-first синхронизация схемы
 - если миграции недоступны, остаётся fallback на создание таблиц из SQLAlchemy metadata
+- на Hugging Face применяются короткие idempotent schema repairs для критичных runtime-полей (`telegram_id BIGINT`, `response_mode_settings`), чтобы startup не блокировался долгими/рискованными миграциями
 
 Для новой локальной БД обычно достаточно:
 
@@ -192,12 +199,20 @@ docker-compose logs -f
 Бот оптимизирован для работы в среде Hugging Face Spaces.
 
 ### Особенности настройки:
-1. **Network**: Hugging Face блокирует прямые запросы к `api.telegram.org` и DNS-разрешение для доменов Telegram. Бот автоматически переключается на **IP-based Proxy** (`195.201.225.248`), если обнаруживает среду `SPACE_ID`.
+1. **Network**: Hugging Face может нестабильно работать с Telegram DNS/TLS. `run_bot.py` применяет DNS/anyio/httpx workaround для `api.telegram.org` в среде `SPACE_ID`.
 2. **Health Checks**: `run_bot.py` запускает Flask-сервер на порту `7860`, который используется HF для мониторинга состояния.
-3. **Variables**: Необходим `BOT_TOKEN` в настройках Space (Settings -> Variables and Secrets).
+3. **Variables/Secrets**: необходимы `BOT_TOKEN`, `ADMIN_TELEGRAM_ID`; production DB задаётся через Secret `DATABASE_URL`.
+4. **Startup**: webhook diagnostic check на HF пропускается, потому что он может блокировать запуск.
+5. **Polling**: BankBot использует guarded polling loop и `drop_pending_updates=False`, чтобы Space оставался живым и команды не терялись при reconnect.
 
 ### Просмотр логов:
-Логи доступны через веб-интерфейс по адресу `ваш-space-url/logs` (требуется аутентификация в Space).
+Логи доступны через:
+
+- веб-интерфейс Hugging Face;
+- `GET /logs` на Space host;
+- streaming API `https://huggingface.co/api/spaces/LucasTeam/BankBot/logs/run` с `Authorization: Bearer <HF_TOKEN>`.
+
+Не использовать manual `getUpdates` во время live debugging, чтобы не мешать polling.
 
 ## Что не стоит считать каноническим
 

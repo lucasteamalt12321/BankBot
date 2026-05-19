@@ -20,6 +20,31 @@
 
 ## Changelog
 
+### 2026-05-19 (Watch response/action mode)
+- User requested a third control mode for smartwatch usage. Constraints: the watch screen fits only very short messages, and available quick-reply templates are exactly: `ОК`, `Да`, `Спасибо`, `Спасибо, нет`, `Великолепно`, `Спасибо еще раз`, `Скоро увидимся`, `Скоро буду`, `Я занят(а)`, `Нет`.
+- Clarification: watch mode should not just shorten text; it should map those 10 templates to bot actions. Implemented `/watch` and `/watch_all`, ultra-short `watch` compaction, and template action shortcuts: ОК=profile, Да=admin, Спасибо=balance, Спасибо нет=shop, Великолепно=games, Спасибо еще раз=AI help, Скоро увидимся=commands, Скоро буду=notifications, Я занят(а)=short, Нет=cancel/help.
+- Follow-up requirement: `Я занят(а)` must also enable watch mode for the current person even when they are not already in `/watch`. Updated quick-reply handling so `Я занят(а)` is a personal watch-mode entrypoint.
+
+### 2026-05-19 (Documentation refresh)
+- User requested project documentation update. Updated `README.md`, `RUN.md`, and `docs/README.md` to cover current BankBot scope: PostgreSQL/Supabase production storage, Hugging Face endpoints and runtime behavior, feedback system, AI-lite commands, admin commands, response modes `/short`/`/long`/`/watch`, admin defaults, and smartwatch quick-reply controls.
+- Explicitly documented that Markdown files are not checked with `ruff`; Python code still must pass `ruff` and smoke tests after code changes.
+- Product positioning correction: user clarified that parsing must remain the most important stated goal, not be hidden behind the newer bank/admin/UX work. Updated Memory Bank/docs to present bank/admin/PostgreSQL/HF/feedback/watch/AI-lite as the stabilizing foundation around the main parsing mission. Added PARSE01 to post-release backlog as in-progress production E2E automatic parsing.
+
+### 2026-05-19 (Response modes per user + admin defaults)
+- User requested scope change: `/long` and `/short` must apply per Telegram user, while admins can set the mode for everyone with `/long_all` and `/short_all`.
+- Direct user-reported bug: `/start@lt_lo_game_bot` for Telegram ID `8543044969` returns full welcome with `❌ Ошибка регистрации`. Likely production PostgreSQL `users.telegram_id` was still `INTEGER`, while newer Telegram IDs exceed 32-bit signed integer range. Fix path: migrate `telegram_id` to `BIGINT` and make welcome status use the later `UserManager` DB registration fallback before replying.
+- Direct user-reported bug: `/admin@lt_lo_game_bot` sends the compact section and then an error. Root cause is likely the second old admin panel reply with unescaped HTML placeholder `/broadcast <текст>` after `admin_with_section_command` sends the section. Fix path: avoid double panel on `/admin` and escape the admin panel placeholder.
+- Follow-up user report: after `/long@lt_lo_game_bot`, `/admin@lt_lo_game_bot` still looked like the short section, so short/long modes were not visually distinct for `/admin`. Fix: make `/admin` mode-aware — short sends the compact command section, explicit long delegates to the full admin panel.
+- Direct user-reported P0: bot appeared dead on HF after deploy. Runtime showed `ImportError: cannot import name 'ai_update_knowledge_command' from bot.commands.ai_commands`, meaning HF had a stale/missing `bot/commands/ai_commands.py`. Hotfix: upload the current AI commands file and restart Space before continuing admin-command fixes.
+- Direct user-reported admin bugs: `/admin_addcoins@lt_lo_game_bot` with no args did not answer, and `/add_points @Nikiktosik 100` did not answer. Fix scope: add mentioned-command routing for balance admin commands and fix Transaction constructor fields (`meta_data`, not `metadata`) so admin balance commands respond instead of failing silently/global-erroring.
+- Direct user-reported P0: `/ping@lt_lo_game_bot` does not answer while `/health` is healthy. Authenticated HF logs show polling reaches `Starting run_polling...` but then repeatedly logs `Polling interrupted by transient Telegram network error, retrying... error=Timed out`; the external HF retry loop restarts `run_polling()` every timeout and likely prevents stable update processing. Fix: remove the outer HF `run_polling()` retry loop again and let PTB manage polling internally, with longer HF getUpdates read timeout.
+- Follow-up HF startup issue: after restart, `/health` was healthy but runtime stayed `RUNNING_APP_STARTING`; internal `/logs` showed startup blocked at `[DIAG] Checking webhook status...`. Fix: skip webhook check on HF startup because it is diagnostic/non-critical and can block app readiness; do not use manual `getUpdates` while debugging polling.
+- Follow-up HF runtime issue: after removing the outer polling loop entirely, HF reported `RUNTIME_ERROR` with `Exit code: 0`, meaning `run_polling()` returned and the process exited cleanly. Keep a guarded HF loop that restarts polling only after return/exception, with longer polling timeouts and a longer retry delay, so the Space stays alive without rapid timeout churn.
+- Direct user-reported bug: `/broadcast 123` answered generic broadcast error. HF logs showed `BroadcastService.__init__() missing 1 required positional argument: 'bot'`. Fix: instantiate `BroadcastService` with the active SQLAlchemy session and `context.bot`, escape preview/broadcast HTML text, and expose exception text in admin error replies.
+- Implemented in-memory personal mode map plus global default mode in `bot/response_modes.py`: personal `/short`/`/long` overrides the global default; `/short_all`/`/long_all` changes the default and updates known in-memory users.
+- Wired admin-only `/short_all` and `/long_all` in `bot/bot.py`, including mentioned-command fallback for group usage.
+- Updated `/admin` command section and architecture docs to mention response mode behavior.
+
 ### 2026-05-18 (DB01 — persistent PostgreSQL/Supabase storage)
 - User-defined priority order recorded: (1) direct user-reported bugs, (2) bugs from `/feedback`, (3) current development focus, (4) suggestions from `/feedback`.
 - Started DB01 as P0/first-priority task after user reported HF DB resets on restart/rebuild.
@@ -41,6 +66,7 @@
 - Supabase pooler activation completed: HF secret `DATABASE_URL` was corrected to one-line Session Pooler URI and `/health` confirmed `{"database":"postgresql","service":"BankBot","status":"healthy"}`.
 - Direct user-reported regressions fixed and deployed: `/start@lt_lo_game_bot`, `/user@lt_lo_game_bot`, `/ai@lt_lo_game_bot` no-args HTML escaping, PostgreSQL connect timeout, and remaining legacy sqlite calls in bot runtime.
 - Feedback DB hotfix deployed: `feedback_entries` DDL is now dialect-aware (`SERIAL` on PostgreSQL, `AUTOINCREMENT` on SQLite). Need final live `/feedback?limit=N` re-check after HF startup settles.
+- DB01 final verification passed: `GET /health` -> `database=postgresql`; external `GET /feedback?limit=20` -> `storage=postgresql`, `count=0`. DB01 can be considered completed for production persistence; keep monitoring runtime commands and Supabase limits.
 
 ### 2026-05-18 (AI01 — free local AI-lite assistant)
 - Started AI01: add a free local AI-lite assistant without paid API keys or mandatory external providers.
@@ -113,10 +139,10 @@
 - HF networking can still produce Telegram `TimedOut`; PTB polling should remain active, but run logs should be monitored after deploy.
 - Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` remains the mitigation; do not re-enable blanket `drop_pending_updates=True` on HF unless command loss is acceptable.
 - After deployment, manually smoke-test `/start`, `/user`, `/ai`, `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback`, `/long`→`/start`, `/feedback_list` in Telegram.
-- Verify external `/feedback?limit=N` returns `storage=postgresql` instead of JSONL fallback after the latest feedback DDL hotfix is live.
+- DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- c4b02156f8ba6622202beed9b7750a3f946cffed (2026-05-18, AI canon ranking + global response modes synced)
+- df5bcc4b9f71bf1cf6d8a2ad68cf331faed9b4f6 (2026-05-19, response mode scope change checked locally)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.

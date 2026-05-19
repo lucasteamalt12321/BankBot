@@ -131,6 +131,88 @@ python -m pytest tests/unit/ -v
 ruff check bot/ core/ database/ utils/
 ```
 
+Markdown-документацию (`*.md`) через `ruff` не проверяем.
+
+## Быстрая проверка команд BankBot
+
+После запуска основного бота в Telegram можно проверить:
+
+```text
+/ping
+/start
+/commands
+/user
+/shop
+/games
+/ai_help
+/feedback тест
+```
+
+Админские команды:
+
+```text
+/admin
+/admin_panel
+/add_points @username 100
+/admin_addcoins @username 100
+/broadcast текст
+/feedback_list
+```
+
+В группах лучше использовать mentioned-команды, например:
+
+```text
+/ping@lt_lo_game_bot
+/admin@lt_lo_game_bot
+/admin_addcoins@lt_lo_game_bot @username 100
+```
+
+## Режимы ответов
+
+```text
+/short  — короткие ответы
+/long   — полные ответы
+/watch  — режим часов
+```
+
+Админские defaults для всех:
+
+```text
+/short_all
+/long_all
+/watch_all
+```
+
+В `/watch` ответы максимально короткие, а шаблоны часов работают как действия:
+
+| Ответ | Действие |
+|-------|----------|
+| ОК | профиль |
+| Да | админ |
+| Спасибо | баланс |
+| Спасибо, нет | магазин |
+| Великолепно | игры |
+| Спасибо еще раз | AI help |
+| Скоро увидимся | команды |
+| Скоро буду | уведомления |
+| Я занят(а) | включить `/watch` для себя |
+| Нет | отмена/подсказка |
+
+## Hugging Face production
+
+Production Space использует Docker SDK и порт `7860`.
+
+Полезные endpoints:
+
+```text
+GET /health
+GET /logs
+GET /metrics
+GET /feedback?limit=10
+```
+
+Production database должна задаваться через `DATABASE_URL` Secret. Поддерживаются также `POSTGRES_URL` и `SUPABASE_DB_URL`; SQLite остаётся local/dev fallback.
+
 ## Возможные проблемы
 
 ### "Bot token is required"

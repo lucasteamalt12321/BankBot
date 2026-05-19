@@ -1,12 +1,12 @@
 """Core user commands: welcome, balance, history, profile, stats."""
 
-import structlog
 import html
+import structlog
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.response_modes import get_default_user_mode, get_user_mode, set_user_mode
+from bot.response_modes import WATCH_TEMPLATES_HINT, get_default_user_mode, get_user_mode, set_all_user_modes, set_user_mode
 
 logger = structlog.get_logger()
 
@@ -97,6 +97,12 @@ ID: {user_id}
 Режимы: /short — кратко, /long — подробно.
 """
 
+WELCOME_TEXT_WATCH = """Привет, {name}!
+{registration_status}
+ID: {user_id}
+/commands
+"""
+
 
 COMMANDS_MENU_TEXT = """📚 Разделы команд
 
@@ -109,7 +115,7 @@ COMMANDS_MENU_TEXT = """📚 Разделы команд
 🤖 /ai — бесплатный AI-lite помощник
 💬 /feedback — предложения и жалобы
 
-Режимы ответов: /short или /long
+Режимы ответов: /short, /long или /watch
 """
 
 COMMAND_SECTIONS = {
@@ -153,6 +159,9 @@ COMMAND_SECTIONS = {
 /admin_users — пользователи
 /admin_balances — балансы
 /admin_transactions <@user> — транзакции
+/long_all — подробный режим всем
+/short_all — короткий режим всем
+/watch_all — режим часов всем
 /add_points <@user> <сумма> — начислить
 /add_admin <@user> — назначить админа
 /admin_addcoins /admin_removecoins — монеты
@@ -179,14 +188,14 @@ COMMAND_SECTIONS = {
 /done — закончить
 /help — инструкция кодера
 
-Шаблоны: ОК, Да, Спасибо, Спасибо нет, Великолепно, Спасибо еще раз, Скоро увидимся, Скоро буду, Я занят(а), Нет.
+Шаблоны часов: ОК, Да, Спасибо, Спасибо нет, Великолепно, Спасибо еще раз, Скоро увидимся, Скоро буду, Я занят(а), Нет.
 """,
     "ai": """🤖 AI-lite помощник
 /ai <вопрос> — спросить бесплатного локального помощника
 /ask <вопрос> — алиас /ai
 /ai_help — справка по AI-lite
 
-Помощник работает без платных API и внешних ключей. Лучше всего отвечает про команды BankBot, магазин, игры, D&D, feedback, профиль и режимы /short /long.
+Помощник работает без платных API и внешних ключей. Лучше всего отвечает про команды BankBot, магазин, игры, D&D, feedback, профиль и режимы /short /long /watch.
 """,
 }
 
@@ -208,6 +217,12 @@ def get_welcome_text(name, registration_status, admin_status, user_id):
     """Выбирает короткий или длинный welcome текст."""
     mode = get_default_user_mode(user_id)
 
+    if mode == "watch":
+        return WELCOME_TEXT_WATCH.format(
+            name=html.escape(name or "Пользователь"),
+            registration_status=html.escape(registration_status),
+            user_id=user_id,
+        )
     if mode == "short":
         return WELCOME_TEXT_SHORT.format(
             name=html.escape(name or "Пользователь"),
@@ -235,6 +250,65 @@ async def long_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     set_user_mode(user_id, "long")
     await update.message.reply_text("✅ Длинный режим включен. Используйте /short для кратких ответов.")
+
+
+async def watch_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Включить режим ответов для часов."""
+    user_id = update.effective_user.id
+    set_user_mode(user_id, "watch")
+    await update.message.reply_text(
+        "⌚ Часы:\n"
+        "ОК=профиль\n"
+        "Да=админ\n"
+        "Спасибо=баланс\n"
+        "Спасибо нет=магазин\n"
+        "Великолепно=игры\n"
+        "Спасибо еще раз=AI\n"
+        "Скоро увидимся=команды\n"
+        "Скоро буду=уведомления\n"
+        "Я занят(а)=watch\n"
+        "Нет=отмена"
+    )
+
+
+async def short_all_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system):
+    """Админ-команда: включить короткий режим для всех пользователей."""
+    user_id = update.effective_user.id if update.effective_user else None
+    if not admin_system.is_admin(user_id):
+        await update.message.reply_text("❌ Доступ запрещен. Команда доступна только администраторам.")
+        return
+
+    set_all_user_modes("short")
+    await update.message.reply_text(
+        "✅ Короткий режим включен для всех пользователей. Каждый всё ещё может выбрать /long лично."
+    )
+
+
+async def long_all_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system):
+    """Админ-команда: включить длинный режим для всех пользователей."""
+    user_id = update.effective_user.id if update.effective_user else None
+    if not admin_system.is_admin(user_id):
+        await update.message.reply_text("❌ Доступ запрещен. Команда доступна только администраторам.")
+        return
+
+    set_all_user_modes("long")
+    await update.message.reply_text(
+        "✅ Длинный режим включен для всех пользователей. Каждый всё ещё может выбрать /short лично."
+    )
+
+
+async def watch_all_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_system):
+    """Админ-команда: включить режим часов для всех пользователей."""
+    user_id = update.effective_user.id if update.effective_user else None
+    if not admin_system.is_admin(user_id):
+        await update.message.reply_text("❌ Доступ запрещен. Команда доступна только администраторам.")
+        return
+
+    set_all_user_modes("watch")
+    await update.message.reply_text(
+        "⌚ Режим часов включен для всех. Каждый всё ещё может выбрать /short или /long лично. "
+        f"{WATCH_TEMPLATES_HINT}"
+    )
 
 
 async def welcome_command(
@@ -285,15 +359,6 @@ async def welcome_command(
         logger.error(f"Error in admin system registration: {e}")
         registration_status = f"❌ Ошибка: {str(e)}"
 
-    welcome_text = get_welcome_text(
-        user.first_name or "Пользователь",
-        registration_status,
-        admin_status,
-        user.id,
-    )
-
-    await update.message.reply_text(welcome_text, parse_mode="HTML")
-
     db = next(db_get_db())
     try:
         from utils.core.user_manager import UserManager
@@ -304,6 +369,11 @@ async def welcome_command(
             user.username or user.first_name,
             user.id,
         )
+
+        if registration_status.startswith("❌"):
+            registration_status = "✅ Пользователь зарегистрирован"
+            if admin_system.is_admin(user.id):
+                admin_status = "✅ Права администратора активны"
 
         if (
             identified_user.created_at
@@ -323,6 +393,15 @@ async def welcome_command(
         logger.error(f"Error processing user in main system: {e}")
     finally:
         db.close()
+
+    welcome_text = get_welcome_text(
+        user.first_name or "Пользователь",
+        registration_status,
+        admin_status,
+        user.id,
+    )
+
+    await update.message.reply_text(welcome_text, parse_mode="HTML")
 
 
 async def test_notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

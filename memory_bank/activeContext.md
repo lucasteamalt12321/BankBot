@@ -1,7 +1,7 @@
 # Active Context
 
 ## Текущий фокус
-**P0 фокус: DB01 — production/HF переведён на persistent PostgreSQL/Supabase, идёт стабилизация PostgreSQL-регрессий.** Причина: при restart/rebuild Hugging Face локальная БД обнулялась. AI02 отложен до закрытия DB01/feedback-регрессий.
+**Главный продуктовый фокус — PARSE01: production E2E автоматический парсинг игровых сообщений.** DB01/HF/runtime/UX уже стабилизировались как фундамент для парсинга; AI02 остаётся следующим P1 после прямых багов и PARSE01.
 
 ## Приоритет обработки задач
 1. Баги, на которые прямо указывает пользователь.
@@ -11,18 +11,18 @@
 
 ## Статус проекта: 100% (базовый функционал) + HF Deployment ✅
 
-## Последнее обновление: 2026-05-18
+## Последнее обновление: 2026-05-19
 
 ## Выполнено недавно
 - ✅ DB01 production activation: Hugging Face `DATABASE_URL` secret установлен на Supabase Session Pooler (`aws-0-eu-west-1.pooler.supabase.com:5432`), `/health` показывает `database=postgresql`.
 - ✅ DB01 implementation: env aliases, Alembic URL override, empty PostgreSQL bootstrap, SQLAlchemy-based AdminSystem, DB backend health diagnostics, PostgreSQL connect timeout.
 - ✅ DB01 deploy issue resolved: duplicate public/secret `DATABASE_URL` fixed; direct IPv6 URI replaced with Supabase pooler URI.
 - ✅ DB01 regressions fixed: `/user`, `/start`, AI help, parsing/admin/shop legacy sqlite call sites migrated or fixed; `/health` stable on PostgreSQL.
-- 🔄 Current priority check: feedback endpoint after PostgreSQL switch was falling back to JSONL due to SQLite-only `AUTOINCREMENT`; dialect-specific feedback DDL was implemented and deployed, final live re-check still needed after HF startup settles.
+- ✅ DB01 final verification: `/health` возвращает `database=postgresql`, external `/feedback?limit=N` возвращает `storage=postgresql`; SQLite fallback больше не используется в production health/feedback path.
 - ✅ AI01 implemented/deployed: бесплатный AI-lite помощник для `/ai`, `/ask`, `/ai_help` без обязательных внешних ключей; отвечает по командам BankBot и локальной базе канона Олеговируса/LTL из Google Doc.
 - ✅ Earlier `/start`, `/user`, `/ai` direct user-reported regressions have corresponding hotfixes deployed to HF.
 - ✅ AI01 canon/UX handled: добавлены `bot/ai/knowledge.py`, глоссарий, статьи высокого канона, short/long ответы; исправлено ранжирование, чтобы `олеговирус` не подтягивал нерелевантные правила/запреты.
-- 💡 AI02 proposal: Никита предложил бесплатный Hugging Face API для более умных ответов. Делать только optional/free, с локальным AI-lite fallback и без риска для HF runtime.
+- 🔄 Next focus AI02: Никита предложил бесплатный Hugging Face API для более умных ответов. Делать только optional/free, с локальным AI-lite fallback, короткими timeout, лимитами prompt/response и без логирования секретов.
 - ✅ HF polling hardening revised: внешний retry-loop вокруг `run_polling()` убран; PTB сам ведёт polling, а на HF `drop_pending_updates=False`, чтобы команды не терялись при сетевой нестабильности.
 - ✅ HF `/start` safety: на Hugging Face `/start` по умолчанию отвечает одним коротким сообщением, без длинного welcome и без дополнительного template-coder hint; если пользователь включил `/long`, `/start` уважает режим и отдаёт полный welcome. `drop_pending_updates=False` на HF сохраняет команды при сетевых reconnect.
 - ✅ Командная иерархия уточнена: `/commands` — список разделов, `/user` — профиль игрока, `/shop`/`games`/`admin`/`coder` сохраняют старый функционал или разделные подсказки по назначению.
@@ -38,6 +38,10 @@
 - ✅ Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты.
 - ✅ `docs/DEPLOYMENT.md` — раздел Hugging Face Spaces с operational notes.
 - ✅ Global response modes: `bot/response_modes.py` патчит `Message.reply_text`; в `/short` длинные ответы всех разделов автоматически компактятся, в `/long` отправляется полный текст.
+- ✅ Response mode scope change: `/short` и `/long` работают как личный выбор пользователя; админские `/short_all` и `/long_all` задают общий default всем, после чего каждый пользователь может снова выбрать личный режим.
+- ✅ Watch mode documented/implemented: `/watch` и `/watch_all`, сверхкороткие ответы для часов и управление через 10 шаблонов (`ОК`, `Да`, `Спасибо`, `Спасибо нет`, `Великолепно`, `Спасибо еще раз`, `Скоро увидимся`, `Скоро буду`, `Я занят(а)`, `Нет`); `Я занят(а)` включает watch mode для конкретного пользователя.
+- ✅ Documentation refresh: `README.md`, `RUN.md`, `docs/README.md` синхронизированы с текущими BankBot возможностями, HF/PostgreSQL runtime, response modes, feedback, AI-lite и админ-командами.
+- 🔄 Product positioning corrected: парсинг игровых сообщений зафиксирован как самая важная цель проекта; текущий банк/админка/PostgreSQL/HF/feedback/watch/AI-lite описаны как фундамент вокруг парсинга, а не замена парсинга. Автоматический production E2E parsing выделен как PARSE01/in_progress.
 
 
 ## Сводка

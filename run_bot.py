@@ -202,6 +202,11 @@ def check_telegram_connectivity():
         except Exception as e:
             print(f"[DIAG] Cloudflare Proxy check failed: {e}")
         
+        if os.environ.get("SPACE_ID"):
+            print("[DIAG] Skipping webhook check on HF to avoid startup blocking")
+            print("[DIAG] Connectivity check completed")
+            return
+
         # Быстрая проверка webhook и его удаление
         proxy_handler = urllib.request.ProxyHandler({})
         opener = urllib.request.build_opener(proxy_handler)

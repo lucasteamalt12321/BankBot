@@ -3,7 +3,6 @@
 ## Технологический стек
 
 ### Язык и фреймворки
-- **Python 3.10+** - основной язык разработки
 - **Python 3.12** - зафиксированный локальный runtime и Docker-образ для BankBot
 - **python-telegram-bot 20.x** - асинхронная библиотека для Telegram Bot API
 - **aiogram 3.x** - фреймворк для Bridge-модуля
@@ -16,17 +15,21 @@
 - **Network Strategy (HF)**:
   - DNS bypass в `run_bot.py`: monkey patch `socket.getaddrinfo` и `anyio._core._sockets.getaddrinfo`, чтобы `api.telegram.org` резолвился в Telegram IP `149.154.167.220`.
   - HF httpx workaround: `httpx.AsyncClient.__init__` получает `verify=False` по умолчанию, чтобы пережить TLS/IP mismatch в облачной среде.
-  - `bot/bot.py`: `run_polling()` в HF запускается с короткими timeout-параметрами и retry-loop для transient `TimedOut`/`NetworkError`.
-  - `drop_pending_updates=True` на polling startup, чтобы после HF rebuild не обрабатывать накопленные старые команды из групп.
+  - `bot/bot.py`: `run_polling()` в HF запускается с увеличенными timeout-параметрами и guarded-loop, который удерживает Space живым после return/exception без агрессивного restart churn.
+  - `drop_pending_updates=False` на HF, чтобы команды не терялись при reconnect/polling instability.
   - HF `/start` использует `safe_start_command`: один короткий ответ без длинного welcome и без дополнительного template-coder hint.
+  - Webhook diagnostic check пропускается на HF, потому что он может блокировать startup; manual `getUpdates` не использовать во время live debugging polling.
   - Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты.
-- **Health Server**: Flask на порту `7860` — `/health` (с проверкой БД), `/metrics` (Prometheus), `/logs` (захват stdout/stderr).
+- **Health Server**: Flask на порту `7860` — `/health` (с проверкой БД), `/metrics` (Prometheus), `/logs` (захват stdout/stderr), `/feedback` (token-protected reader).
 - **Structlog** - структурированное логирование
 
 ### База данных
-- **SQLite** (разработка) / **PostgreSQL** (продакшн)
-- Миграции через Alembic
-- Connection Pooling (в разработке)
+- **SQLite** (local/dev fallback) / **PostgreSQL/Supabase** (production/HF)
+- `DATABASE_URL`, `POSTGRES_URL`, `SUPABASE_DB_URL` aliases; `postgres://` нормализуется в `postgresql://`
+- Supabase Session Pooler используется на HF, direct IPv6 URI был нестабилен
+- Миграции через Alembic; HF startup дополнительно применяет idempotent critical schema repairs (`telegram_id BIGINT`, `response_mode_settings`)
+- Connection Pooling через SQLAlchemy `QueuePool` + `pool_pre_ping`, PostgreSQL `connect_timeout`
+- `users.telegram_id` хранится как `BIGINT`; response modes хранятся в `response_mode_settings`
 
 ### Управление зависимостями
 - **pip** - основной пакетный менеджер
@@ -35,33 +38,39 @@
 
 ### Инструменты разработки
 - **Ruff** - линтер и форматтер кода
-- **Biome** - дополнительная проверка кода
 - **pytest** - фреймворк для тестирования
 - **hypothesis** - property-based testing
+- Markdown (`*.md`) не проверяется через Ruff/Biome
 
 ### Архитектурные компоненты
 - **Parser Registry** - централизованная система парсинга игровых сообщений
 - **Balance Manager** - управление балансами и конвертацией валют
 - **Unit of Work** - атомарные транзакции с блокировками
-- **DI Container** - внедрение зависимостей (`core/di.py`)
-- **Bridge Module** - двусторонняя пересылка TG ↔ VK (`bot/bridge/`)
-  - `loop_guard.py` — фильтрация циклов через метку `[BOT]`
-  - `message_queue.py` — FIFO очередь с rate limiting и exponential backoff
-  - `vk_sender.py` — отправка в VK через vk_api
-  - `telegram_forwarder.py` — aiogram handler TG → VK
-  - `vk_listener.py` — VKListenerThread (Long Poll)
-  - `media_handler.py` — загрузка медиа TG → VK
-  - `main_bridge.py` — точка входа aiogram с graceful shutdown
+- **DI Container** - `bot/middleware/dependency_injection.py`, per-request SQLAlchemy session/service container
+- **Response Modes** - `/short`, `/long`, `/watch`; админские `/short_all`, `/long_all`, `/watch_all`; watch quick replies через 10 шаблонов
+- **AI-lite** - `bot/ai/`, `/ai`, `/ask`, `/ai_help`, `/ai_update_knowledge`; optional AI02 HF Inference пока next focus
+- **Feedback** - PostgreSQL-backed `/feedback`, `/suggest`, `/complaint`, `/feedback_list`, external `/feedback?limit=N`
+- **Bridge Module** - TG → VK bridge (`bridge_bot/`), отдельный aiogram runtime с loop guard, queue, media handling и VK listener
+
+### Статус парсинга
+
+Парсинг — ключевой целевой runtime проекта. Текущий технический статус: infrastructure/manual path есть, production E2E automatic parsing ещё in_progress. Для завершения PARSE01 нужны:
+
+- fixtures реальных сообщений GD Cards, Shmalala, True Mafia, Bunker RP;
+- проверяемые parsing rules и коэффициенты;
+- мониторинг successful/failed parses;
+- защита от ложных начислений и дублирования транзакций;
+- админские diagnostics для просмотра причин неразбора.
 
 ### Тестирование
 - Unit tests - покрытие отдельных модулей
 - Integration tests - взаимодействие компонентов
-- E2E tests - сквозные сценарии (в разработке)
-- Security tests - защита от SQL-инъекций и race conditions (в разработке)
+- Smoke tests - `python3 -m pytest tests/smoke -v`, обязательны после runtime/code changes
+- AI unit tests - `tests/unit/test_ai_lite.py` при изменениях AI-lite
 
 ### CI/CD
 - Локальная разработка с автоматической проверкой линтером
-- Docker контейнеризация (в разработке)
+- Docker контейнеризация (`Dockerfile` на `python:3.12-slim`, `docker-compose.yml`)
 - Автоматические миграции БД
 
 ## Окружение разработки
@@ -75,7 +84,9 @@
 Основные переменные:
 - `BOT_TOKEN` — токен Telegram бота
 - `DATABASE_URL` — URL подключения к базе данных
+- `POSTGRES_URL`, `SUPABASE_DB_URL` — aliases для production DB URL
 - `ADMIN_TELEGRAM_ID` — Telegram ID администратора
+- `HF_TOKEN`, `FEEDBACK_READ_TOKEN` — Hugging Face/API reader токены (секреты, не коммитить)
 - `LOG_LEVEL` — уровень логирования
 - `PROXY_URL` — HTTP-прокси для обычной среды
 - `BRIDGE_ENABLED` — включить Bridge TG ↔ VK (bool)
@@ -89,10 +100,12 @@
 ### Структура проекта
 ```
 BankBot/
-├── bot/                # Presentation Layer
-│   └── bridge/         # Bridge-модуль TG ↔ VK
-├── core/               # Application Layer  
-├── config/             # Конфигурация (settings.py)
+├── bot/                # BankBot Telegram runtime (python-telegram-bot)
+├── bridge_bot/         # BridgeBot Telegram → VK
+├── vk_bot/             # VK Long Poll runtime
+├── bank_bot/           # Repository/service namespace
+├── core/               # Active runtime systems/services + compatibility shims
+├── config/             # env templates and config files
 ├── database/           # Database Layer + миграции
 ├── src/                # Domain Layer и инфраструктурные компоненты
 ├── utils/              # Вспомогательные утилиты
@@ -104,4 +117,5 @@ BankBot/
 
 ## Точки входа
 - `run_bot.py` → `bot/main.py` — основной бот (python-telegram-bot)
-- `python -m bot.bridge.main_bridge` — Bridge-бот (aiogram)
+- `bridge_bot/main.py` — BridgeBot (aiogram)
+- `vk_bot/main.py` — VK Bot

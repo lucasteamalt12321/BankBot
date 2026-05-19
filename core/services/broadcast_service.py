@@ -1,6 +1,7 @@
 """Broadcast service for business logic related to message broadcasting."""
 
 import asyncio
+import html
 import logging
 from typing import List
 from sqlalchemy.orm import Session
@@ -66,7 +67,7 @@ class BroadcastService:
             sender_user = self.db.query(User).filter(User.telegram_id == sender_id).first()
             sender_name = sender_user.first_name if sender_user and sender_user.first_name else f"User #{sender_id}"
 
-            formatted_message = f"📢 <b>Объявление от {sender_name}:</b>\n\n{message}"
+            formatted_message = f"📢 <b>Объявление от {html.escape(sender_name)}:</b>\n\n{html.escape(message)}"
 
             result = await self._process_broadcast_batches(
                 users=all_users,

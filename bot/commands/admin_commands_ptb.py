@@ -1,6 +1,7 @@
 """Admin commands for python-telegram-bot."""
 
 import structlog
+import html
 from telegram import Update
 from telegram.ext import ContextTypes
 from database.database import get_db
@@ -237,7 +238,7 @@ async def admin_command(
 /admin_rates - коэффициенты конвертации
 
 📢 <b>Коммуникация:</b>
-/broadcast <текст> - рассылка всем пользователям
+/broadcast &lt;текст&gt; - рассылка всем пользователям
 
 🛒 <b>Управление магазином:</b>
 /add_item - добавить товар в магазин
@@ -525,7 +526,7 @@ async def admin_adjust_command(
             amount=amount,
             transaction_type="admin_adjustment",
             description=reason,
-            metadata={"admin_id": user.id, "admin_username": user.username},
+            meta_data={"admin_id": user.id, "admin_username": user.username},
         )
 
         db.add(transaction)
@@ -537,7 +538,7 @@ async def admin_adjust_command(
 Пользователь: #{user_obj.id}
 Изменение: {amount} монет
 Новый баланс: {user_obj.balance} монет
-Причина: {reason}
+Причина: {html.escape(reason)}
 ID транзакции: {transaction.id}
             """
 
@@ -606,7 +607,7 @@ async def admin_addcoins_command(
             amount=amount,
             transaction_type="admin_add_coins",
             description=reason,
-            metadata={"admin_id": user.id, "admin_username": user.username},
+            meta_data={"admin_id": user.id, "admin_username": user.username},
         )
 
         db.add(transaction)
@@ -618,7 +619,7 @@ async def admin_addcoins_command(
 ID пользователя: #{user_obj.id}
 Добавлено: {amount} монет
 Новый баланс: {user_obj.balance} монет
-Причина: {reason}
+Причина: {html.escape(reason)}
 ID транзакции: {transaction.id}
             """
 
@@ -691,7 +692,7 @@ async def admin_removecoins_command(
             amount=amount,
             transaction_type="admin_remove_coins",
             description=reason,
-            metadata={"admin_id": user.id, "admin_username": user.username},
+            meta_data={"admin_id": user.id, "admin_username": user.username},
         )
 
         db.add(transaction)
@@ -703,7 +704,7 @@ async def admin_removecoins_command(
 ID пользователя: #{user_obj.id}
 Удалено: {abs(amount)} монет
 Новый баланс: {user_obj.balance} монет
-Причина: {reason}
+Причина: {html.escape(reason)}
 ID транзакции: {transaction.id}
             """
 

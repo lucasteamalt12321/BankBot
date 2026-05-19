@@ -1,5 +1,5 @@
 # database.py
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey, DECIMAL
+from sqlalchemy import BigInteger, Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey, DECIMAL
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -11,7 +11,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=True)
+    telegram_id = Column(BigInteger, unique=True, nullable=True)
     username = Column(String(100), nullable=True)
     first_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
@@ -46,6 +46,16 @@ class User(Base):
     owned_clans = relationship("Clan", back_populates="owner", cascade="all, delete-orphan")
     clan_memberships = relationship("ClanMember", back_populates="user", cascade="all, delete-orphan")
     scheduled_tasks = relationship("ScheduledTask", cascade="all, delete-orphan")
+
+
+class ResponseModeSetting(Base):
+    __tablename__ = "response_mode_settings"
+
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(BigInteger, unique=True, nullable=True)
+    mode = Column(String(16), nullable=False)
+    is_global = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class UserAlias(Base):
