@@ -1,8 +1,8 @@
 # Progress
 
 ## Статус проекта
-**Процент выполнения:** 100%
-**Текущая фаза:** Phase 3 завершён (H01-H06)
+**Процент выполнения:** 90% по `memory_bank/projectbrief.md` / `## Project Deliverables`
+**Текущая фаза:** базовая платформа стабилизирована; главный in_progress фокус — production E2E parsing
 
 ## Known Issues
 
@@ -29,6 +29,7 @@
 - User requested project documentation update. Updated `README.md`, `RUN.md`, and `docs/README.md` to cover current BankBot scope: PostgreSQL/Supabase production storage, Hugging Face endpoints and runtime behavior, feedback system, AI-lite commands, admin commands, response modes `/short`/`/long`/`/watch`, admin defaults, and smartwatch quick-reply controls.
 - Explicitly documented that Markdown files are not checked with `ruff`; Python code still must pass `ruff` and smoke tests after code changes.
 - Product positioning correction: user clarified that parsing must remain the most important stated goal, not be hidden behind the newer bank/admin/UX work. Updated Memory Bank/docs to present bank/admin/PostgreSQL/HF/feedback/watch/AI-lite as the stabilizing foundation around the main parsing mission. Added PARSE01 to post-release backlog as in-progress production E2E automatic parsing.
+- User clarified that the project should not be presented as fully complete. Updated `Project Deliverables` to 90/100 exactly: D10 production E2E parsing and D18 E2E parsing/bank tests are `in_progress`; all weights still sum to exactly 100. Also documented that users do not need to clone the project to test it; production testing is available in https://t.me/lucasteamgroup.
 
 ### 2026-05-19 (Response modes per user + admin defaults)
 - User requested scope change: `/long` and `/short` must apply per Telegram user, while admins can set the mode for everyone with `/long_all` and `/short_all`.

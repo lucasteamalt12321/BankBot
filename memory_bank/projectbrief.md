@@ -35,16 +35,16 @@ https://github.com/lucasteamalt12321/BankBot
 | D07 | Рефакторинг bot.py на модули | completed | 5 |
 | D08 | Middleware обработки ошибок | completed | 5 |
 | D09 | Graceful shutdown | completed | 4 |
-| D10 | ParserRegistry + конфигурация парсинга в БД (инфраструктура) | completed | 5 |
+| D10 | ParserRegistry + production E2E парсинг игровых сообщений | in_progress | 5 |
 | D11 | Блокировки балансов + Unit of Work | completed | 5 |
 | D12 | Connection pooling | completed | 3 |
 | D13 | Аудит SQL injection | completed | 5 |
 | D16 | Аудит и очистка неиспользуемого кода | completed | 4 |
 | D17 | Объединение дублирующихся парсеров | completed | 3 |
-| D18 | E2E тесты основных сценариев | completed | 4 |
+| D18 | E2E тесты основных сценариев парсинга и банка | in_progress | 5 |
 | D19 | Тесты безопасности (SQL injection, race conditions) | completed | 3 |
 | D20 | Coverage 80%+ | completed | 3 |
-| D21 | Документация (README, DEPLOYMENT.md, диаграммы) | completed | 3 |
+| D21 | Документация (README, DEPLOYMENT.md, диаграммы) | completed | 2 |
 | D22 | Docstrings Google style | completed | 2 |
 | D23 | Bridge-модуль: конфигурация + миграция bridge_state | completed | 3 |
 | D24 | Bridge-модуль: loop_guard, message_queue, vk_sender | completed | 4 |
@@ -52,11 +52,11 @@ https://github.com/lucasteamalt12321/BankBot
 | D26 | Bridge-модуль: media_handler (TG→VK, VK→TG) | completed | 3 |
 | D27 | vk_bot/: config, bot, handlers, main | completed | 3 |
 
-**Sum: 5+5+4+3+7+5+5+5+4+5+5+3+5+4+3+4+3+3+3+2+3+4+4+3+3 = 100**
+**Sum: 5+5+4+3+7+5+5+5+4+5+5+3+5+4+3+5+3+3+2+2+3+4+4+3+3 = 100**
 
-**Процент выполнения:** 100% (D01–D27 completed = 100/100)
+**Процент выполнения:** 90% (completed deliverables = 90/100; D10 и D18 остаются in_progress)
 
-**Важное уточнение по парсингу:** таблица D01-D27 отражает завершение базового инфраструктурного roadmap, а не полную готовность production E2E автоматического парсинга. Парсинг игровых сообщений остаётся главной продуктовой целью проекта; текущий completed-статус D10 означает наличие ParserRegistry/конфигурации/ручного контура, но стабилизация автоматического парсинга на реальных игровых сообщениях должна вестись как новый post-release deliverable.
+**Важное уточнение по парсингу:** таблица D01-D27 теперь отражает текущую готовность проекта как 90/100. Парсинг игровых сообщений остаётся главной продуктовой целью проекта; D10 и D18 специально оставлены `in_progress`, потому что инфраструктура/ручной контур есть, но production E2E автоматический парсинг на реальных игровых сообщениях ещё требует стабилизации.
 
 ---
 
