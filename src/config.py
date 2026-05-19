@@ -88,6 +88,7 @@ class Settings(BaseSettings):
 
     # Proxy
     PROXY_URL: Optional[str] = Field(default=None)
+    TELEGRAM_BASE_URL: str = Field(default="https://api.telegram.org/bot/")
 
     # Notifications
     NTFY_ENABLED: bool = Field(default=True)
@@ -244,6 +245,7 @@ def _create_settings_with_env_file(env_file: str | list[str] | None) -> Settings
         LOG_LEVEL: str = "INFO"
         LOG_FILE: Optional[str] = None
         PROXY_URL: Optional[str] = None
+        TELEGRAM_BASE_URL: str = "https://api.telegram.org/bot/"
         NTFY_ENABLED: bool = True
         NTFY_BASE_URL: str = "https://ntfy.sh"
         NTFY_TOPIC: str = "lucasteam_bankbot_2091908459"

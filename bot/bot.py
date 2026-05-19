@@ -132,7 +132,6 @@ import structlog
 
 POLLING_RETRY_DELAY_SECONDS = 5
 TELEGRAM_DEFAULT_BASE_URL = "https://api.telegram.org/bot/"
-HF_FALLBACK_TELEGRAM_BASE_URL = "http://tgproxy.me/bot/"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -227,11 +226,11 @@ class TelegramBot:
         builder.write_timeout(20)
         builder.pool_timeout(20)
 
-        base_url = os.environ.get("TELEGRAM_BASE_URL")
-        if not base_url and os.environ.get("SPACE_ID") and not settings.PROXY_URL:
-            base_url = HF_FALLBACK_TELEGRAM_BASE_URL
-        if not base_url:
-            base_url = settings.TELEGRAM_BASE_URL
+        base_url = os.environ.get("TELEGRAM_BASE_URL") or getattr(
+            settings,
+            "TELEGRAM_BASE_URL",
+            TELEGRAM_DEFAULT_BASE_URL,
+        )
         base_url = base_url.strip()
         if not base_url.endswith("/"):
             base_url = f"{base_url}/"
@@ -240,6 +239,7 @@ class TelegramBot:
             logger.info(
                 "Configuring Telegram client for Hugging Face",
                 base_url=base_url,
+                proxy_configured=bool(settings.PROXY_URL),
             )
 
         if base_url != TELEGRAM_DEFAULT_BASE_URL:
@@ -1071,7 +1071,7 @@ class TelegramBot:
 
                     # Запускаем polling
                     polling_kwargs = {
-                        "drop_pending_updates": True,
+                        "drop_pending_updates": False,
                         "close_loop": False,
                         "allowed_updates": Update.ALL_TYPES
                     }
