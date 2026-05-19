@@ -17,6 +17,8 @@ from src.parsers import (
     MafiaGameEndParser, MafiaProfileParser, BunkerGameEndParser, BunkerProfileParser,
     ParserError
 )
+from core.parsers.unified import UnifiedParser
+from core.parsers.base import AccrualResult, ProfileResult, GameEndResult
 from src.message_processor import MessageProcessor
 from src.balance_manager import BalanceManager
 from src.repository import SQLiteRepository
@@ -167,14 +169,11 @@ class ParsingHandler:
     async def handle_manual_parsing(self, update, context):
         """
         Handle manual parsing triggered by 'парсинг' command.
-        
-        Args:
-            update: Telegram update object
-            context: Telegram context object
+        Uses UnifiedParser for detection, AdminSystem for balance updates,
+        and IdempotencyChecker to prevent duplicate processing.
         """
         from utils.admin.admin_system import AdminSystem
 
-        # Get the message being replied to
         replied_message = update.message.reply_to_message
         if not replied_message or not replied_message.text:
             await update.message.reply_text("❌ Ответьте на сообщение игры словом 'парсинг'")
@@ -182,158 +181,124 @@ class ParsingHandler:
 
         message_text = replied_message.text
         user = update.effective_user
+        message_id = self.idempotency_checker.generate_message_id(
+            message_text, replied_message.date or datetime.now()
+        )
 
-        logger.info(f"Manual parsing requested by user {user.id} for message: {message_text[:100]}")
+        # Idempotency check
+        if self.idempotency_checker.is_processed(message_id):
+            await update.message.reply_text(
+                "⚠️ Это сообщение уже было обработано ранее.\n"
+                "Монеты начислены, повторный парсинг невозможен."
+            )
+            logger.info(f"Duplicate parsing blocked for user {user.id}")
+            return
 
-        # Parse the message using old system (it works correctly)
-        result = self.parse_message(message_text)
+        logger.info(f"Manual parsing by user {user.id}: {message_text[:120]}")
 
-        if result['success']:
-            # Get detailed parsing information
-            message_type = result['message_type']
+        # Parse via UnifiedParser
+        parser = UnifiedParser()
+        result = parser.parse(message_text)
 
-            # Try to extract parsed data and update balance in admin system
+        if not result:
+            await update.message.reply_text(
+                "❌ Сообщение не распознано как игровое.\n"
+                "Поддерживаемые игры: 🃏 GD Cards, 🎣 Shmalala, 🎮 True Mafia, 🏚️ Bunker RP"
+            )
+            logger.info(f"Message not recognized for user {user.id}")
+            return
+
+        # Determine bank coins based on game and result type
+        bank_coins = 0.0
+        details = []
+        game_emoji = {"GD Cards": "🃏", "Shmalala": "🎣", "True Mafia": "🎮", "Bunker RP": "🏚️"}.get(result.game, "🎲")
+
+        if isinstance(result, AccrualResult):
+            if result.game == "GD Cards":
+                bank_coins = float(result.amount) / 2
+                details.append(f"{game_emoji} Начисление: +{result.amount} очков")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 2:1)")
+            elif result.game == "Shmalala":
+                bank_coins = float(result.amount)
+                details.append(f"{game_emoji} Начисление: +{result.amount}")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 1:1)")
+
+        elif isinstance(result, ProfileResult):
+            if result.game == "GD Cards":
+                bank_coins = float(result.balance) / 2
+                details.append(f"{game_emoji} Профиль, баланс: {result.balance}")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 2:1)")
+            elif result.game == "True Mafia":
+                bank_coins = float(result.balance) / 15
+                details.append(f"{game_emoji} Профиль, деньги: {result.balance}")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 15:1)")
+            elif result.game == "Bunker RP":
+                bank_coins = float(result.balance) / 20
+                details.append(f"{game_emoji} Профиль, деньги: {result.balance}")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 20:1)")
+
+        elif isinstance(result, GameEndResult):
+            if result.game == "True Mafia":
+                bank_coins = 1.0
+                details.append(f"{game_emoji} Победители: {', '.join(result.winners[:5])}")
+                details.append(f"🏦 Начислено: +{bank_coins:.0f} монета (курс 15:1)")
+            elif result.game == "Bunker RP":
+                bank_coins = 1.0
+                details.append(f"{game_emoji} Выжившие: {', '.join(result.winners[:5])}")
+                details.append(f"🏦 Начислено: +{bank_coins:.0f} монета (курс 20:1)")
+
+        # Apply balance update
+        if bank_coins > 0:
             try:
-                # Re-parse to get detailed info
-                from src.classifier import MessageType
-                msg_type_enum = self.classifier.classify(message_text)
+                admin_system = AdminSystem(self.repository.db_path)
+                admin_system.register_user(user.id, user.username, user.first_name)
+                user_data = admin_system.get_user_by_id(user.id)
 
-                details = []
-                bank_coins = 0
+                if user_data:
+                    current_balance = float(user_data.get("balance", 0))
+                    new_balance = current_balance + bank_coins
 
-                if msg_type_enum == MessageType.SHMALALA_FISHING:
-                    parsed = self.fishing_parser.parse(message_text)
-                    bank_coins = float(parsed.coins)
-                    details.append(f"🎣 Игрок: {parsed.player_name}")
-                    details.append(f"💰 Монеты: +{parsed.coins}")
-                    details.append(f"🏦 Начислено: +{bank_coins} банковских монет")
-
-                elif msg_type_enum == MessageType.SHMALALA_KARMA:
-                    parsed = self.karma_parser.parse(message_text)
-                    bank_coins = float(parsed.karma)
-                    details.append(f"❤️ Игрок: {parsed.player_name}")
-                    details.append(f"⭐ Карма: +{parsed.karma}")
-                    details.append(f"🏦 Начислено: +{bank_coins} банковских монет")
-
-                elif msg_type_enum == MessageType.GDCARDS_ACCRUAL:
-                    parsed = self.accrual_parser.parse(message_text)
-                    bank_coins = float(parsed.points) / 2  # Курс 2:1
-                    details.append(f"🃏 Игрок: {parsed.player_name}")
-                    details.append(f"🎴 Очки: +{parsed.points}")
-                    details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 2:1)")
-
-                elif msg_type_enum == MessageType.GDCARDS_PROFILE:
-                    parsed = self.profile_parser.parse(message_text)
-                    bank_coins = float(parsed.orbs) / 2  # Курс 2:1
-                    details.append(f"🃏 Игрок: {parsed.player_name}")
-                    details.append(f"💎 Орбы: {parsed.orbs}")
-                    details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 2:1)")
-
-                elif msg_type_enum == MessageType.TRUEMAFIA_GAME_END:
-                    parsed = self.mafia_game_end_parser.parse(message_text)
-                    bank_coins = 1  # Курс 15:1, но начисляем 1 монету
-                    details.append(f"🎮 Победители: {', '.join(parsed.winners)}")
-                    details.append("🏦 Каждому начислено: +1 банковская монета (курс 15:1)")
-
-                elif msg_type_enum == MessageType.TRUEMAFIA_PROFILE:
-                    parsed = self.mafia_profile_parser.parse(message_text)
-                    bank_coins = float(parsed.money) / 15  # Курс 15:1
-                    details.append(f"🎮 Игрок: {parsed.player_name}")
-                    details.append(f"💵 Деньги: {parsed.money}")
-                    details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 15:1)")
-
-                elif msg_type_enum == MessageType.BUNKERRP_GAME_END:
-                    parsed = self.bunker_game_end_parser.parse(message_text)
-                    bank_coins = 1  # Курс 20:1, но начисляем 1 монету
-                    details.append(f"🏚️ Выжившие: {', '.join(parsed.winners)}")
-                    details.append("🏦 Каждому начислено: +1 банковская монета (курс 20:1)")
-
-                elif msg_type_enum == MessageType.BUNKERRP_PROFILE:
-                    parsed = self.bunker_profile_parser.parse(message_text)
-                    bank_coins = float(parsed.money) / 20  # Курс 20:1
-                    details.append(f"🏚️ Игрок: {parsed.player_name}")
-                    details.append(f"💵 Деньги: {parsed.money}")
-                    details.append(f"🏦 Начислено: +{bank_coins} банковских монет (курс 20:1)")
-
-                # Update balance in admin system (main database)
-                if bank_coins > 0:
-                    admin_system = AdminSystem(self.repository.db_path)
-
-                    # Ensure user is registered
-                    admin_system.register_user(user.id, user.username, user.first_name)
-
-                    # Get current balance
-                    user_data = admin_system.get_user_by_id(user.id)
-                    if user_data:
-                        current_balance = user_data['balance']
-                        new_balance = current_balance + bank_coins
-
-                        from database.database import SessionLocal
-
-                        db = SessionLocal()
-                        try:
+                    from database.database import SessionLocal
+                    db = SessionLocal()
+                    try:
+                        db.execute(
+                            text("UPDATE users SET balance = :balance WHERE telegram_id = :tid"),
+                            {"balance": new_balance, "tid": user.id},
+                        )
+                        user_row = db.execute(
+                            text("SELECT id FROM users WHERE telegram_id = :tid"),
+                            {"tid": user.id},
+                        ).mappings().first()
+                        if user_row:
                             db.execute(
                                 text(
-                                    """
-                                    UPDATE users
-                                    SET balance = :balance
-                                    WHERE telegram_id = :telegram_id
-                                    """
+                                    "INSERT INTO transactions (user_id, amount, transaction_type, description, created_at) "
+                                    "VALUES (:uid, :amount, 'accrual', :desc, :created)"
                                 ),
-                                {"balance": new_balance, "telegram_id": user.id},
+                                {
+                                    "uid": user_row["id"],
+                                    "amount": bank_coins,
+                                    "desc": f"{result.game}: {result.__class__.__name__}",
+                                    "created": datetime.now(),
+                                },
                             )
+                        db.commit()
+                    finally:
+                        db.close()
 
-                            user_row = db.execute(
-                                text("SELECT id FROM users WHERE telegram_id = :telegram_id"),
-                                {"telegram_id": user.id},
-                            ).mappings().first()
-                            if user_row:
-                                db.execute(
-                                    text(
-                                        """
-                                        INSERT INTO transactions
-                                            (user_id, amount, transaction_type, description, created_at)
-                                        VALUES
-                                            (:user_id, :amount, :transaction_type, :description, :created_at)
-                                        """
-                                    ),
-                                    {
-                                        "user_id": user_row["id"],
-                                        "amount": bank_coins,
-                                        "transaction_type": "accrual",
-                                        "description": f"Парсинг: {message_type}",
-                                        "created_at": datetime.now(),
-                                    },
-                                )
-                            db.commit()
-                        finally:
-                            db.close()
-
-                        details.append(f"\n💰 Новый баланс: {new_balance} очков")
-                        logger.info(f"Balance updated for user {user.id}: {current_balance} -> {new_balance}")
-
-                # Build response with details
-                response = "✅ Сообщение успешно обработано!\n\n"
-                response += f"📊 Тип: {message_type}\n\n"
-                if details:
-                    response += "📝 Детали:\n" + "\n".join(details)
-                else:
-                    response += "💡 Используйте /balance для проверки баланса"
-
-                await update.message.reply_text(response)
-                logger.info(f"Manual parsing successful for user {user.id}")
-
+                    details.append(f"\n💰 Баланс: {current_balance:.1f} → {new_balance:.1f}")
+                    logger.info(f"Balance updated for user {user.id}: +{bank_coins}")
             except Exception as e:
-                # Fallback to simple response if detailed parsing fails
-                logger.error(f"Could not get detailed parsing info: {e}", exc_info=True)
-                await update.message.reply_text(
-                    f"✅ Сообщение обработано, но возникла ошибка при начислении\n"
-                    f"📊 Тип: {message_type}\n\n"
-                    f"❌ Ошибка: {str(e)}"
-                )
-        else:
-            await update.message.reply_text(
-                f"❌ Не удалось обработать сообщение\n"
-                f"Ошибка: {result.get('error', 'Неизвестная ошибка')}"
-            )
-            logger.warning(f"Manual parsing failed for user {user.id}: {result.get('error')}")
+                logger.error(f"Balance update failed: {e}", exc_info=True)
+                details.append(f"\n⚠️ Начисление не выполнено: {e}")
+
+        # Mark as processed
+        self.idempotency_checker.mark_processed(message_id)
+
+        # Build response
+        response = f"✅ {result.game} — сообщение обработано!\n\n"
+        response += "\n".join(details)
+        response += "\n\n💡 /balance — проверить баланс"
+
+        await update.message.reply_text(response)
+        logger.info(f"Parsing complete for user {user.id}: {result.game}")

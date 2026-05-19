@@ -13,7 +13,7 @@ from telegram.ext import ContextTypes
 
 from bot.ai import AiLiteService
 from bot.ai.knowledge_updater import update_ai_knowledge_cache
-from bot.commands.core_commands import get_default_user_mode
+from bot.response_modes import get_default_user_mode
 from bot.commands.feedback_commands import _append_feedback, _append_feedback_db
 
 

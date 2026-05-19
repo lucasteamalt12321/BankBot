@@ -42,6 +42,13 @@ from bot.commands.core_commands import (
     ping_command,
     test_notify_command,
 )
+from bot.commands.ai_commands import (
+    ai_command,
+    ai_help_command,
+    ai_update_knowledge_command,
+    handle_ai_feedback_reply,
+)
+from bot.commands.feedback_commands import feedback_command, feedback_list_command
 from bot.commands.shop_commands_ptb import (
     shop_command,
     buy_contact_command,
@@ -293,6 +300,28 @@ class TelegramBot:
             CommandHandler("history", self.history_command),
             CommandHandler("profile", self.profile_command),
             CommandHandler("stats", self.stats_command),
+            CommandHandler("ai", ai_command),
+            CommandHandler("ask", ai_command),
+            CommandHandler("ai_help", ai_help_command),
+            CommandHandler(
+                "ai_update_knowledge",
+                lambda update, context: ai_update_knowledge_command(
+                    update,
+                    context,
+                    self.admin_system,
+                ),
+            ),
+            CommandHandler("feedback", feedback_command),
+            CommandHandler("suggest", feedback_command),
+            CommandHandler("complaint", feedback_command),
+            CommandHandler(
+                "feedback_list",
+                lambda update, context: feedback_list_command(
+                    update,
+                    context,
+                    settings.ADMIN_TELEGRAM_ID,
+                ),
+            ),
             # Магазин
             CommandHandler("shop", self.shop_command),
             CommandHandler("buy_contact", self.buy_contact_command),
@@ -922,6 +951,16 @@ class TelegramBot:
             await self.welcome_command(update, context)
         elif mentioned_command == "/coder":
             await self.template_coder_dialog.start_command(update, context)
+        elif mentioned_command in ("/ai", "/ask"):
+            await ai_command(update, context)
+        elif mentioned_command == "/ai_help":
+            await ai_help_command(update, context)
+        elif mentioned_command == "/ai_update_knowledge":
+            await ai_update_knowledge_command(update, context, self.admin_system)
+        elif mentioned_command in ("/feedback", "/suggest", "/complaint"):
+            await feedback_command(update, context)
+        elif mentioned_command == "/feedback_list":
+            await feedback_list_command(update, context, settings.ADMIN_TELEGRAM_ID)
         elif mentioned_command == "/short":
             await short_command(update, context)
         elif mentioned_command == "/short_all":
@@ -946,6 +985,9 @@ class TelegramBot:
 
     async def log_all_updates(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Логирование абсолютно всех входящих обновлений для отладки групп"""
+        if update.message and await handle_ai_feedback_reply(update, context):
+            return
+
         chat = update.effective_chat
         user = update.effective_user
         
