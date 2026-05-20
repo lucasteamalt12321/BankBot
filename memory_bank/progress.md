@@ -46,6 +46,15 @@
 - Wired admin-only `/short_all` and `/long_all` in `bot/bot.py`, including mentioned-command fallback for group usage.
 - Updated `/admin` command section and architecture docs to mention response mode behavior.
 
+### 2026-05-20 (Parsing System Implementation)
+- **Task:** Implement parsing system for 3 target bots (Гуся Cards, GDcards, Shmalala) triggered by "парсинг" reply.
+- **Database:** Added `UserResource` model (tracks internal `n` per user/bot/resource) and `ConversionRate` model (stores coefficient `k` per bot/resource pair).
+- **Migration:** Created `005_add_parsing_resources.py` with default rates: gusya_cards=1.0, gdcards=2.0, shmalala=1.5.
+- **Service:** `bank_bot/services/parsing_service.py` — detects bot, extracts amount `b`, looks up `k`, calculates `b*k`, updates `n` and balance.
+- **Handler:** Updated `bot/handlers/parsing_handler.py` — new `handle_target_bot_parsing()` method using `ParsingService`, falls back to legacy parser for other games.
+- **Tests:** `tests/unit/test_parsing_service.py` — 20 tests, all passing. GDcards priority coverage: detection, extraction, full accrual flow, multiple accruals, error handling.
+- **Status:** Parsing system ready for production use. ruff: 0 errors. Tests: 20/20 passed.
+
 ### 2026-05-18 (DB01 — persistent PostgreSQL/Supabase storage)
 - User-defined priority order recorded: (1) direct user-reported bugs, (2) bugs from `/feedback`, (3) current development focus, (4) suggestions from `/feedback`.
 - Started DB01 as P0/first-priority task after user reported HF DB resets on restart/rebuild.

@@ -111,3 +111,36 @@
 - Добавлена миграция `003_create_missing_tables.py` для создания отсутствующих таблиц из текущего metadata
 - Добавлен helper `database/schema.py` с Alembic-first обновлением схемы и fallback на `create_tables()`
 - `bot/main.py` и `bot/bot.py` переведены на `ensure_schema_up_to_date()`
+
+## Parsing System Implementation Plan (Current)
+**Status:** Completed ✅ | **Priority:** P0 (GDcards priority)
+
+### Этап 1: Database Models ✅
+- `UserResource` model: tracks internal `n` per user/bot/resource
+- `ConversionRate` model: stores coefficient `k` per bot/resource pair
+- Migration `005_add_parsing_resources.py` created
+
+### Этап 2: Parsing Service ✅
+- `ParsingService` in `bank_bot/services/parsing_service.py`
+- Regex patterns for all 3 bots (GDcards priority)
+- Logic: detect bot → extract `b` → get `k` → calculate `b*k` → update `n` and balance
+- Error handling: unrecognized data, negative values
+
+### Этап 3: Handler Update ✅
+- Updated `bot/handlers/parsing_handler.py` with `handle_target_bot_parsing()` method
+- New method uses `ParsingService`, falls back to legacy parser for other games
+- Maintains idempotency and existing game support
+
+### Этап 4: Tests ✅
+- `tests/unit/test_parsing_service.py` — 20 tests, all passing
+- GDcards priority coverage: detection, extraction, full accrual flow, multiple accruals
+- Gusya Cards and Shmalala coverage complete
+- Error handling tests: unrecognized message, negative amount, user not found, missing rate
+
+### Этап 5: Validation ✅
+- ruff: 0 errors across all new files
+- Tests: 20/20 passed
+- Memory bank updated
+
+### Этап 6: Commit & Push 🔄
+- Ready for commit and push to GitHub/HF

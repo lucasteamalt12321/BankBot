@@ -426,6 +426,47 @@ class BotBalance(Base):
     )
 
 
+class UserResource(Base):
+    """
+    Таблица для хранения накопленных ресурсов пользователя (n)
+    для каждого бота и типа ресурса.
+    """
+    __tablename__ = "user_resources"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    bot_name = Column(String(50), nullable=False)  # gusya_cards, gdcards, shmalala
+    resource_type = Column(String(50), nullable=False)  # coins, orbs, money, karma
+    n = Column(Integer, default=0)  # Внутреннее накопленное значение
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
+
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
+
+class ConversionRate(Base):
+    """
+    Таблица коэффициентов конвертации (k) для каждой пары бот-ресурс.
+    """
+    __tablename__ = "conversion_rates"
+
+    id = Column(Integer, primary_key=True)
+    bot_name = Column(String(50), nullable=False)
+    resource_type = Column(String(50), nullable=False)
+    k = Column(DECIMAL(10, 4), nullable=False, default=1.0)  # Коэффициент конвертации
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
+
 from database.connection import get_pooled_engine  # noqa: E402
 
 engine = get_pooled_engine()

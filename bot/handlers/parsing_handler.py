@@ -2,6 +2,13 @@
 """
 Unified parsing handler that integrates the new message parsing system.
 This handler bridges the Telegram bot with the advanced parsing infrastructure.
+
+Supports three target bots:
+- gusya_cards (Гуся Cards): coins
+- gdcards (GDcards): orbs  <- PRIORITY
+- shmalala (Shmalala): money
+
+Trigger: user replies to target bot message with 'парсинг'
 """
 
 import structlog
@@ -33,6 +40,8 @@ class ParsingHandler:
     """
     Unified handler for parsing game messages and updating balances.
     Integrates the new message parsing system with the Telegram bot.
+    
+    Priority: GDcards (orbs)
     """
 
     def __init__(self, db_path: str = "data/bot.db", coefficients_path: str = "config/coefficients.json"):
@@ -166,11 +175,83 @@ class ParsingHandler:
         message_type = self.classifier.classify(text)
         return message_type != MessageType.UNKNOWN
 
+    async def handle_target_bot_parsing(self, update, context, message_text: str, user) -> bool:
+        """
+        Handle parsing for target bots (gusya_cards, gdcards, shmalala).
+        Uses new ParsingService with coefficient-based conversion.
+        
+        Args:
+            update: Telegram update
+            context: Callback context
+            message_text: Text of the replied message
+            user: Telegram user
+            
+        Returns:
+            True if handled by this method, False to fall back to legacy parsing
+        """
+        from bank_bot.services.parsing_service import ParsingService
+        from database.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            parsing_service = ParsingService(db)
+            
+            # First check if this is one of our target bots
+            bot_name = parsing_service.detect_bot(message_text)
+            if bot_name is None:
+                return False
+
+            # Get user ID from database
+            from utils.admin.admin_system import AdminSystem
+            admin_system = AdminSystem(self.repository.db_path)
+            admin_system.register_user(user.id, user.username, user.first_name)
+            user_data = admin_system.get_user_by_id(user.id)
+            
+            if not user_data:
+                await update.message.reply_text("❌ Пользователь не найден в системе.")
+                return True
+
+            user_id = user_data.get("id")
+            if not user_id:
+                await update.message.reply_text("❌ Ошибка идентификации пользователя.")
+                return True
+
+            # Parse and accrue
+            success, response, details = parsing_service.parse_and_accrue(
+                user_id=user_id,
+                text=message_text
+            )
+
+            if success:
+                logger.info(
+                    "Target bot parsing success",
+                    user_id=user.id,
+                    bot_name=details.get("bot_name"),
+                    points=details.get("points"),
+                )
+                await update.message.reply_text(response)
+            else:
+                logger.warning(
+                    "Target bot parsing failed",
+                    user_id=user.id,
+                    response=response,
+                )
+                await update.message.reply_text(f"❌ {response}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Target bot parsing error: {e}", exc_info=True)
+            await update.message.reply_text("❌ Ошибка при обработке данных")
+            return True
+        finally:
+            db.close()
+
     async def handle_manual_parsing(self, update, context):
         """
         Handle manual parsing triggered by 'парсинг' command.
-        Uses UnifiedParser for detection, AdminSystem for balance updates,
-        and IdempotencyChecker to prevent duplicate processing.
+        Uses new ParsingService for target bots (GDcards priority),
+        falls back to UnifiedParser for legacy games.
         """
         from utils.admin.admin_system import AdminSystem
 
@@ -196,7 +277,13 @@ class ParsingHandler:
 
         logger.info(f"Manual parsing by user {user.id}: {message_text[:120]}")
 
-        # Parse via UnifiedParser
+        # Try new target bot parsing first (GDcards priority)
+        handled = await self.handle_target_bot_parsing(update, context, message_text, user)
+        if handled:
+            self.idempotency_checker.mark_processed(message_id)
+            return
+
+        # Fall back to legacy UnifiedParser for other games
         parser = UnifiedParser()
         result = parser.parse(message_text)
 

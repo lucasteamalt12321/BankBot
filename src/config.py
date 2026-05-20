@@ -340,7 +340,33 @@ def get_bot_settings() -> Settings:
     return get_settings()
 
 
-settings = get_settings()
+class _LazySettings:
+    """Lazy settings proxy that loads on first attribute access."""
+
+    _instance: "Settings | None" = None
+
+    def _load(self) -> "Settings":
+        if self._instance is None:
+            self._instance = get_settings()
+        return self._instance
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+    def __setattr__(self, name: str, value):
+        if name == "_instance":
+            super().__setattr__(name, value)
+        else:
+            setattr(self._load(), name, value)
+
+    def __dir__(self):
+        return dir(self._load())
+
+    def __repr__(self):
+        return f"_LazySettings({self._load()!r})"
+
+
+settings: "Settings" = _LazySettings()  # type: ignore[assignment]
 bot_settings = settings
 
 
