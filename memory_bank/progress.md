@@ -492,4 +492,4 @@
 - **Push Blocked**: `git push origin main` требует интерактивной авторизации GitHub (HTTPS). Требуется действие пользователя или настройка SSH/credentials.
 
 ## last_checked_commit
-48780f8 sync(memory_bank): актуализация после 15 коммитов деплоя HF (2026-05-15)
+e57e9dd feat(parsing): implement parsing system for GDcards, Gusya Cards, Shmalala (2026-05-20)

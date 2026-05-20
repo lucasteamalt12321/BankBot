@@ -43,6 +43,10 @@ PARSING_PATTERNS = {
             re.compile(r"🤩\s*Орбы:\s*\+(\d+)"),
             re.compile(r"Орбы:\s*\+(\d+)"),
         ],
+        "profile_patterns": [
+            re.compile(r"Орбы:\s*(\d+)\s*\(#\d+\)"),
+            re.compile(r"Орбы:\s*(\d+)"),
+        ],
     },
     "shmalala": {
         "resource_type": "money",
@@ -52,18 +56,29 @@ PARSING_PATTERNS = {
             re.compile(r"Монеты:\s*\+(\d+)"),
         ],
     },
+    "shmalala_karma": {
+        "resource_type": "karma",
+        "emoji": "❤️",
+        "patterns": [
+            re.compile(r"Теперь\s+(?:его|её|её)\s+рейтинг:\s*(\d+)\s*❤️"),
+            re.compile(r"рейтинг:\s*(\d+)\s*❤️"),
+            re.compile(r"❤️\s*Рейтинг:\s*\+(\d+)"),
+        ],
+    },
 }
 
 BOT_DISPLAY_NAMES = {
     "gusya_cards": "Гуся Cards",
     "gdcards": "GDcards",
     "shmalala": "Shmalala",
+    "shmalala_karma": "Shmalala",
 }
 
 RESOURCE_DISPLAY_NAMES = {
     "coins": "монету",
     "orbs": "орб",
     "money": "монету",
+    "karma": "карму",
 }
 
 
@@ -94,9 +109,8 @@ class ParsingService:
         """
         text_lower = text.lower()
 
-        # GDcards priority detection
+        # GDcards priority detection (accrual patterns)
         if "орбы" in text_lower or "🤩" in text:
-            # Verify with pattern
             for pattern in PARSING_PATTERNS["gdcards"]["patterns"]:
                 if pattern.search(text):
                     return "gdcards"
@@ -107,17 +121,75 @@ class ParsingService:
                 if pattern.search(text):
                     return "gusya_cards"
 
-        # Shmalala
+        # Shmalala money
         if "монеты:" in text_lower and "💰" in text:
             for pattern in PARSING_PATTERNS["shmalala"]["patterns"]:
                 if pattern.search(text):
                     return "shmalala"
 
-        # Fallback: try all patterns
+        # Shmalala karma
+        if "❤️" in text or "рейтинг" in text_lower:
+            for pattern in PARSING_PATTERNS["shmalala_karma"]["patterns"]:
+                if pattern.search(text):
+                    return "shmalala_karma"
+
+        # Fallback: try all accrual patterns
         for bot_name, config in PARSING_PATTERNS.items():
             for pattern in config["patterns"]:
                 if pattern.search(text):
                     return bot_name
+
+        return None
+
+    def detect_profile_bot(self, text: str) -> Optional[str]:
+        """Detect bot from profile message (shows current balance, not +X).
+
+        Args:
+            text: Profile message text.
+
+        Returns:
+            Bot identifier or None.
+        """
+        text_lower = text.lower()
+
+        # GDcards profile
+        if "профиль" in text_lower and "орбы:" in text_lower:
+            for pattern in PARSING_PATTERNS["gdcards"].get("profile_patterns", []):
+                if pattern.search(text):
+                    return "gdcards"
+
+        # Fallback: try all profile patterns
+        for bot_name, config in PARSING_PATTERNS.items():
+            for pattern in config.get("profile_patterns", []):
+                if pattern.search(text):
+                    return bot_name
+
+        return None
+
+    def extract_profile_balance(self, text: str, bot_name: str) -> Optional[int]:
+        """Extract current balance from profile message.
+
+        Args:
+            text: Profile message text.
+            bot_name: Bot identifier.
+
+        Returns:
+            Current balance or None if not found.
+        """
+        config = PARSING_PATTERNS.get(bot_name)
+        if not config:
+            return None
+
+        for pattern in config.get("profile_patterns", []):
+            match = pattern.search(text)
+            if match:
+                try:
+                    balance = int(match.group(1))
+                    if balance < 0:
+                        return None
+                    return balance
+                except (ValueError, IndexError):
+                    continue
 
         return None
 
@@ -225,10 +297,116 @@ class ParsingService:
 
         return Decimal(str(rate.k))
 
+    def parse_profile_and_accrue(
+        self, user_id: int, text: str
+    ) -> Tuple[bool, str, dict]:
+        """Parse profile message and accrue delta points.
+
+        For profile messages, extracts current balance and calculates
+        delta = current_balance - stored_n. Only the delta is converted
+        to points and added to balance. Updates n to current_balance.
+
+        Args:
+            user_id: User primary key.
+            text: Profile message text from target bot.
+
+        Returns:
+            Tuple of (success: bool, message: str, details: dict).
+        """
+        # Step 1: Detect bot from profile
+        bot_name = self.detect_profile_bot(text)
+        if bot_name is None:
+            return False, "Не удалось распознать профиль в сообщении", {}
+
+        config = PARSING_PATTERNS[bot_name]
+        resource_type = config["resource_type"]
+
+        # Step 2: Extract current balance from profile
+        current_balance = self.extract_profile_balance(text, bot_name)
+        if current_balance is None:
+            return False, "Не удалось извлечь баланс из профиля", {}
+
+        # Step 3: Get conversion rate k
+        k = self.get_conversion_rate(bot_name, resource_type)
+
+        # Step 4: Get stored n and calculate delta
+        user_resource = self.get_or_create_user_resource(
+            user_id, bot_name, resource_type
+        )
+        n_old = user_resource.n
+        delta = current_balance - n_old
+
+        if delta <= 0:
+            return (
+                False,
+                f"Баланс не изменился (текущий: {current_balance}, "
+                f"сохранённый: {n_old}). Начисление не требуется.",
+                {
+                    "bot_name": bot_name,
+                    "resource_type": resource_type,
+                    "current_balance": current_balance,
+                    "n_old": n_old,
+                    "delta": delta,
+                },
+            )
+
+        # Step 5: Calculate points from delta
+        points = int(delta * k)
+        if points <= 0:
+            return False, "Ошибка при обработке данных", {}
+
+        # Step 6: Update n to current balance
+        user_resource.n = current_balance
+
+        # Step 7: Update user balance
+        user = self._balance_repo.add_balance(user_id, points)
+        if user is None:
+            return False, "Ошибка при обработке данных", {}
+
+        balance_new = user.balance
+        balance_old = balance_new - points
+
+        # Step 8: Log transaction
+        bot_display = BOT_DISPLAY_NAMES.get(bot_name, bot_name)
+        resource_display = RESOURCE_DISPLAY_NAMES.get(resource_type, resource_type)
+        self._tx_repo.log_transaction(
+            user_id=user_id,
+            amount=points,
+            transaction_type="parsing_profile_accrual",
+            description=f"Профиль {bot_display}: баланс {current_balance} (delta +{delta}) (курс {k})",
+            source_game=bot_name,
+        )
+
+        # Step 9: Build response
+        k_str = str(k).rstrip("0").rstrip(".") if "." in str(k) else str(k)
+        k_display = k_str if "." in k_str else f"{k_str}.0"
+        response = (
+            f"Профиль обработан. Зачислено {points} очков "
+            f"(разница +{delta} по курсу {k_display} за {resource_display}). "
+            f"Ваш баланс: {balance_new} очков"
+        )
+
+        details = {
+            "bot_name": bot_name,
+            "resource_type": resource_type,
+            "current_balance": current_balance,
+            "delta": delta,
+            "k": k,
+            "points": points,
+            "n_old": n_old,
+            "n_new": current_balance,
+            "balance_old": balance_old,
+            "balance_new": balance_new,
+        }
+
+        return True, response, details
+
     def parse_and_accrue(
         self, user_id: int, text: str
     ) -> Tuple[bool, str, dict]:
-        """Parse message and accrue points to user balance.
+        """Parse accrual message and add points to user balance.
+
+        For messages with +X format (new cards, rewards, etc.).
 
         Args:
             user_id: User primary key.
@@ -239,7 +417,7 @@ class ParsingService:
             details contains: bot_name, resource_type, b, k, points, n_old, n_new,
                              balance_old, balance_new
         """
-        # Step 1: Detect bot
+        # Step 1: Detect bot from accrual message
         bot_name = self.detect_bot(text)
         if bot_name is None:
             logger.info(

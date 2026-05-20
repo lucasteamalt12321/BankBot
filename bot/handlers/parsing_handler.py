@@ -177,8 +177,9 @@ class ParsingHandler:
 
     async def handle_target_bot_parsing(self, update, context, message_text: str, user) -> bool:
         """
-        Handle parsing for target bots (gusya_cards, gdcards, shmalala).
+        Handle parsing for target bots (gusya_cards, gdcards, shmalala, shmalala_karma).
         Uses new ParsingService with coefficient-based conversion.
+        Supports both accrual messages (+X) and profile messages (current balance).
         
         Args:
             update: Telegram update
@@ -196,8 +197,15 @@ class ParsingHandler:
         try:
             parsing_service = ParsingService(db)
             
-            # First check if this is one of our target bots
+            # Check if this is an accrual message (+X format)
             bot_name = parsing_service.detect_bot(message_text)
+            is_profile = False
+            
+            # If not accrual, check if it's a profile message
+            if bot_name is None:
+                bot_name = parsing_service.detect_profile_bot(message_text)
+                is_profile = True
+            
             if bot_name is None:
                 return False
 
@@ -216,11 +224,17 @@ class ParsingHandler:
                 await update.message.reply_text("❌ Ошибка идентификации пользователя.")
                 return True
 
-            # Parse and accrue
-            success, response, details = parsing_service.parse_and_accrue(
-                user_id=user_id,
-                text=message_text
-            )
+            # Route to appropriate parsing method
+            if is_profile:
+                success, response, details = parsing_service.parse_profile_and_accrue(
+                    user_id=user_id,
+                    text=message_text
+                )
+            else:
+                success, response, details = parsing_service.parse_and_accrue(
+                    user_id=user_id,
+                    text=message_text
+                )
 
             if success:
                 logger.info(
@@ -228,6 +242,7 @@ class ParsingHandler:
                     user_id=user.id,
                     bot_name=details.get("bot_name"),
                     points=details.get("points"),
+                    is_profile=is_profile,
                 )
                 await update.message.reply_text(response)
             else:

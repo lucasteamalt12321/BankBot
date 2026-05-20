@@ -45,6 +45,7 @@ def sample_conversion_rates(db_session):
         ConversionRate(bot_name="gusya_cards", resource_type="coins", k=Decimal("1.0")),
         ConversionRate(bot_name="gdcards", resource_type="orbs", k=Decimal("2.0")),
         ConversionRate(bot_name="shmalala", resource_type="money", k=Decimal("1.5")),
+        ConversionRate(bot_name="shmalala_karma", resource_type="karma", k=Decimal("0.5")),
     ]
     for rate in rates:
         db_session.add(rate)
@@ -184,6 +185,88 @@ class TestParsingServiceShmalala:
         assert details["balance_new"] == 121  # 100 + 21
 
 
+class TestParsingServiceShmalalaKarma:
+    """Shmalala karma parsing tests."""
+
+    def test_detect_bot_shmalala_karma(self, db_session):
+        """Detect Shmalala karma from rating message."""
+        service = ParsingService(db_session)
+        text = "Лайк! Вы повысили рейтинг пользователя Олег.\nТеперь его рейтинг: 28 ❤️"
+        assert service.detect_bot(text) == "shmalala_karma"
+
+    def test_extract_amount_shmalala_karma(self, db_session):
+        """Extract karma amount from Shmalala message."""
+        service = ParsingService(db_session)
+        text = "Теперь его рейтинг: 28 ❤️"
+        assert service.extract_amount(text, "shmalala_karma") == 28
+
+    def test_parse_and_accrue_shmalala_karma(self, db_session, sample_user, sample_conversion_rates):
+        """Full flow: parse Shmalala karma and accrue points."""
+        service = ParsingService(db_session)
+        text = "Теперь его рейтинг: 28 ❤️"
+
+        success, message, details = service.parse_and_accrue(sample_user.id, text)
+
+        assert success is True
+        assert "Зачислено 14 очков" in message  # 28 * 0.5 = 14
+        assert "по курсу 0.5 за карму" in message
+        assert details["b"] == 28
+        assert details["points"] == 14
+        assert details["balance_new"] == 114  # 100 + 14
+
+
+class TestParsingServiceGDcardsProfile:
+    """GDcards profile parsing tests."""
+
+    def test_detect_profile_bot_gdcards(self, db_session):
+        """Detect GDcards from profile message."""
+        service = ParsingService(db_session)
+        text = "🖥 ПРОФИЛЬ LucasTeam\n...\nОрбы: 121 (#1278)"
+        assert service.detect_profile_bot(text) == "gdcards"
+
+    def test_extract_profile_balance_gdcards(self, db_session):
+        """Extract orb balance from GDcards profile."""
+        service = ParsingService(db_session)
+        text = "Орбы: 121 (#1278)"
+        assert service.extract_profile_balance(text, "gdcards") == 121
+
+    def test_parse_profile_and_accrue_gdcards(self, db_session, sample_user, sample_conversion_rates):
+        """Full flow: parse GDcards profile and accrue delta points."""
+        service = ParsingService(db_session)
+        text = "🖥 ПРОФИЛЬ LucasTeam\n...\nОрбы: 121 (#1278)"
+
+        # First, set initial n to 100
+        resource = UserResource(user_id=sample_user.id, bot_name="gdcards", resource_type="orbs", n=100)
+        db_session.add(resource)
+        db_session.commit()
+
+        success, message, details = service.parse_profile_and_accrue(sample_user.id, text)
+
+        assert success is True
+        assert "Зачислено 42 очков" in message  # (121 - 100) * 2.0 = 42
+        assert "разница +21" in message
+        assert details["current_balance"] == 121
+        assert details["delta"] == 21
+        assert details["points"] == 42
+        assert details["n_new"] == 121
+        assert details["balance_new"] == 142  # 100 + 42
+
+    def test_parse_profile_no_change(self, db_session, sample_user, sample_conversion_rates):
+        """Profile with no change returns informative message."""
+        service = ParsingService(db_session)
+        text = "Орбы: 100 (#1278)"
+
+        # Set initial n to 100
+        resource = UserResource(user_id=sample_user.id, bot_name="gdcards", resource_type="orbs", n=100)
+        db_session.add(resource)
+        db_session.commit()
+
+        success, message, details = service.parse_profile_and_accrue(sample_user.id, text)
+
+        assert success is False
+        assert "Баланс не изменился" in message
+
+
 class TestParsingServiceErrors:
     """Error handling tests."""
 
@@ -254,3 +337,17 @@ class TestParsingServicePatterns:
         match = pattern.search("Монеты: +14 (3947)💰")
         assert match is not None
         assert match.group(1) == "14"
+
+    def test_shmalala_karma_pattern_matches(self):
+        """Shmalala karma regex matches expected format."""
+        pattern = PARSING_PATTERNS["shmalala_karma"]["patterns"][0]
+        match = pattern.search("Теперь его рейтинг: 28 ❤️")
+        assert match is not None
+        assert match.group(1) == "28"
+
+    def test_gdcards_profile_pattern_matches(self):
+        """GDcards profile regex matches expected format."""
+        pattern = PARSING_PATTERNS["gdcards"]["profile_patterns"][0]
+        match = pattern.search("Орбы: 121 (#1278)")
+        assert match is not None
+        assert match.group(1) == "121"
