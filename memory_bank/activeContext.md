@@ -3,6 +3,19 @@
 ## Текущий фокус
 **Деплой на Hugging Face и отладка сети.** Настройка бота для работы в среде Hugging Face Spaces, обход сетевых ограничений через `base_url` и проверку доступности Telegram API.
 
+## Planned Scope Change — HF Webhook Migration
+**Status:** planning only; implementation not started. Canonical detailed plan: `memory_bank/hf_webhook_migration_plan.md`.
+
+User-approved planning decisions:
+- Move HF production BankBot from polling to Telegram webhook to eliminate recurring `getUpdates TimedOut` failures.
+- Disable background tasks/periodic loops in HF webhook runtime.
+- Keep only `/short` and `/long` from response-mode/watch area; disable `/watch`, ADB and ntfy realtime/watch flows.
+- Remove non-working modules from production runtime: `/shop`, `/games`, `/dnd` and related buy/game/dnd handlers.
+- Remove BridgeBot and VK Bot from production HF runtime.
+- Keep core bank/parsing/admin basics: `/start`, `/user`/`/profile`, `/balance`, `/history`, `/stats`, admin balance tools, feedback if it does not block webhook.
+- Keep secure parsing only via real Telegram reply; do not restore unsafe manual text-paste fallback because it enables cheating.
+- Code implementation requires explicit user approval after plan review.
+
 ## Статус проекта: 100% (базовый функционал) + HF Deployment Phase
 
 ## Последнее обновление: 2026-05-12
@@ -123,24 +136,31 @@
 ### Этап 2: Parsing Service ✅
 - `ParsingService` in `bank_bot/services/parsing_service.py`
 - Regex patterns for all 3 bots (GDcards priority)
+- **NEW:** Shmalala karma patterns (❤️ rating messages)
+- **NEW:** GDcards profile patterns (`Орбы: X (#Y)` format)
+- **NEW:** `parse_profile_and_accrue()` with delta logic: (current_balance - stored_n) * k
 - Logic: detect bot → extract `b` → get `k` → calculate `b*k` → update `n` and balance
 - Error handling: unrecognized data, negative values
 
 ### Этап 3: Handler Update ✅
 - Updated `bot/handlers/parsing_handler.py` with `handle_target_bot_parsing()` method
+- **NEW:** Routes both accrual messages (+X) and profile messages (current balance)
 - New method uses `ParsingService`, falls back to legacy parser for other games
 - Maintains idempotency and existing game support
 
 ### Этап 4: Tests ✅
-- `tests/unit/test_parsing_service.py` — 20 tests, all passing
+- `tests/unit/test_parsing_service.py` — 29 tests, all passing (was 20)
 - GDcards priority coverage: detection, extraction, full accrual flow, multiple accruals
-- Gusya Cards and Shmalala coverage complete
+- **NEW:** GDcards profile: detection, extraction, delta accrual, no-change scenario
+- **NEW:** Shmalala karma: detection, extraction, accrual with k=0.5
+- Gusya Cards and Shmalala money coverage complete
 - Error handling tests: unrecognized message, negative amount, user not found, missing rate
 
 ### Этап 5: Validation ✅
 - ruff: 0 errors across all new files
-- Tests: 20/20 passed
+- Tests: 29/29 passed
 - Memory bank updated
 
-### Этап 6: Commit & Push 🔄
-- Ready for commit and push to GitHub/HF
+### Этап 6: Commit & Push ✅
+- GitHub: `3eb7377` feat(parsing): add karma parsing for Shmalala and profile parsing for GDcards
+- HF: uploaded

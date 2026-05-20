@@ -2,7 +2,7 @@
 
 ## Статус проекта
 **Процент выполнения:** 90% по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** базовая платформа стабилизирована; главный in_progress фокус — production E2E parsing
+**Текущая фаза:** planning для HF webhook migration и runtime-scope reduction; реализация не начата без approval пользователя
 
 ## Known Issues
 
@@ -19,6 +19,13 @@
 - ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
 
 ## Changelog
+
+### 2026-05-20 (HF Webhook Migration Planning — no implementation yet)
+- User requested planning-only phase for full HF migration from Telegram polling to webhook after recurring `getUpdates TimedOut` caused missed group commands.
+- User-approved scope decisions recorded across Memory Bank: disable background periodic tasks; keep only `/short` and `/long`; remove non-working `/shop`, `/games`, `/dnd`; remove BridgeBot and VK Bot from production HF runtime; keep secure reply-only parsing and do not restore pasted-message fallback.
+- Added canonical detailed plan: `memory_bank/hf_webhook_migration_plan.md`.
+- Updated `activeContext.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `projectbrief.md`, and this `progress.md` to reference the new plan/scope.
+- No production code implementation was started in this planning step.
 
 ### 2026-05-19 (Watch response/action mode)
 - User requested a third control mode for smartwatch usage. Constraints: the watch screen fits only very short messages, and available quick-reply templates are exactly: `ОК`, `Да`, `Спасибо`, `Спасибо, нет`, `Великолепно`, `Спасибо еще раз`, `Скоро увидимся`, `Скоро буду`, `Я занят(а)`, `Нет`.
@@ -52,8 +59,16 @@
 - **Migration:** Created `005_add_parsing_resources.py` with default rates: gusya_cards=1.0, gdcards=2.0, shmalala=1.5.
 - **Service:** `bank_bot/services/parsing_service.py` — detects bot, extracts amount `b`, looks up `k`, calculates `b*k`, updates `n` and balance.
 - **Handler:** Updated `bot/handlers/parsing_handler.py` — new `handle_target_bot_parsing()` method using `ParsingService`, falls back to legacy parser for other games.
-- **Tests:** `tests/unit/test_parsing_service.py` — 20 tests, all passing. GDcards priority coverage: detection, extraction, full accrual flow, multiple accruals, error handling.
+- **Tests:** `tests/unit/test_parsing_service.py` — 20 tests, all passing. GDcards priority coverage: detection, extraction, full accrual flow, multiple accruals.
 - **Status:** Parsing system ready for production use. ruff: 0 errors. Tests: 20/20 passed.
+
+### 2026-05-20 (Parsing Extensions — Karma & Profile)
+- **User request:** Parse Shmalala karma (❤️ rating) and GDcards profile (current orb balance).
+- **Shmalala Karma:** Added `shmalala_karma` bot config with patterns for "Теперь его рейтинг: X ❤️". Conversion rate k=0.5.
+- **GDcards Profile:** Added `profile_patterns` for "Орбы: X (#Y)". New `parse_profile_and_accrue()` method calculates delta = (current_balance - stored_n) * k, updates n to current_balance.
+- **Handler Update:** `handle_target_bot_parsing()` now detects both accrual messages (+X) and profile messages, routes to appropriate parser.
+- **Tests:** Added 9 tests: karma detection/extraction/accrual, profile detection/extraction/delta-accrual/no-change. Total: 29/29 passing.
+- **Commit:** `3eb7377` feat(parsing): add karma parsing for Shmalala and profile parsing for GDcards.
 
 ### 2026-05-18 (DB01 — persistent PostgreSQL/Supabase storage)
 - User-defined priority order recorded: (1) direct user-reported bugs, (2) bugs from `/feedback`, (3) current development focus, (4) suggestions from `/feedback`.

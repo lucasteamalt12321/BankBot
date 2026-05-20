@@ -12,15 +12,16 @@
 ### Инфраструктура и Деплой
 - **Hugging Face Spaces** - основная платформа для хостинга (Docker SDK)
 - **GitHub** - основной репозиторий кода
+- **Planned HF runtime migration**: production BankBot should move from Telegram polling to webhook (`POST /telegram/webhook/<secret>`) because current HF → Telegram `getUpdates` long-polling repeatedly times out.
 - **Network Strategy (HF)**:
   - DNS bypass в `run_bot.py`: monkey patch `socket.getaddrinfo` и `anyio._core._sockets.getaddrinfo`, чтобы `api.telegram.org` резолвился в Telegram IP `149.154.167.220`.
   - HF httpx workaround: `httpx.AsyncClient.__init__` получает `verify=False` по умолчанию, чтобы пережить TLS/IP mismatch в облачной среде.
-  - `bot/bot.py`: `run_polling()` в HF запускается с увеличенными timeout-параметрами и guarded-loop, который удерживает Space живым после return/exception без агрессивного restart churn.
+  - Legacy/current: `bot/bot.py` uses `run_polling()` with increased timeout parameters; this remains unstable on HF and is planned to be replaced by webhook.
   - `drop_pending_updates=False` на HF, чтобы команды не терялись при reconnect/polling instability.
   - HF `/start` использует `safe_start_command`: один короткий ответ без длинного welcome и без дополнительного template-coder hint.
-  - Webhook diagnostic check пропускается на HF, потому что он может блокировать startup; manual `getUpdates` не использовать во время live debugging polling.
+  - Planned: webhook setup becomes the normal HF startup path; manual `getUpdates`/polling is not used in production.
   - Обычная среда: `PROXY_URL` через `builder.proxy_url()` + увеличенные таймауты.
-- **Health Server**: Flask на порту `7860` — `/health` (с проверкой БД), `/metrics` (Prometheus), `/logs` (захват stdout/stderr), `/feedback` (token-protected reader).
+- **Health/Webhook Server**: Flask на порту `7860` — `/health` (с проверкой БД), `/metrics` (Prometheus), `/logs` (захват stdout/stderr), `/feedback` (token-protected reader), planned `POST /telegram/webhook/<secret>`.
 - **Structlog** - структурированное логирование
 
 ### База данных
@@ -47,10 +48,10 @@
 - **Balance Manager** - управление балансами и конвертацией валют
 - **Unit of Work** - атомарные транзакции с блокировками
 - **DI Container** - `bot/middleware/dependency_injection.py`, per-request SQLAlchemy session/service container
-- **Response Modes** - `/short`, `/long`, `/watch`; админские `/short_all`, `/long_all`, `/watch_all`; watch quick replies через 10 шаблонов
+- **Response Modes** - planned production scope keeps `/short` and `/long` only; `/watch`, `/watch_all`, ADB and ntfy realtime/watch flows are to be disabled.
 - **AI-lite** - `bot/ai/`, `/ai`, `/ask`, `/ai_help`, `/ai_update_knowledge`; optional AI02 HF Inference пока next focus
 - **Feedback** - PostgreSQL-backed `/feedback`, `/suggest`, `/complaint`, `/feedback_list`, external `/feedback?limit=N`
-- **Bridge Module** - TG → VK bridge (`bridge_bot/`), отдельный aiogram runtime с loop guard, queue, media handling и VK listener
+- **Bridge/VK Modules** - planned removal from production HF runtime. Files may remain until cleanup, but `bridge_bot/` and `vk_bot/` should not be active entrypoints after webhook migration.
 
 ### Статус парсинга
 
@@ -96,6 +97,10 @@
 - `APP_ENV` — окружение: dev / prod / test
 - `NTFY_ENABLED`, `NTFY_BASE_URL`, `NTFY_TAGS`, `NTFY_TIMEOUT_SECONDS` — ntfy уведомления
 - `ADB_NOTIFICATIONS_ENABLED`, `ADB_PATH`, `ADB_DEVICE_SERIAL` — ADB уведомления
+- Planned webhook env:
+  - `TELEGRAM_RUNTIME_MODE=webhook|polling` — explicit runtime selector (recommended)
+  - `WEBHOOK_SECRET` — required secret for Telegram webhook path/header
+  - `PUBLIC_WEBHOOK_URL` or derived HF URL — public webhook base URL if auto-detection is not reliable
 
 ### Структура проекта
 ```
@@ -116,6 +121,6 @@ BankBot/
 ```
 
 ## Точки входа
-- `run_bot.py` → `bot/main.py` — основной бот (python-telegram-bot)
-- `bridge_bot/main.py` — BridgeBot (aiogram)
-- `vk_bot/main.py` — VK Bot
+- Planned production: `run_bot.py` Flask app → `/telegram/webhook/<secret>` → BankBot PTB `Application.process_update()`
+- Local/dev fallback: `run_bot.py` → `bot/main.py` → polling
+- `bridge_bot/main.py` and `vk_bot/main.py` are planned to be removed from production HF runtime.
