@@ -60,8 +60,6 @@ async def short_all_command(update, context) -> None:
         "/balance — баланс\n"
         "/profile — профиль\n"
         "/stats — статистика\n"
-        "/daily — бонус\n"
-        "/notifications — уведомления\n"
         "/long — полный режим только для себя\n"
         "/long_all — полный режим для всех"
     )

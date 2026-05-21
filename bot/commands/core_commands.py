@@ -107,8 +107,6 @@ WELCOME_TEXT = """
 
 [ACHIEVEMENTS] <b>🏆 Достижения:</b>
 /achievements - ваши достижения
-/notifications - уведомления
-/notifications_clear - очистить все
 
 [ADMIN] <b>👨‍💼 Админ-команды:</b>
 /admin - панель администратора
@@ -624,9 +622,9 @@ async def profile_command(
    • Статус: {'Администратор' if admin_user['is_admin'] else 'Пользователь'}
 
 [TIPS] <b>Советы:</b>
-   • Используйте /daily для получения ежедневного бонуса
-   • Играйте в игры для увеличения баланса
-   • Приглашайте друзей для получения бонусов
+   • Для начисления ответьте «Парсинг» на сообщение игрового бота
+   • Проверяйте баланс через /balance
+   • Смотрите историю через /history
         """
 
         await _send_text_with_retry(update, context, text, parse_mode="HTML")

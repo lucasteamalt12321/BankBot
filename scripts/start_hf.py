@@ -61,7 +61,7 @@ def _single_value(query: dict[str, list[str]], key: str, default: str = "") -> s
     return values[0] if values else default
 
 
-def _vless_outbound(uri: str) -> dict[str, Any]:
+def _vless_outbound(uri: str, *, tag: str = "proxy") -> dict[str, Any]:
     parsed = urllib.parse.urlparse(uri)
     query = urllib.parse.parse_qs(parsed.query)
 
@@ -78,7 +78,7 @@ def _vless_outbound(uri: str) -> dict[str, Any]:
 
     outbound: dict[str, Any] = {
         "type": "vless",
-        "tag": "proxy",
+        "tag": tag,
         "server": server,
         "server_port": port,
         "uuid": uuid,
@@ -137,6 +137,26 @@ def _build_config(subscription_text: str) -> dict[str, Any]:
         config.setdefault("route", {})["final"] = _first_proxy_tag(config.get("outbounds", []))
         return config
 
+    proxy_outbounds = _supported_vless_outbounds(subscription_text)
+    if not proxy_outbounds:
+        raise ValueError("VPN subscription has no supported VLESS nodes")
+
+    final_tag = "proxy"
+    outbounds = proxy_outbounds + [{"type": "direct", "tag": "direct"}]
+    if len(proxy_outbounds) > 1:
+        outbounds.append(
+            {
+                "type": "urltest",
+                "tag": "proxy",
+                "outbounds": [outbound["tag"] for outbound in proxy_outbounds],
+                "url": "https://www.gstatic.com/generate_204",
+                "interval": "10m",
+                "tolerance": 50,
+            }
+        )
+    else:
+        proxy_outbounds[0]["tag"] = final_tag
+
     return {
         "log": {"level": "warn"},
         "inbounds": [
@@ -147,12 +167,25 @@ def _build_config(subscription_text: str) -> dict[str, Any]:
                 "listen_port": PROXY_PORT,
             }
         ],
-        "outbounds": [
-            _vless_outbound(_first_vless_uri(subscription_text)),
-            {"type": "direct", "tag": "direct"},
-        ],
-        "route": {"final": "proxy"},
+        "outbounds": outbounds,
+        "route": {"final": final_tag},
     }
+
+
+def _supported_vless_outbounds(subscription_text: str) -> list[dict[str, Any]]:
+    """Return all VLESS nodes supported by the lightweight HF generator."""
+    outbounds: list[dict[str, Any]] = []
+    lines = [line.strip() for line in subscription_text.replace("\r", "\n").split("\n")]
+    for line in lines:
+        if not line.startswith("vless://"):
+            continue
+        node_number = len(outbounds) + 1
+        try:
+            outbounds.append(_vless_outbound(line, tag=f"proxy-{node_number}"))
+        except Exception as exc:
+            print(f"[VPN] Skipping unsupported node: {exc}")
+    print(f"[VPN] Supported proxy nodes: {len(outbounds)}")
+    return outbounds
 
 
 def _first_proxy_tag(outbounds: list[dict[str, Any]]) -> str:
