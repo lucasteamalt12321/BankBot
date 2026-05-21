@@ -546,9 +546,13 @@ class TelegramBot:
                     logger.error(f"Error during signal handling: {e}")
 
         # Регистрируем обработчики для SIGINT (Ctrl+C) и SIGTERM
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        logger.info("Signal handlers configured for graceful shutdown")
+        try:
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+            logger.info("Signal handlers configured for graceful shutdown")
+        except ValueError:
+            # Webhook runtime runs in a daemon thread where signals are unavailable
+            logger.info("Signal handlers skipped: not in main thread (webhook mode)")
 
     async def _shutdown_background_tasks(self):
         """
