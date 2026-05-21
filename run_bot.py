@@ -126,6 +126,23 @@ def _start_telegram_webhook_runtime() -> None:
         from src.startup_validator import validate_startup
 
         print("[START] Starting BankBot HF webhook runtime...")
+        print(f"[DIAG] PROXY_URL={os.environ.get('PROXY_URL', 'not set')}")
+        print(f"[DIAG] TELEGRAM_BASE_URL={os.environ.get('TELEGRAM_BASE_URL', 'not set')}")
+        print(f"[DIAG] VPN_SUBSCRIPTION_URL={'set' if os.environ.get('VPN_SUBSCRIPTION_URL') else 'not set'}")
+        # Check if proxy port is listening
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2)
+        proxy_host, proxy_port_str = "127.0.0.1", os.environ.get("PROXY_URL", "http://127.0.0.1:1080").split(":")[-1].rstrip("/")
+        try:
+            proxy_port = int(proxy_port_str)
+            result = s.connect_ex((proxy_host, proxy_port))
+            print(f"[DIAG] Proxy port {proxy_host}:{proxy_port} connect result: {'open' if result == 0 else f'closed ({result})'}")
+        except Exception as e:
+            print(f"[DIAG] Proxy check error: {e}")
+        finally:
+            s.close()
+
         ensure_schema_up_to_date()
         validate_startup()
 
