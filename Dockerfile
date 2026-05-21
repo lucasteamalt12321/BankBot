@@ -19,7 +19,17 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     curl \
+    ca-certificates \
+    tar \
     && rm -rf /var/lib/apt/lists/*
+
+# Optional HF Telegram egress proxy via sing-box (enabled by VPN_SUBSCRIPTION_URL)
+ARG SING_BOX_VERSION=1.10.7
+RUN curl -L "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz" \
+    | tar -xz -C /tmp \
+    && mv "/tmp/sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box" /usr/local/bin/sing-box \
+    && chmod +x /usr/local/bin/sing-box \
+    && rm -rf "/tmp/sing-box-${SING_BOX_VERSION}-linux-amd64"
 
 # Copy installed packages from builder
 COPY --from=builder /root/.local /root/.local
@@ -40,5 +50,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 # Use tini for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# По умолчанию запускает BankBot
-CMD ["python", "run_bot.py", "bank"]
+# По умолчанию запускает BankBot через HF startup wrapper
+CMD ["python", "scripts/start_hf.py"]
