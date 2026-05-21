@@ -64,7 +64,7 @@ from bot.commands.social_commands_ptb import (
 from bot.commands.notification_commands_ptb import notifications_command, notifications_clear_command
 from bot.commands.achievements_commands_ptb import achievements_command
 from bot.commands.admin_commands_ptb import (
-    admin_command,
+    admin_command as admin_command_handler,
     admin_stats_command,
     admin_adjust_command,
     admin_addcoins_command,
@@ -810,7 +810,7 @@ class TelegramBot:
     # ===== Админ-команды =====
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /admin - панель администратора с точным форматом вывода"""
-        await admin_command(update, context, self.admin_system, get_db)
+        await admin_command_handler(update, context, self.admin_system, get_db)
 
     async def add_points_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -1046,6 +1046,8 @@ class TelegramBot:
             await feedback_command(update, context)
         elif mentioned_command == "/feedback_list":
             await feedback_list_command(update, context, settings.ADMIN_TELEGRAM_ID)
+        elif mentioned_command == "/admin":
+            await self.admin_command(update, context)
         elif mentioned_command == "/short":
             await short_command(update, context)
         elif mentioned_command == "/short_all":
