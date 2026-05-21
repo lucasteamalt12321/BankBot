@@ -1,4 +1,4 @@
-name: HF Space Watchdog
+name: HF ↔ Render Failover Watchdog
 
 on:
   schedule:
@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       force_restart:
-        description: "Force restart even if /health is healthy"
+        description: "Force restart HF even if healthy"
+        required: false
+        default: "false"
+      force_failover:
+        description: "Force switch webhook to Render"
         required: false
         default: "false"
 
@@ -20,6 +24,7 @@ concurrency:
 env:
   HF_SPACE_ID: LucasTeam/BankBot
   HF_HEALTH_URL: https://lucasteam-bankbot.hf.space/health
+  HF_WEBHOOK_URL: https://lucasteam-bankbot.hf.space/telegram/webhook
   MIN_RESTART_INTERVAL_SECONDS: "600"
   MAX_RESTARTS_PER_HOUR: "3"
   WATCHDOG_STATE_FILE: .watchdog-state/hf-watchdog-state.json
@@ -38,14 +43,19 @@ jobs:
           restore-keys: |
             hf-watchdog-state-
 
-      - name: Check and restart HF Space if needed
+      - name: Check health and failover if needed
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          RENDER_WEBHOOK_URL: ${{ secrets.RENDER_WEBHOOK_URL }}
           FORCE_RESTART: ${{ github.event.inputs.force_restart || 'false' }}
+          FORCE_FAILOVER: ${{ github.event.inputs.force_failover || 'false' }}
         run: |
           python3 - <<'PY'
           from __future__ import annotations
 
+          import hashlib
+          import hmac
           import json
           import os
           import time
@@ -54,102 +64,185 @@ jobs:
           from pathlib import Path
 
 
+          # ── Configuration ──────────────────────────────────────────────
+          HF_TOKEN = os.environ["HF_TOKEN"].strip()
+          BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
+          RENDER_WEBHOOK_URL = os.environ.get("RENDER_WEBHOOK_URL", "").strip().rstrip("/")
+          HF_WEBHOOK_URL = os.environ["HF_WEBHOOK_URL"].strip().rstrip("/")
+          HF_SPACE_ID = os.environ["HF_SPACE_ID"]
+          HF_HEALTH_URL = os.environ["HF_HEALTH_URL"]
+          MIN_RESTART_INTERVAL = int(os.environ["MIN_RESTART_INTERVAL_SECONDS"])
+          MAX_RESTARTS_PER_HOUR = int(os.environ["MAX_RESTARTS_PER_HOUR"])
+          FORCE_RESTART = os.environ.get("FORCE_RESTART", "false").lower() == "true"
+          FORCE_FAILOVER = os.environ.get("FORCE_FAILOVER", "false").lower() == "true"
+
           state_path = Path(os.environ["WATCHDOG_STATE_FILE"])
           state_path.parent.mkdir(parents=True, exist_ok=True)
 
+
+          # ── Helpers ────────────────────────────────────────────────────
           def load_state() -> dict:
               if not state_path.exists():
-                  return {"restart_timestamps": []}
+                  return {"restart_timestamps": [], "active_platform": "hf", "last_failover_ts": 0}
               try:
                   return json.loads(state_path.read_text(encoding="utf-8"))
               except Exception:
-                  return {"restart_timestamps": []}
+                  return {"restart_timestamps": [], "active_platform": "hf", "last_failover_ts": 0}
+
 
           def save_state(state: dict) -> None:
-              state_path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+              state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
-          def http_json(url: str, *, method: str = "GET", token: str | None = None, timeout: int = 20) -> tuple[int, dict | str]:
-              request = urllib.request.Request(url, method=method)
-              if token:
-                  request.add_header("Authorization", f"Bearer {token}")
+
+          def now() -> float:
+              return time.time()
+
+
+          def fetch(url: str, timeout: int = 20) -> tuple[int, str]:
+              req = urllib.request.Request(url, method="GET")
               try:
-                  with urllib.request.urlopen(request, timeout=timeout) as response:
-                      raw = response.read().decode("utf-8", errors="replace")
-                      try:
-                          return response.status, json.loads(raw)
-                      except json.JSONDecodeError:
-                          return response.status, raw
-              except urllib.error.HTTPError as exc:
-                  raw = exc.read().decode("utf-8", errors="replace")
-                  return exc.code, raw
+                  with urllib.request.urlopen(req, timeout=timeout) as resp:
+                      return resp.status, resp.read().decode("utf-8", errors="ignore")
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode("utf-8", errors="ignore")
+              except Exception as e:
+                  return 0, str(e)
 
-          now = int(time.time())
-          min_interval = int(os.environ["MIN_RESTART_INTERVAL_SECONDS"])
-          max_restarts_per_hour = int(os.environ["MAX_RESTARTS_PER_HOUR"])
-          force_restart = os.environ.get("FORCE_RESTART", "false").lower() == "true"
-          hf_token = os.environ.get("HF_TOKEN", "")
-          health_url = os.environ["HF_HEALTH_URL"]
-          space_id = os.environ["HF_SPACE_ID"]
-          restart_url = f"https://huggingface.co/api/spaces/{space_id}/restart"
 
+          def hf_restart() -> tuple[bool, str]:
+              url = f"https://huggingface.co/api/spaces/{HF_SPACE_ID}/restart"
+              req = urllib.request.Request(url, method="POST")
+              req.add_header("Authorization", f"Bearer {HF_TOKEN}")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      return True, resp.read().decode("utf-8", errors="ignore")[:500]
+              except Exception as e:
+                  return False, str(e)
+
+
+          def tg_set_webhook(target_url: str) -> tuple[bool, str]:
+              """Set Telegram webhook to target_url via Bot API."""
+              # Derive secret the same way run_bot.py does
+              secret = hmac.new(
+                  BOT_TOKEN.encode(),
+                  b"bankbot-hf-webhook",
+                  hashlib.sha256,
+              ).hexdigest()
+              full_url = f"{target_url}/{secret}"
+              api_url = (
+                  f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+                  f"?url={urllib.request.quote(full_url, safe='')}&drop_pending_updates=true"
+              )
+              try:
+                  with urllib.request.urlopen(api_url, timeout=30) as resp:
+                      body = resp.read().decode("utf-8", errors="ignore")
+                      data = json.loads(body)
+                      ok = data.get("ok", False)
+                      return ok, body[:500]
+              except Exception as e:
+                  return False, str(e)
+
+
+          def tg_get_webhook_info() -> dict:
+              """Fetch current Telegram webhook info."""
+              api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
+              try:
+                  with urllib.request.urlopen(api_url, timeout=30) as resp:
+                      return json.loads(resp.read().decode("utf-8", errors="ignore"))
+              except Exception:
+                  return {}
+
+
+          # ── Main logic ─────────────────────────────────────────────────
           state = load_state()
-          restart_timestamps = [ts for ts in state.get("restart_timestamps", []) if now - int(ts) < 3600]
-          state["restart_timestamps"] = restart_timestamps
+          current_ts = now()
 
-          health_ok = False
-          reason = "unknown"
+          # Prune old restarts
+          state["restart_timestamps"] = [
+              ts for ts in state["restart_timestamps"] if current_ts - ts < 3600
+          ]
+          restarts_this_hour = len(state["restart_timestamps"])
+
+          # Check HF health
+          status, body = fetch(HF_HEALTH_URL, timeout=20)
+          hf_healthy = False
+          hf_webhook_ok = False
           try:
-              status_code, health = http_json(health_url, timeout=20)
-              if isinstance(health, dict):
-                  health_ok = (
-                      status_code == 200
-                      and health.get("status") == "healthy"
-                      and health.get("webhook_configured") is True
-                  )
-                  reason = f"status_code={status_code}, status={health.get('status')}, webhook_configured={health.get('webhook_configured')}"
+              data = json.loads(body)
+              hf_healthy = status == 200 and data.get("status") == "healthy"
+              hf_webhook_ok = data.get("webhook_configured", False) is True
+          except Exception:
+              pass
+
+          print(f"HF status={status} healthy={hf_healthy} webhook_ok={hf_webhook_ok}")
+
+          # Determine desired platform
+          if FORCE_FAILOVER:
+              desired_platform = "render"
+              print("FORCE_FAILOVER requested → Render")
+          elif hf_healthy and hf_webhook_ok:
+              desired_platform = "hf"
+              print("HF healthy → staying on HF")
+          else:
+              # HF unhealthy → try restart first, then failover
+              if restarts_this_hour < MAX_RESTARTS_PER_HOUR:
+                  last_restart = state["restart_timestamps"][-1] if state["restart_timestamps"] else 0
+                  if current_ts - last_restart >= MIN_RESTART_INTERVAL or FORCE_RESTART:
+                      print("HF unhealthy → restarting...")
+                      ok, msg = hf_restart()
+                      print(f"Restart result: ok={ok} msg={msg}")
+                      if ok:
+                          state["restart_timestamps"].append(current_ts)
+                          save_state(state)
+                          # After restart, webhook may need time. Check again shortly.
+                          # For now, don't failover immediately if we just restarted.
+                          print("Restart triggered, will re-check in next cycle")
+                          exit(0)
+
+              # If restart failed or cooldown → failover to Render
+              if RENDER_WEBHOOK_URL:
+                  desired_platform = "render"
+                  print("HF unhealthy and restart not possible → failing over to Render")
               else:
-                  reason = f"status_code={status_code}, non_json={str(health)[:200]}"
-          except Exception as exc:
-              reason = f"health_check_exception={type(exc).__name__}: {exc}"
+                  desired_platform = state.get("active_platform", "hf")
+                  print("Render not configured → staying on current platform")
 
-          print(f"Health result: ok={health_ok}; {reason}")
+          # Check current Telegram webhook
+          tg_info = tg_get_webhook_info()
+          current_url = (tg_info.get("result") or {}).get("url", "")
+          print(f"Current Telegram webhook: {current_url}")
 
-          if health_ok and not force_restart:
-              print("HF Space is healthy and webhook is configured. No restart needed.")
+          # Determine target URL
+          if desired_platform == "render" and RENDER_WEBHOOK_URL:
+              target_url = RENDER_WEBHOOK_URL
+          else:
+              target_url = HF_WEBHOOK_URL
+
+          # Switch webhook if needed
+          secret = hmac.new(BOT_TOKEN.encode(), b"bankbot-hf-webhook", hashlib.sha256).hexdigest()
+          expected_current = f"{target_url}/{secret}"
+
+          if current_url != expected_current:
+              print(f"Switching webhook to: {target_url}")
+              ok, msg = tg_set_webhook(target_url)
+              print(f"setWebhook result: ok={ok} msg={msg}")
+              if ok:
+                  state["active_platform"] = desired_platform
+                  if desired_platform == "render":
+                      state["last_failover_ts"] = current_ts
+                  save_state(state)
+                  print(f"Webhook switched to {desired_platform}")
+              else:
+                  print("WARNING: failed to switch webhook")
+          else:
+              print(f"Webhook already on {desired_platform}, no change needed")
+              state["active_platform"] = desired_platform
               save_state(state)
-              raise SystemExit(0)
 
-          if not hf_token:
-              print("HF_TOKEN secret is missing; cannot restart HF Space.")
-              save_state(state)
-              raise SystemExit(1)
-
-          if restart_timestamps and now - int(restart_timestamps[-1]) < min_interval and not force_restart:
-              remaining = min_interval - (now - int(restart_timestamps[-1]))
-              print(f"Restart skipped due to cooldown. Try again in {remaining}s.")
-              save_state(state)
-              raise SystemExit(0)
-
-          if len(restart_timestamps) >= max_restarts_per_hour and not force_restart:
-              print(f"Restart skipped: max {max_restarts_per_hour}/hour reached.")
-              save_state(state)
-              raise SystemExit(0)
-
-          status_code, restart_response = http_json(restart_url, method="POST", token=hf_token, timeout=30)
-          print(f"Restart requested: status_code={status_code}; response={restart_response}")
-          if status_code >= 400:
-              save_state(state)
-              raise SystemExit(1)
-
-          restart_timestamps.append(now)
-          state["restart_timestamps"] = restart_timestamps
-          state["last_restart_reason"] = "forced" if force_restart else reason
-          state["last_restart_at"] = now
-          save_state(state)
+          print("Watchdog cycle complete")
           PY
 
       - name: Save watchdog state
-        if: always()
         uses: actions/cache/save@v4
         with:
           path: .watchdog-state
