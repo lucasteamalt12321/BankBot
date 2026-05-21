@@ -1,0 +1,156 @@
+name: HF Space Watchdog
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_restart:
+        description: "Force restart even if /health is healthy"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hf-space-watchdog
+  cancel-in-progress: false
+
+env:
+  HF_SPACE_ID: LucasTeam/BankBot
+  HF_HEALTH_URL: https://lucasteam-bankbot.hf.space/health
+  MIN_RESTART_INTERVAL_SECONDS: "600"
+  MAX_RESTARTS_PER_HOUR: "3"
+  WATCHDOG_STATE_FILE: .watchdog-state/hf-watchdog-state.json
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Restore watchdog state
+        uses: actions/cache/restore@v4
+        with:
+          path: .watchdog-state
+          key: hf-watchdog-state-${{ github.run_id }}
+          restore-keys: |
+            hf-watchdog-state-
+
+      - name: Check and restart HF Space if needed
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          FORCE_RESTART: ${{ github.event.inputs.force_restart || 'false' }}
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+
+          state_path = Path(os.environ["WATCHDOG_STATE_FILE"])
+          state_path.parent.mkdir(parents=True, exist_ok=True)
+
+          def load_state() -> dict:
+              if not state_path.exists():
+                  return {"restart_timestamps": []}
+              try:
+                  return json.loads(state_path.read_text(encoding="utf-8"))
+              except Exception:
+                  return {"restart_timestamps": []}
+
+          def save_state(state: dict) -> None:
+              state_path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+
+          def http_json(url: str, *, method: str = "GET", token: str | None = None, timeout: int = 20) -> tuple[int, dict | str]:
+              request = urllib.request.Request(url, method=method)
+              if token:
+                  request.add_header("Authorization", f"Bearer {token}")
+              try:
+                  with urllib.request.urlopen(request, timeout=timeout) as response:
+                      raw = response.read().decode("utf-8", errors="replace")
+                      try:
+                          return response.status, json.loads(raw)
+                      except json.JSONDecodeError:
+                          return response.status, raw
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode("utf-8", errors="replace")
+                  return exc.code, raw
+
+          now = int(time.time())
+          min_interval = int(os.environ["MIN_RESTART_INTERVAL_SECONDS"])
+          max_restarts_per_hour = int(os.environ["MAX_RESTARTS_PER_HOUR"])
+          force_restart = os.environ.get("FORCE_RESTART", "false").lower() == "true"
+          hf_token = os.environ.get("HF_TOKEN", "")
+          health_url = os.environ["HF_HEALTH_URL"]
+          space_id = os.environ["HF_SPACE_ID"]
+          restart_url = f"https://huggingface.co/api/spaces/{space_id}/restart"
+
+          state = load_state()
+          restart_timestamps = [ts for ts in state.get("restart_timestamps", []) if now - int(ts) < 3600]
+          state["restart_timestamps"] = restart_timestamps
+
+          health_ok = False
+          reason = "unknown"
+          try:
+              status_code, health = http_json(health_url, timeout=20)
+              if isinstance(health, dict):
+                  health_ok = (
+                      status_code == 200
+                      and health.get("status") == "healthy"
+                      and health.get("webhook_configured") is True
+                  )
+                  reason = f"status_code={status_code}, status={health.get('status')}, webhook_configured={health.get('webhook_configured')}"
+              else:
+                  reason = f"status_code={status_code}, non_json={str(health)[:200]}"
+          except Exception as exc:
+              reason = f"health_check_exception={type(exc).__name__}: {exc}"
+
+          print(f"Health result: ok={health_ok}; {reason}")
+
+          if health_ok and not force_restart:
+              print("HF Space is healthy and webhook is configured. No restart needed.")
+              save_state(state)
+              raise SystemExit(0)
+
+          if not hf_token:
+              print("HF_TOKEN secret is missing; cannot restart HF Space.")
+              save_state(state)
+              raise SystemExit(1)
+
+          if restart_timestamps and now - int(restart_timestamps[-1]) < min_interval and not force_restart:
+              remaining = min_interval - (now - int(restart_timestamps[-1]))
+              print(f"Restart skipped due to cooldown. Try again in {remaining}s.")
+              save_state(state)
+              raise SystemExit(0)
+
+          if len(restart_timestamps) >= max_restarts_per_hour and not force_restart:
+              print(f"Restart skipped: max {max_restarts_per_hour}/hour reached.")
+              save_state(state)
+              raise SystemExit(0)
+
+          status_code, restart_response = http_json(restart_url, method="POST", token=hf_token, timeout=30)
+          print(f"Restart requested: status_code={status_code}; response={restart_response}")
+          if status_code >= 400:
+              save_state(state)
+              raise SystemExit(1)
+
+          restart_timestamps.append(now)
+          state["restart_timestamps"] = restart_timestamps
+          state["last_restart_reason"] = "forced" if force_restart else reason
+          state["last_restart_at"] = now
+          save_state(state)
+          PY
+
+      - name: Save watchdog state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .watchdog-state
+          key: hf-watchdog-state-${{ github.run_id }}
