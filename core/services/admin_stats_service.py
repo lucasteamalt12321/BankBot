@@ -45,15 +45,18 @@ class AdminStatsService:
             # Clean username (remove @ if present)
             clean_username = username.lstrip('@')
 
-            # Find user by username or first_name
-            user = self.db.query(User).filter(
-                or_(
-                    User.username == clean_username,
-                    User.first_name == clean_username,
-                    User.username.like(f"%{clean_username}%"),
-                    User.first_name.like(f"%{clean_username}%")
-                )
-            ).first()
+            # Find user by username, first_name, Telegram ID, or internal ID.
+            filters = [
+                User.username == clean_username,
+                User.first_name == clean_username,
+                User.username.ilike(f"%{clean_username}%"),
+                User.first_name.ilike(f"%{clean_username}%"),
+            ]
+            if clean_username.isdigit():
+                numeric_id = int(clean_username)
+                filters.extend([User.telegram_id == numeric_id, User.id == numeric_id])
+
+            user = self.db.query(User).filter(or_(*filters)).first()
 
             if not user:
                 logger.warning("User not found for statistics", username=username)

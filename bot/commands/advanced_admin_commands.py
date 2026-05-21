@@ -167,8 +167,14 @@ class AdvancedAdminCommands:
 
             try:
                 from core.services.admin_stats_service import AdminStatsService
-                admin_stats_service = AdminStatsService(svc.user_repo)
-                user_stats = await admin_stats_service.get_user_stats(target_username)
+                from database.database import SessionLocal
+
+                db = SessionLocal()
+                try:
+                    admin_stats_service = AdminStatsService(db)
+                    user_stats = await admin_stats_service.get_user_stats(target_username)
+                finally:
+                    db.close()
 
                 if not user_stats:
                     await update.message.reply_text(
