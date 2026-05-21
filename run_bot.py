@@ -139,11 +139,14 @@ def _start_telegram_webhook_runtime() -> None:
     try:
         telegram_loop.run_until_complete(startup())
         telegram_ready.set()
+        print("[WEBHOOK] Startup complete, entering run_forever loop")
         telegram_loop.run_forever()
     except Exception as exc:
-        telegram_startup_error = str(exc)
+        import traceback
+        telegram_startup_error = f"{exc}\n{traceback.format_exc()}"
         telegram_ready.set()
         print(f"[WEBHOOK] Startup failed: {exc}")
+        print(f"[WEBHOOK] Startup traceback: {traceback.format_exc()}")
     finally:
         if telegram_bot is not None:
             try:
@@ -224,6 +227,19 @@ def health_check():
 
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
+
+        webhook_info = {}
+        if telegram_ready.is_set() and telegram_bot and telegram_bot.application and telegram_bot.application.bot:
+            try:
+                info = _run_coro(telegram_bot.application.bot.get_webhook_info(), timeout=10)
+                webhook_info = {
+                    "url": info.url,
+                    "pending_updates": info.pending_update_count,
+                    "last_error": info.last_error_message,
+                }
+            except Exception as exc:
+                webhook_info = {"error": str(exc)}
+
         return jsonify(
             {
                 "status": "healthy",
@@ -231,6 +247,7 @@ def health_check():
                 "telegram_runtime": "webhook",
                 "webhook_configured": telegram_ready.is_set(),
                 "database": get_database_backend(),
+                "webhook_info": webhook_info,
             }
         )
     except Exception as e:
@@ -302,13 +319,20 @@ def telegram_webhook(secret: str):
     )
 
     try:
+        if telegram_bot.application.bot is None:
+            print(f"[WEBHOOK] ERROR: application.bot is None, id={update_id}")
+            return jsonify({"error": "bot_not_initialized"}), 500
+
         update = Update.de_json(payload, telegram_bot.application.bot)
         _run_coro(telegram_bot.application.process_update(update), timeout=25)
         print(f"[WEBHOOK] Update processed successfully: id={update_id}")
+        return jsonify({"ok": True})
     except Exception as exc:
-        print(f"[WEBHOOK] Update processing failed: id={update_id} error={exc}")
-
-    return jsonify({"ok": True})
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[WEBHOOK] Update processing FAILED: id={update_id} error={exc}")
+        print(f"[WEBHOOK] Traceback: {error_details}")
+        return jsonify({"error": "processing_failed", "details": str(exc)}), 500
 
 
 def main() -> None:
