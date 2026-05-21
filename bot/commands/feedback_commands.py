@@ -52,6 +52,8 @@ def _append_feedback(entry: dict) -> None:
 def _ensure_feedback_table(db) -> None:
     """Create feedback table when migrations do not have it yet."""
     id_column = "SERIAL PRIMARY KEY" if db.bind.dialect.name == "postgresql" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    telegram_id_column = "BIGINT" if db.bind.dialect.name == "postgresql" else "INTEGER"
+    chat_id_column = "BIGINT" if db.bind.dialect.name == "postgresql" else "INTEGER"
     db.execute(
         text(
             f"""
@@ -60,15 +62,18 @@ def _ensure_feedback_table(db) -> None:
                 created_at TEXT NOT NULL,
                 type TEXT NOT NULL,
                 text TEXT NOT NULL,
-                telegram_id INTEGER,
+                telegram_id {telegram_id_column},
                 username TEXT,
                 first_name TEXT,
-                chat_id INTEGER,
+                chat_id {chat_id_column},
                 chat_type TEXT
             )
             """
         )
     )
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("ALTER TABLE feedback_entries ALTER COLUMN telegram_id TYPE BIGINT"))
+        db.execute(text("ALTER TABLE feedback_entries ALTER COLUMN chat_id TYPE BIGINT"))
     db.commit()
 
 
@@ -210,6 +215,8 @@ async def feedback_list_command(
         entries = _read_feedback_entries_db(limit)
     except Exception as e:
         logger.error("Failed to read feedback from SQLite", error=str(e))
+        entries = _read_feedback_entries(limit)
+    if not entries:
         entries = _read_feedback_entries(limit)
     if not entries:
         await update.message.reply_text("📭 Предложений и жалоб пока нет.")

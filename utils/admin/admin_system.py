@@ -323,7 +323,14 @@ class AdminSystem:
             logger.error(f"Error getting users count: {e}")
             return 0
 
-    def add_transaction(self, user_id: int, amount: float, transaction_type: str, admin_id: int = None) -> Optional[int]:
+    def add_transaction(
+        self,
+        user_id: int,
+        amount: float,
+        transaction_type: str,
+        admin_id: int = None,
+        description: str | None = None,
+    ) -> Optional[int]:
         """
         Добавление транзакции в базу данных
         
@@ -332,6 +339,7 @@ class AdminSystem:
             amount: Сумма транзакции
             transaction_type: Тип транзакции ('add', 'remove', 'buy')
             admin_id: ID администратора (если применимо)
+            description: Комментарий/описание транзакции
             
         Returns:
             int: ID созданной транзакции или None при ошибке
@@ -363,7 +371,7 @@ class AdminSystem:
                         "user_id": user_row["id"],
                         "amount": amount,
                         "transaction_type": transaction_type,
-                        "description": f"Admin transaction: {transaction_type}",
+                        "description": description or f"Admin transaction: {transaction_type}",
                         "created_at": datetime.now(),
                     },
                 )

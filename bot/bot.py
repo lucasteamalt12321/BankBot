@@ -355,21 +355,66 @@ class TelegramBot:
             CommandHandler("admin", self.admin_command),
             CommandHandler("add_points", self.add_points_command),
             CommandHandler("add_admin", self.add_admin_command),
-            CommandHandler("admin_stats", admin_stats_command),
-            CommandHandler("admin_adjust", admin_adjust_command),
-            CommandHandler("admin_addcoins", admin_addcoins_command),
-            CommandHandler("admin_removecoins", admin_removecoins_command),
-            CommandHandler("admin_merge", admin_merge_command),
-            CommandHandler("admin_transactions", admin_transactions_command),
-            CommandHandler("admin_transaction", admin_transactions_command),  # Алиас
-            CommandHandler("admin_balances", admin_balances_command),
-            CommandHandler("admin_users", admin_users_command),
-            CommandHandler("admin_rates", admin_rates_command),
-            CommandHandler("admin_rate", admin_rate_command),
-            CommandHandler("admin_cleanup", admin_cleanup_command),
-            CommandHandler("admin_health", admin_health_command),
-            CommandHandler("admin_errors", admin_errors_command),
-            CommandHandler("admin_backup", admin_backup_command),
+            CommandHandler(
+                "admin_stats",
+                lambda update, context: admin_stats_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_adjust",
+                lambda update, context: admin_adjust_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_addcoins",
+                lambda update, context: admin_addcoins_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_removecoins",
+                lambda update, context: admin_removecoins_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_merge",
+                lambda update, context: admin_merge_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_transactions",
+                lambda update, context: admin_transactions_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_transaction",
+                lambda update, context: admin_transactions_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_balances",
+                lambda update, context: admin_balances_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_users",
+                lambda update, context: admin_users_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_rates",
+                lambda update, context: admin_rates_command(update, context, self.admin_system),
+            ),
+            CommandHandler(
+                "admin_rate",
+                lambda update, context: admin_rate_command(update, context, self.admin_system),
+            ),
+            CommandHandler(
+                "admin_cleanup",
+                lambda update, context: admin_cleanup_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_health",
+                lambda update, context: admin_health_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_errors",
+                lambda update, context: admin_errors_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_backup",
+                lambda update, context: admin_backup_command(update, context, self.admin_system, get_db),
+            ),
             # Advanced Admin Commands (Task 7.4 and 8.3)
             CommandHandler(
                 "parsing_stats", self.advanced_admin_commands.parsing_stats_command
@@ -379,8 +424,14 @@ class TelegramBot:
                 "user_stats", self.advanced_admin_commands.user_stats_command
             ),
             # Message Parsing Configuration Commands (Task 11.2)
-            CommandHandler("admin_parsing_reload", admin_parsing_reload_command),
-            CommandHandler("admin_parsing_config", admin_parsing_config_command),
+            CommandHandler(
+                "admin_parsing_reload",
+                lambda update, context: admin_parsing_reload_command(update, context, self.admin_system, get_db),
+            ),
+            CommandHandler(
+                "admin_parsing_config",
+                lambda update, context: admin_parsing_config_command(update, context, self.admin_system, get_db),
+            ),
             # Configuration Management Commands (Full Set)
             CommandHandler("reload_config", config_commands.reload_config_handler),
             CommandHandler("config_status", config_commands.config_status_handler),
@@ -834,9 +885,10 @@ class TelegramBot:
         if len(context.args) < 2:
             await update.message.reply_text(
                 "❌ Неверный формат команды\n\n"
-                "Используйте: /add_points @username [число]\n\n"
+                "Используйте: /add_points @username [число] [комментарий]\n\n"
                 "Примеры:\n"
                 "• /add_points @john_doe 100\n"
+                "• /add_points @john_doe 100 бонус за помощь\n"
                 "• /add_points user123 50\n"
                 "• /add_points me 100 (для себя)\n"
                 f"• /add_points {user.id} 100 (по ID)"
@@ -844,6 +896,7 @@ class TelegramBot:
             return
 
         username = context.args[0]
+        comment = " ".join(context.args[2:]).strip()
         try:
             amount = float(context.args[1])
             if amount <= 0:
@@ -888,12 +941,18 @@ class TelegramBot:
 
             # Создаем транзакцию типа 'add'
             self.admin_system.add_transaction(
-                target_user["telegram_id"], amount, "add", user.id
+                target_user["telegram_id"],
+                amount,
+                "add",
+                user.id,
+                comment or None,
             )
 
             # Отправляем подтверждение в точном формате
             clean_username = username.lstrip("@")
             text = f"Пользователю @{clean_username} начислено {int(amount)} очков. Новый баланс: {int(new_balance)}"
+            if comment:
+                text += f"\nКомментарий: {comment}"
 
             await update.message.reply_text(text)
             logger.info(
