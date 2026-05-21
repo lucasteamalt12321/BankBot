@@ -2,7 +2,7 @@
 
 ## Статус проекта
 **Процент выполнения:** 90% по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** planning для HF webhook migration и runtime-scope reduction; реализация не начата без approval пользователя
+**Текущая фаза:** implementation этапа 1 для HF webhook migration и runtime-scope reduction
 
 ## Known Issues
 
@@ -19,6 +19,16 @@
 - ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
 
 ## Changelog
+
+### 2026-05-20 (HF Webhook Migration — этап 1 completed)
+- Tightened HF webhook runtime: disabled module imports (`shop`, `games`, `dnd`, `watch`, `background`) are now deferred to local/dev polling runtime only; HF webhook mode never imports them.
+- Added webhook security smoke tests (`tests/smoke/test_startup.py`): route existence, invalid secret rejection (404), invalid header rejection (401).
+- Updated `/health` JSON to match plan: `telegram_runtime: webhook`, `webhook_configured: true/false`.
+- Updated `RUN.md`: removed polling references for HF, removed `/shop`, `/games`, `/watch` from command examples, added HF Secrets checklist (`WEBHOOK_SECRET`, `WEBHOOK_BASE_URL`), added `POST /telegram/webhook/<secret>` endpoint documentation.
+- Verified no `deleteWebhook` calls remain in HF path; `set_webhook` + `get_webhook_info` are present in `initialize_for_webhook`.
+- Removed disabled commands (`/shop`, `/games`, `/dnd`, `/buy*`, `/inventory`, `/daily`, `/challenges`) from `WELCOME_TEXT`, `SHORT_WELCOME_TEXT`, and private-message fallback text.
+- Added structured webhook update logging: logs update_id, chat_id, chat_type, user_id, text preview, processing success/failure, and secret validation failures.
+- All checks: ruff 0 errors, smoke tests 12 passed, parsing tests 29 passed, template coder tests 21 passed (62 total).
 
 ### 2026-05-20 (HF Webhook Migration Planning — no implementation yet)
 - User requested planning-only phase for full HF migration from Telegram polling to webhook after recurring `getUpdates TimedOut` caused missed group commands.

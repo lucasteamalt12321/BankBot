@@ -2,12 +2,85 @@
 
 import structlog
 import html
+import asyncio
 from datetime import datetime
 from telegram import Update
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import ContextTypes
 from bot.short_mode import is_short_mode
 
 logger = structlog.get_logger()
+
+CORE_REPLY_TIMEOUTS = {
+    "connect_timeout": 15,
+    "read_timeout": 25,
+    "write_timeout": 25,
+    "pool_timeout": 15,
+}
+
+
+async def _send_text_with_retry(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    parse_mode: str | None = None,
+    max_retries: int = 3,
+):
+    """Send command response with HF-friendly retry behavior.
+
+    In groups, direct send_message is more reliable than reply_text on HF.
+    """
+    chat = update.effective_chat
+    message = update.message
+    chat_type = getattr(chat, "type", "") if chat else ""
+    last_error = None
+
+    if chat and chat_type in {"group", "supergroup"}:
+        for attempt in range(1, max_retries + 1):
+            try:
+                return await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=text,
+                    parse_mode=parse_mode,
+                    **CORE_REPLY_TIMEOUTS,
+                )
+            except (TimedOut, NetworkError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Core command send_message timeout, retrying",
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    error_type=type(exc).__name__,
+                    error_msg=str(exc),
+                )
+                await asyncio.sleep(min(attempt, 2))
+
+    if message:
+        for attempt in range(1, max_retries + 1):
+            try:
+                return await message.reply_text(
+                    text,
+                    parse_mode=parse_mode,
+                    **CORE_REPLY_TIMEOUTS,
+                )
+            except (TimedOut, NetworkError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Core command reply_text timeout, retrying",
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    error_type=type(exc).__name__,
+                    error_msg=str(exc),
+                )
+                await asyncio.sleep(min(attempt, 2))
+
+    logger.error(
+        "Core command response delivery failed",
+        error_type=type(last_error).__name__ if last_error else None,
+        error_msg=str(last_error) if last_error else None,
+    )
+    return None
 
 
 WELCOME_TEXT = """
@@ -29,13 +102,8 @@ WELCOME_TEXT = """
 /history - история транзакций  
 /profile - ваш профиль
 /stats - персональная статистика
-
-[SHOP] <b>🛒 Магазин:</b>
-/shop - просмотр товаров
-/buy &lt;номер&gt; - купить товар
-/buy_1, /buy_2, /buy_3 - быстрая покупка
-/buy_contact - связь с админом (10 очков)
-/inventory - ваши покупки
+/short - краткие ответы
+/long - полные ответы
 
 [ACHIEVEMENTS] <b>🏆 Достижения:</b>
 /achievements - ваши достижения
@@ -57,7 +125,6 @@ WELCOME_TEXT = """
 /parsing_stats - статистика парсинга
 /user_stats &lt;@user&gt; - детальная статистика
 /broadcast &lt;текст&gt; - рассылка всем
-/add_item - добавить товар в магазин
 
 [CONFIG] <b>⚙️ Конфигурация системы:</b>
 /reload_config - перезагрузить конфигурацию
@@ -79,8 +146,6 @@ WELCOME_TEXT = """
 • Bunker RP (курс 20:1)
 
 [PLAY] Просто играйте, а я буду автоматически начислять вам монеты за активность!
-
-[TIP] <b>💡 Совет:</b> Начните с /shop для покупок!
 """
 
 SHORT_WELCOME_TEXT = """
@@ -93,8 +158,7 @@ ID: {user_id}
 /balance — баланс
 /profile — профиль
 /stats — статистика
-/shop — магазин
-/games — игры
+/short — краткие ответы
 /long — полный режим для себя
 /long_all — полный режим для всех
 """
@@ -156,7 +220,7 @@ async def welcome_command(
         user_id=user.id,
     )
 
-    await update.message.reply_text(welcome_text, parse_mode="HTML")
+    await _send_text_with_retry(update, context, welcome_text, parse_mode="HTML")
 
     db = next(db_get_db())
     try:
@@ -289,7 +353,9 @@ async def balance_command(
 
         if admin_user:
             if is_short_mode(context):
-                await update.message.reply_text(
+                await _send_text_with_retry(
+                    update,
+                    context,
                     f"Баланс: {admin_user['balance']} очков\n"
                     f"Статус: {'админ' if admin_user['is_admin'] else 'пользователь'}"
                 )
@@ -304,7 +370,7 @@ async def balance_command(
 
 [TIP] Используйте /history для просмотра транзакций
             """
-            await update.message.reply_text(text, parse_mode="HTML")
+            await _send_text_with_retry(update, context, text, parse_mode="HTML")
             return
 
         db = next(db_get_db())
@@ -315,7 +381,9 @@ async def balance_command(
 
             if user_db:
                 if is_short_mode(context):
-                    await update.message.reply_text(
+                    await _send_text_with_retry(
+                        update,
+                        context,
                         f"Баланс: {user_db.balance} монет\n/history — операции"
                     )
                     return
@@ -329,9 +397,11 @@ async def balance_command(
 
 [TIP] Используйте /history для просмотра транзакций
                 """
-                await update.message.reply_text(text, parse_mode="HTML")
+                await _send_text_with_retry(update, context, text, parse_mode="HTML")
             else:
-                await update.message.reply_text(
+                await _send_text_with_retry(
+                    update,
+                    context,
                     "❌ Пользователь не найден. Используйте /start для регистрации.",
                 )
         finally:
@@ -344,7 +414,9 @@ async def balance_command(
             user_id=user.id,
             username=user.username,
         )
-        await update.message.reply_text(
+        await _send_text_with_retry(
+            update,
+            context,
             "❌ Произошла ошибка при получении баланса. Попробуйте позже.",
         )
 
@@ -365,7 +437,9 @@ async def history_command(
 
         user_db = db.query(User).filter(User.telegram_id == user.id).first()
         if not user_db:
-            await update.message.reply_text(
+            await _send_text_with_retry(
+                update,
+                context,
                 "📭 Пользователь не найден. Используйте /start для регистрации.",
             )
             return
@@ -379,7 +453,7 @@ async def history_command(
         )
 
         if not transactions:
-            await update.message.reply_text("📭 У вас пока нет транзакций")
+            await _send_text_with_retry(update, context, "📭 У вас пока нет транзакций")
             return
 
         if is_short_mode(context):
@@ -387,7 +461,7 @@ async def history_command(
             for t in transactions[:5]:
                 amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
                 lines.append(f"{amount_text} — {html.escape(t.description[:30])}")
-            await update.message.reply_text("\n".join(lines))
+            await _send_text_with_retry(update, context, "\n".join(lines))
             return
 
         text = f"""
@@ -407,10 +481,10 @@ async def history_command(
             text += f"   Описание: {html.escape(t.description[:50])}...\n"
             text += f"   Дата: {t.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
 
-        await update.message.reply_text(text, parse_mode="HTML")
+        await _send_text_with_retry(update, context, text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in history command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await _send_text_with_retry(update, context, f"❌ Ошибка: {str(e)}")
     finally:
         db.close()
 
@@ -486,39 +560,38 @@ async def profile_command(
 
     try:
         if not admin_user:
-            await update.message.reply_text(
+            await _send_text_with_retry(
+                update,
+                context,
                 "❌ Критическая ошибка: пользователь не найден после регистрации",
             )
             return
 
-        conn = admin_system.get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (user.id,))
-        user_row = cursor.fetchone()
-        internal_id = user_row["id"] if user_row else None
-
         total_transactions = 0
         total_deposits = 0
-        if internal_id:
-            cursor.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE user_id = ?",
-                (internal_id,),
-            )
-            result = cursor.fetchone()
-            total_transactions = result["count"] if result else 0
+        db = next(db_get_db())
+        try:
+            from database.database import Transaction, User
 
-            cursor.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE user_id = ? AND amount > 0",
-                (internal_id,),
-            )
-            result = cursor.fetchone()
-            total_deposits = result["count"] if result else 0
-
-        conn.close()
+            user_db = db.query(User).filter(User.telegram_id == user.id).first()
+            if user_db:
+                total_transactions = (
+                    db.query(Transaction)
+                    .filter(Transaction.user_id == user_db.id)
+                    .count()
+                )
+                total_deposits = (
+                    db.query(Transaction)
+                    .filter(Transaction.user_id == user_db.id, Transaction.amount > 0)
+                    .count()
+                )
+        finally:
+            db.close()
 
         if is_short_mode(context):
-            await update.message.reply_text(
+            await _send_text_with_retry(
+                update,
+                context,
                 f"Профиль: {html.escape(admin_user['first_name'] or 'Без имени')}\n"
                 f"Баланс: {int(admin_user['balance'])}\n"
                 f"Транзакций: {total_transactions}\n"
@@ -556,7 +629,7 @@ async def profile_command(
    • Приглашайте друзей для получения бонусов
         """
 
-        await update.message.reply_text(text, parse_mode="HTML")
+        await _send_text_with_retry(update, context, text, parse_mode="HTML")
     except Exception as e:
         logger.error(
             "Error in profile command",
@@ -564,7 +637,9 @@ async def profile_command(
             user_id=user.id,
             username=user.username,
         )
-        await update.message.reply_text(
+        await _send_text_with_retry(
+            update,
+            context,
             f"❌ Произошла ошибка при получении профиля: {str(e)}",
         )
 
@@ -584,7 +659,7 @@ async def stats_command(
 
         user_db = db.query(User).filter(User.telegram_id == user.id).first()
         if not user_db:
-            await update.message.reply_text("❌ Пользователь не найден")
+            await _send_text_with_retry(update, context, "❌ Пользователь не найден")
             return
 
         total_earned = (
@@ -612,7 +687,9 @@ async def stats_command(
         ).count()
 
         if is_short_mode(context):
-            await update.message.reply_text(
+            await _send_text_with_retry(
+                update,
+                context,
                 f"Статистика:\n"
                 f"Заработано: {total_earned}\n"
                 f"Потрачено: {total_spent}\n"
@@ -642,9 +719,9 @@ async def stats_command(
    • Используйте /achievements для отслеживания прогресса
         """
 
-        await update.message.reply_text(text, parse_mode="HTML")
+        await _send_text_with_retry(update, context, text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in stats command: {e}")
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        await _send_text_with_retry(update, context, f"Oshibka: {str(e)}")
     finally:
         db.close()

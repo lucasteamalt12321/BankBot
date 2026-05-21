@@ -4,11 +4,10 @@ High-level документация по текущей архитектуре, 
 
 ## О проекте
 
-Репозиторий содержит три основных исполняемых компонента:
+Репозиторий содержит основной production-компонент и legacy/dev-интеграции:
 
-- `BankBot` - основной Telegram-бот для целевого парсинга игровой активности, банковой логики, балансов, магазина, достижений, социальных функций и администрирования
-- `BridgeBot` - мост Telegram -> VK для пересылки сообщений и медиа
-- `VK Bot` - отдельная точка входа для VK Long Poll и публикации в VK-канал
+- `BankBot` - основной Telegram-бот для целевого парсинга игровой активности, банковой логики, балансов, feedback и администрирования.
+- `BridgeBot` и `VK Bot` остаются в репозитории как legacy/dev-интеграции, но исключены из production HF runtime по решению пользователя.
 
 Также в проекте есть общие слои конфигурации, базы данных, сервисов и тестов.
 
@@ -19,13 +18,14 @@ High-level документация по текущей архитектуре, 
 - persistent PostgreSQL/Supabase storage для пользователей, балансов, feedback и режимов ответа;
 - админ-команды для управления пользователями, балансами, рассылками и диагностикой;
 - feedback inbox для сбора багов/предложений;
-- AI-lite помощник и режимы `/short`, `/long`, `/watch` для UX и стабильности на Hugging Face.
+- AI-lite помощник и режимы `/short`, `/long` для UX и стабильности на Hugging Face.
 
 Текущий честный статус: **парсинг остаётся главным продуктовым приоритетом, но не должен описываться как полностью завершённый production E2E контур**. Банк/админка/DB/HF — это фундамент, необходимый для надёжного запуска и контроля парсинга, а стабилизация автоматического парсинга на реальных игровых сообщениях — следующий ключевой этап.
 
 ## Текущее состояние
 
-- основной запуск проекта: `run_bot.py`
+- production HF запуск проекта: `run_bot.py` как Flask + Telegram webhook endpoint
+- local/dev polling fallback: `bot/main.py`
 - канонический конфиг: `src/config.py`
 - основной `.env` файл: `config/.env`
 - инициализация схемы БД: `database/schema.py` и `database/initialize_system.py`
@@ -38,9 +38,10 @@ High-level документация по текущей архитектуре, 
 
 | Компонент | Точка входа | Назначение |
 |-----------|-------------|------------|
-| BankBot | `run_bot.py` -> `bot.main` | Основной Telegram-бот |
-| BridgeBot | `bridge_bot/main.py` | Пересылка TG -> VK, loop guard, graceful shutdown |
-| VK Bot | `vk_bot/main.py` | Независимый VK Long Poll цикл |
+| BankBot HF production | `run_bot.py` | Flask endpoints + Telegram webhook, без polling |
+| BankBot local/dev | `bot/main.py` | Локальный polling fallback |
+| BridgeBot | `bridge_bot/main.py` | Legacy/dev, не запускается в HF production |
+| VK Bot | `vk_bot/main.py` | Legacy/dev, не запускается в HF production |
 
 ## Архитектура
 
@@ -53,7 +54,7 @@ High-level документация по текущей архитектуре, 
 - `bot/main.py` - startup flow, валидация, schema sync, graceful shutdown
 - `bot/bot.py` - основной класс Telegram-бота и регистрация функциональности
 - `bot/commands/` - модульные обработчики команд
-- `bot/response_modes.py` - режимы ответов `/short`, `/long`, `/watch`: личный выбор пользователя применяется к ответам именно этого пользователя; админские `/short_all`, `/long_all`, `/watch_all` меняют общий default для всех, но каждый пользователь может снова выбрать свой режим лично. `/watch` — сверхкороткий режим для часов с quick-reply управлением через 10 шаблонов.
+- `bot/response_modes.py` - legacy helper для режимов ответа; production HF scope оставляет только `/short` и `/long`.
 - `bot/ai/` - бесплатный локальный AI-lite помощник без платных API; команды `/ai`, `/ask`, `/ai_help`
 - `bot/router.py` - маршрутизация и wiring отдельных команд
 - `bot/template_coder/` - параметрический диалоговый кодер 10 шаблонов без таблиц пар/троек; хранит состояние в `chat_data`, поддерживает `/coder`, `/reset`, `/done`, `/help`
@@ -65,30 +66,13 @@ High-level документация по текущей архитектуре, 
 
 - `/start` — регистрация/приветствие; на Hugging Face по умолчанию короткий safe-start;
 - `/commands` — меню разделов;
-- `/user`, `/shop`, `/games`, `/admin`, `/config`, `/coder`, `/ai` — прямые разделы;
+- `/user`, `/admin`, `/config`, `/coder`, `/ai` — прямые разделы;
 - `/feedback`, `/suggest`, `/complaint` — предложения и жалобы;
-- `/short`, `/long`, `/watch` — личные режимы ответа.
+- `/short`, `/long` — личные режимы ответа.
 
-Админские команды включают `/admin_panel`, `/add_points`, `/admin_addcoins`, `/admin_removecoins`, `/broadcast`, `/feedback_list`, `/short_all`, `/long_all`, `/watch_all`.
+Админские команды включают `/admin_panel`, `/add_points`, `/admin_addcoins`, `/admin_removecoins`, `/broadcast`, `/feedback_list`, `/short_all`, `/long_all`.
 
-#### Режим часов `/watch`
-
-`/watch` предназначен для управления ботом с часов, где экран помещает только короткий текст, а набор быстрых ответов ограничен шаблонами:
-
-| Ответ часов | Действие |
-|-------------|----------|
-| `ОК` | профиль |
-| `Да` | админ-раздел |
-| `Спасибо` | баланс |
-| `Спасибо, нет` / `Спасибо нет` | магазин |
-| `Великолепно` | игры |
-| `Спасибо еще раз` | AI help |
-| `Скоро увидимся` | команды |
-| `Скоро буду` | уведомления |
-| `Я занят(а)` | включить личный watch-режим |
-| `Нет` | отмена/подсказка |
-
-В watch-режиме глобальный patch `Message.reply_text` дополнительно сжимает ответы до нескольких строк. Ответ `Я занят(а)` включает watch-режим для конкретного пользователя даже без предварительной команды `/watch`.
+В HF webhook production отключены `/shop`, `/games`, `/dnd`, watch/ADB/ntfy realtime diagnostics и связанные shop/game/dnd/background admin handlers. Отключённые команды отвечают явным сообщением, а не молчат.
 
 ### 2. Bridge и VK интеграция
 
@@ -159,7 +143,7 @@ High-level документация по текущей архитектуре, 
 
 ### 6. Hugging Face runtime
 
-`run_bot.py` запускает Flask-сервер на порту `7860` и затем основной BankBot.
+`run_bot.py` запускает Flask-сервер на порту `7860` и основной BankBot через Telegram webhook. Polling в HF production не запускается.
 
 Runtime endpoints:
 
@@ -167,13 +151,15 @@ Runtime endpoints:
 - `/logs` — локальный буфер stdout/stderr для диагностики Space;
 - `/metrics` — Prometheus-like метрики;
 - `/feedback?limit=N` — защищённый reader последних feedback-записей.
+- `POST /telegram/webhook/<secret>` — Telegram webhook endpoint.
 
 Для HF есть специальные runtime-решения:
 
-- DNS/anyio/httpx workaround для Telegram API;
-- webhook-check пропускается на HF, чтобы не блокировать startup;
-- polling удерживается guarded-loop, чтобы Space не завершался после transient Telegram timeouts;
-- `drop_pending_updates=False` на HF, чтобы команды не терялись при reconnect.
+- webhook регистрируется при старте через `set_webhook(..., secret_token=WEBHOOK_SECRET)`;
+- endpoint проверяет secret path и `X-Telegram-Bot-Api-Secret-Token`;
+- фоновые periodic tasks не стартуют в webhook runtime;
+- BridgeBot/VK Bot не запускаются из HF production entrypoint;
+- локальный polling fallback остаётся в `bot/main.py`.
 
 ## Структура проекта
 

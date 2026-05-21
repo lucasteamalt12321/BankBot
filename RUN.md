@@ -92,19 +92,22 @@ VK_PEER_ID=2000000001
 ### 3. Запуск ботов
 
 **BankBot (основной):**
+
+Локально (polling):
 ```bash
 py -3.12 -m bot.main
-# или
+```
+
+Hugging Face (webhook):
+```bash
 py -3.12 run_bot.py
 ```
 
-**BridgeBot (опционально, для Telegram → VK):**
+> `run_bot.py` запускает Flask с webhook endpoint. На HF Space не используется polling.
+
+**BridgeBot / VK Bot (legacy, dev-only):**
 ```bash
 py -3.12 -m bridge_bot.main
-```
-
-**VK Bot (опционально):**
-```bash
 py -3.12 -m vk_bot.main
 ```
 
@@ -148,8 +151,10 @@ Markdown-документацию (`*.md`) через `ruff` не проверя
 /start
 /commands
 /user
-/shop
-/games
+/balance
+/profile
+/short
+/long
 /ai_help
 /feedback тест
 ```
@@ -158,7 +163,6 @@ Markdown-документацию (`*.md`) через `ruff` не проверя
 
 ```text
 /admin
-/admin_panel
 /add_points @username 100
 /admin_addcoins @username 100
 /broadcast текст
@@ -178,7 +182,6 @@ Markdown-документацию (`*.md`) через `ruff` не проверя
 ```text
 /short  — короткие ответы
 /long   — полные ответы
-/watch  — режим часов
 ```
 
 Админские defaults для всех:
@@ -186,27 +189,28 @@ Markdown-документацию (`*.md`) через `ruff` не проверя
 ```text
 /short_all
 /long_all
-/watch_all
 ```
-
-В `/watch` ответы максимально короткие, а шаблоны часов работают как действия:
-
-| Ответ | Действие |
-|-------|----------|
-| ОК | профиль |
-| Да | админ |
-| Спасибо | баланс |
-| Спасибо, нет | магазин |
-| Великолепно | игры |
-| Спасибо еще раз | AI help |
-| Скоро увидимся | команды |
-| Скоро буду | уведомления |
-| Я занят(а) | включить `/watch` для себя |
-| Нет | отмена/подсказка |
 
 ## Hugging Face production
 
-Production Space использует Docker SDK и порт `7860`.
+Production Space использует webhook (не polling) и порт `7860`.
+
+Обязательные HF Secrets:
+
+```env
+BOT_TOKEN=your_bot_token
+ADMIN_TELEGRAM_ID=123456789
+DATABASE_URL=postgresql://...
+WEBHOOK_SECRET=random_secret_string
+```
+
+Опциональные:
+
+```env
+WEBHOOK_BASE_URL=https://lucasteam-bankbot.hf.space
+```
+
+Если `WEBHOOK_BASE_URL` не задан, URL определяется автоматически по `SPACE_HOST` или `SPACE_ID`.
 
 Полезные endpoints:
 
@@ -215,6 +219,7 @@ GET /health
 GET /logs
 GET /metrics
 GET /feedback?limit=10
+POST /telegram/webhook/<WEBHOOK_SECRET>
 ```
 
 Production database должна задаваться через `DATABASE_URL` Secret. Поддерживаются также `POSTGRES_URL` и `SUPABASE_DB_URL`; SQLite остаётся local/dev fallback.

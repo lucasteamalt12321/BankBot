@@ -13,10 +13,12 @@ Trigger: user replies to target bot message with 'парсинг'
 
 import structlog
 import logging
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any
 
 from sqlalchemy import text
+from telegram.error import NetworkError, TimedOut
 
 from src.classifier import MessageClassifier
 from src.parsers import (
@@ -34,6 +36,92 @@ from src.idempotency import IdempotencyChecker
 from src.audit_logger import AuditLogger
 
 logger = structlog.get_logger()
+
+PARSING_REPLY_TIMEOUTS = {
+    "connect_timeout": 15,
+    "read_timeout": 25,
+    "write_timeout": 25,
+    "pool_timeout": 15,
+}
+
+
+async def _reply_text_with_retry(update, context, text: str, *, max_retries: int = 3):
+    """Send parsing replies with retries.
+
+    HF Spaces sometimes gets a transient Telegram timeout exactly when sending
+    replies to supergroups. For group chats we avoid Telegram reply threading
+    and send a plain chat message first; this is more reliable on HF.
+    """
+    message = getattr(update, "message", None)
+    chat = getattr(update, "effective_chat", None)
+    last_error = None
+    chat_type = getattr(chat, "type", "") if chat is not None else ""
+
+    if chat is not None and chat_type in {"group", "supergroup"}:
+        for attempt in range(1, max_retries + 1):
+            try:
+                sent = await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=text,
+                    **PARSING_REPLY_TIMEOUTS,
+                )
+                logger.info("Parsing response sent via direct send_message", chat_id=chat.id)
+                return sent
+            except (TimedOut, NetworkError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Parsing direct send_message timeout, retrying",
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    error_type=type(exc).__name__,
+                    error_msg=str(exc),
+                )
+                await asyncio.sleep(min(attempt, 2))
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            if message is not None:
+                sent = await message.reply_text(text, **PARSING_REPLY_TIMEOUTS)
+                logger.info("Parsing response sent via reply_text")
+                return sent
+        except (TimedOut, NetworkError) as exc:
+            last_error = exc
+            logger.warning(
+                "Parsing reply_text timeout, retrying",
+                attempt=attempt,
+                max_retries=max_retries,
+                error_type=type(exc).__name__,
+                error_msg=str(exc),
+            )
+            await asyncio.sleep(min(attempt, 3))
+
+    if chat is not None and chat_type not in {"group", "supergroup"}:
+        for attempt in range(1, max_retries + 1):
+            try:
+                sent = await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=text,
+                    **PARSING_REPLY_TIMEOUTS,
+                )
+                logger.info("Parsing response sent via fallback send_message", chat_id=chat.id)
+                return sent
+            except (TimedOut, NetworkError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Parsing send_message fallback timeout, retrying",
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    error_type=type(exc).__name__,
+                    error_msg=str(exc),
+                )
+                await asyncio.sleep(min(attempt, 3))
+
+    logger.error(
+        "Parsing reply delivery failed after retries",
+        error_type=type(last_error).__name__ if last_error else None,
+        error_msg=str(last_error) if last_error else None,
+    )
+    return None
 
 
 class ParsingHandler:
@@ -216,12 +304,12 @@ class ParsingHandler:
             user_data = admin_system.get_user_by_id(user.id)
             
             if not user_data:
-                await update.message.reply_text("❌ Пользователь не найден в системе.")
+                await _reply_text_with_retry(update, context, "❌ Пользователь не найден в системе.")
                 return True
 
             user_id = user_data.get("id")
             if not user_id:
-                await update.message.reply_text("❌ Ошибка идентификации пользователя.")
+                await _reply_text_with_retry(update, context, "❌ Ошибка идентификации пользователя.")
                 return True
 
             # Route to appropriate parsing method
@@ -237,6 +325,7 @@ class ParsingHandler:
                 )
 
             if success:
+                db.commit()
                 logger.info(
                     "Target bot parsing success",
                     user_id=user.id,
@@ -244,20 +333,22 @@ class ParsingHandler:
                     points=details.get("points"),
                     is_profile=is_profile,
                 )
-                await update.message.reply_text(response)
+                await _reply_text_with_retry(update, context, response)
             else:
+                db.rollback()
                 logger.warning(
                     "Target bot parsing failed",
                     user_id=user.id,
                     response=response,
                 )
-                await update.message.reply_text(f"❌ {response}")
+                await _reply_text_with_retry(update, context, f"❌ {response}")
 
             return True
 
         except Exception as e:
+            db.rollback()
             logger.error(f"Target bot parsing error: {e}", exc_info=True)
-            await update.message.reply_text("❌ Ошибка при обработке данных")
+            await _reply_text_with_retry(update, context, "❌ Ошибка при обработке данных")
             return True
         finally:
             db.close()
@@ -271,19 +362,34 @@ class ParsingHandler:
         from utils.admin.admin_system import AdminSystem
 
         replied_message = update.message.reply_to_message
-        if not replied_message or not replied_message.text:
-            await update.message.reply_text("❌ Ответьте на сообщение игры словом 'парсинг'")
+        message_text = ""
+        message_date = datetime.now()
+        if replied_message:
+            message_text = replied_message.text or replied_message.caption or ""
+            message_date = replied_message.date or datetime.now()
+
+        if not message_text:
+            await _reply_text_with_retry(
+                update,
+                context,
+                "❌ Я не вижу сообщение, на которое вы ответили.\n\n"
+                "Для защиты от накрутки парсинг работает только по реальному reply "
+                "на сообщение игрового бота, которое Telegram передал нашему боту.\n"
+                "Попробуйте ответить именно на сообщение GDcards/Shmalala или добавьте "
+                "бота в группу администратором/отключите Privacy Mode через BotFather.",
+            )
             return
 
-        message_text = replied_message.text
         user = update.effective_user
         message_id = self.idempotency_checker.generate_message_id(
-            message_text, replied_message.date or datetime.now()
+            message_text, message_date
         )
 
         # Idempotency check
         if self.idempotency_checker.is_processed(message_id):
-            await update.message.reply_text(
+            await _reply_text_with_retry(
+                update,
+                context,
                 "⚠️ Это сообщение уже было обработано ранее.\n"
                 "Монеты начислены, повторный парсинг невозможен."
             )

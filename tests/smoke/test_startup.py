@@ -52,6 +52,41 @@ class TestBankBotSmoke:
         mock_bot_class.assert_called_once()
         mock_bot.run.assert_called_once()
 
+    def test_run_bot_exposes_webhook_endpoint(self):
+        """HF entrypoint should expose Telegram webhook route instead of polling."""
+        import run_bot
+
+        routes = {rule.rule for rule in run_bot.app.url_map.iter_rules()}
+
+        assert "/telegram/webhook/<secret>" in routes
+        assert "/health" in routes
+
+    @patch.dict(os.environ, {"WEBHOOK_SECRET": "test-secret"})
+    def test_webhook_rejects_invalid_secret(self):
+        """Webhook endpoint must reject wrong URL secret before processing updates."""
+        import run_bot
+
+        response = run_bot.app.test_client().post(
+            "/telegram/webhook/wrong-secret",
+            json={"update_id": 1},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "test-secret"},
+        )
+
+        assert response.status_code == 404
+
+    @patch.dict(os.environ, {"WEBHOOK_SECRET": "test-secret"})
+    def test_webhook_rejects_invalid_header_secret(self):
+        """Webhook endpoint must validate Telegram secret-token header."""
+        import run_bot
+
+        response = run_bot.app.test_client().post(
+            "/telegram/webhook/test-secret",
+            json={"update_id": 1},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+        )
+
+        assert response.status_code == 401
+
 
 class TestBridgeBotSmoke:
     """Smoke tests for BridgeBot (bridge_bot/main.py)."""

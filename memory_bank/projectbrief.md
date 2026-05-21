@@ -19,7 +19,9 @@ https://github.com/lucasteamalt12321/BankBot
 
 ## Точка входа
 
-`run_bot.py` → `bot/main.py`
+HF production: `run_bot.py` → Flask webhook endpoint → `TelegramBot.initialize_for_webhook()`.
+
+Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 

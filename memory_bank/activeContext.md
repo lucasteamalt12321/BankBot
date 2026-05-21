@@ -3,8 +3,8 @@
 ## Текущий фокус
 **Деплой на Hugging Face и отладка сети.** Настройка бота для работы в среде Hugging Face Spaces, обход сетевых ограничений через `base_url` и проверку доступности Telegram API.
 
-## Planned Scope Change — HF Webhook Migration
-**Status:** planning only; implementation not started. Canonical detailed plan: `memory_bank/hf_webhook_migration_plan.md`.
+## Active Scope Change — HF Webhook Migration
+**Status:** этап 1 completed locally, awaiting user approval to commit/push. Canonical detailed plan: `memory_bank/hf_webhook_migration_plan.md`.
 
 User-approved planning decisions:
 - Move HF production BankBot from polling to Telegram webhook to eliminate recurring `getUpdates TimedOut` failures.
@@ -14,7 +14,18 @@ User-approved planning decisions:
 - Remove BridgeBot and VK Bot from production HF runtime.
 - Keep core bank/parsing/admin basics: `/start`, `/user`/`/profile`, `/balance`, `/history`, `/stats`, admin balance tools, feedback if it does not block webhook.
 - Keep secure parsing only via real Telegram reply; do not restore unsafe manual text-paste fallback because it enables cheating.
-- Code implementation requires explicit user approval after plan review.
+- User approved starting the first implementation stage on 2026-05-20.
+- Deployment rule from user: push only to GitHub; do not push/upload to Hugging Face.
+
+### Этап 1 implementation notes
+- `run_bot.py` converted into HF Flask + Telegram webhook entrypoint with `POST /telegram/webhook/<secret>`.
+- Production HF runtime does not start polling and does not start BridgeBot/VK Bot.
+- `TelegramBot` has webhook initialization path (`initialize_for_webhook`/`shutdown_for_webhook`) with background tasks disabled and shop bootstrap skipped.
+- HF webhook runtime registers disabled handlers for removed production commands so users get an explicit answer instead of silence.
+- Disabled module imports are deferred to local/dev polling runtime only; HF webhook mode never imports shop/games/dnd/watch/background modules.
+- `/health` returns `telegram_runtime: webhook` and `webhook_configured: true/false`.
+- `RUN.md` updated: HF webhook-first instructions, removed `/watch`, `/shop`, `/games` from examples.
+- Smoke tests added for webhook route existence and security (invalid secret/header rejection).
 
 ## Статус проекта: 100% (базовый функционал) + HF Deployment Phase
 

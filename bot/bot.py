@@ -18,9 +18,6 @@ from telegram.ext import (
 )
 from database.database import get_db
 from database.schema import ensure_schema_up_to_date
-from core.systems.shop_system import EnhancedShopSystem
-from core.systems.games_system import GamesSystem
-from core.systems.dnd_system import DndSystem
 from core.systems.motivation_system import MotivationSystem
 from utils.monitoring.notification_system import NotificationSystem
 from core.systems.achievements import AchievementSystem
@@ -49,20 +46,6 @@ from bot.commands.ai_commands import (
     handle_ai_feedback_reply,
 )
 from bot.commands.feedback_commands import feedback_command, feedback_list_command
-from bot.commands.shop_commands_ptb import (
-    shop_command,
-    buy_contact_command,
-    buy_command,
-    _handle_purchase_command,
-    inventory_command,
-)
-from bot.commands.game_commands_ptb import (
-    games_command,
-    play_command,
-    join_command,
-    start_game_command,
-    game_turn_command,
-)
 from bot.commands.motivation_commands_ptb import (
     daily_bonus_command,
     challenges_command,
@@ -78,19 +61,7 @@ from bot.commands.social_commands_ptb import (
     clan_join_command,
     clan_leave_command,
 )
-from bot.commands.notification_commands_ptb import (
-    notify_status_command,
-    notifications_command,
-    notifications_clear_command,
-    test_adb_command,
-)
-from bot.commands.dnd_commands_ptb import (
-    dnd_command,
-    dnd_create_command,
-    dnd_join_command,
-    dnd_roll_command,
-    dnd_sessions_command,
-)
+from bot.commands.notification_commands_ptb import notifications_command, notifications_clear_command
 from bot.commands.achievements_commands_ptb import achievements_command
 from bot.commands.admin_commands_ptb import (
     admin_command,
@@ -105,29 +76,11 @@ from bot.commands.admin_commands_ptb import (
     admin_rates_command,
     admin_rate_command,
     admin_cleanup_command,
-    admin_shop_add_command,
-    admin_shop_edit_command,
-    admin_games_stats_command,
-    admin_reset_game_command,
-    admin_ban_player_command,
     admin_health_command,
     admin_errors_command,
     admin_backup_command,
-    admin_background_status_command,
-    admin_background_health_command,
-    admin_background_restart_command,
     admin_parsing_reload_command,
     admin_parsing_config_command,
-)
-from bot.commands.user_commands import (
-    buy_1_command,
-    buy_2_command,
-    buy_3_command,
-    buy_4_command,
-    buy_5_command,
-    buy_6_command,
-    buy_7_command,
-    buy_8_command,
 )
 from bot.template_coder import TemplateCoderDialog
 from bot.short_mode import long_all_command, long_command, short_all_command, short_command
@@ -139,6 +92,40 @@ import structlog
 
 POLLING_RETRY_DELAY_SECONDS = 5
 TELEGRAM_DEFAULT_BASE_URL = "https://api.telegram.org/bot/"
+HF_WEBHOOK_DISABLED_COMMANDS = {
+    "shop",
+    "buy_contact",
+    "buy",
+    "buy_1",
+    "buy_2",
+    "buy_3",
+    "buy_4",
+    "buy_5",
+    "buy_6",
+    "buy_7",
+    "buy_8",
+    "inventory",
+    "games",
+    "play",
+    "join",
+    "startgame",
+    "turn",
+    "dnd",
+    "dnd_create",
+    "dnd_join",
+    "dnd_roll",
+    "dnd_sessions",
+    "notify_status",
+    "test_adb",
+    "admin_shop_add",
+    "admin_shop_edit",
+    "admin_games_stats",
+    "admin_reset_game",
+    "admin_ban_player",
+    "admin_background_status",
+    "admin_background_health",
+    "admin_background_restart",
+}
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -185,6 +172,11 @@ def _mask_proxy_url(proxy_url: str) -> str:
     return parsed._replace(netloc=netloc).geturl()
 
 
+def is_hf_webhook_runtime() -> bool:
+    """Return true for the reduced Hugging Face webhook production runtime."""
+    return os.environ.get("WEBHOOK_MODE") == "1" or bool(os.environ.get("SPACE_ID"))
+
+
 class TelegramBot:
     def __init__(self):
         builder = self._create_application_builder()
@@ -228,10 +220,14 @@ class TelegramBot:
         token = settings.BOT_TOKEN.strip()
         builder = Application.builder().token(token)
 
-        builder.read_timeout(30)
-        builder.connect_timeout(20)
-        builder.write_timeout(20)
-        builder.pool_timeout(20)
+        builder.read_timeout(75)
+        builder.connect_timeout(30)
+        builder.write_timeout(45)
+        builder.pool_timeout(30)
+        builder.get_updates_read_timeout(90)
+        builder.get_updates_connect_timeout(30)
+        builder.get_updates_write_timeout(45)
+        builder.get_updates_pool_timeout(30)
 
         base_url = os.environ.get("TELEGRAM_BASE_URL") or getattr(
             settings,
@@ -291,6 +287,8 @@ class TelegramBot:
         self.application.add_handler(TypeHandler(Update, track_user_activity), group=-1)
         logger.info("Added activity tracking middleware")
 
+        hf_webhook_runtime = is_hf_webhook_runtime()
+
         # Основные команды
         handlers = [
             CommandHandler("start", self.welcome_command),
@@ -299,6 +297,7 @@ class TelegramBot:
             CommandHandler("balance", self.balance_command),
             CommandHandler("history", self.history_command),
             CommandHandler("profile", self.profile_command),
+            CommandHandler("user", self.profile_command),
             CommandHandler("stats", self.stats_command),
             CommandHandler("ai", ai_command),
             CommandHandler("ask", ai_command),
@@ -322,31 +321,6 @@ class TelegramBot:
                     settings.ADMIN_TELEGRAM_ID,
                 ),
             ),
-            # Магазин
-            CommandHandler("shop", self.shop_command),
-            CommandHandler("buy_contact", self.buy_contact_command),
-            CommandHandler("buy", self.buy_command),
-            CommandHandler("buy_1", buy_1_command),
-            CommandHandler("buy_2", buy_2_command),
-            CommandHandler("buy_3", buy_3_command),
-            CommandHandler("buy_4", buy_4_command),
-            CommandHandler("buy_5", buy_5_command),
-            CommandHandler("buy_6", buy_6_command),
-            CommandHandler("buy_7", buy_7_command),
-            CommandHandler("buy_8", buy_8_command),
-            CommandHandler("inventory", inventory_command),
-            # Мини-игры
-            CommandHandler("games", games_command),
-            CommandHandler("play", play_command),
-            CommandHandler("join", join_command),
-            CommandHandler("startgame", start_game_command),
-            CommandHandler("turn", game_turn_command),
-            # D&D
-            CommandHandler("dnd", dnd_command),
-            CommandHandler("dnd_create", dnd_create_command),
-            CommandHandler("dnd_join", dnd_join_command),
-            CommandHandler("dnd_roll", dnd_roll_command),
-            CommandHandler("dnd_sessions", dnd_sessions_command),
             # Мотивация
             CommandHandler("daily", daily_bonus_command),
             CommandHandler("bonus", daily_bonus_command),
@@ -356,8 +330,6 @@ class TelegramBot:
             CommandHandler("achievements", achievements_command),
             CommandHandler("notifications", notifications_command),
             CommandHandler("notifications_clear", notifications_clear_command),
-            CommandHandler("notify_status", notify_status_command),
-            CommandHandler("test_adb", test_adb_command),
             # Социальные функции
             CommandHandler("friends", friends_command),
             CommandHandler("friend_add", friend_add_command),
@@ -383,11 +355,6 @@ class TelegramBot:
             CommandHandler("admin_rates", admin_rates_command),
             CommandHandler("admin_rate", admin_rate_command),
             CommandHandler("admin_cleanup", admin_cleanup_command),
-            CommandHandler("admin_shop_add", admin_shop_add_command),
-            CommandHandler("admin_shop_edit", admin_shop_edit_command),
-            CommandHandler("admin_games_stats", admin_games_stats_command),
-            CommandHandler("admin_reset_game", admin_reset_game_command),
-            CommandHandler("admin_ban_player", admin_ban_player_command),
             CommandHandler("admin_health", admin_health_command),
             CommandHandler("admin_errors", admin_errors_command),
             CommandHandler("admin_backup", admin_backup_command),
@@ -400,12 +367,6 @@ class TelegramBot:
                 "user_stats", self.advanced_admin_commands.user_stats_command
             ),
             CommandHandler("add_item", self.advanced_admin_commands.add_item_command),
-            # Background Task Management Commands (Task 10.3)
-            CommandHandler("admin_background_status", admin_background_status_command),
-            CommandHandler("admin_background_health", admin_background_health_command),
-            CommandHandler(
-                "admin_background_restart", admin_background_restart_command
-            ),
             # Message Parsing Configuration Commands (Task 11.2)
             CommandHandler("admin_parsing_reload", admin_parsing_reload_command),
             CommandHandler("admin_parsing_config", admin_parsing_config_command),
@@ -438,6 +399,96 @@ class TelegramBot:
             CommandHandler("done", self.template_coder_dialog.done_command),
             CommandHandler("help", self.template_coder_dialog.help_command),
         ]
+
+        if hf_webhook_runtime:
+            for command in sorted(HF_WEBHOOK_DISABLED_COMMANDS):
+                handlers.append(CommandHandler(command, self.disabled_in_hf_webhook_command))
+            logger.info(
+                "HF webhook runtime: disabled shop/games/dnd/watch-realtime/background handlers",
+                disabled_commands=sorted(HF_WEBHOOK_DISABLED_COMMANDS),
+            )
+        else:
+            from bot.commands.admin_commands_ptb import (
+                admin_background_health_command,
+                admin_background_restart_command,
+                admin_background_status_command,
+                admin_ban_player_command,
+                admin_games_stats_command,
+                admin_reset_game_command,
+                admin_shop_add_command,
+                admin_shop_edit_command,
+            )
+            from bot.commands.dnd_commands_ptb import (
+                dnd_command,
+                dnd_create_command,
+                dnd_join_command,
+                dnd_roll_command,
+                dnd_sessions_command,
+            )
+            from bot.commands.game_commands_ptb import (
+                game_turn_command,
+                games_command,
+                join_command,
+                play_command,
+                start_game_command,
+            )
+            from bot.commands.shop_commands_ptb import inventory_command
+            from bot.commands.notification_commands_ptb import (
+                notify_status_command,
+                test_adb_command,
+            )
+            from bot.commands.user_commands import (
+                buy_1_command,
+                buy_2_command,
+                buy_3_command,
+                buy_4_command,
+                buy_5_command,
+                buy_6_command,
+                buy_7_command,
+                buy_8_command,
+            )
+
+            handlers.extend(
+                [
+                    # Магазин
+                    CommandHandler("shop", self.shop_command),
+                    CommandHandler("buy_contact", self.buy_contact_command),
+                    CommandHandler("buy", self.buy_command),
+                    CommandHandler("buy_1", buy_1_command),
+                    CommandHandler("buy_2", buy_2_command),
+                    CommandHandler("buy_3", buy_3_command),
+                    CommandHandler("buy_4", buy_4_command),
+                    CommandHandler("buy_5", buy_5_command),
+                    CommandHandler("buy_6", buy_6_command),
+                    CommandHandler("buy_7", buy_7_command),
+                    CommandHandler("buy_8", buy_8_command),
+                    CommandHandler("inventory", inventory_command),
+                    # Мини-игры
+                    CommandHandler("games", games_command),
+                    CommandHandler("play", play_command),
+                    CommandHandler("join", join_command),
+                    CommandHandler("startgame", start_game_command),
+                    CommandHandler("turn", game_turn_command),
+                    # D&D
+                    CommandHandler("dnd", dnd_command),
+                    CommandHandler("dnd_create", dnd_create_command),
+                    CommandHandler("dnd_join", dnd_join_command),
+                    CommandHandler("dnd_roll", dnd_roll_command),
+                    CommandHandler("dnd_sessions", dnd_sessions_command),
+                    # Realtime/watch diagnostics
+                    CommandHandler("notify_status", notify_status_command),
+                    CommandHandler("test_adb", test_adb_command),
+                    # Shop/game/background admin commands
+                    CommandHandler("admin_shop_add", admin_shop_add_command),
+                    CommandHandler("admin_shop_edit", admin_shop_edit_command),
+                    CommandHandler("admin_games_stats", admin_games_stats_command),
+                    CommandHandler("admin_reset_game", admin_reset_game_command),
+                    CommandHandler("admin_ban_player", admin_ban_player_command),
+                    CommandHandler("admin_background_status", admin_background_status_command),
+                    CommandHandler("admin_background_health", admin_background_health_command),
+                    CommandHandler("admin_background_restart", admin_background_restart_command),
+                ]
+            )
 
         for handler in handlers:
             self.application.add_handler(handler)
@@ -700,25 +751,45 @@ class TelegramBot:
         """Команда /stats - персональная статистика."""
         await stats_command(update, context, get_db)
 
+    async def disabled_in_hf_webhook_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        """Reply for commands intentionally disabled in HF webhook production."""
+        await update.message.reply_text(
+            "Эта команда отключена в стабильном HF webhook-режиме. "
+            "Доступны: /start, /user, /profile, /balance, /history, /stats, "
+            "/short, /long, /feedback и безопасный reply-парсинг словом «парсинг»."
+        )
+
     # ===== Магазин =====
     async def shop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /shop - просмотр магазина."""
+        from bot.commands.shop_commands_ptb import shop_command
+
         await shop_command(update, context, auto_registration_middleware, get_db)
 
     async def buy_contact_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
         """Команда /buy_contact для покупки товаров."""
+        from bot.commands.shop_commands_ptb import buy_contact_command
+
         await buy_contact_command(update, context, self.admin_system, get_db)
 
     async def buy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /buy - покупка товара."""
+        from bot.commands.shop_commands_ptb import buy_command
+
         await buy_command(update, context, auto_registration_middleware, get_db)
 
     async def inventory_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
         """Команда /inventory - инвентарь."""
+        from bot.commands.shop_commands_ptb import inventory_command
+
         await inventory_command(update, context, get_db)
 
     # ===== Админ-команды =====
@@ -903,7 +974,7 @@ class TelegramBot:
         # Убираем упоминание бота если оно есть
         if message_text:
             clean_text = message_text.replace("@lt_lo_game_bot", "").strip().lower()
-            if clean_text == "парсинг" and update.message.reply_to_message:
+            if clean_text == "парсинг":
                 # NEW: Use unified parsing handler
                 await self.parsing_handler.handle_manual_parsing(update, context)
                 return
@@ -925,11 +996,8 @@ class TelegramBot:
                 "/start - начать работу\n"
                 "/balance - проверить баланс\n"
                 "/profile - ваш профиль\n"
-                "/shop - магазин товаров\n"
-                "/games - мини-игры\n"
-                "/dnd - D&D мастерская\n"
-                "/daily - ежедневный бонус\n"
-                "/challenges - задания\n\n"
+                "/history - история транзакций\n"
+                "/stats - статистика\n\n"
                 "💡 Для начисления очков из игр:\n"
                 "Ответьте на сообщение игрового бота словом 'парсинг'\n\n"
                 "Поддерживаемые игры: 🎣 Shmalala, 🃏 GD Cards"
@@ -947,7 +1015,9 @@ class TelegramBot:
             bot_username,
         )
 
-        if mentioned_command == "/start":
+        if mentioned_command.lstrip("/") in HF_WEBHOOK_DISABLED_COMMANDS and is_hf_webhook_runtime():
+            await self.disabled_in_hf_webhook_command(update, context)
+        elif mentioned_command == "/start":
             await self.welcome_command(update, context)
         elif mentioned_command == "/coder":
             await self.template_coder_dialog.start_command(update, context)
@@ -969,6 +1039,14 @@ class TelegramBot:
             await long_command(update, context)
         elif mentioned_command == "/long_all":
             await long_all_command(update, context)
+        elif mentioned_command in ("/profile", "/user"):
+            await self.profile_command(update, context)
+        elif mentioned_command == "/balance":
+            await self.balance_command(update, context)
+        elif mentioned_command == "/history":
+            await self.history_command(update, context)
+        elif mentioned_command == "/stats":
+            await self.stats_command(update, context)
         elif mentioned_command == "/help":
             await self.template_coder_dialog.help_command(update, context)
         elif mentioned_command == "/reset":
@@ -1003,20 +1081,32 @@ class TelegramBot:
             
         logger.info(f"DEBUG: Update from {chat_type} ({chat_id}), User {user_id}: {text[:50]}")
 
-    def run(self):
-        """Запуск бота с интеграцией фоновых задач и системы парсинга (Task 11.2)"""
+    def initialize_runtime_systems(
+        self,
+        *,
+        start_background_tasks: bool = True,
+        initialize_shop: bool = True,
+    ):
+        """Initialize one-shot runtime systems before polling or webhook processing."""
         logger.info(
-            "Starting enhanced bot with background task integration and message parsing..."
+            "Initializing bot runtime systems",
+            start_background_tasks=start_background_tasks,
+            initialize_shop=initialize_shop,
         )
 
         # Инициализируем системы
         db = next(get_db())
         try:
             # Инициализируем магазин
-            shop = EnhancedShopSystem(db)
-            shop.initialize_default_categories()
-            shop.initialize_default_items()
-            logger.info("Enhanced shop initialized successfully")
+            if initialize_shop:
+                from core.systems.shop_system import EnhancedShopSystem
+
+                shop = EnhancedShopSystem(db)
+                shop.initialize_default_categories()
+                shop.initialize_default_items()
+                logger.info("Enhanced shop initialized successfully")
+            else:
+                logger.info("Enhanced shop initialization skipped for webhook runtime")
 
             logger.info("Achievement system initialized successfully")
 
@@ -1036,6 +1126,10 @@ class TelegramBot:
             db.close()
 
         # Инициализируем и запускаем фоновые задачи (Task 11.3)
+        if not start_background_tasks:
+            logger.info("Background task system disabled for webhook runtime")
+            return
+
         try:
             # Используем asyncio для инициализации фоновых систем
             loop = asyncio.new_event_loop()
@@ -1056,6 +1150,46 @@ class TelegramBot:
                 loop.close()
             except Exception:
                 pass
+
+    async def initialize_for_webhook(self, webhook_url: str, webhook_secret: str) -> None:
+        """Prepare PTB Application for custom Flask webhook processing."""
+        self.initialize_runtime_systems(
+            start_background_tasks=False,
+            initialize_shop=False,
+        )
+        await self.application.initialize()
+        await self.application.start()
+        await self.application.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=False,
+            secret_token=webhook_secret,
+        )
+        webhook_info = await self.application.bot.get_webhook_info()
+        logger.info(
+            "Telegram webhook configured",
+            webhook_url=webhook_url,
+            pending_update_count=webhook_info.pending_update_count,
+            last_error_message=webhook_info.last_error_message,
+            allowed_updates=webhook_info.allowed_updates,
+        )
+
+    async def shutdown_for_webhook(self) -> None:
+        """Stop custom webhook PTB Application cleanly."""
+        await self._shutdown_background_tasks()
+        await self.application.stop()
+        await self.application.shutdown()
+
+    def run(self):
+        """Запуск бота с интеграцией фоновых задач и системы парсинга (Task 11.2)"""
+        logger.info(
+            "Starting enhanced bot with background task integration and message parsing..."
+        )
+
+        self.initialize_runtime_systems(
+            start_background_tasks=True,
+            initialize_shop=True,
+        )
 
         # Добавляем обработчик для graceful shutdown (Task 11.3)
         async def shutdown_handler():
@@ -1102,7 +1236,7 @@ class TelegramBot:
 
             while not self._shutdown_requested:
                 try:
-                    logger.info("Starting run_polling with 60s timeout...")
+                    logger.info("Starting run_polling with HF-safe timeouts...")
                     logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
 
                     logger.info("Starting polling loop...")
@@ -1111,17 +1245,13 @@ class TelegramBot:
                     polling_kwargs = {
                         "drop_pending_updates": False,
                         "close_loop": False,
-                        "allowed_updates": Update.ALL_TYPES
+                        "allowed_updates": Update.ALL_TYPES,
+                        "timeout": 60,
+                        "read_timeout": 75,
+                        "write_timeout": 45,
+                        "connect_timeout": 30,
+                        "pool_timeout": 30,
                     }
-
-                    # Для локального запуска оставляем таймауты
-                    if not os.environ.get("SPACE_ID"):
-                        polling_kwargs.update({
-                            "read_timeout": 30,
-                            "write_timeout": 20,
-                            "connect_timeout": 20,
-                            "pool_timeout": 20
-                        })
 
                     self.application.run_polling(**polling_kwargs)
                     logger.info("Polling started successfully!")

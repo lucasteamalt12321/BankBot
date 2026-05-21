@@ -37,7 +37,7 @@ async def short_command(update, context) -> None:
     set_short_mode(context, True)
     await update.message.reply_text(
         "Краткий режим включён для вас. Он также используется по умолчанию.\n"
-        "Команды: /start, /balance, /profile, /stats, /shop, /games.\n"
+        "Команды: /start, /balance, /profile, /stats, /feedback.\n"
         "Вернуть полные ответы для себя: /long\n"
         "Включить короткий режим для всех: /short_all"
     )
@@ -60,8 +60,6 @@ async def short_all_command(update, context) -> None:
         "/balance — баланс\n"
         "/profile — профиль\n"
         "/stats — статистика\n"
-        "/shop — магазин\n"
-        "/games — игры\n"
         "/daily — бонус\n"
         "/notifications — уведомления\n"
         "/long — полный режим только для себя\n"

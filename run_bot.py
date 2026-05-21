@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Точка входа для запуска ботов проекта BankBot (Hugging Face deployment).
+"""Hugging Face entrypoint for BankBot.
 
-Использование:
-    python run_bot.py           # запустить BankBot (по умолчанию)
-    python run_bot.py bank      # запустить BankBot
-    python run_bot.py bridge    # запустить BridgeBot
-    python run_bot.py vk        # запустить VK Bot
+Production HF runs BankBot through a Telegram webhook. Polling stays available only
+through ``bot.main`` / local development paths.
 """
 
-import sys
-import os
-import threading
+from __future__ import annotations
+
+import asyncio
+import collections
 import hmac
-from flask import Flask, jsonify, Response, request
+import json
+import os
+import sys
+import threading
+from typing import Any
+
+from flask import Flask, Response, jsonify, request
+from telegram import Update
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -20,27 +25,30 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 app = Flask(__name__)
 
 # Глобальный буфер для логов
-import collections
-log_buffer = collections.deque(maxlen=100)
+log_buffer: collections.deque[str] = collections.deque(maxlen=100)
 FEEDBACK_FILE = "data/feedback.jsonl"
 
+telegram_bot = None
+telegram_loop: asyncio.AbstractEventLoop | None = None
+telegram_ready = threading.Event()
+telegram_startup_error: str | None = None
+
+
 class LogCapture:
-    def write(self, data):
+    def write(self, data: str) -> None:
         if data.strip():
             log_buffer.append(data.strip())
         sys.__stdout__.write(data)
-    def flush(self):
+
+    def flush(self) -> None:
         sys.__stdout__.flush()
+
 
 sys.stdout = LogCapture()
 sys.stderr = LogCapture()
 
-@app.route('/logs')
-def get_logs():
-    """Endpoint to view recent logs."""
-    return Response("<pre>" + "\n".join(log_buffer) + "</pre>", mimetype="text/html")
 
-def _is_authorized_feedback_request():
+def _is_authorized_feedback_request() -> bool:
     """Validate feedback API token from Authorization header or query string."""
     expected_token = os.environ.get("FEEDBACK_READ_TOKEN") or os.environ.get("HF_TOKEN")
     if not expected_token:
@@ -57,12 +65,106 @@ def _is_authorized_feedback_request():
     auth_header = request.headers.get("Authorization", "")
     bearer_prefix = "Bearer "
     if auth_header.startswith(bearer_prefix):
-        return hmac.compare_digest(auth_header[len(bearer_prefix):], expected_token)
+        return hmac.compare_digest(auth_header[len(bearer_prefix) :], expected_token)
 
     return hmac.compare_digest(request.args.get("token", ""), expected_token)
 
 
-@app.route('/feedback')
+def _get_webhook_secret() -> str:
+    """Return configured webhook secret or derive a stable fallback from BOT_TOKEN."""
+    explicit_secret = os.environ.get("WEBHOOK_SECRET", "").strip()
+    if explicit_secret:
+        return explicit_secret
+
+    from src.config import settings
+
+    return hmac.new(
+        settings.BOT_TOKEN.strip().encode(),
+        b"bankbot-hf-webhook",
+        "sha256",
+    ).hexdigest()
+
+
+def _get_public_webhook_base_url() -> str:
+    """Build public HF Space base URL for Telegram webhook registration."""
+    explicit_url = os.environ.get("WEBHOOK_BASE_URL", "").strip().rstrip("/")
+    if explicit_url:
+        return explicit_url
+
+    space_host = os.environ.get("SPACE_HOST", "").strip()
+    if space_host:
+        return f"https://{space_host}".rstrip("/")
+
+    space_id = os.environ.get("SPACE_ID", "").strip()
+    if space_id and "/" in space_id:
+        owner, space = space_id.split("/", maxsplit=1)
+        return f"https://{owner.lower()}-{space.lower()}.hf.space"
+
+    return "https://lucasteam-bankbot.hf.space"
+
+
+def _run_coro(coro: Any, timeout: int = 30) -> Any:
+    """Run coroutine on the bot event loop from Flask's sync request thread."""
+    if telegram_loop is None:
+        raise RuntimeError("Telegram event loop is not initialized")
+    future = asyncio.run_coroutine_threadsafe(coro, telegram_loop)
+    return future.result(timeout=timeout)
+
+
+def _start_telegram_webhook_runtime() -> None:
+    """Start PTB Application on a dedicated asyncio loop for Flask webhooks."""
+    global telegram_bot, telegram_loop, telegram_startup_error
+
+    telegram_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(telegram_loop)
+
+    async def startup() -> None:
+        global telegram_bot
+
+        from bot.bot import TelegramBot
+        from database.schema import ensure_schema_up_to_date
+        from src.startup_validator import validate_startup
+
+        print("[START] Starting BankBot HF webhook runtime...")
+        ensure_schema_up_to_date()
+        validate_startup()
+
+        webhook_secret = _get_webhook_secret()
+        webhook_url = f"{_get_public_webhook_base_url()}/telegram/webhook/{webhook_secret}"
+
+        telegram_bot = TelegramBot()
+        await telegram_bot.initialize_for_webhook(webhook_url, webhook_secret)
+        print(f"[WEBHOOK] BankBot webhook runtime ready: {webhook_url}")
+
+    try:
+        telegram_loop.run_until_complete(startup())
+        telegram_ready.set()
+        telegram_loop.run_forever()
+    except Exception as exc:
+        telegram_startup_error = str(exc)
+        telegram_ready.set()
+        print(f"[WEBHOOK] Startup failed: {exc}")
+    finally:
+        if telegram_bot is not None:
+            try:
+                telegram_loop.run_until_complete(telegram_bot.shutdown_for_webhook())
+            except Exception as exc:
+                print(f"[WEBHOOK] Shutdown failed: {exc}")
+        telegram_loop.close()
+
+
+def create_app() -> Flask:
+    """Return the Flask app for tests and WSGI-compatible launchers."""
+    return app
+
+
+@app.route("/logs")
+def get_logs() -> Response:
+    """Endpoint to view recent logs."""
+    return Response("<pre>" + "\n".join(log_buffer) + "</pre>", mimetype="text/html")
+
+
+@app.route("/feedback")
 def get_feedback():
     """Read recent feedback entries from DB storage for external diagnostics."""
     if not _is_authorized_feedback_request():
@@ -75,19 +177,18 @@ def get_feedback():
 
     try:
         from bot.commands.feedback_commands import _read_feedback_entries_db
-
-        entries = _read_feedback_entries_db(limit)
         from database.connection import get_database_backend
 
-        return jsonify({
-            "entries": entries,
-            "count": len(entries),
-            "storage": get_database_backend(),
-        })
+        entries = _read_feedback_entries_db(limit)
+        return jsonify(
+            {
+                "entries": entries,
+                "count": len(entries),
+                "storage": get_database_backend(),
+            }
+        )
     except Exception as e:
         print(f"[FEEDBACK] DB read failed, falling back to JSONL: {e}")
-
-    import json
 
     if not os.path.exists(FEEDBACK_FILE):
         return jsonify({"entries": [], "count": 0, "path": FEEDBACK_FILE, "storage": "jsonl"})
@@ -104,13 +205,18 @@ def get_feedback():
 
     return jsonify({"entries": entries, "count": len(entries), "path": FEEDBACK_FILE, "storage": "jsonl"})
 
-@app.route('/')
-def index():
+
+@app.route("/")
+def index() -> str:
     return "BankBot System is Active. Check <a href='/logs'>/logs</a> for status."
 
-@app.route('/health')
+
+@app.route("/health")
 def health_check():
-    """Health check endpoint with DB check."""
+    """Health check endpoint with DB and webhook runtime state."""
+    if telegram_startup_error:
+        return jsonify({"status": "unhealthy", "service": "BankBot", "error": telegram_startup_error}), 500
+
     try:
         from database.connection import get_database_backend
         from database.database import engine
@@ -118,25 +224,32 @@ def health_check():
 
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-        return jsonify({
-            "status": "healthy",
-            "service": "BankBot",
-            "database": get_database_backend(),
-        })
+        return jsonify(
+            {
+                "status": "healthy",
+                "service": "BankBot",
+                "telegram_runtime": "webhook",
+                "webhook_configured": telegram_ready.is_set(),
+                "database": get_database_backend(),
+            }
+        )
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
 
+
 @app.route("/metrics")
-def metrics():
+def metrics() -> Response:
     """Prometheus-compatible metrics endpoint."""
-    from database.database import get_db, User, Transaction
+    from database.database import Transaction, User, get_db
+
     import time
+
     db = next(get_db())
     try:
         total_users = db.query(User).count()
         today = time.time() - 86400
         today_transactions = db.query(Transaction).filter(Transaction.created_at >= today).count()
-        
+
         metrics_text = f"""# HELP bot_users_total Total number of users
 # TYPE bot_users_total gauge
 bot_users_total {total_users}
@@ -149,111 +262,61 @@ bot_transactions_24h {today_transactions}
     finally:
         db.close()
 
-def run_health_server():
-    # Порт 7860 - стандарт для Hugging Face Spaces
-    port = int(os.environ.get("PORT", 7860))
-    app.run(host='0.0.0.0', port=port)
 
-def check_telegram_connectivity():
-    """Быстрая диагностика с минимальными таймаутами для облачной среды"""
-    import urllib.request
-    import json
-    import os
-    import time
-    
-    print(f"[DIAG] Current System Time: {time.ctime()}")
-    print(f"[DIAG] Proxy Env: HTTP={os.environ.get('http_proxy')}, HTTPS={os.environ.get('https_proxy')}")
-    print("[DIAG] Starting quick connectivity check...")
-    
-    # Проверка общего интернета
-    try:
-        print("[DIAG] Testing general internet (google.com)...")
-        with urllib.request.urlopen("https://www.google.com", timeout=10) as resp:
-            print(f"[DIAG] Google status: {resp.getcode()}")
-    except Exception as e:
-        print(f"[DIAG] General internet check failed: {e}")
-    
-    try:
-        from src.config import settings
-        token = settings.BOT_TOKEN
-        if not token:
-            print("[DIAG] ERROR: BOT_TOKEN is empty!")
-            return
-        
-        # Очищаем токен от возможных пробелов
-        token = token.strip()
-        print(f"[DIAG] Token loaded (and stripped): {token[:10]}...")
-        
-        # Проверка Telegram API Proxy по IP (api.telegram-proxy.com)
-        try:
-            proxy_ip = "104.21.75.145" # Cloudflare edge for api.telegram-proxy.com
-            proxy_url = f"https://{proxy_ip}/bot{token}/getMe"
-            print(f"[DIAG] Testing Cloudflare Proxy IP ({proxy_ip}) with token...")
-            
-            import ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            
-            with urllib.request.urlopen(proxy_url, timeout=10, context=ctx) as resp:
-                print(f"[DIAG] Cloudflare Proxy status: {resp.getcode()}")
-                data = json.loads(resp.read().decode())
-                print(f"[DIAG] Bot Me: {data.get('result', {}).get('username')}")
-        except Exception as e:
-            print(f"[DIAG] Cloudflare Proxy check failed: {e}")
-        
-        if os.environ.get("SPACE_ID"):
-            print("[DIAG] Skipping webhook check on HF to avoid startup blocking")
-            print("[DIAG] Connectivity check completed")
-            return
+@app.route("/telegram/webhook/<secret>", methods=["POST"])
+def telegram_webhook(secret: str):
+    """Receive Telegram updates and pass them into PTB without polling."""
+    expected_secret = _get_webhook_secret()
+    if not hmac.compare_digest(secret, expected_secret):
+        print("[WEBHOOK] Secret validation failed")
+        return jsonify({"error": "not_found"}), 404
 
-        # Быстрая проверка webhook и его удаление
-        proxy_handler = urllib.request.ProxyHandler({})
-        opener = urllib.request.build_opener(proxy_handler)
-        
-        try:
-            print("[DIAG] Checking webhook status...")
-            with opener.open(f"https://api.telegram.org/bot{token}/getWebhookInfo", timeout=10) as response:
-                data = json.loads(response.read().decode())
-                webhook_url = data.get('result', {}).get('url', '')
-                if webhook_url:
-                    print(f"[DIAG] Webhook found: {webhook_url}, deleting...")
-                    opener.open(f"https://api.telegram.org/bot{token}/deleteWebhook", timeout=10)
-                    print("[DIAG] Webhook deleted")
-                else:
-                    print("[DIAG] No webhook configured")
-        except Exception as e:
-            print(f"[DIAG] Webhook check failed (non-critical): {e}")
-        
-        print("[DIAG] Connectivity check completed")
-        
-    except Exception as e:
-        print(f"[DIAG] Diagnostic failed: {e}")
-        print("[DIAG] Continuing with bot startup...")
+    header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not hmac.compare_digest(header_secret, expected_secret):
+        print("[WEBHOOK] Header secret validation failed")
+        return jsonify({"error": "unauthorized"}), 401
+
+    if telegram_startup_error:
+        return jsonify({"error": "bot_not_ready"}), 503
+
+    if not telegram_ready.wait(timeout=10) or telegram_bot is None:
+        return jsonify({"error": "bot_not_ready"}), 503
+
+    payload = request.get_json(silent=True)
+    if not payload:
+        return jsonify({"ok": True})
+
+    # Extract diagnostic fields before passing to PTB
+    update_id = payload.get("update_id", "unknown")
+    message = payload.get("message", {})
+    chat = message.get("chat", {})
+    user = message.get("from", {})
+    chat_id = chat.get("id", "unknown")
+    chat_type = chat.get("type", "unknown")
+    user_id = user.get("id", "unknown")
+    text_preview = message.get("text", "")[:50] if message else ""
+
+    print(
+        f"[WEBHOOK] Update received: id={update_id} "
+        f"chat={chat_id}({chat_type}) user={user_id} text={text_preview!r}"
+    )
+
+    try:
+        update = Update.de_json(payload, telegram_bot.application.bot)
+        _run_coro(telegram_bot.application.process_update(update), timeout=25)
+        print(f"[WEBHOOK] Update processed successfully: id={update_id}")
+    except Exception as exc:
+        print(f"[WEBHOOK] Update processing failed: id={update_id} error={exc}")
+
+    return jsonify({"ok": True})
+
 
 def main() -> None:
-    # Запускаем сервер в отдельном потоке
-    threading.Thread(target=run_health_server, daemon=True).start()
-    
-    # Проверка связи и очистка вебхуков
-    check_telegram_connectivity()
-    
-    """Выбрать и запустить нужный бот."""
-    bot_type = sys.argv[1] if len(sys.argv) > 1 else "bank"
+    """Start HF Flask server and BankBot webhook runtime."""
+    threading.Thread(target=_start_telegram_webhook_runtime, daemon=True).start()
 
-    if bot_type == "bridge":
-        import asyncio
-        from bridge_bot.main import main as bridge_main
-        asyncio.run(bridge_main())
-
-    elif bot_type == "vk":
-        from vk_bot.main import run as vk_run
-        vk_run()
-
-    else:
-        # bank (default) - основной бот в bot/
-        from bot.main import main as bank_main
-        bank_main()
+    port = int(os.environ.get("PORT", 7860))
+    app.run(host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
