@@ -178,6 +178,11 @@ def is_hf_webhook_runtime() -> bool:
     return os.environ.get("WEBHOOK_MODE") == "1" or bool(os.environ.get("SPACE_ID"))
 
 
+def get_db_session():
+    """Return one SQLAlchemy session for legacy command handlers that expect get_db()."""
+    return next(get_db())
+
+
 class TelegramBot:
     def __init__(self):
         builder = self._create_application_builder()
@@ -357,39 +362,39 @@ class TelegramBot:
             CommandHandler("add_admin", self.add_admin_command),
             CommandHandler(
                 "admin_stats",
-                lambda update, context: admin_stats_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_stats_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_adjust",
-                lambda update, context: admin_adjust_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_adjust_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_addcoins",
-                lambda update, context: admin_addcoins_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_addcoins_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_removecoins",
-                lambda update, context: admin_removecoins_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_removecoins_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_merge",
-                lambda update, context: admin_merge_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_merge_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_transactions",
-                lambda update, context: admin_transactions_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_transactions_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_transaction",
-                lambda update, context: admin_transactions_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_transactions_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_balances",
-                lambda update, context: admin_balances_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_balances_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_users",
-                lambda update, context: admin_users_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_users_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_rates",
@@ -401,19 +406,19 @@ class TelegramBot:
             ),
             CommandHandler(
                 "admin_cleanup",
-                lambda update, context: admin_cleanup_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_cleanup_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_health",
-                lambda update, context: admin_health_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_health_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_errors",
-                lambda update, context: admin_errors_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_errors_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_backup",
-                lambda update, context: admin_backup_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_backup_command(update, context, self.admin_system, get_db_session),
             ),
             # Advanced Admin Commands (Task 7.4 and 8.3)
             CommandHandler(
@@ -426,11 +431,11 @@ class TelegramBot:
             # Message Parsing Configuration Commands (Task 11.2)
             CommandHandler(
                 "admin_parsing_reload",
-                lambda update, context: admin_parsing_reload_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_parsing_reload_command(update, context, self.admin_system, get_db_session),
             ),
             CommandHandler(
                 "admin_parsing_config",
-                lambda update, context: admin_parsing_config_command(update, context, self.admin_system, get_db),
+                lambda update, context: admin_parsing_config_command(update, context, self.admin_system, get_db_session),
             ),
             # Configuration Management Commands (Full Set)
             CommandHandler("reload_config", config_commands.reload_config_handler),
