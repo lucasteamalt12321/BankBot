@@ -220,14 +220,25 @@ class TelegramBot:
         token = settings.BOT_TOKEN.strip()
         builder = Application.builder().token(token)
 
-        builder.read_timeout(75)
-        builder.connect_timeout(30)
-        builder.write_timeout(45)
-        builder.pool_timeout(30)
-        builder.get_updates_read_timeout(90)
-        builder.get_updates_connect_timeout(30)
-        builder.get_updates_write_timeout(45)
-        builder.get_updates_pool_timeout(30)
+        if os.environ.get("SPACE_ID"):
+            # Hugging Face needs longer timeouts for Telegram API
+            builder.read_timeout(120)
+            builder.connect_timeout(60)
+            builder.write_timeout(60)
+            builder.pool_timeout(60)
+            builder.get_updates_read_timeout(120)
+            builder.get_updates_connect_timeout(60)
+            builder.get_updates_write_timeout(60)
+            builder.get_updates_pool_timeout(60)
+        else:
+            builder.read_timeout(75)
+            builder.connect_timeout(30)
+            builder.write_timeout(45)
+            builder.pool_timeout(30)
+            builder.get_updates_read_timeout(90)
+            builder.get_updates_connect_timeout(30)
+            builder.get_updates_write_timeout(45)
+            builder.get_updates_pool_timeout(30)
 
         base_url = os.environ.get("TELEGRAM_BASE_URL") or getattr(
             settings,
@@ -340,7 +351,7 @@ class TelegramBot:
             CommandHandler("clan_join", clan_join_command),
             CommandHandler("clan_leave", clan_leave_command),
             # Админ-команды
-            CommandHandler("admin", admin_command),
+            CommandHandler("admin", self.admin_command),
             CommandHandler("add_points", self.add_points_command),
             CommandHandler("add_admin", self.add_admin_command),
             CommandHandler("admin_stats", admin_stats_command),
@@ -1161,8 +1172,17 @@ class TelegramBot:
             start_background_tasks=False,
             initialize_shop=False,
         )
-        await self.application.initialize()
-        await self.application.start()
+        # Retry initialization for HF network reliability
+        for attempt in range(1, 4):
+            try:
+                await self.application.initialize()
+                await self.application.start()
+                break
+            except TimedOut:
+                logger.warning(f"Webhook init timed out (attempt {attempt}/3), retrying...")
+                if attempt == 3:
+                    raise
+                await asyncio.sleep(5)
         await self.application.bot.set_webhook(
             url=webhook_url,
             allowed_updates=Update.ALL_TYPES,
