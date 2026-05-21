@@ -125,6 +125,7 @@ HF_WEBHOOK_DISABLED_COMMANDS = {
     "admin_background_status",
     "admin_background_health",
     "admin_background_restart",
+    "add_item",
 }
 
 logging.basicConfig(
@@ -377,7 +378,6 @@ class TelegramBot:
             CommandHandler(
                 "user_stats", self.advanced_admin_commands.user_stats_command
             ),
-            CommandHandler("add_item", self.advanced_admin_commands.add_item_command),
             # Message Parsing Configuration Commands (Task 11.2)
             CommandHandler("admin_parsing_reload", admin_parsing_reload_command),
             CommandHandler("admin_parsing_config", admin_parsing_config_command),
@@ -495,6 +495,7 @@ class TelegramBot:
                     CommandHandler("admin_games_stats", admin_games_stats_command),
                     CommandHandler("admin_reset_game", admin_reset_game_command),
                     CommandHandler("admin_ban_player", admin_ban_player_command),
+                    CommandHandler("add_item", self.advanced_admin_commands.add_item_command),
                     CommandHandler("admin_background_status", admin_background_status_command),
                     CommandHandler("admin_background_health", admin_background_health_command),
                     CommandHandler("admin_background_restart", admin_background_restart_command),

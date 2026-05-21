@@ -5,6 +5,7 @@ import html
 from telegram import Update
 from telegram.ext import ContextTypes
 from database.database import get_db
+from bot.short_mode import is_short_mode
 
 logger = structlog.get_logger()
 
@@ -215,6 +216,38 @@ async def admin_command(
 
     users_count = admin_system.get_users_count()
 
+    if is_short_mode(context):
+        text = f"""🔧 <b>Админ</b>
+
+💰 Баланс:
+/add_points @user 100
+/admin_addcoins @user 100
+/admin_removecoins @user 100
+/admin_adjust @user 100
+
+👥 Пользователи:
+/admin_users
+/admin_balances
+/admin_transactions @user
+/user_stats @user
+
+⚙️ Парсинг:
+/parsing_stats
+/admin_rates
+/admin_parsing_config
+/admin_parsing_reload
+
+🔧 Система:
+/admin_health
+/admin_errors
+/feedback_list
+
+Всего пользователей: {users_count}
+/long — полный список"""
+        await update.message.reply_text(text, parse_mode="HTML")
+        logger.info(f"Short admin panel accessed by user {user.id}")
+        return
+
     text = f"""🔧 <b>Админ-панель</b>
 
 👥 <b>Управление пользователями:</b>
@@ -234,16 +267,11 @@ async def admin_command(
 📊 <b>Статистика и аналитика:</b>
 /parsing_stats [24h|7d|30d] - статистика парсинга
 /admin_stats - общая статистика системы
-/admin_games_stats - статистика по играм
 /admin_rates - коэффициенты конвертации
 
 📢 <b>Коммуникация:</b>
 /broadcast &lt;текст&gt; - рассылка всем пользователям
-
-🛒 <b>Управление магазином:</b>
-/add_item - добавить товар в магазин
-/admin_shop_add - добавить товар (альтернатива)
-/admin_shop_edit - редактировать товар
+/feedback_list - последние отзывы
 
 🔧 <b>Системные команды:</b>
 /admin_health - здоровье системы
@@ -254,11 +282,6 @@ async def admin_command(
 ⚙️ <b>Настройки парсинга:</b>
 /admin_parsing_config - конфигурация парсинга
 /admin_parsing_reload - перезагрузить правила
-
-🎮 <b>Фоновые задачи:</b>
-/admin_background_status - статус задач
-/admin_background_health - здоровье задач
-/admin_background_restart - перезапуск задач
 
 📈 <b>Информация:</b>
 Всего пользователей: {users_count}
