@@ -354,7 +354,10 @@ class TelegramBot:
             CommandHandler("challenges", challenges_command),
             CommandHandler("streak", motivation_stats_command),
             # Достижения и уведомления
-            CommandHandler("achievements", achievements_command),
+            CommandHandler(
+                "achievements",
+                lambda update, context: achievements_command(update, context, get_db),
+            ),
             CommandHandler("notifications", notifications_command),
             CommandHandler("notifications_clear", notifications_clear_command),
             # Социальные функции
