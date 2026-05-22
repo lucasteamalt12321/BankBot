@@ -33,6 +33,12 @@
 - Deletion failures are logged safely; Telegram requires the bot to be a chat admin with delete-message permission.
 - Verification: `python3 -m ruff check bot/bot.py` -> passed; `python3 -m py_compile bot/bot.py` -> passed.
 
+### 2026-05-22 (Vercel serverless parsing path)
+- User reported `Парсинг временно недоступен на serverless-хостинге` after replying to a GDcards card message.
+- Added Vercel-safe manual parsing path in `bot/bot.py`: when legacy `ParsingHandler` is disabled, reply-based `Парсинг` now uses PostgreSQL `User` + `bank_bot.services.ParsingService` directly, without SQLite repository initialization.
+- GDcards accrual sample `🤩 Орбы: +2` is covered by existing regex and should route to `parse_and_accrue()`.
+- Verification: `python3 -m ruff check bot/bot.py` -> passed; `python3 -m py_compile bot/bot.py` -> passed; local full service import still requires `psycopg2`, available in Vercel via `requirements.txt`.
+
 ### 2026-05-20 (HF Webhook Migration — этап 1 completed)
 - Tightened HF webhook runtime: disabled module imports (`shop`, `games`, `dnd`, `watch`, `background`) are now deferred to local/dev polling runtime only; HF webhook mode never imports them.
 - Added webhook security smoke tests (`tests/smoke/test_startup.py`): route existence, invalid secret rejection (404), invalid header rejection (401).
@@ -190,7 +196,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- 8fa142a (2026-05-22, shop reset + sticker moderation changes pending commit)
+- e1f859f (2026-05-22, Vercel parsing fix pending commit)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.

@@ -17,7 +17,7 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
-from database.database import get_db, engine
+from database.database import User, get_db, engine
 from database.schema import ensure_schema_up_to_date
 from core.systems.motivation_system import MotivationSystem
 from utils.monitoring.notification_system import NotificationSystem
@@ -1211,9 +1211,7 @@ class TelegramBot:
             clean_text = message_text.replace("@lt_lo_game_bot", "").strip().lower()
             if clean_text == "парсинг":
                 if self.parsing_handler is None:
-                    await update.message.reply_text(
-                        "⚠️ Парсинг временно недоступен на serverless-хостинге."
-                    )
+                    await self.handle_serverless_manual_parsing(update, context)
                     return
                 # NEW: Use unified parsing handler
                 await self.parsing_handler.handle_manual_parsing(update, context)
@@ -1243,6 +1241,96 @@ class TelegramBot:
                 "Поддерживаемые игры: 🎣 Shmalala, 🃏 GD Cards"
             )
             return
+
+    async def handle_serverless_manual_parsing(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Serverless-safe reply parsing using PostgreSQL-backed ParsingService."""
+
+        from bank_bot.services.parsing_service import ParsingService
+        from database.database import SessionLocal
+
+        message = update.effective_message
+        user = update.effective_user
+
+        if not message or not user:
+            return
+
+        replied_message = message.reply_to_message
+        message_text = ""
+        if replied_message:
+            message_text = replied_message.text or replied_message.caption or ""
+
+        if not message_text:
+            await message.reply_text(
+                "❌ Я не вижу сообщение, на которое вы ответили.\n\n"
+                "Ответьте словом «Парсинг» именно на сообщение GDcards/Shmalala."
+            )
+            return
+
+        db = SessionLocal()
+        try:
+            db_user = (
+                db.query(User)
+                .filter(User.telegram_id == user.id)
+                .first()
+            )
+            if db_user is None:
+                db_user = User(
+                    telegram_id=user.id,
+                    username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    balance=0,
+                    total_earned=0,
+                    last_activity=datetime.utcnow(),
+                )
+                db.add(db_user)
+                db.flush()
+            else:
+                db_user.username = user.username
+                db_user.first_name = user.first_name
+                db_user.last_name = user.last_name
+                db_user.last_activity = datetime.utcnow()
+
+            parsing_service = ParsingService(db)
+            is_profile = parsing_service.detect_bot(message_text) is None
+            if is_profile:
+                success, response, details = parsing_service.parse_profile_and_accrue(
+                    user_id=db_user.id,
+                    text=message_text,
+                )
+            else:
+                success, response, details = parsing_service.parse_and_accrue(
+                    user_id=db_user.id,
+                    text=message_text,
+                )
+
+            if success:
+                db.commit()
+                logger.info(
+                    "Serverless parsing success",
+                    telegram_id=user.id,
+                    user_id=db_user.id,
+                    details=details,
+                )
+                await message.reply_text(response)
+                return
+
+            db.rollback()
+            logger.warning(
+                "Serverless parsing failed",
+                telegram_id=user.id,
+                response=response,
+                text_preview=message_text[:200],
+            )
+            await message.reply_text(f"❌ {response}")
+        except Exception as e:
+            db.rollback()
+            logger.error("Serverless parsing error", error=str(e), exc_info=True)
+            await message.reply_text("❌ Ошибка при обработке данных парсинга")
+        finally:
+            db.close()
 
     async def handle_mentioned_commands(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
