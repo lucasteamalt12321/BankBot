@@ -612,6 +612,27 @@ class TelegramBot:
 
         try:
             with engine.begin() as conn:
+                unlimited_until = conn.execute(
+                    text(
+                        """
+                        SELECT sticker_unlimited_until
+                        FROM users
+                        WHERE telegram_id = :telegram_id
+                          AND sticker_unlimited = TRUE
+                          AND sticker_unlimited_until > :now
+                        """
+                    ),
+                    {"telegram_id": user.id, "now": now},
+                ).scalar_one_or_none()
+                if unlimited_until is not None:
+                    logger.debug(
+                        "Sticker moderation skipped: unlimited access active",
+                        chat_id=chat.id,
+                        user_id=user.id,
+                        expires_at=str(unlimited_until),
+                    )
+                    return
+
                 conn.execute(
                     text(
                         """
