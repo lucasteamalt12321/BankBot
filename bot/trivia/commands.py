@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.database import get_db
-from bot.trivia.questions import TRIVIA_QUESTIONS
+from bot.trivia.questions import generate_trivia_question
 from bot.trivia.service import TriviaService
 
 logger = structlog.get_logger()
@@ -38,15 +38,12 @@ async def trivia_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
 
-    # Pick a random question
-    question = random.choice(TRIVIA_QUESTIONS)
+    # Pick a random question and generate distractors dynamically
+    question = generate_trivia_question()
     question_text = question["text"]
-    
-    # Shuffle options
-    options = list(question["options"])
-    correct_text = options[question["correct_index"]]
-    random.shuffle(options)
-    correct_shuffled_index = options.index(correct_text)
+    options = question["options"]
+    correct_shuffled_index = question["correct_index"]
+    correct_text = question["correct_text"]
 
     try:
         # Send native Telegram poll (Quiz type, non-anonymous so we can see the voters)

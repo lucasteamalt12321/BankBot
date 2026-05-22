@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from bot.trivia.questions import TRIVIA_QUESTIONS
+from bot.trivia.questions import generate_trivia_question
 from bot.trivia.service import TriviaService
 from database.database import Base, User, Transaction
 
@@ -36,18 +36,20 @@ def test_user(db_session):
 
 
 class TestTriviaQuestions:
-    """Test trivia question pool validation."""
+    """Test trivia question pool validation and dynamic generation."""
 
-    def test_question_pool_non_empty(self):
-        """Verify we have a valid non-empty questions list."""
-        assert len(TRIVIA_QUESTIONS) >= 10
-        for q in TRIVIA_QUESTIONS:
+    def test_question_generator(self):
+        """Verify the dynamic generator produces correct structure and distractors."""
+        for _ in range(50):  # Run multiple times to verify randomness and correctness
+            q = generate_trivia_question()
             assert "id" in q
             assert "text" in q
             assert "options" in q
             assert "correct_index" in q
             assert "explanation" in q
-            assert 0 <= q["correct_index"] < len(q["options"])
+            assert len(q["options"]) == 4
+            assert q["correct_text"] in q["options"]
+            assert q["options"][q["correct_index"]] == q["correct_text"]
 
 
 class TestTriviaService:
