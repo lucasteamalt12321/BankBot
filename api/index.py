@@ -12,6 +12,7 @@ import hmac
 import os
 import sys
 import threading
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +46,7 @@ def _get_webhook_secret() -> str:
     ).hexdigest()
 
 
-def _run_coro(coro: Any, timeout: int = 8) -> Any:
+def _run_coro(coro: Any, timeout: int = 25) -> Any:
     if _loop is None:
         raise RuntimeError("Telegram event loop is not initialized")
     future = asyncio.run_coroutine_threadsafe(coro, _loop)
@@ -86,7 +87,7 @@ def _ensure_initialized() -> None:
             _loop = asyncio.new_event_loop()
             thread = threading.Thread(target=_loop.run_forever, daemon=True)
             thread.start()
-            _run_coro(_initialize_bot(), timeout=8)
+            _run_coro(_initialize_bot(), timeout=25)
             _startup_error = None
             _initialized = True
         except Exception as exc:
@@ -131,10 +132,17 @@ def telegram_webhook(secret: str):
             return jsonify({"error": "bot_not_initialized"}), 503
 
         update = Update.de_json(payload, _bot.application.bot)
-        _run_coro(_bot.application.process_update(update), timeout=8)
+        _run_coro(_bot.application.process_update(update), timeout=25)
         return jsonify({"ok": True})
     except Exception as exc:
-        return jsonify({"error": "processing_failed", "details": str(exc)}), 500
+        return jsonify(
+            {
+                "error": "processing_failed",
+                "details": str(exc),
+                "type": type(exc).__name__,
+                "traceback": traceback.format_exc()[-2000:],
+            }
+        ), 500
 
 
 application = app
