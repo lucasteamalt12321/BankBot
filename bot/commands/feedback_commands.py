@@ -44,9 +44,12 @@ def _is_admin(user_id: int | None, admin_telegram_id: int) -> bool:
 
 def _append_feedback(entry: dict) -> None:
     """Append a feedback entry to JSONL storage."""
-    FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with FEEDBACK_FILE.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with FEEDBACK_FILE.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        logger.warning("Feedback JSONL mirror unavailable", error=str(exc))
 
 
 def _ensure_feedback_table(db) -> None:
