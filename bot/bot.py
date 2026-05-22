@@ -207,6 +207,7 @@ class TelegramBot:
         # Инициализация системы фоновых задач
         self.background_task_manager = None
         self.sticker_manager = None
+        self._last_sticker_warning_sent = {}
 
         # NEW: Инициализация обработчика парсинга
         # Vercel serverless has a read-only filesystem; parsing's legacy
@@ -723,6 +724,24 @@ class TelegramBot:
                 message_id=message.message_id,
                 limit=STICKER_LIMIT_PER_HOUR,
             )
+            
+            # Send warning at most once per 60 seconds per user in chat
+            now_mono = time.monotonic()
+            last_warning_time = self._last_sticker_warning_sent.get((chat.id, user.id), 0)
+            if now_mono - last_warning_time >= 60:
+                self._last_sticker_warning_sent[(chat.id, user.id)] = now_mono
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat.id,
+                        text=(
+                            f"⚠️ @{user.username or user.first_name}, <b>превышен лимит стикеров!</b>\n\n"
+                            f"Вы можете отправлять не более {STICKER_LIMIT_PER_HOUR} стикеров в час.\n"
+                            "🛒 Купите <b>Безлимит стикеров на 24 часа</b> в магазине (/shop), чтобы снять это ограничение!"
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception as msg_err:
+                    logger.warning("Failed to send sticker warning message", error=str(msg_err))
         except Exception as e:
             logger.warning(
                 "Failed to delete sticker over hourly limit",

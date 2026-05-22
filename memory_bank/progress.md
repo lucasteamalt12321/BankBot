@@ -44,6 +44,7 @@
 - Updated sticker moderation in `bot/bot.py` to skip deletion/counting when the user has active `users.sticker_unlimited = TRUE` and `sticker_unlimited_until > now`.
 - Existing `ShopManager._activate_sticker_item()` already sets `sticker_unlimited_until` for 24 hours on purchase.
 - `/shop` display now includes the user's current coin balance before the product list.
+- Added warning message throttling: when a sticker is deleted, the bot sends a warning message proposing the `/shop` item at most once per 60 seconds per user/chat key to prevent spam.
 
 ### 2026-05-20 (HF Webhook Migration — этап 1 completed)
 - Tightened HF webhook runtime: disabled module imports (`shop`, `games`, `dnd`, `watch`, `background`) are now deferred to local/dev polling runtime only; HF webhook mode never imports them.
@@ -202,7 +203,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- db91cf8 (2026-05-22, 24h sticker shop item pending commit)
+- 86cfd2d (2026-05-22, achievements and daily bonus fixed)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
