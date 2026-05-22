@@ -1260,10 +1260,10 @@ class TelegramBot:
                 await self.parsing_handler.handle_manual_parsing(update, context)
                 return
 
-        # Пропускаем все остальные сообщения - автоматический парсинг отключен
+        # Пропускаем все остальные сообщения
         # Обработка только по команде "парсинг"
         logger.debug(
-            f"Message ignored (automatic parsing disabled): {message_text[:50] if message_text else 'No text'}..."
+            f"Message ignored (ordinary text message): {message_text[:50] if message_text else 'No text'}..."
         )
 
         if await self.template_coder_dialog.handle_text(update, context):

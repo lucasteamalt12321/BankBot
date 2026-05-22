@@ -55,7 +55,7 @@
 
 ### Статус парсинга
 
-Парсинг — ключевой целевой runtime проекта. Текущий технический статус: infrastructure/manual path есть, production E2E automatic parsing ещё in_progress. Для завершения PARSE01 нужны:
+Парсинг — ключевой целевой runtime проекта. Текущий технический статус: infrastructure/manual path есть, production E2E парсинг по ответам ещё in_progress. Для завершения PARSE01 нужны:
 
 - fixtures реальных сообщений GD Cards, Shmalala, True Mafia, Bunker RP;
 - проверяемые parsing rules и коэффициенты;

@@ -59,7 +59,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **Процент выполнения:** 90% (completed deliverables = 90/100; D10 и D18 остаются in_progress)
 
-**Важное уточнение по парсингу:** таблица D01-D27 теперь отражает текущую готовность проекта как 90/100. Парсинг игровых сообщений остаётся главной продуктовой целью проекта; D10 и D18 специально оставлены `in_progress`, потому что инфраструктура/ручной контур есть, но production E2E автоматический парсинг на реальных игровых сообщениях ещё требует стабилизации.
+**Важное уточнение по парсингу:** таблица D01-D27 теперь отражает текущую готовность проекта как 90/100. Парсинг игровых сообщений остаётся главной продуктовой целью проекта; D10 и D18 специально оставлены `in_progress`, потому что инфраструктура/ручной контур есть, но production E2E парсинг по ответам на реальных игровых сообщениях ещё требует стабилизации.
 
 ---
 
@@ -312,7 +312,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | FB01 | Предложка/жалобы для пользователей бота | completed | P1 |
 | AI01 | Бесплатный локальный AI-lite помощник для команд и подсказок | completed | P1 |
 | AI02 | Optional бесплатный Hugging Face Inference API для более умных ответов | pending | P1 |
-| PARSE01 | Production E2E автоматический парсинг игровых сообщений | in_progress | P0 |
+| PARSE01 | Production E2E парсинг игровых сообщений по ответам | in_progress | P0 |
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
 
@@ -320,7 +320,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **HF01 notes:** Flask-сервер на `7860` (`/health`, `/metrics`, `/logs`), Dockerfile `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `http_client` builder fallback, `SPACE_ID` detection, Alembic-first startup, config manager resilience к отсутствующим таблицам.
 
-**PARSE01 notes:** Это главный продуктовый фокус после стабилизации runtime/DB/UX. Требуется довести автоматический парсинг реальных игровых сообщений до production E2E: fixtures реальных сообщений, правила по поддерживаемым играм, мониторинг successful/failed parses, понятные админские diagnostics и защита от ложных начислений. Текущий ручной/инфраструктурный контур не считать полноценным завершением этого результата.
+**PARSE01 notes:** Это главный продуктовый фокус после стабилизации runtime/DB/UX. Требуется довести парсинг реальных игровых сообщений по ответам до production E2E: fixtures реальных сообщений, правила по поддерживаемым играм, мониторинг successful/failed parses, понятные админские diagnostics и защита от ложных начислений. Текущий инфраструктурный контур не считать полноценным завершением этого результата.
 
 **FB01 notes:** реализованы команды `/feedback <предложение или жалоба>` с алиасами `/suggest` и `/complaint`; обращения сохраняются в SQLite-таблицу `feedback_entries` с JSONL fallback/debug mirror (`data/feedback.jsonl`): текст, Telegram ID, username, chat ID, chat type и UTC timestamp. Админ может читать последние обращения через `/feedback_list [limit]` (до 20 записей). Для внешнего чтения с HF добавлен защищённый endpoint `GET /feedback?limit=N` с `Authorization: Bearer <FEEDBACK_READ_TOKEN|HF_TOKEN|BOT_TOKEN>`; при сохранении пишется structured log `Feedback saved` с полным текстом обращения.
 

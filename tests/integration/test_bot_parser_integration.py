@@ -256,8 +256,8 @@ class TestBotParserIntegration:
         assert "игрового бота" in call_args
 
     @pytest.mark.asyncio
-    async def test_parse_all_messages_ignores_automatic_parsing(self, mock_update, mock_context):
-        """Test that parse_all_messages ignores automatic parsing (only manual parsing enabled)"""
+    async def test_parse_all_messages_ignores_non_reply_messages(self, mock_update, mock_context):
+        """Test that parse_all_messages ignores non-reply messages (only reply-based parsing enabled)"""
         from bot.bot import TelegramBot
 
         # Setup fishing message
@@ -271,7 +271,7 @@ class TestBotParserIntegration:
         bot = TelegramBot()
         await bot.parse_all_messages(mock_update, mock_context)
 
-        # Verify no processing happened (automatic parsing disabled)
+        # Verify no processing happened (non-reply messages ignored)
         mock_update.message.reply_text.assert_not_called()
 
     @pytest.mark.asyncio
