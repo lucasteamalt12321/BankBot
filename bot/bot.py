@@ -206,7 +206,14 @@ class TelegramBot:
         self.sticker_manager = None
 
         # NEW: Инициализация обработчика парсинга
-        self.parsing_handler = ParsingHandler()
+        # Vercel serverless has a read-only filesystem; parsing's legacy
+        # SQLiteRepository opens data/bot.db during construction.  Keep parsing
+        # disabled there until the parser repository is fully PostgreSQL-backed.
+        if os.environ.get("VERCEL"):
+            self.parsing_handler = None
+            logger.info("Parsing handler disabled for Vercel serverless runtime")
+        else:
+            self.parsing_handler = ParsingHandler()
 
         # M01: диалоговый кодер текстовых шаблонов
         self.template_coder_dialog = TemplateCoderDialog()
@@ -1055,6 +1062,11 @@ class TelegramBot:
         if message_text:
             clean_text = message_text.replace("@lt_lo_game_bot", "").strip().lower()
             if clean_text == "парсинг":
+                if self.parsing_handler is None:
+                    await update.message.reply_text(
+                        "⚠️ Парсинг временно недоступен на serverless-хостинге."
+                    )
+                    return
                 # NEW: Use unified parsing handler
                 await self.parsing_handler.handle_manual_parsing(update, context)
                 return
