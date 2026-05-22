@@ -1,7 +1,7 @@
 # Active Context
 
 ## Текущий фокус
-**Vercel production и реализация магазина.** Бот переведён на Vercel serverless webhook с Supabase PostgreSQL; начата переработка магазина с пустого каталога перед добавлением новых товаров.
+**Мини-игра «Брейн-Ринг по Канону Олеговируса».** Реализация интерактивной викторины по лору канона Олеговируса/LTL на inline-кнопках с мгновенным начислением монет в Supabase PostgreSQL. Подробный план: `memory_bank/trivia_game_plan.md`.
 
 ## Active Scope Change — HF Webhook Migration
 **Status:** этап 1 completed locally, awaiting user approval to commit/push. Canonical detailed plan: `memory_bank/hf_webhook_migration_plan.md`.

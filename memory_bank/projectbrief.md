@@ -313,6 +313,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | AI01 | Бесплатный локальный AI-lite помощник для команд и подсказок | completed | P1 |
 | AI02 | Optional бесплатный Hugging Face Inference API для более умных ответов | pending | P1 |
 | PARSE01 | Production E2E парсинг игровых сообщений по ответам | in_progress | P0 |
+| TRIVIA01 | Мини-игра: Брейн-Ринг по Канону Олеговируса | in_progress | P0 |
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
 
@@ -335,3 +336,5 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 **PR10-PR11 notes:** выполнена инвентаризация слоёв и закреплён runtime/legacy contract в `docs/README.md`. Рискованные runtime-зависимости не удалялись; legacy/shim namespaces (`src.parsers`, `core/repositories`, `utils/*` shims, aiogram `shop_commands.py`) зафиксированы как frozen/compatibility, новый код направлен в канонические слои.
 
 **PR12-PR13 notes:** `bot/bot.py` получил чистый `build_polling_kwargs(is_hf)` без изменения HF timeout/retry semantics; structured polling logs сохранены. UX/watchlist закрыт безопасными runtime-правками: `/shop` и `/games` больше не дублируют вывод, `/games_list` показывает активные сессии, `/dnd_*` исправлены на `core.systems.dnd_system`, неизвестные команды получают fallback-ответ.
+
+**TRIVIA01 notes:** Мини-игра «Брейн-Ринг по Канону Олеговируса». Команда `/trivia` запускает викторину в чате с вопросом по лору из `bot/ai/knowledge.py`. Использование inline-кнопок позволяет мгновенно фиксировать клики через `CallbackQueryHandler`, определять победителя, начислить ему монеты в Supabase PostgreSQL и предотвращать повторные клики. Включает защиту от спама командами в одном чате.
