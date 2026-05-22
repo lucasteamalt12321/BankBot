@@ -203,7 +203,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- 86cfd2d (2026-05-22, achievements and daily bonus fixed)
+- 5f0fe49 (2026-05-22, sticker moderation warning throttled to once per minute)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
