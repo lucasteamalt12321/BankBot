@@ -16,7 +16,7 @@ async def achievements_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE, get_db
 ) -> None:
     """Команда /achievements - достижения."""
-    from bot.services.achievement_service import AchievementSystem
+    from core.systems.achievements import AchievementSystem
 
     user = update.effective_user
 
