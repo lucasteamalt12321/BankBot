@@ -43,6 +43,7 @@
 - Added production Supabase shop item `Безлимит стикеров на 24 часа` (`shop_items.id=9`, price `100`, type `sticker`, meta `activation_type=unlimited_stickers`, `duration_hours=24`).
 - Updated sticker moderation in `bot/bot.py` to skip deletion/counting when the user has active `users.sticker_unlimited = TRUE` and `sticker_unlimited_until > now`.
 - Existing `ShopManager._activate_sticker_item()` already sets `sticker_unlimited_until` for 24 hours on purchase.
+- `/shop` display now includes the user's current coin balance before the product list.
 
 ### 2026-05-20 (HF Webhook Migration — этап 1 completed)
 - Tightened HF webhook runtime: disabled module imports (`shop`, `games`, `dnd`, `watch`, `background`) are now deferred to local/dev polling runtime only; HF webhook mode never imports them.

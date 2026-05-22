@@ -6,7 +6,7 @@ Implements shop display formatting with Russian text and command handling
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
-from database.database import ShopItem, get_db
+from database.database import ShopItem, User, get_db
 import structlog
 
 logger = structlog.get_logger()
@@ -36,12 +36,21 @@ class ShopHandler:
 
             # Get all active shop items
             shop_items = self.get_shop_items()
+            user_balance = self.get_user_balance(user_id)
 
             if not shop_items:
-                return "🛒 МАГАЗИН\n\nМагазин временно пуст. Попробуйте позже."
+                return (
+                    "🛒 МАГАЗИН\n\n"
+                    f"💰 Ваш баланс: {user_balance} монет\n\n"
+                    "Магазин временно пуст. Попробуйте позже."
+                )
 
             # Build the shop display message
-            message_lines = ["🛒 МАГАЗИН\n"]
+            message_lines = [
+                "🛒 МАГАЗИН",
+                f"💰 Ваш баланс: {user_balance} монет",
+                "",
+            ]
 
             for i, item in enumerate(shop_items, 1):
                 # Format each item with number, name, description, and price
@@ -85,6 +94,18 @@ class ShopHandler:
         except Exception as e:
             logger.error(f"Error retrieving shop items: {e}")
             return []
+
+    def get_user_balance(self, telegram_id: int) -> int:
+        """Получить баланс пользователя для отображения в магазине."""
+        try:
+            if not self.db:
+                self.db = next(get_db())
+
+            user = self.db.query(User).filter(User.telegram_id == telegram_id).first()
+            return int(user.balance) if user and user.balance is not None else 0
+        except Exception as e:
+            logger.error(f"Error retrieving user balance for shop: {e}")
+            return 0
 
     def get_shop_item_by_number(self, item_number: int) -> Optional[ShopItem]:
         """
