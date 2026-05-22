@@ -90,10 +90,11 @@ def get_services(context: ContextTypes.DEFAULT_TYPE) -> Services:
     Returns:
         Services с открытой сессией БД
     """
-    if _DI_KEY not in context.chat_data:
+    data = context.chat_data if context.chat_data is not None else context.bot_data
+    if _DI_KEY not in data:
         session: Session = SessionLocal()
         user_repo = UserRepository(session)
-        context.chat_data[_DI_KEY] = Services(
+        data[_DI_KEY] = Services(
             session=session,
             user_repo=user_repo,
             user_service=UserService(user_repo),
@@ -101,12 +102,16 @@ def get_services(context: ContextTypes.DEFAULT_TYPE) -> Services:
             shop_service=ShopService(user_repo),
             transaction_service=TransactionService(user_repo),
         )
-    return context.chat_data[_DI_KEY]
+    return data[_DI_KEY]
 
 
 def close_services(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Закрывает сессию и удаляет сервисы из context."""
-    svc = context.chat_data.pop(_DI_KEY, None)
+    data = context.chat_data if context.chat_data is not None else context.bot_data
+    if data is None:
+        return
+
+    svc = data.pop(_DI_KEY, None)
     if svc:
         svc.close()
 
