@@ -4,6 +4,7 @@ import asyncio
 import os
 import signal
 import time
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,7 +17,7 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
-from database.database import get_db
+from database.database import get_db, engine
 from database.schema import ensure_schema_up_to_date
 from core.systems.motivation_system import MotivationSystem
 from utils.monitoring.notification_system import NotificationSystem
@@ -92,6 +93,8 @@ import structlog
 
 POLLING_RETRY_DELAY_SECONDS = 5
 TELEGRAM_DEFAULT_BASE_URL = "https://api.telegram.org/bot/"
+STICKER_LIMIT_PER_HOUR = 5
+STICKER_LIMIT_WINDOW_SECONDS = 60 * 60
 HF_WEBHOOK_DISABLED_COMMANDS = {
     "shop",
     "buy_contact",
@@ -580,6 +583,9 @@ class TelegramBot:
 
         # Обработка всех сообщений
         self.application.add_handler(
+            MessageHandler(filters.Sticker.ALL, self.moderate_sticker_message), group=-3
+        )
+        self.application.add_handler(
             MessageHandler(filters.ALL, self.log_all_updates), group=-2
         )
         self.application.add_handler(
@@ -587,6 +593,147 @@ class TelegramBot:
         )
 
         logger.info("All enhanced handlers set up successfully")
+
+    async def moderate_sticker_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Удалять стикеры сверх лимита 5 стикеров в час на пользователя в чате."""
+        from sqlalchemy import text
+
+        message = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+
+        if not message or not user or not chat or not message.sticker:
+            return
+
+        now = datetime.utcnow()
+        window_start = now - timedelta(seconds=STICKER_LIMIT_WINDOW_SECONDS)
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS sticker_usage_events (
+                            id SERIAL PRIMARY KEY,
+                            chat_id BIGINT NOT NULL,
+                            user_id BIGINT NOT NULL,
+                            message_id BIGINT NOT NULL,
+                            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_sticker_usage_chat_user_created
+                        ON sticker_usage_events (chat_id, user_id, created_at)
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        DELETE FROM sticker_usage_events
+                        WHERE created_at < :cleanup_before
+                        """
+                    ),
+                    {"cleanup_before": now - timedelta(hours=2)},
+                )
+                recent_count = conn.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM sticker_usage_events
+                        WHERE chat_id = :chat_id
+                          AND user_id = :user_id
+                          AND created_at >= :window_start
+                        """
+                    ),
+                    {
+                        "chat_id": chat.id,
+                        "user_id": user.id,
+                        "window_start": window_start,
+                    },
+                ).scalar_one()
+
+                if recent_count < STICKER_LIMIT_PER_HOUR:
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO sticker_usage_events
+                                (chat_id, user_id, message_id, created_at)
+                            VALUES
+                                (:chat_id, :user_id, :message_id, :created_at)
+                            """
+                        ),
+                        {
+                            "chat_id": chat.id,
+                            "user_id": user.id,
+                            "message_id": message.message_id,
+                            "created_at": now,
+                        },
+                    )
+                    return
+        except Exception as e:
+            logger.warning(
+                "Sticker rate-limit DB check failed",
+                chat_id=chat.id,
+                user_id=user.id,
+                message_id=message.message_id,
+                error=str(e),
+            )
+            return
+
+        try:
+            await context.bot.delete_message(
+                chat_id=chat.id,
+                message_id=message.message_id,
+            )
+            logger.info(
+                "Deleted sticker over hourly limit",
+                chat_id=chat.id,
+                user_id=user.id,
+                message_id=message.message_id,
+                limit=STICKER_LIMIT_PER_HOUR,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to delete sticker over hourly limit",
+                chat_id=chat.id,
+                user_id=user.id,
+                message_id=message.message_id,
+                error=str(e),
+            )
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO sticker_usage_events
+                            (chat_id, user_id, message_id, created_at)
+                        VALUES
+                            (:chat_id, :user_id, :message_id, :created_at)
+                        """
+                    ),
+                    {
+                        "chat_id": chat.id,
+                        "user_id": user.id,
+                        "message_id": message.message_id,
+                        "created_at": now,
+                    },
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to record deleted sticker usage",
+                chat_id=chat.id,
+                user_id=user.id,
+                message_id=message.message_id,
+                error=str(e),
+            )
 
     def setup_error_handler(self):
         """Настройка обработчика ошибок через PTB add_error_handler."""

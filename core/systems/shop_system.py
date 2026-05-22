@@ -34,104 +34,13 @@ class EnhancedShopSystem:
         self.db.commit()
 
     def initialize_default_items(self):
-        """Инициализация стандартных товаров"""
+        """Инициализация стандартных товаров отключена.
 
-        # Получаем категории
-        categories = {cat.name: cat.id for cat in self.db.query(ShopCategory).all()}
+        Магазин наполняется вручную через админские инструменты, поэтому новые
+        запуски бота больше не создают демонстрационные товары автоматически.
+        """
 
-        items_data = [
-            # Стикеры и медиа
-            {
-                "category_id": categories.get("Стикеры и медиа"),
-                "name": "Безлимитные стикеры (24ч)",
-                "description": "Неограниченное использование стикеров на 24 часа",
-                "price": 100,
-                "item_type": "sticker",
-                "meta_data": {"duration_hours": 24, "activation_type": "unlimited_stickers"},
-                "cooldown_hours": 24
-            },
-            {
-                "category_id": categories.get("Стикеры и медиа"),
-                "name": "Премиум стикерпак",
-                "description": "Эксклюзивный набор премиум стикеров",
-                "price": 100,
-                "item_type": "sticker",
-                "meta_data": {"sticker_pack": "premium", "activation_type": "sticker_pack"},
-                "purchase_limit": 1
-            },
-
-            # Привилегии
-            {
-                "category_id": categories.get("Привилегии"),
-                "name": "Админка на день",
-                "description": "Права администратора чата на 24 часа",
-                "price": 100,
-                "item_type": "privilege",
-                "meta_data": {"privilege_type": "admin_day", "duration_hours": 24,
-                              "activation_type": "admin_privileges"},
-                "cooldown_hours": 168  # неделя
-            },
-            {
-                "category_id": categories.get("Привилегии"),
-                "name": "VIP статус (неделя)",
-                "description": "Специальный статус и дополнительные возможности",
-                "price": 100,
-                "item_type": "privilege",
-                "meta_data": {"privilege_type": "vip_week", "duration_hours": 168, "activation_type": "vip_privileges"},
-                "cooldown_hours": 168
-            },
-
-            # Игровые бусты
-            {
-                "category_id": categories.get("Игровые бусты"),
-                "name": "Двойной опыт (2ч)",
-                "description": "Удвоение получаемого опыта в играх на 2 часа",
-                "price": 100,
-                "item_type": "boost",
-                "meta_data": {"boost_type": "xp_multiplier", "multiplier": 2.0, "duration_hours": 2,
-                              "activation_type": "experience_boost"},
-                "cooldown_hours": 24
-            },
-            {
-                "category_id": categories.get("Игровые бусты"),
-                "name": "Бонус к балансу (+100)",
-                "description": "Мгновенное начисление 100 банковских монет",
-                "price": 100,
-                "item_type": "boost",
-                "meta_data": {"boost_type": "balance_bonus", "amount": 100, "activation_type": "balance_bonus"}
-            },
-
-            # Кастомный контент
-            {
-                "category_id": categories.get("Кастомный контент"),
-                "name": "Персональная команда",
-                "description": "Создание собственной команды для бота",
-                "price": 100,
-                "item_type": "custom",
-                "meta_data": {"custom_type": "personal_command", "activation_type": "custom_command"},
-                "purchase_limit": 1
-            },
-            {
-                "category_id": categories.get("Кастомный контент"),
-                "name": "Кастомный заголовок",
-                "description": "Уникальный заголовок профиля",
-                "price": 100,
-                "item_type": "custom",
-                "meta_data": {"custom_type": "custom_title", "activation_type": "custom_title"},
-                "purchase_limit": 1
-            }
-        ]
-
-        for item_data in items_data:
-            if item_data["category_id"]:
-                existing = self.db.query(ShopItem).filter(
-                    ShopItem.name == item_data["name"]
-                ).first()
-                if not existing:
-                    item = ShopItem(**item_data)
-                    self.db.add(item)
-
-        self.db.commit()
+        logger.info("Default shop item initialization skipped")
 
     def get_shop_catalog(self) -> Dict:
         """Получение полного каталога магазина"""

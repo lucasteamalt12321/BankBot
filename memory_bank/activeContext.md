@@ -1,7 +1,7 @@
 # Active Context
 
 ## Текущий фокус
-**Деплой на Hugging Face и отладка сети.** Настройка бота для работы в среде Hugging Face Spaces, обход сетевых ограничений через `base_url` и проверку доступности Telegram API.
+**Vercel production и реализация магазина.** Бот переведён на Vercel serverless webhook с Supabase PostgreSQL; начата переработка магазина с пустого каталога перед добавлением новых товаров.
 
 ## Active Scope Change — HF Webhook Migration
 **Status:** этап 1 completed locally, awaiting user approval to commit/push. Canonical detailed plan: `memory_bank/hf_webhook_migration_plan.md`.

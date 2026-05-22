@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Initialize shop with default items
-This script creates the basic shop categories and items needed for the bot to function
+Initialize an empty shop category scaffold.
+
+Default/demo shop items are intentionally not created. The production shop is
+filled manually through admin tools.
 """
 
 import os
@@ -17,7 +19,7 @@ logger = structlog.get_logger()
 
 
 def initialize_shop():
-    """Initialize shop with default categories and items"""
+    """Initialize shop categories without creating default items."""
 
     try:
         db = next(get_db())
@@ -28,7 +30,7 @@ def initialize_shop():
             print(f"Shop already has {existing_items} items. Skipping initialization.")
             return
 
-        print("Initializing shop categories and items...")
+        print("Initializing empty shop categories...")
 
         # Create default category
         category = ShopCategory(
@@ -41,55 +43,7 @@ def initialize_shop():
         db.commit()
         db.refresh(category)
 
-        # Create default shop items
-        default_items = [
-            {
-                "category_id": category.id,
-                "name": "Безлимитные стикеры на 24 часа",
-                "description": "Получите возможность отправлять неограниченное количество стикеров в течение 24 часов",
-                "price": 100,
-                "item_type": "sticker",
-                "meta_data": {"duration_hours": 24, "activation_type": "unlimited_stickers"},
-                "cooldown_hours": 24,
-                "is_active": True
-            },
-            {
-                "category_id": category.id,
-                "name": "Запрос на админ-права",
-                "description": "Отправить запрос владельцу бота на получение прав администратора",
-                "price": 100,
-                "item_type": "admin_request",
-                "meta_data": {"activation_type": "admin_request"},
-                "purchase_limit": 1,
-                "cooldown_hours": 168,  # 1 week
-                "is_active": True
-            },
-            {
-                "category_id": category.id,
-                "name": "Рассылка сообщения всем пользователям",
-                "description": "Отправить ваше сообщение всем пользователям бота",
-                "price": 100,
-                "item_type": "broadcast",
-                "meta_data": {"activation_type": "broadcast_message"},
-                "cooldown_hours": 24,
-                "is_active": True
-            }
-        ]
-
-        for item_data in default_items:
-            item = ShopItem(**item_data)
-            db.add(item)
-
-        db.commit()
-
-        print(f"Successfully initialized shop with {len(default_items)} items!")
-
-        # Display created items
-        items = db.query(ShopItem).filter(ShopItem.is_active).all()
-        print("\nCreated shop items:")
-        for i, item in enumerate(items, 1):
-            print(f"{i}. {item.name} - {item.price} монет")
-            print(f"   {item.description}")
+        print("Shop categories initialized. No default items were created.")
 
     except Exception as e:
         logger.error(f"Error initializing shop: {e}")

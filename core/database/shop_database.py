@@ -75,30 +75,8 @@ class ShopDatabaseManager:
         conn.close()
 
     def initialize_default_items(self):
-        """Initialize the three default shop items"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        # Check if items already exist
-        cursor.execute("SELECT COUNT(*) FROM shop_items")
-        count = cursor.fetchone()[0]
-
-        if count == 0:
-            default_items = [
-                ('Безлимитные стикеры на 24 часа', 100, 'Получите возможность отправлять неограниченное количество стикеров в течение 24 часов'),
-                ('Запрос на админ-права', 100, 'Отправить запрос владельцу бота на получение прав администратора'),
-                ('Рассылка сообщения всем пользователям', 100, 'Отправить ваше сообщение всем пользователям бота')
-            ]
-
-            for name, price, description in default_items:
-                cursor.execute("""
-                INSERT INTO shop_items (name, price, description, is_active)
-                VALUES (?, ?, ?, TRUE)
-                """, (name, price, description))
-
-            conn.commit()
-
-        conn.close()
+        """Default/demo item initialization is intentionally disabled."""
+        return
 
     def get_shop_items(self) -> List[ShopItem]:
         """Get all active shop items"""

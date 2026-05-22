@@ -20,6 +20,19 @@
 
 ## Changelog
 
+### 2026-05-22 (Shop reset for new catalog)
+- Started shop implementation/reset phase for Vercel production.
+- Disabled automatic creation of demo/default shop items in `EnhancedShopSystem.initialize_default_items()`, legacy SQLite `ShopDatabaseManager.initialize_default_items()`, and `scripts/initialize_shop.py`.
+- Production Supabase shop cleanup: deactivated all active rows in `shop_items` instead of deleting them, preserving historical `user_purchases` references. Result: `active_before=8`, `deactivated=8`, `active_after=0`.
+- Verification: `python3 -m ruff check core/systems/shop_system.py core/database/shop_database.py scripts/initialize_shop.py` -> passed; `python3 -m py_compile ...` -> passed.
+
+### 2026-05-22 (Sticker hourly moderation)
+- Added sticker moderation in `bot/bot.py`: per chat/user PostgreSQL-backed rolling window allows up to 5 stickers per hour; stickers over the limit are deleted automatically.
+- The sticker counter stores events in `sticker_usage_events`, so Vercel serverless cold starts and multiple instances do not reset the hourly limit.
+- Handler is registered before generic message logging (`group=-3`) with `filters.Sticker.ALL`.
+- Deletion failures are logged safely; Telegram requires the bot to be a chat admin with delete-message permission.
+- Verification: `python3 -m ruff check bot/bot.py` -> passed; `python3 -m py_compile bot/bot.py` -> passed.
+
 ### 2026-05-20 (HF Webhook Migration — этап 1 completed)
 - Tightened HF webhook runtime: disabled module imports (`shop`, `games`, `dnd`, `watch`, `background`) are now deferred to local/dev polling runtime only; HF webhook mode never imports them.
 - Added webhook security smoke tests (`tests/smoke/test_startup.py`): route existence, invalid secret rejection (404), invalid header rejection (401).
@@ -177,7 +190,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- df5bcc4b9f71bf1cf6d8a2ad68cf331faed9b4f6 (2026-05-19, response mode scope change checked locally)
+- 8fa142a (2026-05-22, shop reset + sticker moderation changes pending commit)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
