@@ -366,6 +366,7 @@ class TelegramBot:
             # Админ-команды
             CommandHandler("admin", self.admin_command),
             CommandHandler("add_points", self.add_points_command),
+            CommandHandler("add_coins", self.add_points_command),
             CommandHandler("add_admin", self.add_admin_command),
             CommandHandler(
                 "admin_stats",
