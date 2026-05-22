@@ -1,12 +1,11 @@
 # commands.py
-"""Trivia game command and callback handlers."""
+"""Trivia game command and poll answer handlers."""
 
 import html
 import random
 import time
-import uuid
 import structlog
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.database import get_db
@@ -20,7 +19,7 @@ GAME_TIMEOUT_SECONDS = 60
 
 
 async def trivia_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start a new trivia game in the current chat."""
+    """Start a new native Telegram trivia poll in the current chat."""
     message = update.effective_message
     chat = update.effective_chat
     if not message or not chat:
@@ -49,84 +48,92 @@ async def trivia_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     random.shuffle(options)
     correct_shuffled_index = options.index(correct_text)
 
-    # Unique game identifier
-    game_id = uuid.uuid4().hex[:12]
+    try:
+        # Send native Telegram poll (Quiz type, non-anonymous so we can see the voters)
+        poll_message = await context.bot.send_poll(
+            chat_id=chat.id,
+            question=question_text[:300],  # Telegram limit 300
+            options=[opt[:100] for opt in options],  # Telegram limit 100 per option
+            type="quiz",
+            correct_option_id=correct_shuffled_index,
+            is_anonymous=False,
+            explanation=f"Справка: {question['explanation']}"[:200],  # Telegram limit 200
+        )
+    except Exception as poll_err:
+        logger.error("Failed to send native trivia poll", error=str(poll_err))
+        await message.reply_text("❌ Не удалось отправить опрос. Пожалуйста, попробуйте позже.")
+        return
 
-    # Store active game info
-    active_games[chat.id] = {
-        "game_id": game_id,
-        "question_id": question["id"],
+    # Store active game info mapped by both chat_id (for spam protection) and poll_id (for answer handling)
+    game_state = {
+        "chat_id": chat.id,
+        "poll_message_id": poll_message.message_id,
         "question_text": question_text,
-        "correct_shuffled_index": correct_shuffled_index,
+        "correct_option_id": correct_shuffled_index,
         "correct_text": correct_text,
         "explanation": question["explanation"],
         "started_at": now,
     }
+    
+    active_games[chat.id] = game_state
+    
+    active_polls = context.bot_data.setdefault("active_polls", {})
+    active_polls[poll_message.poll.id] = game_state
 
-    # Build inline buttons (1 per row for clean display of options)
-    keyboard = []
-    for idx, option in enumerate(options):
-        keyboard.append([
-            InlineKeyboardButton(
-                option,
-                callback_data=f"trivia:{game_id}:{idx}"
-            )
-        ])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    welcome_msg = (
-        "🧠 <b>Брейн-Ринг по Канону Олеговируса!</b>\n"
-        "Первый ответивший правильно забирает <b>25 монет</b>!\n\n"
-        f"❓ <b>Вопрос:</b> {html.escape(question_text)}"
+    logger.info(
+        "Trivia native poll started",
+        chat_id=chat.id,
+        poll_id=poll_message.poll.id,
+        question_id=question["id"]
     )
 
-    await message.reply_text(welcome_msg, reply_markup=reply_markup, parse_mode="HTML")
-    logger.info("Trivia game started", chat_id=chat.id, game_id=game_id, question_id=question["id"])
 
-
-async def trivia_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process clicks on trivia inline buttons."""
-    query = update.callback_query
-    if not query:
+async def trivia_poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process native Telegram poll answers."""
+    poll_answer = update.poll_answer
+    if not poll_answer:
         return
 
-    chat = update.effective_chat
-    user = update.effective_user
-    if not chat or not user:
+    poll_id = poll_answer.poll_id
+    user = poll_answer.user
+    if not user:
         return
 
-    parts = query.data.split(":")
-    if len(parts) != 3:
+    active_polls = context.bot_data.setdefault("active_polls", {})
+    game_info = active_polls.get(poll_id)
+    if not game_info:
+        return  # Already resolved or not our poll
+
+    selected_idx = poll_answer.option_ids[0] if poll_answer.option_ids else None
+    if selected_idx is None:
         return
 
-    _, game_id, selected_idx_str = parts
-    try:
-        selected_idx = int(selected_idx_str)
-    except ValueError:
-        return
-
-    active_games = context.bot_data.setdefault("active_trivia", {})
-    game_info = active_games.get(chat.id)
-
-    if not game_info or game_info["game_id"] != game_id:
-        await query.answer("⚠️ Эта викторина уже завершилась или устарела!", show_alert=True)
-        return
-
-    correct_idx = game_info["correct_shuffled_index"]
+    correct_idx = game_info["correct_option_id"]
 
     if selected_idx != correct_idx:
-        await query.answer("❌ Неверно! Попробуйте другие варианты.", show_alert=True)
+        # Wrong answer, do nothing (other users can still attempt)
         logger.info(
-            "Trivia incorrect attempt",
-            chat_id=chat.id,
+            "Trivia poll incorrect attempt",
+            poll_id=poll_id,
             user_id=user.id,
-            game_id=game_id,
             selected=selected_idx,
         )
         return
 
-    # User answered correctly! Close the game first to prevent race conditions
-    active_games.pop(chat.id, None)
+    # First correct answer wins! Close the game first to prevent race conditions
+    active_polls.pop(poll_id, None)
+    
+    active_games = context.bot_data.setdefault("active_trivia", {})
+    active_games.pop(game_info["chat_id"], None)
+
+    chat_id = game_info["chat_id"]
+    poll_message_id = game_info["poll_message_id"]
+
+    try:
+        # Stop/close the poll
+        await context.bot.stop_poll(chat_id=chat_id, message_id=poll_message_id)
+    except Exception as stop_err:
+        logger.warning("Failed to stop poll", error=str(stop_err))
 
     # Award coins via TriviaService
     db = next(get_db())
@@ -142,9 +149,9 @@ async def trivia_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         )
     except Exception as e:
         logger.error("Failed to award trivia coins", error=str(e), user_id=user.id)
-        await query.answer("⚠️ Ошибка при начислении награды.", show_alert=True)
-        # Restore game in case of database error
-        active_games[chat.id] = game_info
+        # Restore the game state in case of database error
+        active_polls[poll_id] = game_info
+        active_games[chat_id] = game_info
         return
     finally:
         db.close()
@@ -152,23 +159,18 @@ async def trivia_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     winner_name = f"@{user.username}" if user.username else html.escape(user.first_name or "Игрок")
     
     success_text = (
-        "🎉 <b>Брейн-Ринг завершён!</b>\n\n"
-        f"Победитель: {winner_name} (забирает <b>+25 монет</b>!)\n"
+        f"🎉 <b>Поздравляем!</b> {winner_name} первым ответил(а) правильно и забирает <b>+{TRIVIA_COINS_REWARD} монет</b>!\n"
         f"💳 Новый баланс: {new_balance} монет\n\n"
-        f"❓ <b>Вопрос:</b> {html.escape(game_info['question_text'])}\n"
-        f"✅ <b>Правильный ответ:</b> {html.escape(game_info['correct_text'])}\n\n"
         f"📖 <b>Справка по канону:</b> {html.escape(game_info['explanation'])}"
     )
 
     try:
-        # Edit the message to show results and remove buttons
-        await query.edit_message_text(success_text, parse_mode="HTML")
-        await query.answer("🎉 Правильно! +25 монет на баланс!")
-    except Exception as edit_err:
-        logger.warning("Failed to edit trivia message", error=str(edit_err))
-        # Fallback to direct reply if message couldn't be edited
+        # Reply under the poll message
         await context.bot.send_message(
-            chat_id=chat.id,
+            chat_id=chat_id,
             text=success_text,
+            reply_to_message_id=poll_message_id,
             parse_mode="HTML"
         )
+    except Exception as msg_err:
+        logger.warning("Failed to send trivia success message", error=str(msg_err))

@@ -98,6 +98,8 @@ class TemplateCoderDialog:
         return True
 
     def _get_state(self, context: ContextTypes.DEFAULT_TYPE) -> CoderState:
+        if context.chat_data is None:
+            return self.service.empty_state()
         raw = context.chat_data.get(self.state_key)
         if isinstance(raw, CoderState):
             return raw
@@ -114,4 +116,5 @@ class TemplateCoderDialog:
         context: ContextTypes.DEFAULT_TYPE,
         state: CoderState,
     ) -> None:
-        context.chat_data[self.state_key] = state
+        if context.chat_data is not None:
+            context.chat_data[self.state_key] = state

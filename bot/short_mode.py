@@ -10,7 +10,12 @@ DEFAULT_SHORT_MODE = True
 def is_short_mode(context) -> bool:
     """Return true when concise bot replies are enabled for user or globally."""
     bot_data = getattr(context, "bot_data", {})
+    if bot_data is None:
+        bot_data = {}
     user_data = getattr(context, "user_data", {})
+    if user_data is None:
+        user_data = {}
+
     if SHORT_MODE_KEY in user_data:
         return bool(user_data[SHORT_MODE_KEY])
     if GLOBAL_SHORT_MODE_KEY in bot_data:

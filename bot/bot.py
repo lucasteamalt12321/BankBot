@@ -84,7 +84,7 @@ from bot.commands.admin_commands_ptb import (
     admin_parsing_config_command,
 )
 from bot.template_coder import TemplateCoderDialog
-from bot.trivia.commands import trivia_command, trivia_callback_handler
+from bot.trivia.commands import trivia_command, trivia_poll_answer_handler
 from bot.short_mode import long_all_command, long_command, short_all_command, short_command
 from core.managers.background_task_manager import BackgroundTaskManager
 from core.managers.sticker_manager import StickerManager
@@ -580,8 +580,9 @@ class TelegramBot:
             self.application.add_handler(handler)
             logger.info(f"Added handler: {handler.callback.__name__}")
 
-        # Обработка колбэков
-        self.application.add_handler(CallbackQueryHandler(trivia_callback_handler, pattern="^trivia:"))
+        # Обработка опросов и колбэков
+        from telegram.ext import PollAnswerHandler
+        self.application.add_handler(PollAnswerHandler(trivia_poll_answer_handler))
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
         # Явный fallback для команд с упоминанием бота (/start@bot_username)
