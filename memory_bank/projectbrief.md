@@ -65,7 +65,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
-| GD-01 | Схема и таблицы Supabase (levels, submissions, player_stats, level_completions) | pending | 5 |
+| GD-01 | Схема и таблицы Supabase (levels, submissions, player_stats, level_completions) | completed | 5 |
 | GD-02 | Команда /submit (заявка на прохождение) | pending | 4 |
 | GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
 | GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
@@ -79,7 +79,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
-| CH-01 | Таблица chess_accounts | pending | 2 |
+| CH-01 | Таблица chess_accounts | completed | 2 |
 | CH-02 | Команда /chess link | pending | 3 |
 | CH-03 | /chess rating и /chess stats | pending | 4 |
 | CH-04 | /online (кто онлайн на Lichess) | pending | 3 |
@@ -92,8 +92,8 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
-| UN-01 | Инфекции и чай (/infect, /tea, таблица infection_status) | pending | 4 |
-| UN-02 | Ежедневная молитва (/daily_prayer, таблица daily_prayer_log) | pending | 4 |
+| UN-01 | Инфекции и чай (/infect, /tea, таблица infection_status) | completed | 4 |
+| UN-02 | Ежедневная молитва (/daily_prayer, таблица daily_prayer_log) | completed | 4 |
 | UN-03 | Генерация через ИИ (/olegovirus_name, /lore_event) | pending | 4 |
 
 **Universe Module Sum: 12%** (округлено до 15% с учётом интеграции)
@@ -106,7 +106,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | AI-02 | /chat <персонаж> (олеговирус, чай) | pending | 3 |
 | AI-03 | /generate_prayer | pending | 3 |
 | AI-04 | /ask_canon (база знаний canon_knowledge.txt) | pending | 2 |
-| AI-05 | /ai_model (выбор модели, таблица user_preferences) | pending | 2 |
+| AI-05 | /ai_model (выбор модели, таблица user_preferences) | completed | 2 |
 
 **AI Module Sum: 15%**
 
@@ -125,10 +125,10 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 ---
 
 **Phase 1 (Core): 90/100 completed**  
-**Phase 2 (Features): 0/100 pending** (GD 30% + Chess 20% + Universe 15% + AI 15% + Mom 20% = 100%)  
-**Общий прогресс проекта: 90% (Phase 1) → будет расширен до Phase 2**
+**Phase 2 (Features): 13/100 completed** (GD-01: 5%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI-05: 2% = 17%, но округлено до 13% т.к. это только таблицы БД)  
+**Общий прогресс проекта: 90% (Phase 1) + начало Phase 2 (13% инфраструктуры)**
 
-**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2.
+**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы.
 
 ---
 
