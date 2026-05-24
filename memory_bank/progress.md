@@ -20,6 +20,29 @@
 
 ## Changelog
 
+### 2026-05-24 (Phase 2: AI Manager Implementation)
+- **AI-01 completed:** Implemented `AIModelManager` in `bot/ai/model_manager.py` with full multi-provider support.
+- **Features:**
+  - Support for 3 provider types: Hugging Face Inference API, OpenRouter, local Ollama
+  - Automatic failover on errors (429, 403, 500, timeouts)
+  - Response caching with 5-minute TTL
+  - Configurable via environment variables (JSON or individual configs)
+  - Special method `generate_sentence(theme)` for Mom Module
+- **Configuration:** Added AI settings to `src/config.py` (both `Settings` and `DynamicSettings` classes):
+  - `AI_PROVIDERS` (JSON string)
+  - `HF_INFERENCE_TOKEN`, `HF_INFERENCE_MODEL`
+  - `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`
+  - `OLLAMA_ENABLED`, `OLLAMA_ENDPOINT`, `OLLAMA_MODEL`
+- **Environment example:** Updated `config/.env.shared.example` with AI configuration section.
+- **Tests:** Created `tests/unit/test_ai_model_manager.py` with 13 tests covering:
+  - Provider initialization (no providers, single, multiple)
+  - Cache functionality (key generation, storage, expiration)
+  - API calls (HF success, failover, all fail scenarios)
+  - Special methods (generate_sentence)
+- **Verification:** All 13 tests passed, ruff 0 errors, py_compile passed.
+- **Deliverable status:** AI-01 (5%) completed. Phase 2 progress: 18/100.
+- **Next steps:** Implement AI commands (AI-02, AI-03, AI-04) → Start Mom Module.
+
 ### 2026-05-24 (Phase 2 Infrastructure — Database Schema)
 - **Phase 2 Planning:** Created comprehensive implementation plan for 5 new modules (GD, Chess, Universe, AI, Mom) with total weight 100%.
 - **Memory Bank sync:** Updated `projectbrief.md` with Phase 2 deliverables (30 new items: GD-01 to GD-07, CH-01 to CH-06, UN-01 to UN-03, AI-01 to AI-05, MOM-01 to MOM-05).
