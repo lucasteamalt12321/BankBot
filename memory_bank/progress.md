@@ -1,8 +1,8 @@
 # Progress
 
 ## Статус проекта
-**Процент выполнения:** 90% по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** implementation этапа 1 для HF webhook migration и runtime-scope reduction
+**Процент выполнения:** 90% (Phase 1) по `memory_bank/projectbrief.md` / `## Project Deliverables`
+**Текущая фаза:** Phase 2 Feature Expansion — инфраструктура БД завершена, начало реализации модулей
 
 ## Known Issues
 
@@ -19,6 +19,23 @@
 - ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
 
 ## Changelog
+
+### 2026-05-24 (Phase 2 Infrastructure — Database Schema)
+- **Phase 2 Planning:** Created comprehensive implementation plan for 5 new modules (GD, Chess, Universe, AI, Mom) with total weight 100%.
+- **Memory Bank sync:** Updated `projectbrief.md` with Phase 2 deliverables (30 new items: GD-01 to GD-07, CH-01 to CH-06, UN-01 to UN-03, AI-01 to AI-05, MOM-01 to MOM-05).
+- **Active context update:** Changed focus from Trivia game to Phase 2 Feature Expansion in `activeContext.md`.
+- **Detailed plan:** Created `memory_bank/phase2_implementation_plan.md` with execution order, time estimates (29-41 hours), and risk analysis.
+- **Migration 009:** Created Alembic migration `database/alembic/versions/009_phase2_tables.py` for all Phase 2 tables.
+- **SQLAlchemy models:** Added 9 new models to `database/database.py`:
+  - GD Module: `Level`, `Submission`, `PlayerStats`, `LevelCompletion`
+  - Chess Module: `ChessAccount`, `UserCoins`
+  - Universe Module: `InfectionStatus`, `DailyPrayerLog`
+  - AI Module: `UserPreferences`
+- **SQL script:** Created `database/migrations/009_phase2_tables_supabase.sql` for manual Supabase application.
+- **Python script:** Created `scripts/apply_migration_009_supabase.py` for automated migration (encountered connection timeouts).
+- **Documentation:** Created `docs/APPLY_MIGRATION_009.md` with instructions for manual migration via Supabase Dashboard.
+- **Verification:** All code passes `ruff check` and `py_compile`. Migration ready for application to Supabase.
+- **Next steps:** Apply migration to Supabase → Implement AI Manager (AI-01) → Start Mom Module and GD Core.
 
 ### 2026-05-24 (Shop price update and AI knowledge expansion)
 - **Issue:** User reported bot not responding after multiple commits. Root cause: incorrect Supabase password in Vercel environment variables caused authentication failures and circuit breaker activation.
@@ -227,7 +244,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- c849fe4 (2026-05-24, shop price update and AI knowledge expansion)
+- f5ca227 (2026-05-24, Phase 2 infrastructure preparation)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
