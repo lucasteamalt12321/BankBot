@@ -20,6 +20,30 @@
 
 ## Changelog
 
+### 2026-05-24 (Shop price update and AI knowledge expansion)
+- **Issue:** User reported bot not responding after multiple commits. Root cause: incorrect Supabase password in Vercel environment variables caused authentication failures and circuit breaker activation.
+- **Database connection fix:** Switched from direct Supabase URL (`db.xrrdliznuyausiutxqwv.supabase.co`) to Connection Pooler (`aws-0-eu-west-1.pooler.supabase.com:5432`) to resolve IPv6 connectivity issues on Vercel serverless.
+- **Shop item price update:** Reduced "Безлимит стикеров на 24 часа" price from 100 to 35 coins (20% of daily earnings with new balanced parsing coefficients).
+- **Migration 008:** Created Alembic migration `008_init_shop_sticker_item.py` to initialize shop category and sticker item with price 35 coins. Applied to Supabase via SQL Editor.
+- **AI knowledge expansion:** Added 7 new knowledge sections to `bot/ai/knowledge.py`:
+  - `bot_commands` — основные команды бота
+  - `parsing_games` — парсинг игровых валют (Shmalala, GD Cards, Гусь Cards)
+  - `exchange_rates` — курсы перевода валют (коэффициенты 0.8-1.5)
+  - `shop_items` — товары магазина
+  - `balance_profile` — управление балансом
+  - `trivia_game` — викторина по канону
+  - `response_modes` — режимы short/long
+- **AI now answers:** `/ai курс перевода`, `/ai как получить монеты`, `/ai что в магазине`, `/ai сколько стоит безлимит стикеров`
+- **Error handling fix:** Added try-except wrapper around `template_coder_dialog.handle_text()` in `bot/bot.py` to prevent crashes on ordinary messages (later reverted during troubleshooting).
+- **Environment setup:** Created `.env` file with correct Supabase Connection Pooler URL and bot token for local development.
+- **Scripts created:**
+  - `scripts/init_shop_items.py` — initialize shop items in SQLite
+  - `scripts/apply_migration_008_supabase.py` — apply migration via DATABASE_URL (Python)
+  - `database/migrations/008_update_sticker_price_supabase.sql` — SQL script for manual application
+  - `docs/APPLY_MIGRATION_008.md` — migration instructions
+- **Verification:** Bot restored to working state after updating DATABASE_URL on Vercel with correct password and Connection Pooler URL.
+- **Commands for BotFather:** Updated list of 13 main commands for bot menu.
+
 ### 2026-05-22 (Shop reset for new catalog)
 - Started shop implementation/reset phase for Vercel production.
 - Disabled automatic creation of demo/default shop items in `EnhancedShopSystem.initialize_default_items()`, legacy SQLite `ShopDatabaseManager.initialize_default_items()`, and `scripts/initialize_shop.py`.
@@ -203,7 +227,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- 5f0fe49 (2026-05-22, sticker moderation warning throttled to once per minute)
+- c849fe4 (2026-05-24, shop price update and AI knowledge expansion)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
