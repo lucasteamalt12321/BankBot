@@ -46,6 +46,11 @@ from bot.commands.ai_commands import (
     ai_update_knowledge_command,
     handle_ai_feedback_reply,
 )
+from bot.commands.ai_commands_ptb import (
+    chat_command,
+    generate_prayer_command,
+    ask_canon_command,
+)
 from bot.commands.feedback_commands import feedback_command, feedback_list_command
 from bot.commands.motivation_commands_ptb import (
     daily_bonus_command,
@@ -339,6 +344,10 @@ class TelegramBot:
                     self.admin_system,
                 ),
             ),
+            # Phase 2: AI Commands
+            CommandHandler("chat", chat_command),
+            CommandHandler("generate_prayer", generate_prayer_command),
+            CommandHandler("ask_canon", ask_canon_command),
             CommandHandler("feedback", feedback_command),
             CommandHandler("suggest", feedback_command),
             CommandHandler("complaint", feedback_command),

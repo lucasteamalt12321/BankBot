@@ -103,9 +103,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
 | AI-01 | Менеджер моделей (AIModelManager с автопереключением) | completed | 5 |
-| AI-02 | /chat <персонаж> (олеговирус, чай) | pending | 3 |
-| AI-03 | /generate_prayer | pending | 3 |
-| AI-04 | /ask_canon (база знаний canon_knowledge.txt) | pending | 2 |
+| AI-02 | /chat <персонаж> (олеговирус, чай) | completed | 3 |
+| AI-03 | /generate_prayer | completed | 3 |
+| AI-04 | /ask_canon (база знаний canon_knowledge.txt) | completed | 2 |
 | AI-05 | /ai_model (выбор модели, таблица user_preferences) | completed | 2 |
 
 **AI Module Sum: 15%**
@@ -125,10 +125,10 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 ---
 
 **Phase 1 (Core): 90/100 completed**  
-**Phase 2 (Features): 18/100 completed** (GD-01: 5%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI-01: 5%, AI-05: 2% = 22%, округлено до 18%)  
-**Общий прогресс проекта: 90% (Phase 1) + 18% (Phase 2)**
+**Phase 2 (Features): 26/100 completed** (GD-01: 5%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI-01: 5%, AI-02: 3%, AI-03: 3%, AI-04: 2%, AI-05: 2% = 30%, округлено до 26%)  
+**Общий прогресс проекта: 90% (Phase 1) + 26% (Phase 2)**
 
-**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. AI Manager (AI-01) реализован с поддержкой HF/OpenRouter/Ollama и автопереключением.
+**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. AI Module полностью завершён (AI-01 до AI-05): менеджер моделей, команды /chat, /generate_prayer, /ask_canon.
 
 ---
 

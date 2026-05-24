@@ -20,6 +20,25 @@
 
 ## Changelog
 
+### 2026-05-24 (Phase 2: AI Commands Implementation)
+- **AI-02, AI-03, AI-04 completed:** Implemented AI-powered commands in `bot/commands/ai_commands_ptb.py`.
+- **Commands:**
+  - `/chat <персонаж> <текст>` — диалог с олеговирусом или чаем (персонализированные промпты)
+  - `/generate_prayer` — генерация молитвы чайной религии через AI
+  - `/ask_canon <вопрос>` — вопросы по канону с использованием базы знаний
+- **Features:**
+  - Character prompts: олеговирус (кхм-кхм, навязчивый) и чай (мудрый, eight-nine)
+  - Prayer generation with keywords: чай, eight-nine, настой, кружка-алтарь
+  - Canon knowledge base: `data/canon_knowledge.txt` с информацией о вселенной
+  - Fallback: простой keyword search если AI недоступен
+  - Typing indicators, cache indicators, error handling
+- **Integration:** Commands registered in `bot/bot.py` after existing AI commands.
+- **Canon knowledge:** Created `data/canon_knowledge.txt` with lore about олеговирус, LTL-паразит, чайная религия.
+- **Deliverables completed:** AI-02 (3%), AI-03 (3%), AI-04 (2%). AI Module полностью завершён (15%).
+- **Phase 2 progress:** 18% → 26% (+8% за AI Commands).
+- **Verification:** ruff 0 errors, py_compile passed.
+- **Next steps:** Mom Module (MOM-01 → MOM-05, 20%) или Universe Module commands (UN-03).
+
 ### 2026-05-24 (Phase 2: AI Manager Implementation)
 - **AI-01 completed:** Implemented `AIModelManager` in `bot/ai/model_manager.py` with full multi-provider support.
 - **Features:**
