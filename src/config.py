@@ -132,7 +132,7 @@ class Settings(BaseSettings):
     AI_PROVIDERS: Optional[str] = Field(default=None)  # JSON string with provider configs
     HF_INFERENCE_TOKEN: Optional[str] = Field(default=None)
     HF_TOKEN: Optional[str] = Field(default=None)
-    HF_INFERENCE_MODEL: str = Field(default="microsoft/DialoGPT-small")
+    HF_INFERENCE_MODEL: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
     OPENROUTER_API_KEY: Optional[str] = Field(default=None)
     OPENROUTER_MODEL: str = Field(default="openai/gpt-3.5-turbo")
     OLLAMA_ENABLED: bool = Field(default=False)
@@ -291,7 +291,7 @@ def _create_settings_with_env_file(env_file: str | list[str] | None) -> Settings
         AI_PROVIDERS: Optional[str] = None  # JSON string with provider configs
         HF_INFERENCE_TOKEN: Optional[str] = None
         HF_TOKEN: Optional[str] = None
-        HF_INFERENCE_MODEL: str = "microsoft/DialoGPT-small"
+        HF_INFERENCE_MODEL: str = "Qwen/Qwen2.5-0.5B-Instruct"
         OPENROUTER_API_KEY: Optional[str] = None
         OPENROUTER_MODEL: str = "openai/gpt-3.5-turbo"
         OLLAMA_ENABLED: bool = False
