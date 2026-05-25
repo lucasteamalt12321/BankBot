@@ -1259,6 +1259,11 @@ class TelegramBot:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
         """Обработка сообщений - только ручной парсинг по команде 'парсинг'"""
+        # Проверка на наличие сообщения и текста
+        if not update.message or not update.message.text:
+            logger.debug("Message ignored (no text content)")
+            return
+        
         message_text = update.message.text
         chat = update.effective_chat
 
