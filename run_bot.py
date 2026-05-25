@@ -297,6 +297,70 @@ bot_transactions_24h {today_transactions}
         db.close()
 
 
+@app.route("/reading_generate", methods=["POST"])
+def reading_generate():
+    """Generate reading comprehension content for Mom Module."""
+    import json
+    import random
+    import os
+    
+    # TODO: Implement HF API integration
+    # For now, return fallback data
+    
+    fallback_sets = [
+        {
+            "sentences": [
+                "Кот спит.",
+                "Мама мыла раму.",
+                "Солнце светит ярко.",
+                "Дети играют в парке.",
+                "Папа читает книгу.",
+                "Бабушка печёт пирог."
+            ],
+            "questions": [
+                {"question": "Кто спит?", "answer": "кот"},
+                {"question": "Что делала мама?", "answer": "мыла раму"},
+                {"question": "Где играют дети?", "answer": "в парке"}
+            ]
+        },
+        {
+            "sentences": [
+                "Собака лает.",
+                "Птица поёт песню.",
+                "Дождь идёт сильно.",
+                "Цветы растут в саду.",
+                "Машина едет быстро.",
+                "Река течёт медленно."
+            ],
+            "questions": [
+                {"question": "Кто лает?", "answer": "собака"},
+                {"question": "Что делает птица?", "answer": "поёт песню"},
+                {"question": "Где растут цветы?", "answer": "в саду"}
+            ]
+        },
+        {
+            "sentences": [
+                "Мальчик рисует дом.",
+                "Девочка поёт песню.",
+                "Учитель пишет мелом.",
+                "Ученик читает текст.",
+                "Повар готовит суп.",
+                "Врач лечит людей."
+            ],
+            "questions": [
+                {"question": "Что рисует мальчик?", "answer": "дом"},
+                {"question": "Кто поёт песню?", "answer": "девочка"},
+                {"question": "Что готовит повар?", "answer": "суп"}
+            ]
+        }
+    ]
+    
+    # Select random set
+    result = random.choice(fallback_sets)
+    
+    return jsonify(result)
+
+
 @app.route("/telegram/webhook/<secret>", methods=["POST"])
 def telegram_webhook(secret: str):
     """Receive Telegram updates and pass them into PTB without polling."""

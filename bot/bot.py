@@ -492,6 +492,8 @@ class TelegramBot:
             CommandHandler("help", self.template_coder_dialog.help_command),
             # Викторина по канону
             CommandHandler("trivia", trivia_command),
+            # Mom Module: Тренажёр чтения
+            CommandHandler("reading_trainer", self.reading_trainer_command),
         ]
 
         if hf_webhook_runtime:
@@ -1034,6 +1036,33 @@ class TelegramBot:
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - персональная статистика."""
         await stats_command(update, context, get_db)
+
+    async def reading_trainer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /reading_trainer - тренажёр чтения и понимания для детей."""
+        if not update.message:
+            return
+        
+        # URL веб-приложения
+        app_url = "https://bank-bot.vercel.app/reading_trainer"
+        
+        # Создаём inline-кнопку
+        keyboard = [[InlineKeyboardButton("🧸 Открыть тренажёр", url=app_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "🧸 **Тренажёр чтения и понимания**\n\n"
+            "Приложение для тренировки чтения простых текстов.\n\n"
+            "📖 Что внутри:\n"
+            "• 6 простых предложений (3-4 слова)\n"
+            "• 2-3 вопроса по содержанию\n"
+            "• Проверка ответов\n"
+            "• Возможность вернуться к чтению\n"
+            "• Печать материалов одним листом\n"
+            "• Регулировка размера шрифта\n\n"
+            "Нажмите кнопку ниже, чтобы открыть в браузере:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
 
     async def disabled_in_hf_webhook_command(
         self,
