@@ -291,4 +291,6 @@ def telegram_webhook(secret: str):
         ), 500
 
 
+# Vercel expects 'app' or 'handler'
 application = app
+handler = app
