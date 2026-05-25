@@ -1050,7 +1050,7 @@ class TelegramBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            "🧸 **Тренажёр чтения и понимания**\n\n"
+            "🧸 Тренажёр чтения и понимания\n\n"
             "Приложение для тренировки чтения простых текстов.\n\n"
             "📖 Что внутри:\n"
             "• 6 простых предложений (3-4 слова)\n"
@@ -1060,8 +1060,7 @@ class TelegramBot:
             "• Печать материалов одним листом\n"
             "• Регулировка размера шрифта\n\n"
             "Нажмите кнопку ниже, чтобы открыть в браузере:",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
+            reply_markup=reply_markup
         )
 
     async def disabled_in_hf_webhook_command(
