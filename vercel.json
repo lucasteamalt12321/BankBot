@@ -1,31 +1,9 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/*.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/reading",
-      "dest": "api/reading.py"
-    },
-    {
-      "src": "/reading_trainer",
-      "dest": "api/reading_trainer.py"
-    },
-    {
-      "src": "/reading_generate",
-      "dest": "api/index.py"
-    },
-    {
-      "src": "/telegram/webhook/(.*)",
-      "dest": "api/index.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "api/index.py"
-    }
+  "rewrites": [
+    { "source": "/reading_trainer", "destination": "/api/reading_trainer" },
+    { "source": "/reading_generate", "destination": "/api/index" },
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/telegram/webhook/:path*", "destination": "/api/index" },
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
