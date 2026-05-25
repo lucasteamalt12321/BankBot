@@ -8,6 +8,10 @@
   ],
   "routes": [
     {
+      "src": "/reading",
+      "dest": "api/reading.py"
+    },
+    {
       "src": "/reading_trainer",
       "dest": "api/reading_trainer.py"
     },
