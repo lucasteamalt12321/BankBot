@@ -1042,8 +1042,8 @@ class TelegramBot:
         if not update.message:
             return
         
-        # URL веб-приложения
-        app_url = "https://bank-bot.vercel.app/reading_trainer"
+        # URL веб-приложения (статический HTML)
+        app_url = "https://bank-bot.vercel.app/reading_trainer.html"
         
         # Создаём inline-кнопку
         keyboard = [[InlineKeyboardButton("🧸 Открыть тренажёр", url=app_url)]]
@@ -1057,7 +1057,6 @@ class TelegramBot:
             "• 2-3 вопроса по содержанию\n"
             "• Проверка ответов\n"
             "• Возможность вернуться к чтению\n"
-            "• Печать материалов одним листом\n"
             "• Регулировка размера шрифта\n\n"
             "Нажмите кнопку ниже, чтобы открыть в браузере:",
             reply_markup=reply_markup
