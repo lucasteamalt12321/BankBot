@@ -1043,7 +1043,7 @@ class TelegramBot:
             return
         
         # URL веб-приложения (статический HTML)
-        app_url = "https://bank-bot.vercel.app/reading_trainer.html"
+        app_url = "https://bank-bot-ruby.vercel.app/reading_trainer.html"
         
         # Создаём inline-кнопку
         keyboard = [[InlineKeyboardButton("🧸 Открыть тренажёр", url=app_url)]]
