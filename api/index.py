@@ -120,15 +120,30 @@ def reading_trainer_index():
         from bot.web.reading_trainer import HTML_CONTENT
         from flask import Response
         return Response(HTML_CONTENT, mimetype='text/html')
+    except ImportError as e:
+        return jsonify({"error": "import_failed", "details": str(e), "type": "ImportError"}), 500
     except Exception as e:
-        return jsonify({"error": "failed_to_load", "details": str(e)}), 500
+        return jsonify({"error": "failed_to_load", "details": str(e), "type": type(e).__name__}), 500
 
 
 @app.route("/reading_trainer/<path:filename>")
 def reading_trainer_static(filename):
     """Serve reading trainer static files."""
     # All content is embedded in HTML, no separate files needed
-    return jsonify({"error": "not_found"}), 404
+    return jsonify({"error": "not_found", "filename": filename}), 404
+
+
+@app.route("/debug/routes")
+def debug_routes():
+    """Debug endpoint to list all routes."""
+    routes = []
+    for rule in app.url_map.iter_rules():
+        routes.append({
+            "endpoint": rule.endpoint,
+            "methods": list(rule.methods),
+            "path": str(rule)
+        })
+    return jsonify({"routes": routes})
 
 
 @app.route("/reading_generate", methods=["POST"])
