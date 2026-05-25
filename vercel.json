@@ -7,12 +7,12 @@
   },
   "routes": [
     {
-      "src": "/reading_trainer/(.*)",
-      "dest": "/webapp/reading_trainer/$1"
+      "src": "/reading_trainer",
+      "dest": "/public/reading_trainer/index.html"
     },
     {
-      "src": "/reading_trainer",
-      "dest": "/webapp/reading_trainer/index.html"
+      "src": "/reading_trainer/(.*)",
+      "dest": "/public/reading_trainer/$1"
     },
     {
       "src": "/(.*)",

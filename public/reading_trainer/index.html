@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Тренажёр чтения и понимания</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 16px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 24px;
+            color: #333;
+            text-align: center;
+        }
+
+        /* Экран чтения */
+        #reading-screen {
+            display: block;
+        }
+
+        #sentences {
+            margin: 32px 0;
+            line-height: 1.8;
+        }
+
+        .sentence {
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 16px;
+            transition: font-size 0.2s;
+        }
+
+        /* Экран вопросов */
+        #questions-screen {
+            display: none;
+        }
+
+        #question-container {
+            margin: 32px 0;
+        }
+
+        #question-text {
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 24px;
+            line-height: 1.6;
+            transition: font-size 0.2s;
+        }
+
+        #answer-input {
+            width: 100%;
+            padding: 16px;
+            font-size: 24px;
+            border: 3px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            transition: border-color 0.3s, background-color 0.3s;
+        }
+
+        #answer-input.correct {
+            border-color: #4CAF50;
+            background-color: #E8F5E9;
+        }
+
+        #answer-input.incorrect {
+            border-color: #f44336;
+            background-color: #FFEBEE;
+        }
+
+        #feedback {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 16px;
+            min-height: 30px;
+            text-align: center;
+        }
+
+        #feedback.correct {
+            color: #4CAF50;
+        }
+
+        #feedback.incorrect {
+            color: #f44336;
+        }
+
+        /* Кнопки */
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        button {
+            flex: 1;
+            min-width: 120px;
+            padding: 16px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .btn-primary {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1976D2;
+        }
+
+        .btn-secondary {
+            background: #757575;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #616161;
+        }
+
+        .btn-success {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #388E3C;
+        }
+
+        .btn-small {
+            flex: 0 0 auto;
+            min-width: 60px;
+            padding: 12px 16px;
+            font-size: 20px;
+        }
+
+        /* Загрузка */
+        #loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 20px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #2196F3;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Ошибка */
+        .error {
+            background: #FFEBEE;
+            color: #c62828;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+            text-align: center;
+        }
+
+        /* Печать */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            button, .button-group, #feedback, #answer-input {
+                display: none !important;
+            }
+
+            .sentence, #question-text {
+                font-size: 16pt !important;
+                page-break-inside: avoid;
+            }
+
+            .print-only {
+                display: block !important;
+            }
+
+            .print-answer-line {
+                border-bottom: 1px solid #000;
+                min-height: 30px;
+                margin: 10px 0;
+            }
+        }
+
+        .print-only {
+            display: none;
+        }
+
+        /* Адаптивность */
+        @media (max-width: 600px) {
+            .container {
+                padding: 16px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            button {
+                font-size: 16px;
+                padding: 14px 20px;
+            }
+
+            .btn-small {
+                font-size: 18px;
+                padding: 10px 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧸 Тренажёр чтения и понимания</h1>
+
+        <!-- Загрузка -->
+        <div id="loading">
+            <div class="spinner"></div>
+            <p>Загрузка текста...</p>
+        </div>
+
+        <!-- Экран чтения -->
+        <div id="reading-screen" style="display: none;">
+            <h2>Прочитай предложения</h2>
+            <div id="sentences"></div>
+
+            <div class="button-group">
+                <button class="btn-primary" onclick="goToQuestions()">Дальше →</button>
+                <button class="btn-secondary" onclick="loadNewText()">Новый текст</button>
+                <button class="btn-small btn-secondary" onclick="increaseFontSize()">A+</button>
+                <button class="btn-small btn-secondary" onclick="decreaseFontSize()">A-</button>
+                <button class="btn-secondary" onclick="printContent()">🖨️ Печать</button>
+            </div>
+        </div>
+
+        <!-- Экран вопросов -->
+        <div id="questions-screen" style="display: none;">
+            <h2>Ответь на вопросы</h2>
+            
+            <div id="question-container">
+                <div id="question-text"></div>
+                <input type="text" id="answer-input" placeholder="Введи ответ здесь...">
+                <div id="feedback"></div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn-success" onclick="checkAnswer()">Ответить</button>
+                <button class="btn-secondary" onclick="goToReading()">← Назад</button>
+                <button class="btn-secondary" onclick="printContent()">🖨️ Печать</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
