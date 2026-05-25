@@ -116,17 +116,38 @@ def health():
 @app.route("/reading_trainer/")
 def reading_trainer_index():
     """Serve reading trainer web app."""
-    from flask import send_from_directory
-    public_dir = PROJECT_ROOT / "public" / "reading_trainer"
-    return send_from_directory(public_dir, "index.html")
+    try:
+        index_path = PROJECT_ROOT / "public" / "reading_trainer" / "index.html"
+        with open(index_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        from flask import Response
+        return Response(content, mimetype='text/html')
+    except Exception as e:
+        return jsonify({"error": "file_not_found", "details": str(e)}), 404
 
 
 @app.route("/reading_trainer/<path:filename>")
 def reading_trainer_static(filename):
     """Serve reading trainer static files."""
-    from flask import send_from_directory
-    public_dir = PROJECT_ROOT / "public" / "reading_trainer"
-    return send_from_directory(public_dir, filename)
+    try:
+        file_path = PROJECT_ROOT / "public" / "reading_trainer" / filename
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        from flask import Response
+        
+        # Determine mimetype
+        if filename.endswith('.js'):
+            mimetype = 'application/javascript'
+        elif filename.endswith('.css'):
+            mimetype = 'text/css'
+        elif filename.endswith('.html'):
+            mimetype = 'text/html'
+        else:
+            mimetype = 'text/plain'
+        
+        return Response(content, mimetype=mimetype)
+    except Exception as e:
+        return jsonify({"error": "file_not_found", "details": str(e)}), 404
 
 
 @app.route("/reading_generate", methods=["POST"])
