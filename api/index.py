@@ -112,6 +112,135 @@ def health():
     )
 
 
+@app.route("/reading_trainer")
+@app.route("/reading_trainer/")
+def reading_trainer_index():
+    """Serve reading trainer web app."""
+    from flask import send_from_directory
+    public_dir = PROJECT_ROOT / "public" / "reading_trainer"
+    return send_from_directory(public_dir, "index.html")
+
+
+@app.route("/reading_trainer/<path:filename>")
+def reading_trainer_static(filename):
+    """Serve reading trainer static files."""
+    from flask import send_from_directory
+    public_dir = PROJECT_ROOT / "public" / "reading_trainer"
+    return send_from_directory(public_dir, filename)
+
+
+@app.route("/reading_generate", methods=["POST"])
+def reading_generate():
+    """Generate reading comprehension content for Mom Module using HF API."""
+    import json
+    import random
+    import httpx
+    
+    fallback_sets = [
+        {
+            "sentences": [
+                "Кот спит.",
+                "Мама мыла раму.",
+                "Солнце светит ярко.",
+                "Дети играют в парке.",
+                "Папа читает книгу.",
+                "Бабушка печёт пирог."
+            ],
+            "questions": [
+                {"question": "Кто спит?", "answer": "кот"},
+                {"question": "Что делала мама?", "answer": "мыла раму"},
+                {"question": "Где играют дети?", "answer": "в парке"}
+            ]
+        },
+        {
+            "sentences": [
+                "Собака лает.",
+                "Птица поёт песню.",
+                "Дождь идёт сильно.",
+                "Цветы растут в саду.",
+                "Машина едет быстро.",
+                "Река течёт медленно."
+            ],
+            "questions": [
+                {"question": "Кто лает?", "answer": "собака"},
+                {"question": "Что делает птица?", "answer": "поёт песню"},
+                {"question": "Где растут цветы?", "answer": "в саду"}
+            ]
+        },
+        {
+            "sentences": [
+                "Мальчик рисует дом.",
+                "Девочка поёт песню.",
+                "Учитель пишет мелом.",
+                "Ученик читает текст.",
+                "Повар готовит суп.",
+                "Врач лечит людей."
+            ],
+            "questions": [
+                {"question": "Что рисует мальчик?", "answer": "дом"},
+                {"question": "Кто поёт песню?", "answer": "девочка"},
+                {"question": "Что готовит повар?", "answer": "суп"}
+            ]
+        }
+    ]
+    
+    # Try HF API first
+    hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
+    
+    if hf_token:
+        try:
+            # Use text generation model to create simple sentences
+            prompt = """Создай 6 простых предложений для детей 6-7 лет (3-4 слова каждое) и 3 вопроса по содержанию.
+Формат JSON:
+{
+  "sentences": ["Кот спит.", "Мама читает.", ...],
+  "questions": [
+    {"question": "Кто спит?", "answer": "кот"},
+    ...
+  ]
+}"""
+            
+            url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+            headers = {"Authorization": f"Bearer {hf_token}"}
+            payload = {
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": 500,
+                    "temperature": 0.8,
+                    "return_full_text": False,
+                }
+            }
+            
+            response = httpx.post(url, headers=headers, json=payload, timeout=15.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list) and len(data) > 0:
+                    generated_text = data[0].get("generated_text", "")
+                    
+                    # Try to parse JSON from response
+                    try:
+                        # Find JSON in response
+                        start = generated_text.find("{")
+                        end = generated_text.rfind("}") + 1
+                        if start >= 0 and end > start:
+                            json_str = generated_text[start:end]
+                            result = json.loads(json_str)
+                            
+                            # Validate structure
+                            if "sentences" in result and "questions" in result:
+                                if len(result["sentences"]) >= 6 and len(result["questions"]) >= 2:
+                                    return jsonify(result)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+        except Exception as e:
+            print(f"[HF API] Error: {e}")
+    
+    # Fallback to predefined sets
+    result = random.choice(fallback_sets)
+    return jsonify(result)
+
+
 @app.route("/telegram/webhook/<secret>", methods=["POST"])
 def telegram_webhook(secret: str):
     expected_secret = _get_webhook_secret()
