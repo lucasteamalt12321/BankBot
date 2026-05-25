@@ -1,9 +1,1 @@
-{
-  "rewrites": [
-    { "source": "/reading_trainer", "destination": "/api/reading_trainer" },
-    { "source": "/reading_generate", "destination": "/api/index" },
-    { "source": "/health", "destination": "/api/index" },
-    { "source": "/telegram/webhook/:path*", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/api/index" }
-  ]
-}
+{}
