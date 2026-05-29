@@ -69,6 +69,7 @@ from bot.commands.social_commands_ptb import (
 )
 from bot.commands.notification_commands_ptb import notifications_command, notifications_clear_command
 from bot.commands.achievements_commands_ptb import achievements_command
+from bot.commands.gd_commands_ptb import get_gd_handlers
 from bot.commands.admin_commands_ptb import (
     admin_command as admin_command_handler,
     admin_stats_command,
@@ -543,6 +544,9 @@ class TelegramBot:
                 buy_7_command,
                 buy_8_command,
             )
+            from bot.commands.gd_commands_ptb import get_gd_handlers
+
+            handlers.extend(get_gd_handlers())
 
             handlers.extend(
                 [

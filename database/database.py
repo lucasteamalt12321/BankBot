@@ -494,11 +494,14 @@ class Submission(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(BigInteger, nullable=False)
     level_id = Column(Integer, ForeignKey("levels.id", ondelete="CASCADE"), nullable=True)
-    video_file_id = Column(Text, nullable=False)
+    level_name = Column(String(100), nullable=True)  # For manual entry before level exists
+    media_file_id = Column(Text, nullable=False)
+    media_type = Column(String(10), nullable=False)  # video, photo
     status = Column(String(20), nullable=False, default="pending")  # pending, approved, rejected
     submitted_at = Column(DateTime, default=datetime.utcnow)
     reviewed_at = Column(DateTime, nullable=True)
     reviewed_by = Column(BigInteger, nullable=True)
+    notes = Column(Text, nullable=True)  # Admin notes
 
     level = relationship("Level", back_populates="submissions")
 
