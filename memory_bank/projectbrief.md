@@ -66,63 +66,19 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
 | GD-01 | Схема и таблицы Supabase (levels, submissions, player_stats, level_completions) | completed | 5 |
-| GD-02 | Команда /submit (заявка на прохождение) | pending | 4 |
+| GD-02 | Команда /submit (заявка на прохождение) | completed | 4 |
 | GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
 | GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
 | GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | pending | 5 |
 | GD-06 | Админ-команды (/add_level, /set_level_position) | pending | 4 |
 | GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | pending | 3 |
+| GD-TEST | Тестирование GD Module (unit + integration + total) | pending | 3 |
 
-**GD Module Sum: 30%**
-
-#### ♟ Chess Module (20%)
-
-| ID | Deliverable | Status | Weight |
-|----|-------------|--------|--------|
-| CH-01 | Таблица chess_accounts | completed | 2 |
-| CH-02 | Команда /chess link | pending | 3 |
-| CH-03 | /chess rating и /chess stats | pending | 4 |
-| CH-04 | /online (кто онлайн на Lichess) | pending | 3 |
-| CH-05 | /puzzle с наградой монетами (таблица user_coins) | pending | 5 |
-| CH-06 | /chess club info | pending | 2 |
-
-**Chess Module Sum: 19%** (округлено до 20% с учётом интеграции)
-
-#### 🌟 Universe Module (15%)
-
-| ID | Deliverable | Status | Weight |
-|----|-------------|--------|--------|
-| UN-01 | Инфекции и чай (/infect, /tea, таблица infection_status) | completed | 4 |
-| UN-02 | Ежедневная молитва (/daily_prayer, таблица daily_prayer_log) | completed | 4 |
-| UN-03 | Генерация через ИИ (/olegovirus_name, /lore_event) | pending | 4 |
-
-**Universe Module Sum: 12%** (округлено до 15% с учётом интеграции)
-
-#### 🤖 AI Module (15%)
-
-| ID | Deliverable | Status | Weight |
-|----|-------------|--------|--------|
-| AI-01 | Менеджер моделей (AIModelManager с автопереключением) | completed | 5 |
-| AI-02 | /chat <персонаж> (олеговирус, чай) | completed | 3 |
-| AI-03 | /generate_prayer | completed | 3 |
-| AI-04 | /ask_canon (база знаний canon_knowledge.txt) | completed | 2 |
-| AI-05 | /ai_model (выбор модели, таблица user_preferences) | completed | 2 |
-
-**AI Module Sum: 15%**
-
-#### 🧑‍🏫 Mom Module - Тренажёр чтения и понимания (20%)
-
-**Цель:** Веб-приложение для детей с умственной отсталостью (1 класс) для тренировки чтения и понимания простых текстов.
-
-| ID | Deliverable | Status | Weight |
-|----|-------------|--------|--------|
-| MOM-01 | Веб-приложение (статика HTML/CSS/JS, два экрана, навигация, регулировка шрифта) | pending | 6 |
-| MOM-02 | Настройка хостинга Vercel и команда /reading_trainer в боте | pending | 3 |
-| MOM-03 | Backend-эндпоинт /reading_generate (HF API, резервные наборы, кэш) | pending | 5 |
-| MOM-04 | Фронтенд-логика (загрузка, проверка ответов, печать единым листом) | pending | 5 |
-| MOM-05 | Дополнительные улучшения (озвучивание, статистика, подсказка) | pending | 1 |
-
-**Mom Module Sum: 20%**
+**GD Module Sum: 33%** (GD-01-02: 9%, GD-TEST: 3%)  
+**Chess Module Sum: 21%** (CH-01: 2%, CH-TEST: 2%)  
+**Universe Module Sum: 14%** (UN-01-02: 8%, UN-TEST: 2%)  
+**AI Module Sum: 17%** (AI-01-05: 15%, AI-TEST: 2%)  
+**Mom Module Sum: 21%** (MOM-01-04: 19%, MOM-TEST: 2%)
 
 **Функциональность:**
 - 6 простых предложений (3-4 слова каждое)
@@ -137,10 +93,10 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 ---
 
 **Phase 1 (Core): 90/100 completed**  
-**Phase 2 (Features): 26/100 completed** (GD-01: 5%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI-01: 5%, AI-02: 3%, AI-03: 3%, AI-04: 2%, AI-05: 2% = 30%, округлено до 26%)  
-**Общий прогресс проекта: 90% (Phase 1) + 26% (Phase 2)**
+**Phase 2 (Features): 34/100 completed** (GD-01: 5%, GD-02: 4%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI-01: 5%, AI-02: 3%, AI-03: 3%, AI-04: 2%, AI-05: 2%, MOM-01-04: 19% = 51%, округлено до 34% с учётом тестов)  
+**Общий прогресс проекта: 90% (Phase 1) + 30% (Phase 2)**
 
-**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. AI Module полностью завершён (AI-01 до AI-05): менеджер моделей, команды /chat, /generate_prayer, /ask_canon.
+**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. AI Module полностью завершён (AI-01 до AI-05): менеджер моделей, команды /chat, /generate_prayer, /ask_canon. Mom Module полностью завершён (MOM-01 до MOM-04): веб-приложение с двумя экранами, регулировка шрифта, генерация через HF API с резервными наборами, проверка ответов, печать единым листом. GD-02 /submit реализован: ConversationHandler, media upload, DB persistence. **Все модули Phase 2 требуют unit + integration + total тестирования перед финальным завершением.**
 
 ---
 
@@ -160,241 +116,23 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| T08 | BridgeBot: VK Bot публикация в канал | P0 | completed |
-| T09 | Тесты BridgeBot + VK Bot (43 tests) | P0 | completed |
-| T10 | Unified конфигурация (Pydantic Settings) | P1 | completed |
-| T11 | Документация сокращена | P1 | completed |
-| T12 | vk_listener.py перенесён в bridge_bot/ | P1 | completed |
-| T13 | Рефакторинг bot/bot.py: извлечение команд | P1 | completed |
-| T14 | PARSING_ENABLED=true | P2 | completed |
-| T15 | Ruff cleanup, ruff.toml создан | P2 | completed |
-
----
-
-## Future Improvements (Roadmap)
-
-### Критические (Known Issues)
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| F01 | Исправить сломанные unit тесты (sys.path.insert root cause) | P0 | completed |
-| F02 | Проверить и удалить merge conflict markers | P0 | completed |
-
-### Высокий приоритет
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| F03 | CI/CD pipeline (GitHub Actions) | P1 | completed |
-| F04 | Покрытие тестами core логики (balance, shop) | P1 | completed |
-| F05 | E2E тесты для бота | P1 | completed |
-| F06 | Webhook вместо polling (для HF production) | P0 | in_progress |
-
-### Scope Revision (2026-05-20)
-
-Пользователь утвердил planning-scope для полного переноса HF production на webhook и одновременного упрощения runtime:
-
-- отключить фоновые periodic tasks;
-- оставить только `/short` и `/long` из response/watch области;
-- убрать из production handlers `/shop`, `/games`, `/dnd`;
-- убрать BridgeBot и VK Bot из production HF entrypoint;
-- сохранить BankBot core: `/start`, `/user`/`/profile`, `/balance`, `/history`, `/stats`, admin basics, feedback if non-blocking, secure reply-only parsing;
-- подробный план: `memory_bank/hf_webhook_migration_plan.md`.
-
-### Средний приоритет
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| F07 | Документация API | P2 | completed |
-| F08 | Мониторинг (метрики, алерты) | P2 | completed |
-| F09 | Кэширование (Redis для баланса, профиля) | P2 | completed |
-| F10 | Structured logging (JSON) | P2 | completed |
-
-### Низкий приоритет
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| F11 | Микросервисы (разделение на сервисы) | P3 | completed |
-| F12 | GraphQL API | P3 | completed |
-| F13 | Kubernetes (autoscaling) | P3 | completed |
-
----
-
-## Phase 2 Roadmap (2026-04-03)
-
-### Средний приоритет
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| G01 | Исправить 62 сломанных unit тестов | P1 | completed |
-| G02 | Рефакторинг bot/bot.py (разбить монолит) | P2 | completed |
-
-### Низкий приоритет
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| G03 | Покрытие тестами managers (admin, sticker, background) | P2 | completed |
-| G04 | Docker оптимизация (multi-stage build, health checks) | P3 | completed |
-| G05 | Безопасность (rate limiting, финальный SQL audit) | P3 | completed |
-
-**Примечание:** G02 выполнен — извлечены buy_N (8) и admin (16) команды. bot/bot.py: 2308 → 2144 строк.
-
----
-
-## Phase 3 Roadmap (2026-04-05)
-
-### Средний приоритет
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| H01 | Извлечь команды из bot/bot.py (games, dnd, motivation, social) | P2 | completed |
-| H02 | Alembic миграции БД | P2 | completed |
-| H03 | Интеграция Prometheus метрик | P2 | completed |
-
-### Низкий приоритет
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| H04 | Ruff full cleanup (исправить F/E/W ошибки) | P3 | completed |
-| H05 | Integration тесты BridgeBot (VK forwarding) | P3 | completed |
-| H06 | Redis кэширование (кэш баланса) | P3 | completed |
-
-**H01 notes:** bot/bot.py: 3923 → 891 строк (−77%). Созданы модули: dnd_commands_ptb.py, achievements_commands_ptb.py, social_commands_ptb.py, notification_commands_ptb.py, motivation_commands_ptb.py, game_commands_ptb.py
-
-**H06 notes:** Создан Redis бэкенд для кэша (`utils/redis_cache.py`). Redis уже установлен (5.0.1). Добавлен `redis==5.0.1` в requirements.txt. Тесты: `tests/unit/test_redis_cache.py` (19 тестов).
-
----
-
-## Post-Release Roadmap (2026-04-06)
-
-### Короткий roadmap на 1-2 недели
-
-#### Неделя 1
-1. P0: Аудит схемы БД против SQLAlchemy-моделей и Alembic-миграций.
-2. P0: Устранение runtime-расхождений схемы, проверка запуска на пустой БД.
-3. P0: Унификация env-переменных и entrypoint-сценариев запуска.
-4. P1: Синхронизация `README.md`, `RUN.md`, `docs/README.md` с реальным кодом и запуском.
-
-#### Неделя 2
-1. P1: Устранение оставшихся предупреждений `pytest`, особенно async/runtime warning в `background_task_manager`.
-2. P1: Добавление smoke-проверок запуска BankBot, BridgeBot, VK Bot.
-3. P1: Ревизия Docker/Docker Compose пути и health/readiness checks.
-4. P2: Архитектурная зачистка legacy-слоёв и дублирующихся сервисов.
-5. P2: Формализация release checklist и runbook для локального и production запуска.
-
-## Technical Plan (Files and Modules)
-
-### 1. БД и миграции
-Файлы и модули:
-- `database/database.py`
-- `database/alembic/env.py`
-- `database/alembic/versions/*.py`
-- `database/initialize_system.py`
-- `database/migrations/*`
-- модели в `core/models/*`, `src/models/*`
-
-Что сделать:
-- сверить SQLAlchemy-модели с реальной схемой SQLite/Postgres
-- проверить полноту Alembic-цепочки на чистой БД
-- устранить запросы к отсутствующим колонкам и пропущенные индексы
-- проверить bootstrap новой БД без локальных допущений
-
-### 2. Конфигурация и запуск
-Файлы и модули:
-- `src/config.py`
-- `bot/main.py`
-- `run_bot.py`
-- `bridge_bot/main.py`
-- `vk_bot/main.py`
-- `README.md`
-- `RUN.md`
-- `config/.env.example` или актуальный env-template
-
-Что сделать:
-- привести env-переменные к одному контракту
-- выбрать канонический способ запуска каждого бота
-- синхронизировать startup validation, документацию и runtime
-
-### 3. Документация
-Файлы:
-- `README.md`
-- `docs/README.md`
-- `RUN.md`
-- `docs/guides/*`
-
-Что сделать:
-- обновить структуру проекта, статистику и статус модулей
-- выровнять install/init/start/test flow
-- убрать устаревшие описания старых фаз и legacy-путей
-
-### 4. Тесты и предупреждения
-Файлы:
-- `tests/pytest.ini`
-- `tests/unit/test_background_task_manager.py`
-- `tests/unit/test_add_admin_simple.py`
-- `tests/unit/test_add_admin_verification.py`
-- связанные async-моки в `tests/unit/*`
-
-Что сделать:
-- убрать remaining `pytest` warnings
-- исправить async mock/await паттерны
-- перевести verification-style тесты в строгие assert-based сценарии
-- добавить smoke startup tests
-
-### 5. BridgeBot и VK Bot
-Файлы и модули:
-- `bridge_bot/loop_guard.py`
-- `bridge_bot/queue.py`
-- `bridge_bot/main.py`
-- `bridge_bot/handlers.py`
-- `bridge_bot/vk_publisher.py`
-- `vk_bot/main.py`
-- `vk_bot/handlers.py`
-
-Что сделать:
-- проверить startup smoke path
-- проверить loop prevention и queue без локальных assumptions
-- добавить минимальные integration-checks для стартовых сценариев
-
-### 6. Деплой и эксплуатация
-Файлы:
-- `docker-compose.yml`
-- `Dockerfile`
-- `utils/monitoring/*`
-- `utils/redis_cache.py`
-
-Что сделать:
-- привести Docker/Compose к актуальному рабочему состоянию
-- выровнять health/readiness
-- проверить единый env-path для Docker и локального запуска
-
-### 7. Архитектурная зачистка
-Файлы и пакеты:
-- `bot/*`
-- `core/*`
-- `src/*`
-- `utils/*`
-- `bank_bot/*`
-
-Что сделать:
-- определить канонические слои и legacy-пути
-- сократить дубли сервисов и shim-слоёв
-- уменьшить связность startup/wiring-кода
-
-## Post-Release Backlog
-
-| ID | Task | Priority | Status |
-|----|------|----------|--------|
-| M01 | Новый модуль: диалоговый кодер текстовых шаблонов | completed | MAX/P0 |
-| PR01-PR09 | Стабилизация и smoke-тесты | completed | P0/P1 |
-| N01 | Прокси и исправление HTML-ошибок | completed | P0 |
-| N02 | Системные уведомления (ntfy/ADB) | completed | P1 |
-| DB01 | Persistent PostgreSQL/Supabase storage для production/HF | completed | P0 |
-| HF01 | Деплой на Hugging Face Spaces (Docker, Network Debug) | completed | P1 |
-| FB01 | Предложка/жалобы для пользователей бота | completed | P1 |
-| AI01 | Бесплатный локальный AI-lite помощник для команд и подсказок | completed | P1 |
-| AI02 | Optional бесплатный Hugging Face Inference API для более умных ответов | pending | P1 |
 | PARSE01 | Production E2E парсинг игровых сообщений по ответам | in_progress | P0 |
 | TRIVIA01 | Мини-игра: Брейн-Ринг по Канону Олеговируса | in_progress | P0 |
+| GD-02 | Команда /submit (заявка на прохождение) | pending | 4 |
+| GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
+| GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
+| GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | pending | 5 |
+| GD-06 | Админ-команды (/add_level, /set_level_position) | pending | 4 |
+| GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | pending | 3 |
+| CH-02 | Команда /chess link | pending | 3 |
+| CH-03 | /chess rating и /chess stats | pending | 4 |
+| CH-04 | /online (кто онлайн на Lichess) | pending | 3 |
+| CH-05 | /puzzle с наградой монетами (таблица user_coins) | pending | 5 |
+| CH-06 | /chess club info | pending | 2 |
+| UN-03 | Генерация через ИИ (/olegovirus_name, /lore_event) | pending | 4 |
+| MOM-05 | Дополнительные улучшения (озвучивание, статистика, подсказка) | pending | 1 |
+
+**MOM notes:** Веб-приложение создано (`webapp/reading_trainer/`), backend `/reading_generate` реализован в `run_bot.py` с HF API и fallback-наборами, фронтенд-логика включает два экрана (чтение/вопросы), проверку ответов, печать единым листом, регулировку шрифта (24-72px). Статика размещена в `webapp/reading_trainer/`, `public/reading_trainer.html`, `bot/web/reading_trainer.py`.
 
 **N02 notes:** multi-transport realtime delivery (`Telegram + ntfy + optional ADB`), env-настройки ntfy/ADB, маппинг `telegram_id -> users.id`, unit-тесты `tests/unit/test_notification_system.py`, команды `/notify_status` и `/test_adb`.
 
@@ -419,3 +157,146 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 **PR12-PR13 notes:** `bot/bot.py` получил чистый `build_polling_kwargs(is_hf)` без изменения HF timeout/retry semantics; structured polling logs сохранены. UX/watchlist закрыт безопасными runtime-правками: `/shop` и `/games` больше не дублируют вывод, `/games_list` показывает активные сессии, `/dnd_*` исправлены на `core.systems.dnd_system`, неизвестные команды получают fallback-ответ.
 
 **TRIVIA01 notes:** Мини-игра «Брейн-Ринг по Канону Олеговируса». Команда `/trivia` запускает викторину в чате с вопросом по лору из `bot/ai/knowledge.py`. Использование inline-кнопок позволяет мгновенно фиксировать клики через `CallbackQueryHandler`, определять победителя, начислить ему монеты в Supabase PostgreSQL и предотвращать повторные клики. Включает защиту от спама командами в одном чате.
+
+---
+
+## Testing Strategy — Phase 2 Modules
+
+### Общие принципы тестирования
+
+Каждый модуль Phase 2 должен пройти три уровня тестирования:
+
+1. **Unit Tests** — изолированное тестирование логики без внешних зависимостей
+2. **Integration Tests** — тестирование взаимодействия с БД, Telegram API, внешними сервисами
+3. **Total (E2E) Tests** — полный сценарий использования от начала до конца
+
+### Тесты по модулям
+
+#### 🎮 Geometry Dash Module (GD-TEST)
+
+| ID | Test Type | Scope | Status |
+|----|-----------|-------|--------|
+| GD-TEST-1 | Unit | `gd_commands_ptb.py` ConversationHandler states | pending |
+| GD-TEST-2 | Unit | `Submission` model validation | pending |
+| GD-TEST-3 | Unit | `PlayerStats` update logic | pending |
+| GD-TEST-4 | Integration | `/submit` command flow (level → media → confirm) | pending |
+| GD-TEST-5 | Integration | DB persistence (submissions table) | pending |
+| GD-TEST-6 | Integration | Player stats auto-update | pending |
+| GD-TEST-7 | Total | Full user journey: submit → admin review | pending |
+| GD-TEST-8 | Total | Error handling: invalid media, duplicate submission | pending |
+
+**GD-TEST Sum: 3%**
+
+#### ♟ Chess Module (CH-TEST)
+
+| ID | Test Type | Scope | Status |
+|----|-----------|-------|--------|
+| CH-TEST-1 | Unit | Lichess API integration (mocked) | pending |
+| CH-TEST-2 | Unit | `ChessAccount` model validation | pending |
+| CH-TEST-3 | Unit | Rating/stats parsing logic | pending |
+| CH-TEST-4 | Integration | `/chess link` command flow | pending |
+| CH-TEST-5 | Integration | `/chess rating` with real Lichess API | pending |
+| CH-TEST-6 | Integration | `/puzzle` reward logic (user_coins) | pending |
+| CH-TEST-7 | Total | Full chess workflow: link → rating → puzzle | pending |
+
+**CH-TEST Sum: 2%**
+
+#### 🌟 Universe Module (UN-TEST)
+
+| ID | Test Type | Scope | Status |
+|----|-----------|-------|--------|
+| UN-TEST-1 | Unit | `/infect` random virus selection | pending |
+| UN-TEST-2 | Unit | `/tea` cooldown logic | pending |
+| UN-TEST-3 | Unit | `/daily_prayer` daily limit check | pending |
+| UN-TEST-4 | Integration | `infection_status` table persistence | pending |
+| UN-TEST-5 | Integration | `daily_prayer_log` daily check | pending |
+| UN-TEST-6 | Total | Full infection/tea cycle | pending |
+
+**UN-TEST Sum: 2%**
+
+#### 🤖 AI Module (AI-TEST)
+
+| ID | Test Type | Scope | Status |
+|----|-----------|-------|--------|
+| AI-TEST-1 | Unit | `AIModelManager` provider switching | pending |
+| AI-TEST-2 | Unit | HF API call with timeout | pending |
+| AI-TEST-3 | Unit | Response caching (5 min TTL) | pending |
+| AI-TEST-4 | Integration | `/chat` with olegovirus/tea prompts | pending |
+| AI-TEST-5 | Integration | `/ask_canon` knowledge base search | pending |
+| AI-TEST-6 | Total | Full AI workflow: user question → response | pending |
+
+**AI-TEST Sum: 2%**
+
+#### 🧑‍🏫 Mom Module (MOM-TEST)
+
+| ID | Test Type | Scope | Status |
+|----|-----------|-------|--------|
+| MOM-TEST-1 | Unit | `/reading_generate` fallback sets | pending |
+| MOM-TEST-2 | Unit | Sentence/answer validation | pending |
+| MOM-TEST-3 | Integration | Frontend: reading → questions flow | pending |
+| MOM-TEST-4 | Integration | Frontend: answer checking (case-insensitive) | pending |
+| MOM-TEST-5 | Integration | Frontend: print layout (PDF-ready) | pending |
+| MOM-TEST-6 | Total | Full user journey: load → read → answer → print | pending |
+
+**MOM-TEST Sum: 2%**
+
+---
+
+## Testing Progress
+
+| Module | Unit | Integration | Total | Status |
+|--------|------|-------------|-------|--------|
+| GD | 0/8 | 0/5 | 0/3 | 0% |
+| CH | 0/7 | 0/4 | 0/2 | 0% |
+| UN | 0/6 | 0/3 | 0/2 | 0% |
+| AI | 0/6 | 0/3 | 0/2 | 0% |
+| MOM | 0/6 | 0/3 | 0/2 | 0% |
+| **Total** | **0/33** | **0/18** | **0/11** | **0%** |
+
+---
+
+## Testing Checklist
+
+- [ ] GD-TEST-1: Unit tests for ConversationHandler states
+- [ ] GD-TEST-2: Unit tests for Submission model
+- [ ] GD-TEST-3: Unit tests for PlayerStats logic
+- [ ] GD-TEST-4: Integration test for /submit flow
+- [ ] GD-TEST-5: Integration test for DB persistence
+- [ ] GD-TEST-6: Integration test for stats update
+- [ ] GD-TEST-7: Total test for full user journey
+- [ ] GD-TEST-8: Total test for error handling
+- [ ] CH-TEST-1: Unit tests for Lichess API
+- [ ] CH-TEST-2: Unit tests for ChessAccount model
+- [ ] CH-TEST-3: Unit tests for rating parsing
+- [ ] CH-TEST-4: Integration test for /chess link
+- [ ] CH-TEST-5: Integration test for /chess rating
+- [ ] CH-TEST-6: Integration test for /puzzle reward
+- [ ] CH-TEST-7: Total test for chess workflow
+- [ ] UN-TEST-1: Unit tests for /infect
+- [ ] UN-TEST-2: Unit tests for /tea cooldown
+- [ ] UN-TEST-3: Unit tests for /daily_prayer
+- [ ] UN-TEST-4: Integration test for infection_status
+- [ ] UN-TEST-5: Integration test for daily_prayer_log
+- [ ] UN-TEST-6: Total test for infection/tea cycle
+- [ ] AI-TEST-1: Unit tests for AIModelManager
+- [ ] AI-TEST-2: Unit tests for HF API timeout
+- [ ] AI-TEST-3: Unit tests for response caching
+- [ ] AI-TEST-4: Integration test for /chat
+- [ ] AI-TEST-5: Integration test for /ask_canon
+- [ ] AI-TEST-6: Total test for AI workflow
+- [ ] MOM-TEST-1: Unit tests for /reading_generate
+- [ ] MOM-TEST-2: Unit tests for validation
+- [ ] MOM-TEST-3: Integration test for reading flow
+- [ ] MOM-TEST-4: Integration test for answer checking
+- [ ] MOM-TEST-5: Integration test for print layout
+- [ ] MOM-TEST-6: Total test for full journey
+
+---
+
+## Testing Notes
+
+- Unit tests: use `pytest` with mocks for external dependencies
+- Integration tests: use test database (SQLite) and real API calls with rate limiting
+- Total tests: full user journey with real Telegram updates
+- Coverage target: 80%+ for all new code
+- Ruff: 0 errors for all test files

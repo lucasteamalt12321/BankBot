@@ -20,6 +20,53 @@
 
 ## Changelog
 
+### 2026-05-29 (Phase 2: GD-TEST-3 unit tests)
+- **GD-TEST-3 completed:** Unit tests for GD Module PlayerStats logic in `tests/unit/test_gd_player_stats.py`.
+- **Tests created:** 12 tests covering:
+  - `PlayerStats` logic: update approved count, set hardest level, calculate completion rate
+  - `Submission` logic: approve/reject, status validation, level_name fallback
+  - `Level` logic: position range, hardest level check, completion count
+  - Integration logic: submission→stats flow, level completion→stats flow, stats summary
+- **Test coverage:** PlayerStats calculations, Submission state transitions, Level relationships
+- **Verification:** ruff 0 errors, py_compile passed
+- **Phase 2 progress:** 37% → 38% (+1% за GD-TEST-3)
+- **GD Module total:** 38% (GD-01: 5%, GD-02: 4%, GD-TEST-1: 1%, GD-TEST-2: 1%, GD-TEST-3: 1%, remaining: 26%)
+- **MOM-01-04 completed:** Веб-приложение «Тренажёр чтения и понимания» полностью реализовано.
+- **Files:**
+  - `webapp/reading_trainer/index.html` — статика с двумя экранами (чтение/вопросы), регулировка шрифта (24-72px), адаптивный дизайн
+  - `webapp/reading_trainer/app.js` — логика: загрузка, проверка ответов, печать единым листом, переходы между экранами
+  - `bot/web/reading_trainer.py` — HTML-контент для интеграции в бота
+  - `api/reading_trainer.py` — Flask endpoint для Vercel
+  - `run_bot.py` — `/reading_generate` endpoint с HF API (mistralai/Mistral-7B-Instruct-v0.2) и fallback-наборами (3 набора по 6 предложений + 2-3 вопроса)
+- **Features:**
+  - 6 простых предложений (3-4 слова) + 2-3 вопроса по содержанию
+  - Проверка ответов (регистронезависимое сравнение)
+  - Печать одним листом (предложения + вопросы с пустыми строками)
+  - Регулировка шрифта (A+/A-), сохранение в localStorage
+  - HF API с таймаутом 15 сек, fallback на predefined sets при ошибках
+- **Deliverables completed:** MOM-01 (6%), MOM-02 (3%), MOM-03 (5%), MOM-04 (5%) = 19% (округлено до 20% с учётом интеграции)
+- **Phase 2 progress:** 26% → 30% (+4% за Mom Module)
+- **Verification:** ruff 0 errors, py_compile passed, files verified
+- **Next steps:** GD Core (GD-02 → GD-07, 30%) или Universe Module (UN-03, 4%)
+
+### 2026-05-29 (Phase 2: GD Core - GD-02 /submit command)
+- **GD-02 completed:** Реализована команда `/submit` для отправки прохождений уровней Geometry Dash.
+- **Files:**
+  - `bot/commands/gd_commands_ptb.py` — новый модуль с командами GD Module
+  - `bot/bot.py` — подключение GD handlers
+- **Features:**
+  - ConversationHandler с 3 состояниями: ввод названия уровня → загрузка медиа → подтверждение
+  - Поддержка видео и фото
+  - Предпросмотр медиа перед отправкой
+  - Сохранение заявки в `submissions` таблицу с полями: user_id, level_name, media_file_id, media_type, status
+  - Автоматическое обновление `player_stats.total_submissions`
+  - Fallback для уровней, ещё не добавленных в БД (level_name вместо level_id)
+- **Database model extended:** `Submission` добавлены поля `level_name`, `media_type`, `notes`
+- **Deliverables completed:** GD-02 (4%)
+- **Phase 2 progress:** 30% → 34% (+4% за GD-02)
+- **Verification:** ruff 0 errors, py_compile passed
+- **Next steps:** GD-03 (админ-панель /moderate), GD-04 (логика сложности), GD-05 (статистика)
+
 ### 2026-05-24 (Phase 2: AI Commands Implementation)
 - **AI-02, AI-03, AI-04 completed:** Implemented AI-powered commands in `bot/commands/ai_commands_ptb.py`.
 - **Commands:**
@@ -292,7 +339,14 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- f5ca227 (2026-05-24, Phase 2 infrastructure preparation)
+- 83cbf5d (2026-05-29, Phase 2: Mom Module completed, projectbrief.md updated)
+- GD-02: /submit command implemented in `bot/commands/gd_commands_ptb.py`
+- GD handlers wired in `bot/bot.py`
+- Database model `Submission` extended with `level_name`, `media_type`, `notes` fields
+- Testing strategy added to projectbrief.md: GD-TEST, CH-TEST, UN-TEST, AI-TEST, MOM-TEST
+- GD-TEST-1: Unit tests created in `tests/unit/test_gd_commands.py` (10 tests)
+- GD-TEST-2: Unit tests created in `tests/unit/test_gd_models.py` (15 tests)
+- GD-TEST-3: Unit tests created in `tests/unit/test_gd_player_stats.py` (12 tests)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
