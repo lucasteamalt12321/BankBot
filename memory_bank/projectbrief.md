@@ -27,6 +27,8 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ## Project Deliverables
 
+### Phase 1: Core Infrastructure (completed = 90/100)
+
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
 | D01 | Централизованная конфигурация (Pydantic Settings) | completed | 5 |
@@ -55,11 +57,90 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | D26 | Bridge-модуль: media_handler (TG→VK, VK→TG) | completed | 3 |
 | D27 | vk_bot/: config, bot, handlers, main | completed | 3 |
 
-**Sum: 5+5+4+3+7+5+5+5+4+5+5+3+5+4+3+5+3+3+2+2+3+4+4+3+3 = 100**
+**Phase 1 Sum: 90/100** (D10 и D18 in_progress)
 
-**Процент выполнения:** 90% (completed deliverables = 90/100; D10 и D18 остаются in_progress)
+### Phase 2: Feature Expansion (новые модули)
 
-**Важное уточнение по парсингу:** таблица D01-D27 теперь отражает текущую готовность проекта как 90/100. Парсинг игровых сообщений остаётся главной продуктовой целью проекта; D10 и D18 специально оставлены `in_progress`, потому что инфраструктура/ручной контур есть, но production E2E парсинг по ответам на реальных игровых сообщениях ещё требует стабилизации.
+#### 🎮 Geometry Dash Module (30%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| GD-01 | Схема и таблицы Supabase (levels, submissions, player_stats, level_completions) | completed | 5 |
+| GD-02 | Команда /submit (заявка на прохождение) | pending | 4 |
+| GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
+| GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
+| GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | pending | 5 |
+| GD-06 | Админ-команды (/add_level, /set_level_position) | pending | 4 |
+| GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | pending | 3 |
+
+**GD Module Sum: 30%**
+
+#### ♟ Chess Module (20%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| CH-01 | Таблица chess_accounts | completed | 2 |
+| CH-02 | Команда /chess link | pending | 3 |
+| CH-03 | /chess rating и /chess stats | pending | 4 |
+| CH-04 | /online (кто онлайн на Lichess) | pending | 3 |
+| CH-05 | /puzzle с наградой монетами (таблица user_coins) | pending | 5 |
+| CH-06 | /chess club info | pending | 2 |
+
+**Chess Module Sum: 19%** (округлено до 20% с учётом интеграции)
+
+#### 🌟 Universe Module (15%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| UN-01 | Инфекции и чай (/infect, /tea, таблица infection_status) | completed | 4 |
+| UN-02 | Ежедневная молитва (/daily_prayer, таблица daily_prayer_log) | completed | 4 |
+| UN-03 | Генерация через ИИ (/olegovirus_name, /lore_event) | pending | 4 |
+
+**Universe Module Sum: 12%** (округлено до 15% с учётом интеграции)
+
+#### 🤖 AI Module (15%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| AI-01 | Менеджер моделей (AIModelManager с автопереключением) | completed | 5 |
+| AI-02 | /chat <персонаж> (олеговирус, чай) | completed | 3 |
+| AI-03 | /generate_prayer | completed | 3 |
+| AI-04 | /ask_canon (база знаний canon_knowledge.txt) | completed | 2 |
+| AI-05 | /ai_model (выбор модели, таблица user_preferences) | completed | 2 |
+
+**AI Module Sum: 15%**
+
+#### 🧑‍🏫 Mom Module - Тренажёр чтения и понимания (20%)
+
+**Цель:** Веб-приложение для детей с умственной отсталостью (1 класс) для тренировки чтения и понимания простых текстов.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| MOM-01 | Веб-приложение (статика HTML/CSS/JS, два экрана, навигация, регулировка шрифта) | pending | 6 |
+| MOM-02 | Настройка хостинга Vercel и команда /reading_trainer в боте | pending | 3 |
+| MOM-03 | Backend-эндпоинт /reading_generate (HF API, резервные наборы, кэш) | pending | 5 |
+| MOM-04 | Фронтенд-логика (загрузка, проверка ответов, печать единым листом) | pending | 5 |
+| MOM-05 | Дополнительные улучшения (озвучивание, статистика, подсказка) | pending | 1 |
+
+**Mom Module Sum: 20%**
+
+**Функциональность:**
+- 6 простых предложений (3-4 слова каждое)
+- 2-3 вопроса по содержанию с проверкой ответов
+- Возврат к чтению без потери прогресса
+- Печать одним листом (предложения + вопросы с пустыми строками)
+- Регулировка шрифта (36-48px, сохранение в localStorage)
+- Генерация через HF Inference API (mistralai/Mistral-7B-Instruct или google/flan-t5-base)
+- Резервные наборы при недоступности API
+- Адаптивный дизайн для телефонов/планшетов
+
+---
+
+**Phase 1 (Core): 90/100 completed**  
+**Phase 2 (Features): 26/100 completed** (GD-01: 5%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI-01: 5%, AI-02: 3%, AI-03: 3%, AI-04: 2%, AI-05: 2% = 30%, округлено до 26%)  
+**Общий прогресс проекта: 90% (Phase 1) + 26% (Phase 2)**
+
+**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. AI Module полностью завершён (AI-01 до AI-05): менеджер моделей, команды /chat, /generate_prayer, /ask_canon.
 
 ---
 

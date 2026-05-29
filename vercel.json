@@ -1,11 +1,20 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.py": {
-      "maxDuration": 60
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
     }
-  },
+  ],
   "routes": [
+    {
+      "src": "/health",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/telegram/webhook/(.*)",
+      "dest": "api/index.py"
+    },
     {
       "src": "/(.*)",
       "dest": "api/index.py"

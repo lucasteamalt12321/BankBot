@@ -127,6 +127,17 @@ class Settings(BaseSettings):
     # Development
     DEBUG: bool = Field(default=False)
     TEST_MODE: bool = Field(default=False)
+    
+    # AI Model Manager (Phase 2)
+    AI_PROVIDERS: Optional[str] = Field(default=None)  # JSON string with provider configs
+    HF_INFERENCE_TOKEN: Optional[str] = Field(default=None)
+    HF_TOKEN: Optional[str] = Field(default=None)
+    HF_INFERENCE_MODEL: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
+    OPENROUTER_API_KEY: Optional[str] = Field(default=None)
+    OPENROUTER_MODEL: str = Field(default="openai/gpt-3.5-turbo")
+    OLLAMA_ENABLED: bool = Field(default=False)
+    OLLAMA_ENDPOINT: str = Field(default="http://localhost:11434")
+    OLLAMA_MODEL: str = Field(default="llama2")
 
     @field_validator("BOT_TOKEN")
     @classmethod
@@ -275,6 +286,17 @@ def _create_settings_with_env_file(env_file: str | list[str] | None) -> Settings
         CACHE_TTL: int = 3600
         DEBUG: bool = False
         TEST_MODE: bool = False
+        
+        # AI Model Manager (Phase 2)
+        AI_PROVIDERS: Optional[str] = None  # JSON string with provider configs
+        HF_INFERENCE_TOKEN: Optional[str] = None
+        HF_TOKEN: Optional[str] = None
+        HF_INFERENCE_MODEL: str = "Qwen/Qwen2.5-0.5B-Instruct"
+        OPENROUTER_API_KEY: Optional[str] = None
+        OPENROUTER_MODEL: str = "openai/gpt-3.5-turbo"
+        OLLAMA_ENABLED: bool = False
+        OLLAMA_ENDPOINT: str = "http://localhost:11434"
+        OLLAMA_MODEL: str = "llama2"
 
         model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
             env_file=env_file,

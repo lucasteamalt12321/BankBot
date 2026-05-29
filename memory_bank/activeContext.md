@@ -1,7 +1,16 @@
 # Active Context
 
 ## Текущий фокус
-**Мини-игра «Брейн-Ринг по Канону Олеговируса».** Реализация интерактивной викторины по лору канона Олеговируса/LTL на inline-кнопках с мгновенным начислением монет в Supabase PostgreSQL. Подробный план: `memory_bank/trivia_game_plan.md`.
+**Phase 2: Feature Expansion — Новые игровые и ИИ-модули.** Масштабное расширение функциональности BankBot с добавлением 5 новых модулей:
+- 🎮 **Geometry Dash** (30%): внутренний топ прохождений LucasTeam, модерация заявок, статистика игроков
+- ♟ **Chess** (20%): интеграция с Lichess API, задачи с наградами, статистика
+- 🌟 **Universe** (15%): олеговирус, LTL-паразит, чайная религия, ИИ-генерация лора
+- 🤖 **AI** (15%): ✅ **ЗАВЕРШЁН** — менеджер моделей с автопереключением (HF/OpenRouter/Ollama), диалоги с персонажами, генерация молитв, база знаний канона
+- 🧑‍🏫 **Mom Module** (20%): Веб-приложение «Тренажёр чтения и понимания» для детей с умственной отсталостью (1 класс) — 6 простых предложений, 2-3 вопроса, проверка ответов, печать единым листом, генерация через HF API
+
+**Приоритет реализации:** ✅ AI Module (завершён) → Mom Module → Universe Commands → GD Core → Chess.
+
+Детальный план с подзадачами и критериями завершения зафиксирован в `memory_bank/phase2_implementation_plan.md`.
 
 ## Active Scope Change — HF Webhook Migration
 **Status:** этап 1 completed locally, awaiting user approval to commit/push. Canonical detailed plan: `memory_bank/hf_webhook_migration_plan.md`.

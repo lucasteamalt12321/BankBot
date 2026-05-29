@@ -46,6 +46,11 @@ from bot.commands.ai_commands import (
     ai_update_knowledge_command,
     handle_ai_feedback_reply,
 )
+from bot.commands.ai_commands_ptb import (
+    chat_command,
+    generate_prayer_command,
+    ask_canon_command,
+)
 from bot.commands.feedback_commands import feedback_command, feedback_list_command
 from bot.commands.motivation_commands_ptb import (
     daily_bonus_command,
@@ -339,6 +344,10 @@ class TelegramBot:
                     self.admin_system,
                 ),
             ),
+            # Phase 2: AI Commands
+            CommandHandler("chat", chat_command),
+            CommandHandler("generate_prayer", generate_prayer_command),
+            CommandHandler("ask_canon", ask_canon_command),
             CommandHandler("feedback", feedback_command),
             CommandHandler("suggest", feedback_command),
             CommandHandler("complaint", feedback_command),
@@ -483,6 +492,8 @@ class TelegramBot:
             CommandHandler("help", self.template_coder_dialog.help_command),
             # Викторина по канону
             CommandHandler("trivia", trivia_command),
+            # Mom Module: Тренажёр чтения
+            CommandHandler("reading_trainer", self.reading_trainer_command),
         ]
 
         if hf_webhook_runtime:
@@ -1026,6 +1037,31 @@ class TelegramBot:
         """Команда /stats - персональная статистика."""
         await stats_command(update, context, get_db)
 
+    async def reading_trainer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /reading_trainer - тренажёр чтения и понимания для детей."""
+        if not update.message:
+            return
+        
+        # URL веб-приложения (статический HTML)
+        app_url = "https://bank-bot-ruby.vercel.app/reading_trainer.html"
+        
+        # Создаём inline-кнопку
+        keyboard = [[InlineKeyboardButton("🧸 Открыть тренажёр", url=app_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "🧸 Тренажёр чтения и понимания\n\n"
+            "Приложение для тренировки чтения простых текстов.\n\n"
+            "📖 Что внутри:\n"
+            "• 6 простых предложений (3-4 слова)\n"
+            "• 2-3 вопроса по содержанию\n"
+            "• Проверка ответов\n"
+            "• Возможность вернуться к чтению\n"
+            "• Регулировка размера шрифта\n\n"
+            "Нажмите кнопку ниже, чтобы открыть в браузере:",
+            reply_markup=reply_markup
+        )
+
     async def disabled_in_hf_webhook_command(
         self,
         update: Update,
@@ -1250,6 +1286,11 @@ class TelegramBot:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
         """Обработка сообщений - только ручной парсинг по команде 'парсинг'"""
+        # Проверка на наличие сообщения и текста
+        if not update.message or not update.message.text:
+            logger.debug("Message ignored (no text content)")
+            return
+        
         message_text = update.message.text
         chat = update.effective_chat
 

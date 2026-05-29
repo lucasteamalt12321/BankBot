@@ -1,8 +1,8 @@
 # Progress
 
 ## Статус проекта
-**Процент выполнения:** 90% по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** implementation этапа 1 для HF webhook migration и runtime-scope reduction
+**Процент выполнения:** 90% (Phase 1) по `memory_bank/projectbrief.md` / `## Project Deliverables`
+**Текущая фаза:** Phase 2 Feature Expansion — инфраструктура БД завершена, начало реализации модулей
 
 ## Known Issues
 
@@ -19,6 +19,95 @@
 - ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
 
 ## Changelog
+
+### 2026-05-24 (Phase 2: AI Commands Implementation)
+- **AI-02, AI-03, AI-04 completed:** Implemented AI-powered commands in `bot/commands/ai_commands_ptb.py`.
+- **Commands:**
+  - `/chat <персонаж> <текст>` — диалог с олеговирусом или чаем (персонализированные промпты)
+  - `/generate_prayer` — генерация молитвы чайной религии через AI
+  - `/ask_canon <вопрос>` — вопросы по канону с использованием базы знаний
+- **Features:**
+  - Character prompts: олеговирус (кхм-кхм, навязчивый) и чай (мудрый, eight-nine)
+  - Prayer generation with keywords: чай, eight-nine, настой, кружка-алтарь
+  - Canon knowledge base: `data/canon_knowledge.txt` с информацией о вселенной
+  - Fallback: простой keyword search если AI недоступен
+  - Typing indicators, cache indicators, error handling
+- **Integration:** Commands registered in `bot/bot.py` after existing AI commands.
+- **Canon knowledge:** Created `data/canon_knowledge.txt` with lore about олеговирус, LTL-паразит, чайная религия.
+- **Deliverables completed:** AI-02 (3%), AI-03 (3%), AI-04 (2%). AI Module полностью завершён (15%).
+- **Phase 2 progress:** 18% → 26% (+8% за AI Commands).
+- **Verification:** ruff 0 errors, py_compile passed.
+- **Next steps:** Mom Module (MOM-01 → MOM-05, 20%) или Universe Module commands (UN-03).
+
+### 2026-05-24 (Phase 2: AI Manager Implementation)
+- **AI-01 completed:** Implemented `AIModelManager` in `bot/ai/model_manager.py` with full multi-provider support.
+- **Features:**
+  - Support for 3 provider types: Hugging Face Inference API, OpenRouter, local Ollama
+  - Automatic failover on errors (429, 403, 500, timeouts)
+  - Response caching with 5-minute TTL
+  - Configurable via environment variables (JSON or individual configs)
+  - Special method `generate_sentence(theme)` for Mom Module
+- **Configuration:** Added AI settings to `src/config.py` (both `Settings` and `DynamicSettings` classes):
+  - `AI_PROVIDERS` (JSON string)
+  - `HF_INFERENCE_TOKEN`, `HF_INFERENCE_MODEL`
+  - `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`
+  - `OLLAMA_ENABLED`, `OLLAMA_ENDPOINT`, `OLLAMA_MODEL`
+- **Environment example:** Updated `config/.env.shared.example` with AI configuration section.
+- **Tests:** Created `tests/unit/test_ai_model_manager.py` with 13 tests covering:
+  - Provider initialization (no providers, single, multiple)
+  - Cache functionality (key generation, storage, expiration)
+  - API calls (HF success, failover, all fail scenarios)
+  - Special methods (generate_sentence)
+- **Verification:** All 13 tests passed, ruff 0 errors, py_compile passed.
+- **Deliverable status:** AI-01 (5%) completed. Phase 2 progress: 18/100.
+- **Next steps:** Implement AI commands (AI-02, AI-03, AI-04) → Start Mom Module.
+
+### 2026-05-24 (Phase 2 Infrastructure — Database Schema)
+- **Phase 2 Planning:** Created comprehensive implementation plan for 5 new modules (GD, Chess, Universe, AI, Mom) with total weight 100%.
+- **Memory Bank sync:** Updated `projectbrief.md` with Phase 2 deliverables (30 new items: GD-01 to GD-07, CH-01 to CH-06, UN-01 to UN-03, AI-01 to AI-05, MOM-01 to MOM-05).
+- **Active context update:** Changed focus from Trivia game to Phase 2 Feature Expansion in `activeContext.md`.
+- **Detailed plan:** Created `memory_bank/phase2_implementation_plan.md` with execution order, time estimates (29-41 hours), and risk analysis.
+- **Migration 009:** Created Alembic migration `database/alembic/versions/009_phase2_tables.py` for all Phase 2 tables.
+- **SQLAlchemy models:** Added 9 new models to `database/database.py`:
+  - GD Module: `Level`, `Submission`, `PlayerStats`, `LevelCompletion`
+  - Chess Module: `ChessAccount`, `UserCoins`
+  - Universe Module: `InfectionStatus`, `DailyPrayerLog`
+  - AI Module: `UserPreferences`
+- **SQL script:** Created `database/migrations/009_phase2_tables_supabase.sql` for manual Supabase application.
+- **Python script:** Created `scripts/apply_migration_009_supabase.py` for automated migration (encountered connection timeouts initially).
+- **Documentation:** Created `docs/APPLY_MIGRATION_009.md` with instructions for manual migration via Supabase Dashboard.
+- **Migration applied:** Successfully applied migration 009 to Supabase PostgreSQL via VPN connection. All 9 tables created and verified:
+  - `chess_accounts`, `daily_prayer_log`, `infection_status`, `level_completions`, `levels`, `player_stats`, `submissions`, `user_coins`, `user_preferences`
+- **Deliverables completed:** GD-01 (5%), CH-01 (2%), UN-01 (4%), UN-02 (4%), AI-05 (2%) = 17% infrastructure (13% effective as only DB tables).
+- **Verification:** All code passes `ruff check` and `py_compile`. Migration verified in Supabase.
+- **Commits:** 
+  - `4ad26e9` — feat(phase2): add database infrastructure for 5 new modules
+- **Next steps:** Implement AI Manager (AI-01) → Start Mom Module and GD Core.
+- **Phase 2 progress:** 13/100 (infrastructure only, commands pending).
+
+### 2026-05-24 (Shop price update and AI knowledge expansion)
+- **Issue:** User reported bot not responding after multiple commits. Root cause: incorrect Supabase password in Vercel environment variables caused authentication failures and circuit breaker activation.
+- **Database connection fix:** Switched from direct Supabase URL (`db.xrrdliznuyausiutxqwv.supabase.co`) to Connection Pooler (`aws-0-eu-west-1.pooler.supabase.com:5432`) to resolve IPv6 connectivity issues on Vercel serverless.
+- **Shop item price update:** Reduced "Безлимит стикеров на 24 часа" price from 100 to 35 coins (20% of daily earnings with new balanced parsing coefficients).
+- **Migration 008:** Created Alembic migration `008_init_shop_sticker_item.py` to initialize shop category and sticker item with price 35 coins. Applied to Supabase via SQL Editor.
+- **AI knowledge expansion:** Added 7 new knowledge sections to `bot/ai/knowledge.py`:
+  - `bot_commands` — основные команды бота
+  - `parsing_games` — парсинг игровых валют (Shmalala, GD Cards, Гусь Cards)
+  - `exchange_rates` — курсы перевода валют (коэффициенты 0.8-1.5)
+  - `shop_items` — товары магазина
+  - `balance_profile` — управление балансом
+  - `trivia_game` — викторина по канону
+  - `response_modes` — режимы short/long
+- **AI now answers:** `/ai курс перевода`, `/ai как получить монеты`, `/ai что в магазине`, `/ai сколько стоит безлимит стикеров`
+- **Error handling fix:** Added try-except wrapper around `template_coder_dialog.handle_text()` in `bot/bot.py` to prevent crashes on ordinary messages (later reverted during troubleshooting).
+- **Environment setup:** Created `.env` file with correct Supabase Connection Pooler URL and bot token for local development.
+- **Scripts created:**
+  - `scripts/init_shop_items.py` — initialize shop items in SQLite
+  - `scripts/apply_migration_008_supabase.py` — apply migration via DATABASE_URL (Python)
+  - `database/migrations/008_update_sticker_price_supabase.sql` — SQL script for manual application
+  - `docs/APPLY_MIGRATION_008.md` — migration instructions
+- **Verification:** Bot restored to working state after updating DATABASE_URL on Vercel with correct password and Connection Pooler URL.
+- **Commands for BotFather:** Updated list of 13 main commands for bot menu.
 
 ### 2026-05-22 (Shop reset for new catalog)
 - Started shop implementation/reset phase for Vercel production.
@@ -203,7 +292,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- 5f0fe49 (2026-05-22, sticker moderation warning throttled to once per minute)
+- f5ca227 (2026-05-24, Phase 2 infrastructure preparation)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.

@@ -467,6 +467,129 @@ class ConversionRate(Base):
     )
 
 
+# ========== Phase 2: Geometry Dash Module ==========
+
+class Level(Base):
+    """
+    Таблица уровней Geometry Dash для внутреннего топа LucasTeam.
+    """
+    __tablename__ = "levels"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False, unique=True)
+    position = Column(Integer, nullable=False, unique=True)  # 1-100
+    external_link = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    submissions = relationship("Submission", back_populates="level", cascade="all, delete-orphan")
+    completions = relationship("LevelCompletion", back_populates="level", cascade="all, delete-orphan")
+
+
+class Submission(Base):
+    """
+    Таблица заявок на прохождение уровней GD.
+    """
+    __tablename__ = "submissions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, nullable=False)
+    level_id = Column(Integer, ForeignKey("levels.id", ondelete="CASCADE"), nullable=True)
+    video_file_id = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")  # pending, approved, rejected
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(BigInteger, nullable=True)
+
+    level = relationship("Level", back_populates="submissions")
+
+
+class PlayerStats(Base):
+    """
+    Статистика игрока в GD (хардест, количество прохождений).
+    """
+    __tablename__ = "player_stats"
+
+    user_id = Column(BigInteger, primary_key=True)
+    hardest_level_id = Column(Integer, ForeignKey("levels.id", ondelete="SET NULL"), nullable=True)
+    total_approved = Column(Integer, nullable=False, default=0)
+
+    hardest_level = relationship("Level", foreign_keys=[hardest_level_id])
+
+
+class LevelCompletion(Base):
+    """
+    Таблица прохождений уровней (many-to-many: user ↔ level).
+    """
+    __tablename__ = "level_completions"
+
+    user_id = Column(BigInteger, primary_key=True)
+    level_id = Column(Integer, ForeignKey("levels.id", ondelete="CASCADE"), primary_key=True)
+    completed_at = Column(DateTime, default=datetime.utcnow)
+
+    level = relationship("Level", back_populates="completions")
+
+
+# ========== Phase 2: Chess Module ==========
+
+class ChessAccount(Base):
+    """
+    Привязка Telegram-аккаунта к Lichess.
+    """
+    __tablename__ = "chess_accounts"
+
+    user_id = Column(BigInteger, primary_key=True)
+    lichess_username = Column(String(50), nullable=False, unique=True)
+    linked_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UserCoins(Base):
+    """
+    Баланс монет для шахматных наград (отдельно от основного баланса).
+    """
+    __tablename__ = "user_coins"
+
+    user_id = Column(BigInteger, primary_key=True)
+    balance = Column(Integer, nullable=False, default=0)
+    last_puzzle_at = Column(DateTime, nullable=True)
+
+
+# ========== Phase 2: Universe Module ==========
+
+class InfectionStatus(Base):
+    """
+    Статус заражения олеговирусом/LTL-паразитом.
+    """
+    __tablename__ = "infection_status"
+
+    user_id = Column(BigInteger, primary_key=True)
+    virus_type = Column(String(50), nullable=True)  # olegovirus, ltl_parasite
+    infected_at = Column(DateTime, nullable=True)
+    tea_cooldown_until = Column(DateTime, nullable=True)
+
+
+class DailyPrayerLog(Base):
+    """
+    Лог ежедневных молитв (не чаще раза в день).
+    """
+    __tablename__ = "daily_prayer_log"
+
+    user_id = Column(BigInteger, primary_key=True)
+    prayer_date = Column(DateTime, primary_key=True)  # Date only
+
+
+# ========== Phase 2: AI Module ==========
+
+class UserPreferences(Base):
+    """
+    Пользовательские настройки (выбор AI-модели и т.д.).
+    """
+    __tablename__ = "user_preferences"
+
+    user_id = Column(BigInteger, primary_key=True)
+    preferred_ai_model = Column(String(50), nullable=True)  # hf, openrouter, ollama
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 from database.connection import get_pooled_engine  # noqa: E402
 
 engine = get_pooled_engine()
