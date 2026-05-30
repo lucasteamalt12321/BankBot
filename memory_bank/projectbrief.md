@@ -68,7 +68,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | GD-01 | Схема и таблицы Supabase (levels, submissions, player_stats, level_completions) | completed | 5 |
 | GD-02 | Команда /submit (заявка на прохождение) | completed | 4 |
 | GD-03 | Админ-панель /moderate (модерация заявок) | completed | 5 |
-| GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
+| GD-04 | Логика сложности (хардест и топ-100) | completed | 4 |
 | GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | pending | 5 |
 | GD-06 | Админ-команды (/add_level, /set_level_position) | pending | 4 |
 | GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | pending | 3 |

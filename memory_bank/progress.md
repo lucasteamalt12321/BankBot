@@ -20,21 +20,24 @@
 
 ## Changelog
 
-### 2026-05-30 (Phase 2: GD-03 /moderate command)
-- **GD-03 completed:** Admin panel `/moderate` for moderation of GD submissions in `bot/commands/gd_admin_commands_ptb.py`.
-- **Features:**
-  - Pagination: 5 submissions per page
-  - Inline keyboard: "⬅️ Назад", "➡️ Вперёд" for navigation
-  - "✅ Подтвердить" / "❌ Отклонить" buttons for each submission
-  - Auto-update `PlayerStats.total_approved` on approval
-  - Auto-create `LevelCompletion` record on approval
-  - Admin-only access check
-- **Database:** `LevelCompletion` model used for tracking level completions
-- **Deliverables completed:** GD-03 (5%)
-- **Phase 2 progress:** 38% → 43% (+5% за GD-03)
-- **GD Module total:** 43% (GD-01: 5%, GD-02: 4%, GD-03: 5%, GD-TEST-1: 1%, GD-TEST-2: 1%, GD-TEST-3: 1%, remaining: 23%)
+### 2026-05-30 (Phase 2: GD-04 difficulty logic)
+- **GD-04 completed:** Difficulty logic for hardest and top-100 in `bot/gd/difficulty.py`.
+- **Functions:**
+  - `is_level_eligible(level_id, user_id)` — проверка доступности уровня (правила: топ-100, хардест, следующий уровень)
+  - `update_hardest_level(user_id, level_id)` — обновление хардеста при прохождении более сложного уровня
+  - `get_user_hardest(user_id)` — получение текущего хардеста пользователя
+  - `get_eligible_levels(user_id)` — список доступных уровней для пользователя
+  - `calculate_difficulty_score(level)` — расчёт сложности (101 - position)
+- **Rules:**
+  - Новички начинают с позиции 100
+  - Можно пройти любой уровень от хардеста до позиции 100
+  - Можно пройти следующий уровень (position - 1) после хардеста
+- **Integration:** `update_hardest_level()` вызывается в `/moderate` при approve
+- **Deliverables completed:** GD-04 (4%)
+- **Phase 2 progress:** 43% → 47% (+4% за GD-04)
+- **GD Module total:** 47% (GD-01: 5%, GD-02: 4%, GD-03: 5%, GD-04: 4%, GD-TEST-1-3: 3%, remaining: 19%)
 - **Verification:** ruff 0 errors, py_compile passed
-- **Next steps:** GD-04 (логика сложности), GD-05 (статистика)
+- **Next steps:** GD-05 (статистика: /leaderboard, /my_stats, /player_stats)
 - **MOM-01-04 completed:** Веб-приложение «Тренажёр чтения и понимания» полностью реализовано.
 - **Files:**
   - `webapp/reading_trainer/index.html` — статика с двумя экранами (чтение/вопросы), регулировка шрифта (24-72px), адаптивный дизайн
@@ -343,9 +346,10 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- 0c3200d (2026-05-30, Phase 2: GD-03 /moderate command implemented)
-- GD-03: /moderate admin panel implemented in `bot/commands/gd_admin_commands_ptb.py`
-- Pagination, approve/reject buttons, LevelCompletion auto-update
+- 648333c (2026-05-30, Phase 2: GD-04 difficulty logic implemented)
+- GD-04: Difficulty logic implemented in `bot/gd/difficulty.py`
+- Functions: is_level_eligible, update_hardest_level, get_user_hardest, get_eligible_levels, calculate_difficulty_score
+- Integrated into /moderate approval flow
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
