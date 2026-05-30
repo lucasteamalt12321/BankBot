@@ -2,13 +2,13 @@
 
 ## Текущий фокус
 **Phase 2: Feature Expansion — Новые игровые и ИИ-модули.** Масштабное расширение функциональности BankBot с добавлением 5 новых модулей:
-- 🎮 **Geometry Dash** (30%): ✅ **GD-02 completed** — команда /submit для отправки прохождений, модерация заявок, статистика игроков
+- 🎮 **Geometry Dash** (30%): ✅ **GD-02-03 completed** — команда /submit для отправки прохождений, админ-панель /moderate для модерации, статистика игроков
 - ♟ **Chess** (20%): интеграция с Lichess API, задачи с наградами, статистика
 - 🌟 **Universe** (15%): олеговирус, LTL-паразит, чайная религия, ИИ-генерация лора
 - 🤖 **AI** (15%): ✅ **ЗАВЕРШЁН** — менеджер моделей с автопереключением (HF/OpenRouter/Ollama), диалоги с персонажами, генерация молитв, база знаний канона
 - 🧑‍🏫 **Mom Module** (20%): ✅ **ЗАВЕРШЁН** — веб-приложение для детей с умственной отсталостью (1 класс), 6 предложений, 2-3 вопроса, проверка ответов, печать единым листом, генерация через HF API
 
-**Приоритет реализации:** ✅ AI Module (завершён) → ✅ Mom Module (завершён) → ✅ GD-02 /submit (completed) → ✅ GD-TEST-1-3 (completed) → GD-TEST-4-8 → GD-03-07 → Chess → Universe Commands.
+**Приоритет реализации:** ✅ AI Module (завершён) → ✅ Mom Module (завершён) → ✅ GD-02-03 (completed) → ✅ GD-TEST-1-3 (completed) → GD-04-07 → Chess → Universe Commands.
 
 Детальный план с подзадачами и критериями завершения зафиксирован в `memory_bank/phase2_implementation_plan.md`.
 
@@ -43,14 +43,15 @@ User-approved planning decisions:
 ## Выполнено недавно
 - ✅ Mom Module завершён (MOM-01-04): веб-приложение с двумя экранами, регулировка шрифта (24-72px), HF API генерация с fallback, проверка ответов, печать единым листом
 - ✅ GD-02 /submit: команда для отправки прохождений GD с ConversationHandler, предпросмотром, сохранением в БД
+- ✅ GD-03 /moderate: админ-панель с пагинацией, approve/reject кнопками, авто-обновлением PlayerStats и LevelCompletion
 - ✅ GD-TEST-1: Unit tests для GD Module (10 тестов, ConversationHandler и DB persistence)
 - ✅ GD-TEST-2: Unit tests для GD models (15 тестов, Submission, PlayerStats, Level, LevelCompletion)
 - ✅ GD-TEST-3: Unit tests для PlayerStats logic (12 тестов, state transitions, calculations, integration)
 - ✅ Testing strategy добавлена в projectbrief.md: GD-TEST, CH-TEST, UN-TEST, AI-TEST, MOM-TEST (33 unit + 18 integration + 11 total tests)
-- ✅ projectbrief.md обновлён: Phase 2 прогресс 26% → 38%, MOM-01-04, GD-02, GD-TEST-1-3 статус completed
-- ✅ progress.md обновлён: добавлен changelog за 2026-05-29 (Mom Module + GD-02 + Testing strategy + GD-TEST-1-3)
-- ✅ activeContext.md обновлён: Mom Module, GD-02, GD-TEST-1-3 помечены как завершённые
-- 🔄 GD-TEST-4-8: следующий приоритет — integration tests, total E2E tests
+- ✅ projectbrief.md обновлён: Phase 2 прогресс 26% → 43%, MOM-01-04, GD-02-03, GD-TEST-1-3 статус completed
+- ✅ progress.md обновлён: добавлен changelog за 2026-05-30 (GD-03)
+- ✅ activeContext.md обновлён: Mom Module, GD-02-03, GD-TEST-1-3 помечены как завершённые
+- 🔄 GD-04-07: следующий приоритет — логика сложности, статистика, GD API интеграция
 - ✅ Поддержка прокси в `src/config.py` и `bot/bot.py`.
 - ✅ Реализован скрипт `bot/check_proxy.py` для диагностики сетевых соединений.
 - ✅ Проверена доступность IP Telegram API (tgproxy.me) из среды Hugging Face (Status 200).
@@ -73,15 +74,17 @@ User-approved planning decisions:
 | Предупреждения pytest | 0 в smoke-проверках |
 | Mom Module | ✅ завершён (MOM-01-04, 19%) |
 | GD-02 | ✅ завершён (команда /submit) |
+| GD-03 | ✅ завершён (админ-панель /moderate) |
 | GD-TEST-1 | ✅ завершён (10 unit tests) |
 | GD-TEST-2 | ✅ завершён (15 unit tests) |
 | GD-TEST-3 | ✅ завершён (12 unit tests) |
-| Phase 2 прогресс | 38/100 (GD-01: 5%, GD-02: 4%, GD-TEST-1: 1%, GD-TEST-2: 1%, GD-TEST-3: 1%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI: 15%, MOM: 19%) |
+| Phase 2 прогресс | 43/100 (GD-01: 5%, GD-02: 4%, GD-03: 5%, GD-TEST-1: 1%, GD-TEST-2: 1%, GD-TEST-3: 1%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI: 15%, MOM: 19%) |
 
 ## Project Deliverables
 - D01-D27: 100% (weights sum = 100 ✓)
 - MOM-01-04: 100% (weights sum = 19% ✓)
 - GD-02: 100% (weights sum = 4% ✓)
+- GD-03: 100% (weights sum = 5% ✓)
 - GD-TEST-1: 100% (weights sum = 1% ✓)
 - GD-TEST-2: 100% (weights sum = 1% ✓)
 - GD-TEST-3: 100% (weights sum = 1% ✓)
@@ -100,6 +103,7 @@ User-approved planning decisions:
   - Games: games, play, join, startgame, turn (ранее)
 - ✅ MOM-01-04: Mom Module завершён (веб-приложение, HF API, проверка ответов, печать)
 - ✅ GD-02: /submit command завершён (ConversationHandler, media upload, DB persistence)
+- ✅ GD-03: /moderate admin panel завершён (pagination, approve/reject, auto-update stats)
 - ✅ GD-TEST-1: Unit tests завершены (10 тестов, ConversationHandler + DB persistence)
 - ✅ GD-TEST-2: Unit tests завершены (15 тестов, Submission, PlayerStats, Level, LevelCompletion models)
 - ✅ GD-TEST-3: Unit tests завершены (12 тестов, PlayerStats logic, state transitions, integration)
