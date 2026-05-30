@@ -687,5 +687,30 @@
 - **Git Commit**: `48780f8` — sync(memory_bank): актуализация после 15 коммитов деплоя HF.
 - **Push Blocked**: `git push origin main` требует интерактивной авторизации GitHub (HTTPS). Требуется действие пользователя или настройка SSH/credentials.
 
+### 2026-05-30 (Phase 2: GD-07 GD API integration)
+- **GD-07 completed:** GD API integration without gd.py library (installation timeout issues).
+- **Implementation:**
+  - `bot/gd/gd_api.py` — direct HTTP requests to Geometry Dash servers
+  - `bot/commands/gd_api_commands_ptb.py` — /gd_user and /gd_level commands
+  - Integrated into `bot/commands/gd_commands_ptb.py` via `get_gd_handlers()`
+- **Commands:**
+  - `/gd_user <username>` — fetch player statistics (stars, demons, creator points, coins, diamonds, global rank)
+  - `/gd_level <level_id>` — fetch level information (name, difficulty, downloads, likes, length, coins)
+- **Features:**
+  - Async HTTP requests via aiohttp (already in requirements.txt)
+  - Response parsing from GD API format (key:value pairs)
+  - Formatted output with emojis and readable stats
+  - Error handling for network issues and not found cases
+- **Deliverables completed:** GD-07 (3%)
+- **Phase 2 progress:** 56% → 59% (+3% за GD-07)
+- **GD Module total:** 59% (GD-01: 5%, GD-02: 4%, GD-03: 5%, GD-04: 4%, GD-05: 5%, GD-06: 4%, GD-07: 3%, GD-TEST-1-3: 3%, remaining: 7%)
+- **Verification:** ruff 0 errors, py_compile passed
+- **Next steps:** GD-TEST (manual testing всех GD команд), Chess Module (CH-02 → CH-06)
+
+## last_checked_commit
+- ab57048 (2026-05-30, Phase 2: GD-07 GD API integration implemented)
+- GD-07: GD API integration in `bot/gd/gd_api.py` and `bot/commands/gd_api_commands_ptb.py`
+- Features: /gd_user (player stats), /gd_level (level info), direct HTTP requests to GD servers
+
 ## last_checked_commit
 e57e9dd feat(parsing): implement parsing system for GDcards, Gusya Cards, Shmalala (2026-05-20)

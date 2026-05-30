@@ -160,6 +160,8 @@ async def submit_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 def get_gd_handlers():
     """Return handlers for GD module commands."""
+    from bot.commands.gd_api_commands_ptb import gd_user_command, gd_level_command
+    
     submit_handler = ConversationHandler(
         entry_points=[CommandHandler("submit", submit_command_start)],
         states={
@@ -181,4 +183,8 @@ def get_gd_handlers():
         per_chat=True
     )
     
-    return [submit_handler]
+    return [
+        submit_handler,
+        CommandHandler("gd_user", gd_user_command),
+        CommandHandler("gd_level", gd_level_command),
+    ]
