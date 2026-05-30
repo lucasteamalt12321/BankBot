@@ -23,6 +23,25 @@
         .correct { background: #D1F2DD; color: #248A3D; }
         .incorrect { background: #FFD7D9; color: #D70015; }
         #questions-screen { display: none; }
+        
+        /* Print styles */
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; padding: 20px; }
+            button { display: none !important; }
+            input { border: none; border-bottom: 2px solid #000; background: transparent; }
+            .result { display: none !important; }
+            h1 { font-size: 24px; margin-bottom: 20px; }
+            .sentence { font-size: 18px; margin: 10px 0; page-break-inside: avoid; }
+            .question { page-break-inside: avoid; margin: 15px 0; }
+            .question-text { font-size: 16px; }
+            #questions-screen { display: block !important; }
+            #reading-screen { display: block !important; }
+            .print-separator { border-top: 2px dashed #000; margin: 30px 0; padding-top: 20px; }
+        }
+        
+        .btn-print { background: #34C759; color: white; }
+        .btn-print:hover { background: #248A3D; }
     </style>
 </head>
 <body>
@@ -33,12 +52,14 @@
             <div id="sentences"></div>
             <button class="btn-primary" onclick="goToQuestions()">Дальше →</button>
             <button class="btn-secondary" onclick="loadNewText()">Новый текст</button>
+            <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
         </div>
 
         <div id="questions-screen">
             <div id="questions-container"></div>
             <button class="btn-primary" onclick="checkAnswers()">Проверить</button>
             <button class="btn-secondary" onclick="goBackToReading()">← Назад к чтению</button>
+            <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
         </div>
     </div>
 
@@ -117,6 +138,46 @@
                 }
                 result.style.display = 'block';
             });
+        }
+
+        function printWorksheet() {
+            // Prepare print view: show both reading and questions
+            const readingScreen = document.getElementById('reading-screen');
+            const questionsScreen = document.getElementById('questions-screen');
+            
+            // Store current state
+            const wasReadingVisible = readingScreen.style.display !== 'none';
+            const wasQuestionsVisible = questionsScreen.style.display !== 'none';
+            
+            // Show both sections for printing
+            readingScreen.style.display = 'block';
+            questionsScreen.style.display = 'block';
+            
+            // Add separator between sections
+            if (!document.getElementById('print-separator')) {
+                const separator = document.createElement('div');
+                separator.id = 'print-separator';
+                separator.className = 'print-separator';
+                separator.innerHTML = '<h2>Вопросы:</h2>';
+                questionsScreen.insertBefore(separator, questionsScreen.firstChild);
+            }
+            
+            // Clear input values and results for printing
+            currentData.questions.forEach((q, i) => {
+                const input = document.getElementById('answer-' + i);
+                const result = document.getElementById('result-' + i);
+                if (input) input.value = '';
+                if (result) result.style.display = 'none';
+            });
+            
+            // Trigger print
+            window.print();
+            
+            // Restore original state after print dialog closes
+            setTimeout(() => {
+                readingScreen.style.display = wasReadingVisible ? 'block' : 'none';
+                questionsScreen.style.display = wasQuestionsVisible ? 'block' : 'none';
+            }, 100);
         }
 
         // Load first text on page load
