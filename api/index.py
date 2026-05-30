@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hmac
 import os
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 app = Flask(__name__)
 
@@ -21,6 +21,27 @@ def index():
 @app.route("/health")
 def health():
     return jsonify({"status": "healthy", "platform": "vercel"})
+
+
+@app.route("/reading_trainer.html")
+def reading_trainer():
+    """Serve reading trainer HTML."""
+    try:
+        # Try to serve from public directory
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        public_dir = os.path.join(base_dir, "public")
+        
+        if os.path.exists(os.path.join(public_dir, "reading_trainer.html")):
+            return send_from_directory(public_dir, "reading_trainer.html")
+        
+        # Fallback to root directory
+        if os.path.exists(os.path.join(base_dir, "reading_trainer.html")):
+            return send_from_directory(base_dir, "reading_trainer.html")
+        
+        return jsonify({"error": "reading_trainer.html not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/telegram/webhook/<secret>", methods=["POST"])
