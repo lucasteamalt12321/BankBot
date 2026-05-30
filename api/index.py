@@ -26,28 +26,179 @@ def health():
 @app.route("/reading_trainer.html")
 def reading_trainer():
     """Serve reading trainer HTML."""
-    try:
-        import os
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        public_dir = os.path.join(base_dir, "public")
-        html_path = os.path.join(public_dir, "reading_trainer.html")
-        
-        # Read and return HTML content directly
-        if os.path.exists(html_path):
-            with open(html_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-            return html_content, 200, {'Content-Type': 'text/html; charset=utf-8'}
-        
-        # Fallback to root directory
-        html_path_root = os.path.join(base_dir, "reading_trainer.html")
-        if os.path.exists(html_path_root):
-            with open(html_path_root, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-            return html_content, 200, {'Content-Type': 'text/html; charset=utf-8'}
-        
-        return jsonify({"error": "reading_trainer.html not found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    html_content = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тренажёр чтения</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { text-align: center; margin-bottom: 30px; color: #333; }
+        .story-title { font-size: 24px; font-weight: bold; margin: 20px 0; text-align: center; }
+        .story-image { font-size: 80px; text-align: center; margin: 20px 0; }
+        .story-text { font-size: 20px; line-height: 1.8; text-align: justify; margin: 20px 0; }
+        button { padding: 12px 24px; font-size: 16px; margin: 10px 5px; cursor: pointer; border: none; border-radius: 8px; font-weight: 600; }
+        .btn-primary { background: #007AFF; color: white; }
+        .btn-primary:hover { background: #0051D5; }
+        .btn-secondary { background: #8E8E93; color: white; }
+        .btn-secondary:hover { background: #636366; }
+        .btn-print { background: #34C759; color: white; }
+        .btn-print:hover { background: #248A3D; }
+        input { width: 100%; padding: 12px; font-size: 16px; margin: 10px 0; border: 2px solid #ddd; border-radius: 8px; }
+        input:focus { outline: none; border-color: #007AFF; }
+        .question { margin: 20px 0; }
+        .question-text { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+        .result { padding: 12px; margin: 10px 0; border-radius: 8px; font-weight: bold; }
+        .correct { background: #D1F2DD; color: #248A3D; }
+        .incorrect { background: #FFD7D9; color: #D70015; }
+        #questions-screen { display: none; }
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; padding: 20px; }
+            button { display: none !important; }
+            input { border: none; border-bottom: 2px solid #000; background: transparent; }
+            .result { display: none !important; }
+            h1 { font-size: 24px; margin-bottom: 20px; }
+            .story-title { font-size: 20px; margin-bottom: 10px; }
+            .story-image { font-size: 60px; margin: 10px 0; }
+            .story-text { font-size: 16px; line-height: 1.6; }
+            .question { page-break-inside: avoid; margin: 15px 0; }
+            .question-text { font-size: 16px; }
+            #questions-screen { display: block !important; }
+            #reading-screen { display: block !important; }
+            .print-separator { border-top: 2px dashed #000; margin: 30px 0; padding-top: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧸 Тренажёр чтения и понимания</h1>
+        <div id="reading-screen">
+            <div id="sentences"></div>
+            <button class="btn-primary" onclick="goToQuestions()">Дальше →</button>
+            <button class="btn-secondary" onclick="loadNewText()">Новый текст</button>
+            <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
+        </div>
+        <div id="questions-screen">
+            <div id="questions-container"></div>
+            <button class="btn-primary" onclick="checkAnswers()">Проверить</button>
+            <button class="btn-secondary" onclick="goBackToReading()">← Назад к чтению</button>
+            <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
+        </div>
+    </div>
+    <script>
+        const fallbackSets = [
+            {
+                title: "🐱 Кот Мурзик",
+                image: "🐱",
+                text: "Жил-был кот Мурзик. Он любил спать на диване. Мама мыла раму. Солнце светило ярко. Дети играли в парке. Папа читал книгу. Бабушка пекла пирог.",
+                questions: [
+                    {question: "Как звали кота?", answer: "мурзик"},
+                    {question: "Что делала мама?", answer: "мыла раму"},
+                    {question: "Где играли дети?", answer: "в парке"}
+                ]
+            },
+            {
+                title: "🐕 Собака Шарик",
+                image: "🐕",
+                text: "Собака Шарик громко лаяла. Птица пела песню на дереве. Дождь шёл сильно. Цветы росли в саду. Машина ехала быстро. Река текла медленно.",
+                questions: [
+                    {question: "Как звали собаку?", answer: "шарик"},
+                    {question: "Что делала птица?", answer: "пела песню"},
+                    {question: "Где росли цветы?", answer: "в саду"}
+                ]
+            },
+            {
+                title: "🎨 В школе",
+                image: "🏫",
+                text: "Мальчик рисовал дом. Девочка пела песню. Учитель писал мелом на доске. Ученик читал текст. Повар готовил суп. Врач лечил людей.",
+                questions: [
+                    {question: "Что рисовал мальчик?", answer: "дом"},
+                    {question: "Кто пел песню?", answer: "девочка"},
+                    {question: "Что готовил повар?", answer: "суп"}
+                ]
+            }
+        ];
+        let currentData = null;
+        function loadNewText() {
+            currentData = fallbackSets[Math.floor(Math.random() * fallbackSets.length)];
+            displayReading();
+        }
+        function displayReading() {
+            const html = `
+                <div class="story-title">${currentData.title}</div>
+                <div class="story-image">${currentData.image}</div>
+                <div class="story-text">${currentData.text}</div>
+            `;
+            document.getElementById('sentences').innerHTML = html;
+            document.getElementById('reading-screen').style.display = 'block';
+            document.getElementById('questions-screen').style.display = 'none';
+        }
+        function goToQuestions() {
+            document.getElementById('questions-container').innerHTML = currentData.questions.map((q, i) => 
+                '<div class="question">' +
+                '<div class="question-text">' + (i+1) + '. ' + q.question + '</div>' +
+                '<input type="text" id="answer-' + i + '" placeholder="Введите ответ">' +
+                '<div class="result" id="result-' + i + '" style="display:none;"></div>' +
+                '</div>'
+            ).join('');
+            document.getElementById('reading-screen').style.display = 'none';
+            document.getElementById('questions-screen').style.display = 'block';
+        }
+        function goBackToReading() {
+            document.getElementById('reading-screen').style.display = 'block';
+            document.getElementById('questions-screen').style.display = 'none';
+        }
+        function checkAnswers() {
+            currentData.questions.forEach((q, i) => {
+                const input = document.getElementById('answer-' + i);
+                const result = document.getElementById('result-' + i);
+                const userAnswer = input.value.trim().toLowerCase();
+                const correctAnswer = q.answer.toLowerCase();
+                if (userAnswer === correctAnswer) {
+                    result.textContent = '✓ Правильно!';
+                    result.className = 'result correct';
+                } else {
+                    result.textContent = '✗ Правильный ответ: ' + q.answer;
+                    result.className = 'result incorrect';
+                }
+                result.style.display = 'block';
+            });
+        }
+        function printWorksheet() {
+            const readingScreen = document.getElementById('reading-screen');
+            const questionsScreen = document.getElementById('questions-screen');
+            const wasReadingVisible = readingScreen.style.display !== 'none';
+            const wasQuestionsVisible = questionsScreen.style.display !== 'none';
+            readingScreen.style.display = 'block';
+            questionsScreen.style.display = 'block';
+            if (!document.getElementById('print-separator')) {
+                const separator = document.createElement('div');
+                separator.id = 'print-separator';
+                separator.className = 'print-separator';
+                separator.innerHTML = '<h2>Вопросы:</h2>';
+                questionsScreen.insertBefore(separator, questionsScreen.firstChild);
+            }
+            currentData.questions.forEach((q, i) => {
+                const input = document.getElementById('answer-' + i);
+                const result = document.getElementById('result-' + i);
+                if (input) input.value = '';
+                if (result) result.style.display = 'none';
+            });
+            window.print();
+            setTimeout(() => {
+                readingScreen.style.display = wasReadingVisible ? 'block' : 'none';
+                questionsScreen.style.display = wasQuestionsVisible ? 'block' : 'none';
+            }, 100);
+        }
+        loadNewText();
+    </script>
+</body>
+</html>"""
+    return html_content, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 
 @app.route("/telegram/webhook/<secret>", methods=["POST"])
