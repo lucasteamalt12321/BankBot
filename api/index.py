@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hmac
 import os
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
@@ -27,17 +27,23 @@ def health():
 def reading_trainer():
     """Serve reading trainer HTML."""
     try:
-        # Try to serve from public directory
         import os
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         public_dir = os.path.join(base_dir, "public")
+        html_path = os.path.join(public_dir, "reading_trainer.html")
         
-        if os.path.exists(os.path.join(public_dir, "reading_trainer.html")):
-            return send_from_directory(public_dir, "reading_trainer.html")
+        # Read and return HTML content directly
+        if os.path.exists(html_path):
+            with open(html_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            return html_content, 200, {'Content-Type': 'text/html; charset=utf-8'}
         
         # Fallback to root directory
-        if os.path.exists(os.path.join(base_dir, "reading_trainer.html")):
-            return send_from_directory(base_dir, "reading_trainer.html")
+        html_path_root = os.path.join(base_dir, "reading_trainer.html")
+        if os.path.exists(html_path_root):
+            with open(html_path_root, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            return html_content, 200, {'Content-Type': 'text/html; charset=utf-8'}
         
         return jsonify({"error": "reading_trainer.html not found"}), 404
     except Exception as e:

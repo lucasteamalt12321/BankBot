@@ -10,6 +10,9 @@
         .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         h1 { text-align: center; margin-bottom: 30px; color: #333; }
         .sentence { font-size: 20px; margin: 15px 0; font-weight: bold; line-height: 1.6; }
+        .story-title { font-size: 24px; font-weight: bold; margin: 20px 0; text-align: center; }
+        .story-image { font-size: 80px; text-align: center; margin: 20px 0; }
+        .story-text { font-size: 20px; line-height: 1.8; text-align: justify; margin: 20px 0; }
         button { padding: 12px 24px; font-size: 16px; margin: 10px 5px; cursor: pointer; border: none; border-radius: 8px; font-weight: 600; }
         .btn-primary { background: #007AFF; color: white; }
         .btn-primary:hover { background: #0051D5; }
@@ -33,6 +36,9 @@
             .result { display: none !important; }
             h1 { font-size: 24px; margin-bottom: 20px; }
             .sentence { font-size: 18px; margin: 10px 0; page-break-inside: avoid; }
+            .story-title { font-size: 20px; margin-bottom: 10px; }
+            .story-image { font-size: 60px; margin: 10px 0; }
+            .story-text { font-size: 16px; line-height: 1.6; }
             .question { page-break-inside: avoid; margin: 15px 0; }
             .question-text { font-size: 16px; }
             #questions-screen { display: block !important; }
@@ -66,27 +72,33 @@
     <script>
         const fallbackSets = [
             {
-                sentences: ["Кот спит.", "Мама мыла раму.", "Солнце светит ярко.", "Дети играют в парке.", "Папа читает книгу.", "Бабушка печёт пирог."],
+                title: "🐱 Кот Мурзик",
+                image: "🐱",
+                text: "Жил-был кот Мурзик. Он любил спать на диване. Мама мыла раму. Солнце светило ярко. Дети играли в парке. Папа читал книгу. Бабушка пекла пирог.",
                 questions: [
-                    {question: "Кто спит?", answer: "кот"},
+                    {question: "Как звали кота?", answer: "мурзик"},
                     {question: "Что делала мама?", answer: "мыла раму"},
-                    {question: "Где играют дети?", answer: "в парке"}
+                    {question: "Где играли дети?", answer: "в парке"}
                 ]
             },
             {
-                sentences: ["Собака лает.", "Птица поёт песню.", "Дождь идёт сильно.", "Цветы растут в саду.", "Машина едет быстро.", "Река течёт медленно."],
+                title: "🐕 Собака Шарик",
+                image: "🐕",
+                text: "Собака Шарик громко лаяла. Птица пела песню на дереве. Дождь шёл сильно. Цветы росли в саду. Машина ехала быстро. Река текла медленно.",
                 questions: [
-                    {question: "Кто лает?", answer: "собака"},
-                    {question: "Что делает птица?", answer: "поёт песню"},
-                    {question: "Где растут цветы?", answer: "в саду"}
+                    {question: "Как звали собаку?", answer: "шарик"},
+                    {question: "Что делала птица?", answer: "пела песню"},
+                    {question: "Где росли цветы?", answer: "в саду"}
                 ]
             },
             {
-                sentences: ["Мальчик рисует дом.", "Девочка поёт песню.", "Учитель пишет мелом.", "Ученик читает текст.", "Повар готовит суп.", "Врач лечит людей."],
+                title: "🎨 В школе",
+                image: "🏫",
+                text: "Мальчик рисовал дом. Девочка пела песню. Учитель писал мелом на доске. Ученик читал текст. Повар готовил суп. Врач лечил людей.",
                 questions: [
-                    {question: "Что рисует мальчик?", answer: "дом"},
-                    {question: "Кто поёт песню?", answer: "девочка"},
-                    {question: "Что готовит повар?", answer: "суп"}
+                    {question: "Что рисовал мальчик?", answer: "дом"},
+                    {question: "Кто пел песню?", answer: "девочка"},
+                    {question: "Что готовил повар?", answer: "суп"}
                 ]
             }
         ];
@@ -99,8 +111,12 @@
         }
 
         function displayReading() {
-            document.getElementById('sentences').innerHTML = currentData.sentences
-                .map(s => '<div class="sentence">' + s + '</div>').join('');
+            const html = `
+                <div class="story-title">${currentData.title}</div>
+                <div class="story-image">${currentData.image}</div>
+                <div class="story-text">${currentData.text}</div>
+            `;
+            document.getElementById('sentences').innerHTML = html;
             document.getElementById('reading-screen').style.display = 'block';
             document.getElementById('questions-screen').style.display = 'none';
         }
