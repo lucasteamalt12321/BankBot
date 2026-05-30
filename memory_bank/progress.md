@@ -20,17 +20,21 @@
 
 ## Changelog
 
-### 2026-05-29 (Phase 2: GD-TEST-3 unit tests)
-- **GD-TEST-3 completed:** Unit tests for GD Module PlayerStats logic in `tests/unit/test_gd_player_stats.py`.
-- **Tests created:** 12 tests covering:
-  - `PlayerStats` logic: update approved count, set hardest level, calculate completion rate
-  - `Submission` logic: approve/reject, status validation, level_name fallback
-  - `Level` logic: position range, hardest level check, completion count
-  - Integration logic: submission→stats flow, level completion→stats flow, stats summary
-- **Test coverage:** PlayerStats calculations, Submission state transitions, Level relationships
+### 2026-05-30 (Phase 2: GD-03 /moderate command)
+- **GD-03 completed:** Admin panel `/moderate` for moderation of GD submissions in `bot/commands/gd_admin_commands_ptb.py`.
+- **Features:**
+  - Pagination: 5 submissions per page
+  - Inline keyboard: "⬅️ Назад", "➡️ Вперёд" for navigation
+  - "✅ Подтвердить" / "❌ Отклонить" buttons for each submission
+  - Auto-update `PlayerStats.total_approved` on approval
+  - Auto-create `LevelCompletion` record on approval
+  - Admin-only access check
+- **Database:** `LevelCompletion` model used for tracking level completions
+- **Deliverables completed:** GD-03 (5%)
+- **Phase 2 progress:** 38% → 43% (+5% за GD-03)
+- **GD Module total:** 43% (GD-01: 5%, GD-02: 4%, GD-03: 5%, GD-TEST-1: 1%, GD-TEST-2: 1%, GD-TEST-3: 1%, remaining: 23%)
 - **Verification:** ruff 0 errors, py_compile passed
-- **Phase 2 progress:** 37% → 38% (+1% за GD-TEST-3)
-- **GD Module total:** 38% (GD-01: 5%, GD-02: 4%, GD-TEST-1: 1%, GD-TEST-2: 1%, GD-TEST-3: 1%, remaining: 26%)
+- **Next steps:** GD-04 (логика сложности), GD-05 (статистика)
 - **MOM-01-04 completed:** Веб-приложение «Тренажёр чтения и понимания» полностью реализовано.
 - **Files:**
   - `webapp/reading_trainer/index.html` — статика с двумя экранами (чтение/вопросы), регулировка шрифта (24-72px), адаптивный дизайн
@@ -339,14 +343,9 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- 83cbf5d (2026-05-29, Phase 2: Mom Module completed, projectbrief.md updated)
-- GD-02: /submit command implemented in `bot/commands/gd_commands_ptb.py`
-- GD handlers wired in `bot/bot.py`
-- Database model `Submission` extended with `level_name`, `media_type`, `notes` fields
-- Testing strategy added to projectbrief.md: GD-TEST, CH-TEST, UN-TEST, AI-TEST, MOM-TEST
-- GD-TEST-1: Unit tests created in `tests/unit/test_gd_commands.py` (10 tests)
-- GD-TEST-2: Unit tests created in `tests/unit/test_gd_models.py` (15 tests)
-- GD-TEST-3: Unit tests created in `tests/unit/test_gd_player_stats.py` (12 tests)
+- 0c3200d (2026-05-30, Phase 2: GD-03 /moderate command implemented)
+- GD-03: /moderate admin panel implemented in `bot/commands/gd_admin_commands_ptb.py`
+- Pagination, approve/reject buttons, LevelCompletion auto-update
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.

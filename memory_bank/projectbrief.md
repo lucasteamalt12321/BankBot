@@ -67,7 +67,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 |----|-------------|--------|--------|
 | GD-01 | Схема и таблицы Supabase (levels, submissions, player_stats, level_completions) | completed | 5 |
 | GD-02 | Команда /submit (заявка на прохождение) | completed | 4 |
-| GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
+| GD-03 | Админ-панель /moderate (модерация заявок) | completed | 5 |
 | GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
 | GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | pending | 5 |
 | GD-06 | Админ-команды (/add_level, /set_level_position) | pending | 4 |
@@ -164,139 +164,228 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ### Общие принципы тестирования
 
-Каждый модуль Phase 2 должен пройти три уровня тестирования:
+Каждый модуль Phase 2 должен пройти **ручное тестирование** (manual testing) перед финальным завершением:
 
-1. **Unit Tests** — изолированное тестирование логики без внешних зависимостей
-2. **Integration Tests** — тестирование взаимодействия с БД, Telegram API, внешними сервисами
-3. **Total (E2E) Tests** — полный сценарий использования от начала до конца
+1. **Запуск бота** — локально через `py -3.12 bot/main.py` или на HF
+2. **Проверка команд** — каждая команда модуля тестируется вручную
+3. **Edge cases** — проверка ошибок, пустых данных, некорректного ввода
+4. **UI/UX** — корректность отображения, кнопок, форматирования
+5. **Database** — проверка сохранения данных в БД через SQL-запросы
+6. **Integration** — проверка взаимодействия с другими модулями
 
-### Тесты по модулям
+### Manual Testing Checklist по модулям
 
 #### 🎮 Geometry Dash Module (GD-TEST)
 
-| ID | Test Type | Scope | Status |
-|----|-----------|-------|--------|
-| GD-TEST-1 | Unit | `gd_commands_ptb.py` ConversationHandler states | pending |
-| GD-TEST-2 | Unit | `Submission` model validation | pending |
-| GD-TEST-3 | Unit | `PlayerStats` update logic | pending |
-| GD-TEST-4 | Integration | `/submit` command flow (level → media → confirm) | pending |
-| GD-TEST-5 | Integration | DB persistence (submissions table) | pending |
-| GD-TEST-6 | Integration | Player stats auto-update | pending |
-| GD-TEST-7 | Total | Full user journey: submit → admin review | pending |
-| GD-TEST-8 | Total | Error handling: invalid media, duplicate submission | pending |
+**Вес:** 3%
 
-**GD-TEST Sum: 3%**
+**Команды для тестирования:**
+- [ ] `/submit` — отправка прохождения (видео/фото)
+  - [ ] Ввод названия уровня
+  - [ ] Загрузка видео
+  - [ ] Загрузка фото
+  - [ ] Предпросмотр медиа
+  - [ ] Подтверждение отправки
+  - [ ] Отмена отправки
+  - [ ] Проверка записи в `submissions` таблицу
+  - [ ] Проверка обновления `player_stats.total_submissions`
+- [ ] `/moderate` (admin) — модерация заявок
+  - [ ] Отображение списка pending submissions
+  - [ ] Пагинация (⬅️ Назад / ➡️ Вперёд)
+  - [ ] Подтверждение заявки (✅)
+  - [ ] Отклонение заявки (❌)
+  - [ ] Проверка обновления `submissions.status`
+  - [ ] Проверка обновления `player_stats.total_approved`
+  - [ ] Проверка создания `level_completions` записи
+- [ ] `/leaderboard` — топ-100 уровней (pending)
+- [ ] `/my_stats` — личная статистика (pending)
+- [ ] `/player_stats @user` — статистика игрока (pending)
+- [ ] `/add_level` (admin) — добавление уровня (pending)
+- [ ] `/set_level_position` (admin) — изменение позиции (pending)
+- [ ] `/gd_user <ник>` — статистика из GD API (pending)
+- [ ] `/gd_level <id>` — информация об уровне (pending)
+
+**Edge cases:**
+- [ ] Отправка текста вместо медиа в `/submit`
+- [ ] Отправка `/submit` без названия уровня
+- [ ] Модерация несуществующей заявки
+- [ ] Доступ к `/moderate` не-админом
+- [ ] Пустой список заявок в `/moderate`
+
+**Database checks:**
+- [ ] `SELECT * FROM submissions WHERE user_id = <test_user>`
+- [ ] `SELECT * FROM player_stats WHERE user_id = <test_user>`
+- [ ] `SELECT * FROM level_completions WHERE user_id = <test_user>`
+
+---
 
 #### ♟ Chess Module (CH-TEST)
 
-| ID | Test Type | Scope | Status |
-|----|-----------|-------|--------|
-| CH-TEST-1 | Unit | Lichess API integration (mocked) | pending |
-| CH-TEST-2 | Unit | `ChessAccount` model validation | pending |
-| CH-TEST-3 | Unit | Rating/stats parsing logic | pending |
-| CH-TEST-4 | Integration | `/chess link` command flow | pending |
-| CH-TEST-5 | Integration | `/chess rating` with real Lichess API | pending |
-| CH-TEST-6 | Integration | `/puzzle` reward logic (user_coins) | pending |
-| CH-TEST-7 | Total | Full chess workflow: link → rating → puzzle | pending |
+**Вес:** 2%
 
-**CH-TEST Sum: 2%**
+**Команды для тестирования:**
+- [ ] `/chess link <ник>` — привязка Lichess аккаунта
+  - [ ] Проверка существования ника через Lichess API
+  - [ ] Сохранение в `chess_accounts`
+  - [ ] Обработка несуществующего ника
+- [ ] `/chess rating` — рейтинг пользователя
+  - [ ] Отображение рейтинга из Lichess
+  - [ ] Обработка отсутствия привязки
+- [ ] `/chess stats` — статистика пользователя
+  - [ ] Отображение статистики из Lichess
+- [ ] `/online` — кто онлайн на Lichess
+  - [ ] Список онлайн пользователей из команды
+  - [ ] Кэширование на 30 секунд
+- [ ] `/puzzle` — задача с наградой
+  - [ ] Получение случайной задачи из Lichess
+  - [ ] Начисление 5 монет в `user_coins`
+  - [ ] Ограничение: раз в минуту
+- [ ] `/chess club info` — информация о клубе
+  - [ ] Отображение информации о LucasTeam клубе
+  - [ ] Inline-кнопка с URL
+
+**Edge cases:**
+- [ ] Привязка уже привязанного аккаунта
+- [ ] Запрос рейтинга без привязки
+- [ ] Повторный `/puzzle` раньше минуты
+- [ ] Lichess API недоступен
+
+**Database checks:**
+- [ ] `SELECT * FROM chess_accounts WHERE user_id = <test_user>`
+- [ ] `SELECT * FROM user_coins WHERE user_id = <test_user>`
+
+---
 
 #### 🌟 Universe Module (UN-TEST)
 
-| ID | Test Type | Scope | Status |
-|----|-----------|-------|--------|
-| UN-TEST-1 | Unit | `/infect` random virus selection | pending |
-| UN-TEST-2 | Unit | `/tea` cooldown logic | pending |
-| UN-TEST-3 | Unit | `/daily_prayer` daily limit check | pending |
-| UN-TEST-4 | Integration | `infection_status` table persistence | pending |
-| UN-TEST-5 | Integration | `daily_prayer_log` daily check | pending |
-| UN-TEST-6 | Total | Full infection/tea cycle | pending |
+**Вес:** 2%
 
-**UN-TEST Sum: 2%**
+**Команды для тестирования:**
+- [ ] `/infect` — заражение вирусом
+  - [ ] Случайный выбор вируса (олеговирус/LTL-паразит)
+  - [ ] Сохранение в `infection_status`
+  - [ ] Отображение симптомов
+- [ ] `/tea` — чай для облегчения
+  - [ ] Временное облегчение (1 час)
+  - [ ] Обновление `tea_cooldown_until`
+  - [ ] Cooldown проверка
+- [ ] `/daily_prayer` — ежедневная молитва
+  - [ ] Случайная молитва из списка
+  - [ ] Проверка: не чаще раза в день
+  - [ ] Сохранение в `daily_prayer_log`
+- [ ] `/olegovirus_name` — генерация имени через AI (pending)
+- [ ] `/lore_event` — генерация события через AI (pending)
+
+**Edge cases:**
+- [ ] Повторный `/infect` при активной инфекции
+- [ ] `/tea` раньше cooldown
+- [ ] Повторный `/daily_prayer` в тот же день
+- [ ] AI недоступен для генерации
+
+**Database checks:**
+- [ ] `SELECT * FROM infection_status WHERE user_id = <test_user>`
+- [ ] `SELECT * FROM daily_prayer_log WHERE user_id = <test_user>`
+
+---
 
 #### 🤖 AI Module (AI-TEST)
 
-| ID | Test Type | Scope | Status |
-|----|-----------|-------|--------|
-| AI-TEST-1 | Unit | `AIModelManager` provider switching | pending |
-| AI-TEST-2 | Unit | HF API call with timeout | pending |
-| AI-TEST-3 | Unit | Response caching (5 min TTL) | pending |
-| AI-TEST-4 | Integration | `/chat` with olegovirus/tea prompts | pending |
-| AI-TEST-5 | Integration | `/ask_canon` knowledge base search | pending |
-| AI-TEST-6 | Total | Full AI workflow: user question → response | pending |
+**Вес:** 2%
 
-**AI-TEST Sum: 2%**
+**Команды для тестирования:**
+- [ ] `/chat олеговирус <текст>` — диалог с олеговирусом
+  - [ ] Персонализированный промпт (кхм-кхм, навязчивый)
+  - [ ] Ответ от AI
+  - [ ] Fallback при недоступности AI
+- [ ] `/chat чай <текст>` — диалог с чаем
+  - [ ] Персонализированный промпт (мудрый, eight-nine)
+  - [ ] Ответ от AI
+- [ ] `/generate_prayer` — генерация молитвы
+  - [ ] Генерация через AI с ключевыми словами (чай, eight-nine, настой)
+  - [ ] Fallback на предустановленные молитвы
+- [ ] `/ask_canon <вопрос>` — вопросы по канону
+  - [ ] Поиск в `data/canon_knowledge.txt`
+  - [ ] Ответ с релевантной информацией
+  - [ ] Fallback при отсутствии совпадений
+- [ ] `/ai_model <название>` — выбор модели
+  - [ ] Сохранение в `user_preferences`
+  - [ ] Применение при следующих вызовах
+
+**Edge cases:**
+- [ ] `/chat` без персонажа
+- [ ] `/chat` с неизвестным персонажем
+- [ ] AI API недоступен (все провайдеры)
+- [ ] `/ask_canon` с вопросом вне канона
+- [ ] `/ai_model` с несуществующей моделью
+
+**Database checks:**
+- [ ] `SELECT * FROM user_preferences WHERE user_id = <test_user>`
+
+---
 
 #### 🧑‍🏫 Mom Module (MOM-TEST)
 
-| ID | Test Type | Scope | Status |
-|----|-----------|-------|--------|
-| MOM-TEST-1 | Unit | `/reading_generate` fallback sets | pending |
-| MOM-TEST-2 | Unit | Sentence/answer validation | pending |
-| MOM-TEST-3 | Integration | Frontend: reading → questions flow | pending |
-| MOM-TEST-4 | Integration | Frontend: answer checking (case-insensitive) | pending |
-| MOM-TEST-5 | Integration | Frontend: print layout (PDF-ready) | pending |
-| MOM-TEST-6 | Total | Full user journey: load → read → answer → print | pending |
+**Вес:** 2%
 
-**MOM-TEST Sum: 2%**
+**Команды для тестирования:**
+- [ ] `/reading_trainer` — ссылка на веб-приложение
+  - [ ] Inline-кнопка с URL
+  - [ ] Открытие веб-приложения
+- [ ] Веб-приложение: экран чтения
+  - [ ] Загрузка 6 предложений
+  - [ ] Регулировка шрифта (A+ / A-)
+  - [ ] Сохранение размера шрифта в localStorage
+  - [ ] Кнопка "Дальше →"
+  - [ ] Кнопка "Новый текст"
+- [ ] Веб-приложение: экран вопросов
+  - [ ] Отображение 2-3 вопросов
+  - [ ] Ввод ответа
+  - [ ] Проверка ответа (регистронезависимое сравнение)
+  - [ ] Правильный ответ: ✓ Верно!
+  - [ ] Неправильный ответ: ✗ Неверно, попробуй ещё
+  - [ ] Переход к следующему вопросу
+  - [ ] Кнопка "← Назад к чтению"
+- [ ] Веб-приложение: печать
+  - [ ] Кнопка "🖨️ Печать"
+  - [ ] Печать единым листом (предложения + вопросы с пустыми строками)
+  - [ ] Скрытие кнопок и полей ввода при печати
+- [ ] Backend: `/reading_generate`
+  - [ ] Генерация через HF API (mistralai/Mistral-7B-Instruct-v0.2)
+  - [ ] Fallback на predefined sets при ошибке API
+  - [ ] Таймаут 15 секунд
+
+**Edge cases:**
+- [ ] HF API недоступен (fallback на predefined sets)
+- [ ] Ответ с лишними пробелами
+- [ ] Печать без загруженного текста
+- [ ] Регулировка шрифта за пределы 24-72px
+
+**Frontend checks:**
+- [ ] Адаптивный дизайн на телефоне (iPhone SE)
+- [ ] Адаптивный дизайн на планшете (iPad)
+- [ ] localStorage сохраняет размер шрифта
 
 ---
 
 ## Testing Progress
 
-| Module | Unit | Integration | Total | Status |
-|--------|------|-------------|-------|--------|
-| GD | 0/8 | 0/5 | 0/3 | 0% |
-| CH | 0/7 | 0/4 | 0/2 | 0% |
-| UN | 0/6 | 0/3 | 0/2 | 0% |
-| AI | 0/6 | 0/3 | 0/2 | 0% |
-| MOM | 0/6 | 0/3 | 0/2 | 0% |
-| **Total** | **0/33** | **0/18** | **0/11** | **0%** |
-
----
-
-## Testing Checklist
-
-- [ ] GD-TEST-1: Unit tests for ConversationHandler states
-- [ ] GD-TEST-2: Unit tests for Submission model
-- [ ] GD-TEST-3: Unit tests for PlayerStats logic
-- [ ] GD-TEST-4: Integration test for /submit flow
-- [ ] GD-TEST-5: Integration test for DB persistence
-- [ ] GD-TEST-6: Integration test for stats update
-- [ ] GD-TEST-7: Total test for full user journey
-- [ ] GD-TEST-8: Total test for error handling
-- [ ] CH-TEST-1: Unit tests for Lichess API
-- [ ] CH-TEST-2: Unit tests for ChessAccount model
-- [ ] CH-TEST-3: Unit tests for rating parsing
-- [ ] CH-TEST-4: Integration test for /chess link
-- [ ] CH-TEST-5: Integration test for /chess rating
-- [ ] CH-TEST-6: Integration test for /puzzle reward
-- [ ] CH-TEST-7: Total test for chess workflow
-- [ ] UN-TEST-1: Unit tests for /infect
-- [ ] UN-TEST-2: Unit tests for /tea cooldown
-- [ ] UN-TEST-3: Unit tests for /daily_prayer
-- [ ] UN-TEST-4: Integration test for infection_status
-- [ ] UN-TEST-5: Integration test for daily_prayer_log
-- [ ] UN-TEST-6: Total test for infection/tea cycle
-- [ ] AI-TEST-1: Unit tests for AIModelManager
-- [ ] AI-TEST-2: Unit tests for HF API timeout
-- [ ] AI-TEST-3: Unit tests for response caching
-- [ ] AI-TEST-4: Integration test for /chat
-- [ ] AI-TEST-5: Integration test for /ask_canon
-- [ ] AI-TEST-6: Total test for AI workflow
-- [ ] MOM-TEST-1: Unit tests for /reading_generate
-- [ ] MOM-TEST-2: Unit tests for validation
-- [ ] MOM-TEST-3: Integration test for reading flow
-- [ ] MOM-TEST-4: Integration test for answer checking
-- [ ] MOM-TEST-5: Integration test for print layout
-- [ ] MOM-TEST-6: Total test for full journey
+| Module | Commands Tested | Edge Cases | DB Checks | Status |
+|--------|----------------|------------|-----------|--------|
+| GD | 0/9 | 0/5 | 0/3 | 0% |
+| CH | 0/6 | 0/4 | 0/2 | 0% |
+| UN | 0/5 | 0/4 | 0/2 | 0% |
+| AI | 0/5 | 0/5 | 0/1 | 0% |
+| MOM | 0/4 | 0/4 | 0/0 | 0% |
+| **Total** | **0/29** | **0/22** | **0/8** | **0%** |
 
 ---
 
 ## Testing Notes
 
-- Unit tests: use `pytest` with mocks for external dependencies
-- Integration tests: use test database (SQLite) and real API calls with rate limiting
-- Total tests: full user journey with real Telegram updates
-- Coverage target: 80%+ for all new code
-- Ruff: 0 errors for all test files
+- Тестирование проводится вручную через Telegram клиент
+- Для локального тестирования: `py -3.12 bot/main.py`
+- Для HF тестирования: через production bot в https://t.me/lucasteamgroup
+- Database checks через SQL-запросы к Supabase PostgreSQL
+- Все edge cases должны быть покрыты
+- UI/UX проверяется на корректность отображения, форматирования, кнопок
+- После завершения тестирования модуля — обновить статус в `projectbrief.md`
