@@ -20,24 +20,23 @@
 
 ## Changelog
 
-### 2026-05-30 (Phase 2: GD-04 difficulty logic)
-- **GD-04 completed:** Difficulty logic for hardest and top-100 in `bot/gd/difficulty.py`.
-- **Functions:**
-  - `is_level_eligible(level_id, user_id)` — проверка доступности уровня (правила: топ-100, хардест, следующий уровень)
-  - `update_hardest_level(user_id, level_id)` — обновление хардеста при прохождении более сложного уровня
-  - `get_user_hardest(user_id)` — получение текущего хардеста пользователя
-  - `get_eligible_levels(user_id)` — список доступных уровней для пользователя
-  - `calculate_difficulty_score(level)` — расчёт сложности (101 - position)
-- **Rules:**
-  - Новички начинают с позиции 100
-  - Можно пройти любой уровень от хардеста до позиции 100
-  - Можно пройти следующий уровень (position - 1) после хардеста
-- **Integration:** `update_hardest_level()` вызывается в `/moderate` при approve
-- **Deliverables completed:** GD-04 (4%)
-- **Phase 2 progress:** 43% → 47% (+4% за GD-04)
-- **GD Module total:** 47% (GD-01: 5%, GD-02: 4%, GD-03: 5%, GD-04: 4%, GD-TEST-1-3: 3%, remaining: 19%)
-- **Verification:** ruff 0 errors, py_compile passed
-- **Next steps:** GD-05 (статистика: /leaderboard, /my_stats, /player_stats)
+### 2026-05-30 (Phase 2: GD-05 statistics commands)
+- **GD-05 completed:** Statistics commands in `bot/commands/gd_stats_commands_ptb.py`.
+- **Commands:**
+  - `/leaderboard` — топ-20 уровней с количеством прохождений и сложностью
+  - `/my_stats` — личная статистика (хардест, подтверждённые прохождения, процент одобрения)
+  - `/player_stats @user` — статистика другого игрока
+- **Features:**
+  - Отображение хардеста с позицией
+  - Подсчёт прохождений, заявок (всего/pending/rejected)
+  - Процент одобрения заявок
+  - Поиск игрока по username или mention
+- **Integration:** `calculate_difficulty_score()` из `bot/gd/difficulty.py`
+- **Deliverables completed:** GD-05 (5%)
+- **Phase 2 progress:** 47% → 52% (+5% за GD-05)
+- **GD Module total:** 52% (GD-01: 5%, GD-02: 4%, GD-03: 5%, GD-04: 4%, GD-05: 5%, GD-TEST-1-3: 3%, remaining: 14%)
+- **Verification:** ruff 0 errors (auto-fixed), py_compile passed
+- **Next steps:** GD-06 (админ-команды: /add_level, /set_level_position), GD-07 (GD API)
 - **MOM-01-04 completed:** Веб-приложение «Тренажёр чтения и понимания» полностью реализовано.
 - **Files:**
   - `webapp/reading_trainer/index.html` — статика с двумя экранами (чтение/вопросы), регулировка шрифта (24-72px), адаптивный дизайн
@@ -346,10 +345,10 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
-- 648333c (2026-05-30, Phase 2: GD-04 difficulty logic implemented)
-- GD-04: Difficulty logic implemented in `bot/gd/difficulty.py`
-- Functions: is_level_eligible, update_hardest_level, get_user_hardest, get_eligible_levels, calculate_difficulty_score
-- Integrated into /moderate approval flow
+- af8ef71 (2026-05-30, Phase 2: GD-05 statistics commands implemented)
+- GD-05: Statistics commands implemented in `bot/commands/gd_stats_commands_ptb.py`
+- Commands: /leaderboard (top-20), /my_stats (personal), /player_stats @user
+- Integration with difficulty.py for difficulty scores
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
