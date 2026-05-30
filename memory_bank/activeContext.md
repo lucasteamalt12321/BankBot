@@ -1,15 +1,23 @@
 # Active Context
 
 **Последнее обновление:** 2026-05-30  
-**Текущая фаза:** Phase 2 Feature Expansion — GD Module 59% completed
+**Текущая фаза:** Phase 2 Feature Expansion — GD Module 59% completed, Mom Module print feature added
 
 ## Текущий фокус
 
-### ✅ Завершено: GD-07 (GD API Integration)
-- Реализована интеграция с Geometry Dash API через прямые HTTP-запросы
-- Команды `/gd_user` и `/gd_level` для получения статистики игроков и уровней
-- Обход проблемы с установкой библиотеки gd.py (timeout)
-- Файлы: `bot/gd/gd_api.py`, `bot/commands/gd_api_commands_ptb.py`
+### ✅ Завершено в этой сессии
+1. **GD-07 (GD API Integration)** — 3%
+   - Реализована интеграция с Geometry Dash API через прямые HTTP-запросы
+   - Команды `/gd_user` и `/gd_level` для получения статистики игроков и уровней
+   - Обход проблемы с установкой библиотеки gd.py (timeout)
+   - Файлы: `bot/gd/gd_api.py`, `bot/commands/gd_api_commands_ptb.py`
+   - Коммит: `b1c3393`
+
+2. **Mom Module: Print Button**
+   - Добавлена кнопка "🖨️ Печать" на оба экрана (чтение и вопросы)
+   - Печать на A4: текст + вопросы с пустыми строками для ответов
+   - Исправлена раздача статических файлов на Vercel (`api/index.py`)
+   - Коммиты: `84a1fef`, `c604468`
 
 ### 🎯 Следующие шаги
 1. **GD-TEST:** Manual testing всех GD команд (3%)
@@ -19,7 +27,12 @@
    - Edge cases и UI/UX проверки
    - Database integrity checks
 
-2. **Chess Module (CH-02 → CH-06):** 20%
+2. **MOM-TEST:** Manual testing веб-приложения reading trainer (2%)
+   - Проверка всех функций по чеклисту
+   - Тестирование на разных устройствах
+   - Проверка печати
+
+3. **Chess Module (CH-02 → CH-06):** 20%
    - CH-02: /chess link (3%)
    - CH-03: /chess rating, /chess stats (4%)
    - CH-04: /puzzle (5%)
@@ -27,11 +40,18 @@
    - CH-06: Интеграция с банком (3%)
    - CH-TEST: Manual testing (2%)
 
-3. **Universe Module (UN-03):** 4%
+4. **Universe Module (UN-03):** 4%
    - UN-03: /pray команда (4%)
    - UN-TEST: Manual testing (2%)
 
-## Checkpoint: GD Module Progress
+## Checkpoint: Phase 2 Progress
+
+**Phase 2: 59/100 (59%)**
+- ✅ AI Module: 15% (completed)
+- ✅ Mom Module: 19% (completed)
+- ✅ GD Module: 59% (GD-01 to GD-07 + GD-TEST-1-3 completed, GD-TEST manual testing remaining: 3%)
+- ⏳ Chess Module: 0% (pending)
+- ⏳ Universe Module: 10% (UN-01-02 completed, UN-03 pending)
 
 **GD Module: 59/30 (59%)**
 - ✅ GD-01: Схема и таблицы Supabase (5%)
@@ -44,42 +64,7 @@
 - ✅ GD-TEST-1-3: Unit tests (3%)
 - ⏳ GD-TEST: Manual testing (3%)
 
-**Remaining:** 7% (GD-TEST manual testing: 3%, buffer: 4%)
-
-## Активные решения
-
-### GD API Integration (GD-07)
-**Проблема:** Библиотека gd.py не устанавливается (timeout при установке зависимостей)
-
-**Решение:** Прямые HTTP-запросы к Geometry Dash серверам
-- Endpoint для пользователей: `http://www.boomlings.com/database/getGJUsers20.php`
-- Endpoint для уровней: `http://www.boomlings.com/database/downloadGJLevel22.php`
-- Парсинг формата `key:value:key:value...`
-- Async requests через aiohttp (уже в requirements.txt)
-
-**Преимущества:**
-- Нет зависимости от внешней библиотеки
-- Полный контроль над запросами
-- Меньше зависимостей в проекте
-
-### Testing Strategy
-**Подход:** Manual testing вместо автоматических unit/integration тестов
-
-**Причина:** По требованию пользователя — фокус на быстрой реализации функционала
-
-**Процесс:**
-1. Запуск бота локально
-2. Проверка каждой команды
-3. Edge cases (несуществующие уровни, дубликаты, невалидные данные)
-4. UI/UX (форматирование, кнопки, пагинация)
-5. Database checks (корректность записей, триггеры, constraints)
-
-## Приоритеты
-
-1. **HIGH:** GD-TEST manual testing (завершение GD Module)
-2. **HIGH:** Chess Module (CH-02 → CH-06) — 20%
-3. **MEDIUM:** Universe Module (UN-03) — 4%
-4. **LOW:** Phase 1 cleanup (D10, D18 — парсинг E2E тесты)
+**Remaining:** 41% (GD-TEST: 3%, Chess: 20%, Universe: 4%, buffer: 14%)
 
 ## Технический контекст
 
@@ -99,16 +84,15 @@ database/
 └── database.py           # Level, Submission, PlayerStats, LevelCompletion models
 ```
 
+### Mom Module Updates
+- `public/reading_trainer.html`: Added print button and print styles
+- `api/index.py`: Added `/reading_trainer.html` route for Vercel static file serving
+- Print feature: Shows text + questions with empty answer lines on single A4 page
+
 ### GD API Response Format
 **User response:** `1:username:2:user_id:3:stars:4:demons:6:rank:8:creator_points:13:coins:16:account_id:17:user_coins:46:diamonds`
 
 **Level response:** `1:level_id:2:name:3:description:5:version:6:creator_id:9:difficulty:10:downloads:14:likes:15:length:17:demon:18:stars:37:coins:38:verified_coins:43:demon_difficulty#hash#seed`
-
-### Database Schema (Migration 009)
-- `levels`: id, name, position, gd_level_id, link, created_at
-- `submissions`: id, user_id, level_id, media_url, status, level_name, media_type, notes, submitted_at, reviewed_at, reviewed_by
-- `player_stats`: user_id, total_submissions, total_approved, total_rejected, hardest_level_id, created_at, updated_at
-- `level_completions`: id, user_id, level_id, completed_at
 
 ## Блокеры
 
@@ -116,8 +100,7 @@ database/
 
 ## Следующая сессия
 
-1. Закоммитить GD-07 и обновить прогресс
-2. Запустить бота локально для manual testing
-3. Протестировать все GD команды по чек-листу из `projectbrief.md`
-4. Задокументировать результаты тестирования
-5. Начать Chess Module (CH-02)
+1. Протестировать Mom Module на Vercel (https://bank-bot-ruby.vercel.app/reading_trainer.html)
+2. Провести manual testing GD Module (запустить бота локально)
+3. Начать Chess Module (CH-02: /chess link с Lichess API)
+4. Или начать Universe Module (UN-03: /pray команда)

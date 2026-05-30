@@ -708,9 +708,10 @@
 - **Next steps:** GD-TEST (manual testing всех GD команд), Chess Module (CH-02 → CH-06)
 
 ## last_checked_commit
-- ab57048 (2026-05-30, Phase 2: GD-07 GD API integration implemented)
+- c604468 (2026-05-30, Phase 2: GD-07 + Mom Module print button)
 - GD-07: GD API integration in `bot/gd/gd_api.py` and `bot/commands/gd_api_commands_ptb.py`
-- Features: /gd_user (player stats), /gd_level (level info), direct HTTP requests to GD servers
+- Mom Module: Added print button to reading trainer, fixed Vercel static file serving
+- Features: /gd_user (player stats), /gd_level (level info), print worksheet (text + questions on A4)
 
 ## last_checked_commit
 e57e9dd feat(parsing): implement parsing system for GDcards, Gusya Cards, Shmalala (2026-05-20)
