@@ -2,6 +2,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
 from database.database import get_db_session, Submission, PlayerStats, Level, LevelCompletion
+from bot.gd.difficulty import update_hardest_level
 from datetime import datetime
 import logging
 
@@ -192,6 +193,10 @@ async def approve_submission(
             player_stats = session.query(PlayerStats).filter_by(user_id=submission.user_id).first()
             if player_stats:
                 player_stats.total_approved += 1
+            
+            # Update hardest level
+            if submission.level_id:
+                update_hardest_level(submission.user_id, submission.level_id)
             
             # Update level completion
             if submission.level_id:
