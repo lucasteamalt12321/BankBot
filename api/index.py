@@ -344,7 +344,7 @@ def debug_hf():
 def reading_generate():
     """Generate reading text and questions using HF API."""
     try:
-        import httpx
+        import requests  # Use requests instead of httpx
         import json
         import random
         
@@ -355,41 +355,10 @@ def reading_generate():
         if not hf_token:
             print("No HF token, using fallback")
             # Return fallback set if no HF token
-            fallback_sets = [
-                {
-                    "title": "🐱 Кот Мурзик",
-                    "image": "🐱",
-                    "text": "Жил-был кот Мурзик. Он любил спать на диване. Мама мыла раму. Солнце светило ярко. Дети играли в парке. Папа читал книгу. Бабушка пекла пирог.",
-                    "questions": [
-                        {"question": "Как звали кота?", "answer": "мурзик"},
-                        {"question": "Что делала мама?", "answer": "мыла раму"},
-                        {"question": "Где играли дети?", "answer": "в парке"}
-                    ]
-                },
-                {
-                    "title": "🐕 Собака Шарик",
-                    "image": "🐕",
-                    "text": "Собака Шарик громко лаяла. Птица пела песню на дереве. Дождь шёл сильно. Цветы росли в саду. Машина ехала быстро. Река текла медленно.",
-                    "questions": [
-                        {"question": "Как звали собаку?", "answer": "шарик"},
-                        {"question": "Что делала птица?", "answer": "пела песню"},
-                        {"question": "Где росли цветы?", "answer": "в саду"}
-                    ]
-                },
-                {
-                    "title": "🎨 В школе",
-                    "image": "🏫",
-                    "text": "Мальчик рисовал дом. Девочка пела песню. Учитель писал мелом на доске. Ученик читал текст. Повар готовил суп. Врач лечил людей.",
-                    "questions": [
-                        {"question": "Что рисовал мальчик?", "answer": "дом"},
-                        {"question": "Кто пел песню?", "answer": "девочка"},
-                        {"question": "Что готовил повар?", "answer": "суп"}
-                    ]
-                }
-            ]
+            fallback_sets = get_fallback_sets()
             return jsonify(random.choice(fallback_sets))
         
-        print("Calling HF API...")
+        print("Calling HF API with requests library...")
         
         # Try multiple models in order of preference
         models = [
@@ -425,8 +394,8 @@ def reading_generate():
             try:
                 print(f"Trying model: {model}")
                 
-                # Call HF API with longer timeout for model loading
-                response = httpx.post(
+                # Call HF API using requests library
+                response = requests.post(
                     f"https://api-inference.huggingface.co/models/{model}",
                     headers={"Authorization": f"Bearer {hf_token}"},
                     json={
@@ -520,39 +489,44 @@ def reading_generate():
         
         # Return fallback set on error
         import random
-        fallback_sets = [
-            {
-                "title": "🐱 Кот Мурзик",
-                "image": "🐱",
-                "text": "Жил-был кот Мурзик. Он любил спать на диване. Мама мыла раму. Солнце светило ярко. Дети играли в парке. Папа читал книгу. Бабушка пекла пирог.",
-                "questions": [
-                    {"question": "Как звали кота?", "answer": "мурзик"},
-                    {"question": "Что делала мама?", "answer": "мыла раму"},
-                    {"question": "Где играли дети?", "answer": "в парке"}
-                ]
-            },
-            {
-                "title": "🐕 Собака Шарик",
-                "image": "🐕",
-                "text": "Собака Шарик громко лаяла. Птица пела песню на дереве. Дождь шёл сильно. Цветы росли в саду. Машина ехала быстро. Река текла медленно.",
-                "questions": [
-                    {"question": "Как звали собаку?", "answer": "шарик"},
-                    {"question": "Что делала птица?", "answer": "пела песню"},
-                    {"question": "Где росли цветы?", "answer": "в саду"}
-                ]
-            },
-            {
-                "title": "🎨 В школе",
-                "image": "🏫",
-                "text": "Мальчик рисовал дом. Девочка пела песню. Учитель писал мелом на доске. Ученик читал текст. Повар готовил суп. Врач лечил людей.",
-                "questions": [
-                    {"question": "Что рисовал мальчик?", "answer": "дом"},
-                    {"question": "Кто пел песню?", "answer": "девочка"},
-                    {"question": "Что готовил повар?", "answer": "суп"}
-                ]
-            }
-        ]
+        fallback_sets = get_fallback_sets()
         return jsonify(random.choice(fallback_sets))
+
+
+def get_fallback_sets():
+    """Return predefined fallback story sets."""
+    return [
+        {
+            "title": "🐱 Кот Мурзик",
+            "image": "🐱",
+            "text": "Жил-был кот Мурзик. Он любил спать на диване. Мама мыла раму. Солнце светило ярко. Дети играли в парке. Папа читал книгу. Бабушка пекла пирог.",
+            "questions": [
+                {"question": "Как звали кота?", "answer": "мурзик"},
+                {"question": "Что делала мама?", "answer": "мыла раму"},
+                {"question": "Где играли дети?", "answer": "в парке"}
+            ]
+        },
+        {
+            "title": "🐕 Собака Шарик",
+            "image": "🐕",
+            "text": "Собака Шарик громко лаяла. Птица пела песню на дереве. Дождь шёл сильно. Цветы росли в саду. Машина ехала быстро. Река текла медленно.",
+            "questions": [
+                {"question": "Как звали собаку?", "answer": "шарик"},
+                {"question": "Что делала птица?", "answer": "пела песню"},
+                {"question": "Где росли цветы?", "answer": "в саду"}
+            ]
+        },
+        {
+            "title": "🎨 В школе",
+            "image": "🏫",
+            "text": "Мальчик рисовал дом. Девочка пела песню. Учитель писал мелом на доске. Ученик читал текст. Повар готовил суп. Врач лечил людей.",
+            "questions": [
+                {"question": "Что рисовал мальчик?", "answer": "дом"},
+                {"question": "Кто пел песню?", "answer": "девочка"},
+                {"question": "Что готовил повар?", "answer": "суп"}
+            ]
+        }
+    ]
 
 
 # Vercel handler
