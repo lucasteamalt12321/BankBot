@@ -90,6 +90,7 @@ def reading_trainer():
         </div>
     </div>
     <script>
+        console.log('Reading trainer script loaded');
         const fallbackSets = [
             {
                 title: "🐱 Кот Мурзик",
