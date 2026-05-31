@@ -124,6 +124,7 @@ def reading_trainer():
         ];
         let currentData = null;
         function loadNewText() {
+            console.log('loadNewText() called');
             // Show loading indicator
             document.getElementById('sentences').innerHTML = '<div style="text-align: center; padding: 40px;">⏳ Загрузка нового текста...</div>';
             
@@ -137,8 +138,9 @@ def reading_trainer():
                 body: JSON.stringify({})
             })
             .then(response => {
+                console.log('Response status:', response.status);
                 if (!response.ok) {
-                    throw new Error('API request failed');
+                    throw new Error('API request failed with status ' + response.status);
                 }
                 return response.json();
             })
