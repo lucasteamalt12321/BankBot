@@ -290,10 +290,10 @@ def telegram_webhook(secret: str):
 @app.route("/api/debug_hf", methods=["GET"])
 def debug_hf():
     """Debug endpoint to check HF API configuration and connectivity."""
-    import httpx
+    import requests  # Use requests instead of httpx
     
     debug_info = {
-        "timestamp": "2026-05-31T17:52:00Z",
+        "timestamp": "2026-05-31T18:04:00Z",
         "hf_token_exists": bool(os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")),
         "hf_token_length": len(os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN") or ""),
         "models_to_try": [
@@ -313,7 +313,7 @@ def debug_hf():
     # Test each model with a simple request
     for model in debug_info["models_to_try"]:
         try:
-            response = httpx.post(
+            response = requests.post(
                 f"https://api-inference.huggingface.co/models/{model}",
                 headers={"Authorization": f"Bearer {hf_token}"},
                 json={
