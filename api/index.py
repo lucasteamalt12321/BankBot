@@ -124,8 +124,25 @@ def reading_trainer():
         ];
         let currentData = null;
         function loadNewText() {
-            currentData = fallbackSets[Math.floor(Math.random() * fallbackSets.length)];
-            displayReading();
+            // Show loading indicator
+            document.getElementById('sentences').innerHTML = '<div style="text-align: center; padding: 40px;">⏳ Загрузка нового текста...</div>';
+            
+            // Try to fetch from API
+            fetch('/api/reading_generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(response => response.json())
+            .then(data => {
+                currentData = data;
+                displayReading();
+            })
+            .catch(error => {
+                console.error('Error loading text:', error);
+                // Fallback to predefined sets
+                currentData = fallbackSets[Math.floor(Math.random() * fallbackSets.length)];
+                displayReading();
+            });
         }
         function displayReading() {
             const html = `
@@ -258,6 +275,147 @@ def telegram_webhook(secret: str):
         print(f"Error processing update: {e}")
     
     return jsonify({"ok": True})
+
+
+@app.route("/api/reading_generate", methods=["POST"])
+def reading_generate():
+    """Generate reading text and questions using HF API."""
+    try:
+        import httpx
+        
+        hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
+        
+        if not hf_token:
+            # Return fallback set if no HF token
+            return jsonify({
+                "title": "🐱 Кот Мурзик",
+                "image": "🐱",
+                "text": "Жил-был кот Мурзик. Он любил спать на диване. Мама мыла раму. Солнце светило ярко. Дети играли в парке. Папа читал книгу. Бабушка пекла пирог.",
+                "questions": [
+                    {"question": "Как звали кота?", "answer": "мурзик"},
+                    {"question": "Что делала мама?", "answer": "мыла раму"},
+                    {"question": "Где играли дети?", "answer": "в парке"}
+                ]
+            })
+        
+        # Generate text using HF API
+        prompt = """Создай короткий связный текст для ребёнка 1 класса (6-7 лет) с умственной отсталостью.
+
+Требования:
+- Текст из 6-7 простых предложений (3-4 слова в каждом)
+- Связная история про животных, семью или школу
+- Простые слова, понятные ребёнку
+- 3 простых вопроса по тексту с однословными ответами
+
+Формат ответа (JSON):
+{
+  "title": "🐱 Название истории",
+  "text": "Связный текст истории...",
+  "questions": [
+    {"question": "Вопрос 1?", "answer": "ответ"},
+    {"question": "Вопрос 2?", "answer": "ответ"},
+    {"question": "Вопрос 3?", "answer": "ответ"}
+  ]
+}
+
+Пример:
+{
+  "title": "🐶 Щенок Бобик",
+  "text": "Жил-был щенок Бобик. Он любил играть с мячом. Мальчик Петя гулял с Бобиком. Они бегали в парке. Бобик лаял весело. Петя был рад.",
+  "questions": [
+    {"question": "Как звали щенка?", "answer": "бобик"},
+    {"question": "С чем играл щенок?", "answer": "с мячом"},
+    {"question": "Кто гулял с Бобиком?", "answer": "петя"}
+  ]
+}
+
+Создай новую историю:"""
+
+        # Call HF API
+        response = httpx.post(
+            "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+            headers={"Authorization": f"Bearer {hf_token}"},
+            json={
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": 500,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "return_full_text": False
+                }
+            },
+            timeout=15.0
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"HF API error: {response.status_code}")
+        
+        result = response.json()
+        generated_text = result[0]["generated_text"] if isinstance(result, list) else result.get("generated_text", "")
+        
+        # Try to parse JSON from generated text
+        import json
+        import re
+        
+        # Extract JSON from response
+        json_match = re.search(r'\{[\s\S]*\}', generated_text)
+        if json_match:
+            story_data = json.loads(json_match.group())
+            
+            # Add emoji if missing
+            if "title" in story_data and not any(char in story_data["title"] for char in "🐱🐶🐕🐈🐭🐹🐰🦊🐻🐼🐨🐯🦁🐮🐷🐸🐵🏫🏠🌳🌸"):
+                # Pick random emoji based on content
+                emojis = ["🐱", "🐶", "🐰", "🐻", "🦊", "🐸", "🏫", "🏠", "🌳"]
+                import random
+                story_data["title"] = f"{random.choice(emojis)} {story_data['title']}"
+            
+            # Add image field (extract emoji from title or use default)
+            if "image" not in story_data:
+                emoji_match = re.search(r'[🐱🐶🐕🐈🐭🐹🐰🦊🐻🐼🐨🐯🦁🐮🐷🐸🐵🏫🏠🌳🌸]', story_data.get("title", ""))
+                story_data["image"] = emoji_match.group() if emoji_match else "🐱"
+            
+            return jsonify(story_data)
+        
+        # Fallback if parsing failed
+        raise Exception("Failed to parse generated JSON")
+        
+    except Exception as e:
+        print(f"Error generating reading text: {e}")
+        # Return fallback set on error
+        import random
+        fallback_sets = [
+            {
+                "title": "🐱 Кот Мурзик",
+                "image": "🐱",
+                "text": "Жил-был кот Мурзик. Он любил спать на диване. Мама мыла раму. Солнце светило ярко. Дети играли в парке. Папа читал книгу. Бабушка пекла пирог.",
+                "questions": [
+                    {"question": "Как звали кота?", "answer": "мурзик"},
+                    {"question": "Что делала мама?", "answer": "мыла раму"},
+                    {"question": "Где играли дети?", "answer": "в парке"}
+                ]
+            },
+            {
+                "title": "🐕 Собака Шарик",
+                "image": "🐕",
+                "text": "Собака Шарик громко лаяла. Птица пела песню на дереве. Дождь шёл сильно. Цветы росли в саду. Машина ехала быстро. Река текла медленно.",
+                "questions": [
+                    {"question": "Как звали собаку?", "answer": "шарик"},
+                    {"question": "Что делала птица?", "answer": "пела песню"},
+                    {"question": "Где росли цветы?", "answer": "в саду"}
+                ]
+            },
+            {
+                "title": "🎨 В школе",
+                "image": "🏫",
+                "text": "Мальчик рисовал дом. Девочка пела песню. Учитель писал мелом на доске. Ученик читал текст. Повар готовил суп. Врач лечил людей.",
+                "questions": [
+                    {"question": "Что рисовал мальчик?", "answer": "дом"},
+                    {"question": "Кто пел песню?", "answer": "девочка"},
+                    {"question": "Что готовил повар?", "answer": "суп"}
+                ]
+            }
+        ]
+        return jsonify(random.choice(fallback_sets))
 
 
 # Vercel handler
