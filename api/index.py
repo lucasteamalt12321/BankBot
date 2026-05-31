@@ -342,30 +342,23 @@ def debug_hf():
 
 @app.route("/api/reading_generate", methods=["POST", "GET"])
 def reading_generate():
-    """Generate reading text and questions using HF API."""
+    """Generate reading text and questions using AI API."""
     try:
-        import requests  # Use requests instead of httpx
+        import requests
         import json
         import random
         
+        # Try Groq first, then HF as fallback
+        groq_key = os.getenv("GROQ_API_KEY")
         hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
         
+        print(f"Groq key available: {bool(groq_key)}")
         print(f"HF Token available: {bool(hf_token)}")
         
-        if not hf_token:
-            print("No HF token, using fallback")
-            # Return fallback set if no HF token
+        if not groq_key and not hf_token:
+            print("No API keys, using fallback")
             fallback_sets = get_fallback_sets()
             return jsonify(random.choice(fallback_sets))
-        
-        print("Calling HF API with requests library...")
-        
-        # Try multiple models in order of preference
-        models = [
-            "mistralai/Mistral-7B-Instruct-v0.2",
-            "google/flan-t5-base",
-            "facebook/bart-large-cnn"
-        ]
         
         # Simplified prompt for better results
         prompt = """Напиши короткую историю для ребёнка 7 лет.
@@ -387,51 +380,70 @@ def reading_generate():
 Теперь напиши новую историю:"""
 
         generated_text = None
-        last_error = None
         
-        # Try each model until one works
-        for model in models:
+        # Try Groq first (faster and more reliable)
+        if groq_key:
             try:
-                print(f"Trying model: {model}")
-                
-                # Call HF API using requests library
+                print("Trying Groq API...")
                 response = requests.post(
-                    f"https://api-inference.huggingface.co/models/{model}",
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {groq_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "llama-3.1-70b-versatile",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 300,
+                        "temperature": 0.8
+                    },
+                    timeout=15.0
+                )
+                
+                print(f"Groq API status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    generated_text = result["choices"][0]["message"]["content"]
+                    print(f"Success with Groq! Generated {len(generated_text)} chars")
+                else:
+                    print(f"Groq failed: {response.text[:200]}")
+            except Exception as e:
+                print(f"Groq error: {e}")
+        
+        # Fallback to HF if Groq failed
+        if not generated_text and hf_token:
+            try:
+                print("Trying HF API as fallback...")
+                response = requests.post(
+                    "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
                     headers={"Authorization": f"Bearer {hf_token}"},
                     json={
                         "inputs": prompt,
                         "parameters": {
                             "max_new_tokens": 300,
                             "temperature": 0.8,
-                            "top_p": 0.9,
                             "return_full_text": False
                         },
-                        "options": {
-                            "wait_for_model": True
-                        }
+                        "options": {"wait_for_model": True}
                     },
                     timeout=30.0
                 )
                 
-                print(f"Model {model} status: {response.status_code}")
+                print(f"HF API status: {response.status_code}")
                 
                 if response.status_code == 200:
                     result = response.json()
                     generated_text = result[0]["generated_text"] if isinstance(result, list) else result.get("generated_text", "")
-                    print(f"Success with {model}! Generated {len(generated_text)} chars")
-                    break
+                    print(f"Success with HF! Generated {len(generated_text)} chars")
                 else:
-                    last_error = f"{model}: {response.status_code}"
-                    print(f"Model {model} failed: {response.text[:200]}")
-                    
+                    print(f"HF failed: {response.text[:200]}")
             except Exception as e:
-                last_error = f"{model}: {str(e)}"
-                print(f"Model {model} error: {e}")
-                continue
+                print(f"HF error: {e}")
         
         if not generated_text:
-            print(f"All models failed. Last error: {last_error}")
-            raise Exception(f"All HF models failed: {last_error}")
+            print("All AI providers failed, using fallback")
+            raise Exception("All AI providers failed")
         
         print(f"Generated text length: {len(generated_text)}")
         
