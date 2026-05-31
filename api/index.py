@@ -357,7 +357,7 @@ def reading_generate():
 
 Теперь напиши новую историю:"""
 
-        # Call HF API with shorter timeout
+        # Call HF API with longer timeout for model loading
         response = httpx.post(
             "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
             headers={"Authorization": f"Bearer {hf_token}"},
@@ -368,9 +368,12 @@ def reading_generate():
                     "temperature": 0.8,
                     "top_p": 0.9,
                     "return_full_text": False
+                },
+                "options": {
+                    "wait_for_model": True
                 }
             },
-            timeout=10.0
+            timeout=30.0
         )
         
         print(f"HF API status: {response.status_code}")
