@@ -338,6 +338,13 @@ def reading_generate():
         
         print("Calling HF API...")
         
+        # Try multiple models in order of preference
+        models = [
+            "mistralai/Mistral-7B-Instruct-v0.2",
+            "google/flan-t5-base",
+            "facebook/bart-large-cnn"
+        ]
+        
         # Simplified prompt for better results
         prompt = """Напиши короткую историю для ребёнка 7 лет.
 
@@ -357,33 +364,52 @@ def reading_generate():
 
 Теперь напиши новую историю:"""
 
-        # Call HF API with longer timeout for model loading
-        response = httpx.post(
-            "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
-            headers={"Authorization": f"Bearer {hf_token}"},
-            json={
-                "inputs": prompt,
-                "parameters": {
-                    "max_new_tokens": 300,
-                    "temperature": 0.8,
-                    "top_p": 0.9,
-                    "return_full_text": False
-                },
-                "options": {
-                    "wait_for_model": True
-                }
-            },
-            timeout=30.0
-        )
+        generated_text = None
+        last_error = None
         
-        print(f"HF API status: {response.status_code}")
+        # Try each model until one works
+        for model in models:
+            try:
+                print(f"Trying model: {model}")
+                
+                # Call HF API with longer timeout for model loading
+                response = httpx.post(
+                    f"https://api-inference.huggingface.co/models/{model}",
+                    headers={"Authorization": f"Bearer {hf_token}"},
+                    json={
+                        "inputs": prompt,
+                        "parameters": {
+                            "max_new_tokens": 300,
+                            "temperature": 0.8,
+                            "top_p": 0.9,
+                            "return_full_text": False
+                        },
+                        "options": {
+                            "wait_for_model": True
+                        }
+                    },
+                    timeout=30.0
+                )
+                
+                print(f"Model {model} status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    generated_text = result[0]["generated_text"] if isinstance(result, list) else result.get("generated_text", "")
+                    print(f"Success with {model}! Generated {len(generated_text)} chars")
+                    break
+                else:
+                    last_error = f"{model}: {response.status_code}"
+                    print(f"Model {model} failed: {response.text[:200]}")
+                    
+            except Exception as e:
+                last_error = f"{model}: {str(e)}"
+                print(f"Model {model} error: {e}")
+                continue
         
-        if response.status_code != 200:
-            print(f"HF API error: {response.text}")
-            raise Exception(f"HF API error: {response.status_code}")
-        
-        result = response.json()
-        generated_text = result[0]["generated_text"] if isinstance(result, list) else result.get("generated_text", "")
+        if not generated_text:
+            print(f"All models failed. Last error: {last_error}")
+            raise Exception(f"All HF models failed: {last_error}")
         
         print(f"Generated text length: {len(generated_text)}")
         
