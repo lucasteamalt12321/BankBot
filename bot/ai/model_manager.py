@@ -25,6 +25,7 @@ class ProviderType(Enum):
     HUGGINGFACE = "huggingface"
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
+    GROQ = "groq"
 
 
 @dataclass
@@ -98,6 +99,22 @@ class AIModelManager:
         
     def _load_individual_providers(self) -> None:
         """Load providers from individual environment variables."""
+        # Groq (add first for priority)
+        groq_key = os.getenv("GROQ_API_KEY")
+        groq_model = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+        
+        if groq_key:
+            self.providers.append(ProviderConfig(
+                name="groq",
+                provider_type=ProviderType.GROQ,
+                api_key=groq_key,
+                endpoint="https://api.groq.com/openai/v1/chat/completions",
+                model=groq_model,
+                timeout=10,
+                max_tokens=150,
+            ))
+            logger.info("Loaded Groq provider")
+        
         # Hugging Face
         hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
         hf_model = os.getenv("HF_INFERENCE_MODEL", "microsoft/DialoGPT-small")
@@ -246,6 +263,26 @@ class AIModelManager:
             data = response.json()
             return data.get("response", "").strip()
     
+    async def _call_groq(self, provider: ProviderConfig, prompt: str) -> str:
+        """Call Groq API (OpenAI-compatible)."""
+        headers = {
+            "Authorization": f"Bearer {provider.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": provider.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": provider.max_tokens,
+            "temperature": 0.7,
+        }
+        
+        async with httpx.AsyncClient(timeout=provider.timeout) as client:
+            response = await client.post(provider.endpoint, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+    
     async def get_response(
         self,
         prompt: str,
@@ -300,6 +337,8 @@ class AIModelManager:
                     text = await self._call_openrouter(provider, prompt)
                 elif provider.provider_type == ProviderType.OLLAMA:
                     text = await self._call_ollama(provider, prompt)
+                elif provider.provider_type == ProviderType.GROQ:
+                    text = await self._call_groq(provider, prompt)
                 else:
                     logger.warning(f"Unknown provider type: {provider.provider_type}")
                     continue
