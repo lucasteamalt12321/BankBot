@@ -406,6 +406,7 @@ def reading_generate():
                 
                 if response.status_code == 200:
                     result = response.json()
+                    print(f"Groq response: {result}")
                     generated_text = result["choices"][0]["message"]["content"]
                     print(f"Success with Groq! Generated {len(generated_text)} chars")
                 else:
