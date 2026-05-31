@@ -287,6 +287,59 @@ def telegram_webhook(secret: str):
     return jsonify({"ok": True})
 
 
+@app.route("/api/debug_hf", methods=["GET"])
+def debug_hf():
+    """Debug endpoint to check HF API configuration and connectivity."""
+    import httpx
+    
+    debug_info = {
+        "timestamp": "2026-05-31T17:52:00Z",
+        "hf_token_exists": bool(os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")),
+        "hf_token_length": len(os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN") or ""),
+        "models_to_try": [
+            "mistralai/Mistral-7B-Instruct-v0.2",
+            "google/flan-t5-base",
+            "facebook/bart-large-cnn"
+        ],
+        "test_results": []
+    }
+    
+    hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
+    
+    if not hf_token:
+        debug_info["error"] = "No HF token found in environment"
+        return jsonify(debug_info)
+    
+    # Test each model with a simple request
+    for model in debug_info["models_to_try"]:
+        try:
+            response = httpx.post(
+                f"https://api-inference.huggingface.co/models/{model}",
+                headers={"Authorization": f"Bearer {hf_token}"},
+                json={
+                    "inputs": "Test",
+                    "parameters": {"max_new_tokens": 10},
+                    "options": {"wait_for_model": True}
+                },
+                timeout=10.0
+            )
+            
+            debug_info["test_results"].append({
+                "model": model,
+                "status_code": response.status_code,
+                "response_preview": response.text[:200] if response.status_code != 200 else "OK",
+                "success": response.status_code == 200
+            })
+        except Exception as e:
+            debug_info["test_results"].append({
+                "model": model,
+                "error": str(e),
+                "success": False
+            })
+    
+    return jsonify(debug_info)
+
+
 @app.route("/api/reading_generate", methods=["POST", "GET"])
 def reading_generate():
     """Generate reading text and questions using HF API."""
