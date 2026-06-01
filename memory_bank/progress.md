@@ -707,6 +707,24 @@
 - **Verification:** ruff 0 errors, py_compile passed
 - **Next steps:** GD-TEST (manual testing всех GD команд), Chess Module (CH-02 → CH-06)
 
+### 2026-06-01 (Phase 2: Groq API integration + Memory Bank sync)
+- **Groq API integration:** Added as primary AI provider (HF as fallback)
+  - `bot/ai/model_manager.py`: Added ProviderType.GROQ and _call_groq() method
+  - `api/index.py`: Try Groq first, then HF as fallback
+  - Free tier: 14,400 requests/day, much faster than HF
+- **Mom Module logging:** Added console logging for debugging
+- **Memory Bank sync:** Verified `projectbrief.md` has `## Project Deliverables` table with 100/100 total weight
+- **Phase 2 progress:** 59% → 62% (+3% за Groq API)
+- **GD Module total:** 62% (GD-01-07 completed, GD-TEST manual testing remaining: 3%)
+- **Verification:** ruff 0 errors, py_compile passed
+- **Next steps:** GD-TEST manual testing, Chess Module (CH-02 → CH-06)
+
+## last_checked_commit
+- c5b8100 (2026-06-01, Phase 2: Groq API integration + Mom Module logging)
+- Groq API: Added as primary AI provider (HF as fallback)
+- Mom Module: Added console logging for debugging
+- Memory Bank: Verified - Project Deliverables table with 100/100 total weight
+
 ## last_checked_commit
 - c604468 (2026-05-30, Phase 2: GD-07 + Mom Module print button)
 - GD-07: GD API integration in `bot/gd/gd_api.py` and `bot/commands/gd_api_commands_ptb.py`
