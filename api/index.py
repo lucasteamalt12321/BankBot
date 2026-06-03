@@ -1433,165 +1433,156 @@ def telegram_webhook(secret: str):
         # ============================================================================
         
         elif command == "/chess" and chat_id:
+            help_text = (
+                "♟ **Шахматный модуль BankBot**\n\n"
+                "**Доступные команды:**\n"
+                "`/chess_link <ник>` — привязать Lichess аккаунт\n"
+                "`/chess_rating` — показать рейтинги\n"
+                "`/chess_stats` — показать статистику\n"
+                "`/puzzle` — решить шахматную задачу\n\n"
+                "**Пример:**\n"
+                "`/chess_link DrNykterstein`"
+            )
+            send_telegram_message(chat_id, help_text, parse_mode="Markdown")
+        
+        # /chess_link <username>
+        elif command == "/chess_link" and chat_id:
             args = text.split()[1:] if text else []
             
-            # No subcommand - show help
-            if not args:
-                help_text = (
-                    "♟ **Шахматный модуль BankBot**\n\n"
-                    "**Доступные команды:**\n"
-                    "`/chess link <ник>` — привязать Lichess аккаунт\n"
-                    "`/chess rating` — показать рейтинги\n"
-                    "`/chess stats` — показать статистику\n"
-                    "`/puzzle` — решить шахматную задачу\n\n"
-                    "**Пример:**\n"
-                    "`/chess link DrNykterstein`"
+            if len(args) < 1:
+                send_telegram_message(
+                    chat_id,
+                    "♟ Использование: `/chess_link <ник>`\n\nПример: `/chess_link DrNykterstein`",
+                    parse_mode="Markdown",
                 )
-                send_telegram_message(chat_id, help_text, parse_mode="Markdown")
-            
-            # /chess link <username>
-            elif args[0].lower() == "link":
-                if len(args) < 2:
+            else:
+                lichess_username = args[0].strip()
+                if not lichess_username:
                     send_telegram_message(
-                        chat_id,
-                        "♟ Использование: `/chess link <ник>`\n\nПример: `/chess link DrNykterstein`",
-                        parse_mode="Markdown",
+                        chat_id, 
+                        "❌ Укажите ник Lichess: `/chess_link <ник>`",
+                        parse_mode="Markdown"
                     )
                 else:
-                    lichess_username = args[1].strip()
-                    if not lichess_username:
-                        send_telegram_message(
-                            chat_id, 
-                            "❌ Укажите ник Lichess: `/chess link <ник>`",
-                            parse_mode="Markdown"
-                        )
-                    else:
-                        # Send "checking" status
+                    # Send "checking" status
+                    send_telegram_message(
+                        chat_id,
+                        f"🔍 Проверяю Lichess аккаунт **{lichess_username}**...",
+                        parse_mode="Markdown",
+                    )
+                    
+                    try:
+                        lichess_user = fetch_lichess_user(lichess_username)
+                    except Exception as exc:
+                        print(f"Lichess lookup failed: {exc}")
                         send_telegram_message(
                             chat_id,
-                            f"🔍 Проверяю Lichess аккаунт **{lichess_username}**...",
+                            "❌ Сейчас не удалось проверить Lichess аккаунт. Попробуйте позже.",
+                        )
+                        lichess_user = None
+                    
+                    if lichess_user is None:
+                        send_telegram_message(
+                            chat_id,
+                            f"❌ Lichess аккаунт **{lichess_username}** не найден. Проверьте ник.",
                             parse_mode="Markdown",
                         )
+                    else:
+                        # Try to link account
+                        success = link_chess_account(user_id, lichess_user["username"])
                         
-                        try:
-                            lichess_user = fetch_lichess_user(lichess_username)
-                        except Exception as exc:
-                            print(f"Lichess lookup failed: {exc}")
+                        if not success:
                             send_telegram_message(
                                 chat_id,
-                                "❌ Сейчас не удалось проверить Lichess аккаунт. Попробуйте позже.",
-                            )
-                            lichess_user = None
-                        
-                        if lichess_user is None:
-                            send_telegram_message(
-                                chat_id,
-                                f"❌ Lichess аккаунт **{lichess_username}** не найден. Проверьте ник.",
-                                parse_mode="Markdown",
+                                "❌ Этот Lichess аккаунт уже привязан к другому пользователю.",
                             )
                         else:
-                            # Try to link account
-                            success = link_chess_account(user_id, lichess_user["username"])
-                            
-                            if not success:
-                                send_telegram_message(
-                                    chat_id,
-                                    "❌ Этот Lichess аккаунт уже привязан к другому пользователю.",
-                                )
-                            else:
-                                title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
-                                online_text = "онлайн" if lichess_user.get("online") else "оффлайн/неизвестно"
-                                success_msg = (
-                                    "♟ **Lichess аккаунт привязан!**\n\n"
-                                    f"Аккаунт: **{title_prefix}{lichess_user['username']}**\n"
-                                    f"Статус: {online_text}\n\n"
-                                    "Теперь можно использовать шахматные команды BankBot."
-                                )
-                                send_telegram_message(chat_id, success_msg, parse_mode="Markdown")
-            
-            # /chess rating
-            elif args[0].lower() == "rating":
-                account = get_chess_account(user_id)
-                if not account:
-                    send_telegram_message(
-                        chat_id,
-                        "❌ Сначала привяжите Lichess аккаунт: `/chess link <ник>`",
-                        parse_mode="Markdown",
-                    )
-                else:
-                    send_telegram_message(
-                        chat_id,
-                        "🔍 Загружаю рейтинги...",
-                    )
-                    
-                    try:
-                        lichess_user = fetch_lichess_user(account["lichess_username"])
-                        if not lichess_user:
-                            send_telegram_message(
-                                chat_id,
-                                "❌ Не удалось загрузить данные Lichess. Попробуйте позже.",
-                            )
-                        else:
-                            # For now, just show basic info (ratings need additional API call)
                             title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
-                            online_text = "🟢 онлайн" if lichess_user.get("online") else "⚫ оффлайн"
-                            
-                            rating_msg = (
-                                f"♟ **Рейтинги {title_prefix}{lichess_user['username']}**\n\n"
+                            online_text = "онлайн" if lichess_user.get("online") else "оффлайн/неизвестно"
+                            success_msg = (
+                                "♟ **Lichess аккаунт привязан!**\n\n"
+                                f"Аккаунт: **{title_prefix}{lichess_user['username']}**\n"
                                 f"Статус: {online_text}\n\n"
-                                "📊 Подробные рейтинги скоро будут добавлены..."
+                                "Теперь можно использовать шахматные команды BankBot."
                             )
-                            send_telegram_message(chat_id, rating_msg, parse_mode="Markdown")
-                    except Exception as exc:
-                        print(f"Error fetching ratings: {exc}")
-                        send_telegram_message(
-                            chat_id,
-                            "❌ Ошибка загрузки рейтингов. Попробуйте позже.",
-                        )
-            
-            # /chess stats
-            elif args[0].lower() == "stats":
-                account = get_chess_account(user_id)
-                if not account:
-                    send_telegram_message(
-                        chat_id,
-                        "❌ Сначала привяжите Lichess аккаунт: `/chess link <ник>`",
-                        parse_mode="Markdown",
-                    )
-                else:
-                    send_telegram_message(
-                        chat_id,
-                        "🔍 Загружаю статистику...",
-                    )
-                    
-                    try:
-                        lichess_user = fetch_lichess_user(account["lichess_username"])
-                        if not lichess_user:
-                            send_telegram_message(
-                                chat_id,
-                                "❌ Не удалось загрузить данные Lichess. Попробуйте позже.",
-                            )
-                        else:
-                            title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
-                            
-                            stats_msg = (
-                                f"♟ **Статистика {title_prefix}{lichess_user['username']}**\n\n"
-                                "📈 Детальная статистика скоро будет добавлена..."
-                            )
-                            send_telegram_message(chat_id, stats_msg, parse_mode="Markdown")
-                    except Exception as exc:
-                        print(f"Error fetching stats: {exc}")
-                        send_telegram_message(
-                            chat_id,
-                            "❌ Ошибка загрузки статистики. Попробуйте позже.",
-                        )
-            
+                            send_telegram_message(chat_id, success_msg, parse_mode="Markdown")
+        
+        # /chess_rating
+        elif command == "/chess_rating" and chat_id:
+            account = get_chess_account(user_id)
+            if not account:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
+                    parse_mode="Markdown",
+                )
             else:
                 send_telegram_message(
                     chat_id,
-                    f"❌ Неизвестная подкоманда: `{args[0]}`\n\nИспользуйте `/chess` для списка команд.",
+                    "🔍 Загружаю рейтинги...",
+                )
+                
+                try:
+                    lichess_user = fetch_lichess_user(account["lichess_username"])
+                    if not lichess_user:
+                        send_telegram_message(
+                            chat_id,
+                            "❌ Не удалось загрузить данные Lichess. Попробуйте позже.",
+                        )
+                    else:
+                        # For now, just show basic info (ratings need additional API call)
+                        title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
+                        online_text = "🟢 онлайн" if lichess_user.get("online") else "⚫ оффлайн"
+                        
+                        rating_msg = (
+                            f"♟ **Рейтинги {title_prefix}{lichess_user['username']}**\n\n"
+                            f"Статус: {online_text}\n\n"
+                            "📊 Подробные рейтинги скоро будут добавлены..."
+                        )
+                        send_telegram_message(chat_id, rating_msg, parse_mode="Markdown")
+                except Exception as exc:
+                    print(f"Error fetching ratings: {exc}")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка загрузки рейтингов. Попробуйте позже.",
+                    )
+        
+        # /chess_stats
+        elif command == "/chess_stats" and chat_id:
+            account = get_chess_account(user_id)
+            if not account:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
                     parse_mode="Markdown",
                 )
+            else:
+                send_telegram_message(
+                    chat_id,
+                    "🔍 Загружаю статистику...",
+                )
+                
+                try:
+                    lichess_user = fetch_lichess_user(account["lichess_username"])
+                    if not lichess_user:
+                        send_telegram_message(
+                            chat_id,
+                            "❌ Не удалось загрузить данные Lichess. Попробуйте позже.",
+                        )
+                    else:
+                        title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
+                        
+                        stats_msg = (
+                            f"♟ **Статистика {title_prefix}{lichess_user['username']}**\n\n"
+                            "📈 Детальная статистика скоро будет добавлена..."
+                        )
+                        send_telegram_message(chat_id, stats_msg, parse_mode="Markdown")
+                except Exception as exc:
+                    print(f"Error fetching stats: {exc}")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка загрузки статистики. Попробуйте позже.",
+                    )
         
         # /puzzle command
         elif command == "/puzzle" and chat_id:
@@ -1599,7 +1590,7 @@ def telegram_webhook(secret: str):
             if not account:
                 send_telegram_message(
                     chat_id,
-                    "❌ Сначала привяжите Lichess аккаунт: `/chess link <ник>`",
+                    "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
                     parse_mode="Markdown",
                 )
             else:
