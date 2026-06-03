@@ -20,6 +20,13 @@
 
 ## Changelog
 
+### 2026-06-03 (Memory Bank: HF deprecated, GD Module planned for Vercel)
+- **Hugging Face runtime помечен как устаревший** в `memory_bank/activeContext.md`.
+- **Причина:** постоянные таймауты `getUpdates TimedOut`, пропуск команд, нестабильная обработка webhook.
+- **Перенос GD Module на Vercel запланирован** с префиксом `/gd_`: `/gd_submit`, `/gd_moderate`, `/gd_leaderboard`, `/gd_my_stats`, `/gd_player_stats`, `/gd_user`, `/gd_level`, `/gd`.
+- **GD commands в `bot/commands/gd_*_ptb.py`** остаются legacy (локальный polling), production будет на Vercel webhook.
+- **Active context обновлён:** добавлен приоритетный пункт GD Module for Vercel.
+
 ### 2026-06-03 (Chess Module Implementation)
 - **Chess Module (CH-02, CH-03, CH-04) completed:** 12% deliverables finished.
 - **CH-02:** Implemented `/chess_link <username>` command for Lichess account binding.
@@ -392,11 +399,11 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
+- 45324b1 (2026-06-03, HF deprecated, GD Module Vercel planning)
+- 72fb9c6 (2026-06-03, Chess Module final docs sync)
 - 8f33214 (2026-06-03, Chess Module: puzzle board image display)
 - 10266ba (2026-06-03, Chess Module: underscore command format)
 - fb3819e (2026-06-03, Chess Module: base implementation with Lichess API)
-- 3aecd45 (2026-06-02, Vercel migration: all 35 commands + GDcards parsing)
-- bf22963 (2026-06-02, Memory Bank canon sync baseline before documentation update)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
