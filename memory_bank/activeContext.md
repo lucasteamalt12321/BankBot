@@ -1,42 +1,55 @@
 # Active Context
 
 **Последнее обновление:** 2026-06-03  
-**Текущая фаза:** Vercel Migration — перенос всех команд на Vercel serverless
+**Текущая фаза:** Phase 2 Feature Expansion — Chess Module Implementation
 
 ## Текущий фокус
 
-### Vercel Full Migration (2026-06-03)
+### Chess Module Implementation (2026-06-03)
 
-**Цель:** Перенести основной бот полностью на Vercel webhook (`api/index.py`).
+**Цель:** Реализовать шахматный модуль с интеграцией Lichess API.
 
-**Контекст:**
-- Основной бот (`bot/bot.py`) отключён
-- Vercel webhook — единственный production runtime
-- Supabase DATABASE_URL настроен и работает
-- Базовые команды работают: `/start`, `/balance`, `/stats`, `/profile`, `/reading_trainer`
+**Статус:** Базовая функциональность реализована и задеплоена.
 
-**Задача:** Добавить **35 команд** в Vercel webhook:
+**Завершено:**
+- ✅ Синхронный Lichess API клиент для Vercel
+- ✅ `/chess` — справка по командам
+- ✅ `/chess_link <username>` — привязка Lichess аккаунта
+- ✅ `/chess_rating` — показ рейтингов (базовая версия)
+- ✅ `/chess_stats` — показ статистики (базовая версия)
+- ✅ `/puzzle` — ежедневная шахматная задача с изображением доски
+- ✅ Таблица `chess_accounts` в Supabase
+- ✅ Изображение шахматной доски через Lichess board export API
+- ✅ Inline кнопка для решения на Lichess
 
-**Команды для переноса:**
-1. **Базовые (6):** `start` ✅, `balance` ✅, `profile`/`user` ✅, `stats` ✅, `history`, `ping` ✅
-2. **Режимы (4):** `short` ✅, `short_all`, `long` ✅, `long_all`
-3. **Специальные (1):** `reading_trainer` ✅
-4. **AI (5):** `ai`/`ask`, `ai_help`, `chat`, `generate_prayer`, `ask_canon`
-5. **Магазин (11):** `shop`, `buy`, `buy_contact`, `buy_1-8`, `inventory`
-6. **Игры (1):** `trivia`
-7. **Админ базовые (3):** `admin`, `add_points`/`add_coins`, `add_admin`
-8. **Админ статистика (5):** `admin_stats`, `admin_users`, `admin_balances`, `admin_transactions`, `broadcast`
+**Коммиты:**
+- `fb3819e` — базовая реализация chess модуля
+- `10266ba` — изменение формата команд на underscore
+- `8f33214` — добавление изображения доски в /puzzle
 
-**НЕ переносим:** социальные, мотивация, уведомления, games (кроме trivia), dnd, админ магазин/игры, конфигурация, диалоги, фоновые задачи.
+**Осталось доделать:**
+- ⏳ Детальные рейтинги в `/chess_rating` (bullet, blitz, rapid, classical)
+- ⏳ Игровая статистика в `/chess_stats` (total games, wins, losses, draws)
+- ⏳ Система проверки решения задач
+- ⏳ Награды за решение задач (интеграция с user_coins)
+- ⏳ История решённых задач
+- ⏳ Таблица лидеров
 
-**Прогресс:**
-- ✅ Базовая инфраструктура (SQLAlchemy + Supabase)
-- ✅ 7/35 команд работают
-- ⏳ 28/35 команд осталось
+### Vercel Migration Status (Завершено)
 
-**Технический подход:**
+**35/35 команд** перенесены на Vercel webhook (`api/index.py`):
+- ✅ Все базовые команды
+- ✅ Все AI команды (с фиксом модели `llama-3.3-70b-versatile`)
+- ✅ Все админ команды
+- ✅ Магазин и инвентарь
+- ✅ GDcards парсинг (курс 2:1, orbs → coins)
+- ✅ Триvia
+- ✅ Режимы ответов (short/long/short_all/long_all)
+
+**Технический стек:**
 - Command router pattern в `api/index.py`
 - Прямые SQL queries через SQLAlchemy + `text()`
+- Supabase PostgreSQL через `DATABASE_URL`
 - Минимальные зависимости (flask, requests, sqlalchemy, psycopg2-binary)
 - Все stateless (без диалогов, ConversationHandler)
 
@@ -49,94 +62,96 @@
 - Полезная legacy-запись про `bot/template_coder/` перенесена в `memory_bank/dialog_template_coder_module.md`: фактический модуль параметрический, без pair/triple lookup tables, с `/done`.
 - В старом `docs/memory-bank/activeContext.md` был обнаружен Telegram bot token. Он удалён из memory mirror; токен следует считать скомпрометированным и перевыпустить через BotFather.
 
-### ✅ Завершено в этой сессии
-1. **GD-07 (GD API Integration)** — 3%
-   - Реализована интеграция с Geometry Dash API через прямые HTTP-запросы
-   - Команды `/gd_user` и `/gd_level` для получения статистики игроков и уровней
-   - Обход проблемы с установкой библиотеки gd.py (timeout)
-   - Файлы: `bot/gd/gd_api.py`, `bot/commands/gd_api_commands_ptb.py`
-   - Коммит: `b1c3393`
+### ✅ Завершено в этой сессии (2026-06-03)
 
-2. **Mom Module: Print Button**
-   - Добавлена кнопка "🖨️ Печать" на оба экрана (чтение и вопросы)
-   - Печать на A4: текст + вопросы с пустыми строками для ответов
-   - Исправлена раздача статических файлов на Vercel (`api/index.py`)
-   - Коммиты: `84a1fef`, `c604468`
+1. **Chess Module (CH-02, CH-03, CH-04) — 12%**
+   - ✅ CH-02: Реализована команда `/chess_link <username>` для привязки Lichess аккаунта
+   - ✅ CH-03: Реализованы команды `/chess_rating` и `/chess_stats` (базовые версии)
+   - ✅ CH-04: Реализована команда `/puzzle` с изображением шахматной доски
+   - Синхронный Lichess API клиент (fetch_lichess_user, 8s timeout)
+   - Функции работы с таблицей `chess_accounts` (get_chess_account, link_chess_account)
+   - Изображение доски через Lichess board export GIF API
+   - Inline кнопка "🔗 Решить на Lichess"
+   - Защита от привязки одного аккаунта к нескольким пользователям
+   - Файлы: `api/index.py` (+341 строка)
+   - Коммиты: `fb3819e`, `10266ba`, `8f33214`
+   - Таблица `chess_accounts` уже в миграции `009_phase2_tables_supabase.sql`
+
+2. **Chess Module Testing**
+   - ✅ Протестированы все базовые команды через webhook
+   - ✅ Lichess API работает корректно
+   - ✅ Daily puzzle API возвращает данные
+   - ✅ Изображение доски отправляется в Telegram
+   - ✅ Webhook обрабатывает команды без ошибок
 
 ### 🎯 Следующие шаги
-1. **GD-TEST:** Manual testing всех GD команд (3%)
-   - Тестирование /submit, /moderate, /leaderboard, /my_stats, /player_stats
-   - Тестирование /add_level, /set_level_position
-   - Тестирование /gd_user, /gd_level
+### 🎯 Следующие шаги
+
+1. **Chess Module: Доработка (CH-05, CH-06)** — 8%
+   - Добавить детальные рейтинги в `/chess_rating` (bullet, blitz, rapid, classical)
+   - Добавить игровую статистику в `/chess_stats` (games, wins, losses, draws)
+   - Реализовать систему проверки решения задач
+   - Добавить награды за решение задач (интеграция с user_coins)
+   - Добавить историю решённых задач
+   - CH-TEST: Manual testing всех команд
+
+2. **Universe Module (UN-03):** 4%
+   - UN-03: /pray команда с генерацией молитв через AI
+   - UN-TEST: Manual testing
+
+3. **GD Module Testing:** 3%
+   - Manual testing всех GD команд
    - Edge cases и UI/UX проверки
-   - Database integrity checks
-
-2. **MOM-TEST:** Manual testing веб-приложения reading trainer (2%)
-   - Проверка всех функций по чеклисту
-   - Тестирование на разных устройствах
-   - Проверка печати
-
-3. **Chess Module (CH-02 → CH-06):** 20%
-   - CH-02: /chess link (3%)
-   - CH-03: /chess rating, /chess stats (4%)
-   - CH-04: /puzzle (5%)
-   - CH-05: Награды за puzzle (3%)
-   - CH-06: Интеграция с банком (3%)
-   - CH-TEST: Manual testing (2%)
-
-4. **Universe Module (UN-03):** 4%
-   - UN-03: /pray команда (4%)
-   - UN-TEST: Manual testing (2%)
 
 ## Checkpoint: Phase 2 Progress
 
-**Phase 2: 59/100 (59%)**
+**Phase 2: 71/100 (71%)**
 - ✅ AI Module: 15% (completed)
 - ✅ Mom Module: 19% (completed)
-- ✅ GD Module: 59% (GD-01 to GD-07 + GD-TEST-1-3 completed, GD-TEST manual testing remaining: 3%)
-- ⏳ Chess Module: 0% (pending)
-- ⏳ Universe Module: 10% (UN-01-02 completed, UN-03 pending)
+- ✅ GD Module: 56% (GD-01 to GD-07 completed, GD-TEST manual testing remaining: 3%)
+- ⏳ Chess Module: 12% (CH-02, CH-03, CH-04 completed, CH-05, CH-06, CH-TEST remaining: 8%)
+- ⏳ Universe Module: 10% (UN-01-02 completed, UN-03 pending: 4%)
 
-**GD Module: 59/30 (59%)**
-- ✅ GD-01: Схема и таблицы Supabase (5%)
-- ✅ GD-02: /submit command (4%)
-- ✅ GD-03: /moderate админ-панель (5%)
-- ✅ GD-04: Difficulty logic (4%)
-- ✅ GD-05: Statistics commands (5%)
-- ✅ GD-06: Admin commands (4%)
-- ✅ GD-07: GD API integration (3%)
-- ✅ GD-TEST-1-3: Unit tests (3%)
-- ⏳ GD-TEST: Manual testing (3%)
+**Chess Module Progress: 12/20 (60%)**
+- ✅ CH-02: /chess_link command (3%)
+- ✅ CH-03: /chess_rating, /chess_stats basic (4%)
+- ✅ CH-04: /puzzle with board image (5%)
+- ⏳ CH-05: Puzzle rewards system (3%)
+- ⏳ CH-06: Bank integration + history (3%)
+- ⏳ CH-TEST: Manual testing (2%)
 
-**Remaining:** 41% (GD-TEST: 3%, Chess: 20%, Universe: 4%, buffer: 14%)
+**Remaining:** 29% (Chess: 8%, GD-TEST: 3%, Universe: 4%, buffer: 14%)
 
 ## Технический контекст
 
-### GD Module Architecture
+### Chess Module Architecture
 ```
-bot/gd/
-├── difficulty.py          # Difficulty calculation logic
-└── gd_api.py             # GD API HTTP client (NEW)
+api/index.py                  # Chess commands handler (Vercel webhook)
+├── fetch_lichess_user()      # Sync Lichess API client
+├── get_chess_account()       # Get linked account from DB
+├── link_chess_account()      # Link/update chess account
+├── /chess                    # Show help
+├── /chess_link <username>    # Link Lichess account
+├── /chess_rating             # Show ratings (basic)
+├── /chess_stats              # Show stats (basic)
+└── /puzzle                   # Daily puzzle with board image
 
-bot/commands/
-├── gd_commands_ptb.py         # /submit ConversationHandler
-├── gd_admin_commands_ptb.py   # /moderate, /add_level, /set_level_position
-├── gd_stats_commands_ptb.py   # /leaderboard, /my_stats, /player_stats
-└── gd_api_commands_ptb.py     # /gd_user, /gd_level (NEW)
+database/database.py
+├── ChessAccount              # user_id, lichess_username, linked_at
+└── UserCoins                 # user_id, balance, last_puzzle_at
 
-database/
-└── database.py           # Level, Submission, PlayerStats, LevelCompletion models
+database/migrations/
+└── 009_phase2_tables_supabase.sql  # chess_accounts table
 ```
 
-### Mom Module Updates
-- `public/reading_trainer.html`: Added print button and print styles
-- `api/index.py`: Added `/reading_trainer.html` route for Vercel static file serving
-- Print feature: Shows text + questions with empty answer lines on single A4 page
-
-### GD API Response Format
-**User response:** `1:username:2:user_id:3:stars:4:demons:6:rank:8:creator_points:13:coins:16:account_id:17:user_coins:46:diamonds`
-
-**Level response:** `1:level_id:2:name:3:description:5:version:6:creator_id:9:difficulty:10:downloads:14:likes:15:length:17:demon:18:stars:37:coins:38:verified_coins:43:demon_difficulty#hash#seed`
+### Chess Module Technical Details
+- **Lichess API Base:** `https://lichess.org/api`
+- **Timeout:** 8 seconds
+- **Board images:** `https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett`
+- **User endpoint:** `/api/user/{username}` — returns username, title, online, perfs
+- **Puzzle endpoint:** `/api/puzzle/daily` — returns puzzle id, rating, themes, FEN, solution
+- **Commands format:** underscore style (`/chess_link`, not `/chess link`)
+- **Database:** Supabase PostgreSQL, chess_accounts table with unique lichess_username constraint
 
 ## Блокеры
 
@@ -144,7 +159,22 @@ database/
 
 ## Следующая сессия
 
-1. Протестировать Mom Module на Vercel (https://bank-bot-ruby.vercel.app/reading_trainer.html)
-2. Провести manual testing GD Module (запустить бота локально)
-3. Начать Chess Module (CH-02: /chess link с Lichess API)
-4. Или начать Universe Module (UN-03: /pray команда)
+1. **Chess Module: Доработать детальные рейтинги и статистику**
+   - Парсить `perfs` из Lichess API (bullet, blitz, rapid, classical ratings)
+   - Показывать количество игр, winrate если доступно
+   - Реализовать систему проверки решения puzzle (через callback buttons или текстовый ввод)
+
+2. **Chess Module: Система наград**
+   - Интегрировать с таблицей `user_coins`
+   - Начислять монеты за правильное решение puzzle
+   - Добавить cooldown на получение наград (last_puzzle_at)
+
+3. **Universe Module: /pray команда**
+   - Генерация молитв через AI с каноническим форматом
+   - Использовать существующий `call_ai_api()` с промптом из projectbrief
+
+## Важные файлы для следующей сессии
+
+- `api/index.py` — основной webhook handler (строки 1500-1650 для chess команд)
+- `database/migrations/009_phase2_tables_supabase.sql` — схема chess_accounts и user_coins
+- `memory_bank/projectbrief.md` — Project Deliverables для отслеживания прогресса
