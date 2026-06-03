@@ -8,6 +8,17 @@
 
 На период planned HF webhook migration этот модуль **не входит в реализацию первого этапа**. Пользователь утвердил фокус на стабильный BankBot webhook runtime, безопасный reply-only parsing и отключение лишних/нерабочих production handlers. Dialog Template Coder может оставаться в коде/документации, но не должен блокировать перенос на webhook и не должен расширяться до завершения стабилизации HF webhook.
 
+## Canon Sync Note (2026-06-02)
+
+Фактическая реализация в `bot/template_coder/` уже отличается от раннего табличного ТЗ ниже: модуль стал параметрическим, без хранения 100 пар и 500 троек. Каноническое состояние кода:
+
+- `bot/template_coder/service.py` содержит `CoderState`, `TemplateCoderService.apply()`, `render()`, `finish()` и help/preview-логику.
+- `bot/template_coder/data.py` явно фиксирует отказ от pair/triple/four-template lookup tables.
+- Диалог поддерживает `/coder`, `/reset`, `/done`, `/help`.
+- Старое требование переносить 100 пар и 500 троек больше не является актуальным production scope, если пользователь отдельно не вернёт табличный режим.
+
+Оставшаяся спецификация ниже сохранена как historical design record, а не как текущий обязательный acceptance checklist.
+
 Этот модуль имеет максимальный приоритет относительно текущих pending-задач post-release roadmap (`PR10–PR13`). Перед архитектурной зачисткой, legacy-cleanup и прочими P2-задачами нужно реализовать или спланировать именно этот диалоговый модуль.
 
 ## Назначение

@@ -27,7 +27,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ## Project Deliverables
 
-### Phase 1: Core Infrastructure (completed = 90/100)
+### Phase 1: Core Infrastructure (canonical = 90/100)
+
+Этот раздел является каноническим источником процента выполнения по правилу `AGENTS.md`. Сумма весов ровно `100`; процент считается только по строкам со статусом `completed`.
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
@@ -51,13 +53,12 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | D20 | Coverage 80%+ | completed | 3 |
 | D21 | Документация (README, DEPLOYMENT.md, диаграммы) | completed | 2 |
 | D22 | Docstrings Google style | completed | 2 |
-| D23 | Bridge-модуль: конфигурация + миграция bridge_state | completed | 3 |
-| D24 | Bridge-модуль: loop_guard, message_queue, vk_sender | completed | 4 |
-| D25 | Bridge-модуль: telegram_forwarder, vk_listener, main_bridge | completed | 4 |
-| D26 | Bridge-модуль: media_handler (TG→VK, VK→TG) | completed | 3 |
-| D27 | vk_bot/: config, bot, handlers, main | completed | 3 |
+| D23 | Persistent PostgreSQL/Supabase production storage | completed | 9 |
+| D24 | HF webhook runtime baseline + production diagnostics | completed | 8 |
 
-**Phase 1 Sum: 90/100** (D10 и D18 in_progress)
+**Phase 1 Sum: 90/100 completed** (D10 и D18 остаются `in_progress`).
+
+**Legacy note:** ранняя копия `docs/memory-bank/projectbrief.md` содержала устаревший список с ручным парсингом, SQLite-only runtime и shop/games/D&D как активным scope. Эти сведения не являются каноном. Bridge/VK остаются в репозитории как legacy/compatibility-код, но не учитываются как production deliverables текущего webhook-first BankBot.
 
 ### Phase 2: Feature Expansion (новые модули)
 
