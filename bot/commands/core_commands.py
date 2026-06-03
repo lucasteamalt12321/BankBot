@@ -156,6 +156,7 @@ ID: {user_id}
 /balance — баланс
 /profile — профиль
 /stats — статистика
+/reading_trainer — тренажёр чтения
 /short — краткие ответы
 /long — полный режим для себя
 /long_all — полный режим для всех
@@ -178,7 +179,9 @@ async def welcome_command(
     try:
         admin_user = admin_system.get_user_by_id(user.id)
         if not admin_user:
-            success = admin_system.register_user(user.id, user.username, user.first_name)
+            success = admin_system.register_user(
+                user.id, user.username, user.first_name
+            )
             if success:
                 logger.info(f"Force-registered user {user.id} in admin system")
                 registration_status = "✅ Пользователь зарегистрирован"
@@ -255,7 +258,7 @@ async def test_notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Команда /test_notify - тест всплывающего уведомления."""
     from utils.monitoring.notification_system import NotificationSystem
     from database.database import get_db, User
-    
+
     user = update.effective_user
     db = next(get_db())
     try:
@@ -263,18 +266,21 @@ async def test_notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not user_db:
             await update.message.reply_text("Сначала зарегистрируйтесь через /start")
             return
-            
-        await update.message.reply_text("🔔 Отправляю тестовое уведомление через 3 секунды...\nЗаблокируйте экран или выйдите из чата!")
-        
+
+        await update.message.reply_text(
+            "🔔 Отправляю тестовое уведомление через 3 секунды...\nЗаблокируйте экран или выйдите из чата!"
+        )
+
         # Ждем немного, чтобы пользователь успел закрыть чат
         import asyncio
+
         await asyncio.sleep(3)
-        
+
         notification_system = NotificationSystem(db, bot=context.bot)
         await notification_system.send_system_notification(
             user_db.id,
             "🔔 ТЕСТ УВЕДОМЛЕНИЯ",
-            "Это тестовое системное уведомление. Если вы видите его на часах — всё работает!"
+            "Это тестовое системное уведомление. Если вы видите его на часах — всё работает!",
         )
     finally:
         db.close()
@@ -284,28 +290,28 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /ping - проверка работоспособности бота."""
     from telegram.error import TimedOut, NetworkError
     import asyncio
-    
+
     start_time = datetime.utcnow()
-    
+
     # Retry логика для отправки сообщения
     max_retries = 3
     retry_delay = 2
-    
+
     for attempt in range(max_retries):
         try:
             message = await update.message.reply_text("🏓 Понг...")
             end_time = datetime.utcnow()
             latency = (end_time - start_time).total_seconds() * 1000
             response_text = f"🏓 Понг! (Задержка: {latency:.2f} мс)"
-            
+
             try:
                 await message.edit_text(response_text)
             except (TimedOut, NetworkError):
                 # Если не удалось отредактировать, не критично
                 pass
-            
+
             break  # Успешно отправили
-            
+
         except (TimedOut, NetworkError) as e:
             if attempt < max_retries - 1:
                 await asyncio.sleep(retry_delay)
@@ -314,13 +320,16 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Последняя попытка не удалась - просто логируем
                 print(f"Failed to send ping response after {max_retries} attempts: {e}")
                 return
-    
+
     # Отправка в ntfy для теста часов
     try:
         from utils.monitoring.notification_system import NotificationSystem
         from database.database import get_db, User
+
         db = next(get_db())
-        user_db = db.query(User).filter(User.telegram_id == update.effective_user.id).first()
+        user_db = (
+            db.query(User).filter(User.telegram_id == update.effective_user.id).first()
+        )
         if user_db:
             ns = NotificationSystem(db)
             await ns.send_realtime_notification(
@@ -355,16 +364,16 @@ async def balance_command(
                     update,
                     context,
                     f"Баланс: {admin_user['balance']} очков\n"
-                    f"Статус: {'админ' if admin_user['is_admin'] else 'пользователь'}"
+                    f"Статус: {'админ' if admin_user['is_admin'] else 'пользователь'}",
                 )
                 return
 
             text = f"""
 [MONEY] <b>Ваш баланс</b>
 
-[USER] Пользователь: {html.escape(admin_user['first_name'] or user.first_name or 'Неизвестно')}
-[BALANCE] Баланс: {admin_user['balance']} очков
-[STATUS] Статус: {'Администратор' if admin_user['is_admin'] else 'Пользователь'}
+[USER] Пользователь: {html.escape(admin_user["first_name"] or user.first_name or "Неизвестно")}
+[BALANCE] Баланс: {admin_user["balance"]} очков
+[STATUS] Статус: {"Администратор" if admin_user["is_admin"] else "Пользователь"}
 
 [TIP] Используйте /history для просмотра транзакций
             """
@@ -382,16 +391,16 @@ async def balance_command(
                     await _send_text_with_retry(
                         update,
                         context,
-                        f"Баланс: {user_db.balance} монет\n/history — операции"
+                        f"Баланс: {user_db.balance} монет\n/history — операции",
                     )
                     return
 
                 text = f"""
 [MONEY] <b>Ваш баланс</b>
 
-[USER] Пользователь: {html.escape(user_db.first_name or '')} {html.escape(user_db.last_name or '')}
+[USER] Пользователь: {html.escape(user_db.first_name or "")} {html.escape(user_db.last_name or "")}
 [BALANCE] Баланс: {user_db.balance} банковских монет
-[TIME] Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}
+[TIME] Последняя активность: {user_db.last_activity.strftime("%d.%m.%Y %H:%M") if user_db.last_activity else "Нет данных"}
 
 [TIP] Используйте /history для просмотра транзакций
                 """
@@ -455,7 +464,9 @@ async def history_command(
             return
 
         if is_short_mode(context):
-            lines = [f"История: {len(transactions)} операций. Баланс: {user_db.balance}"]
+            lines = [
+                f"История: {len(transactions)} операций. Баланс: {user_db.balance}"
+            ]
             for t in transactions[:5]:
                 amount_text = f"+{t.amount}" if t.amount > 0 else str(t.amount)
                 lines.append(f"{amount_text} — {html.escape(t.description[:30])}")
@@ -465,7 +476,7 @@ async def history_command(
         text = f"""
 [STATS] <b>История транзакций</b>
 
-[USER] Пользователь: {html.escape(user_db.first_name or '')} {html.escape(user_db.last_name or '')}
+[USER] Пользователь: {html.escape(user_db.first_name or "")} {html.escape(user_db.last_name or "")}
 [BALANCE] Текущий баланс: {user_db.balance} монет
 [LIST] Показано последних: {len(transactions)} транзакций
 
@@ -510,7 +521,9 @@ async def profile_command(
     try:
         admin_user = admin_system.get_user_by_id(user.id)
         if not admin_user:
-            success = admin_system.register_user(user.id, user.username, user.first_name)
+            success = admin_system.register_user(
+                user.id, user.username, user.first_name
+            )
             if success:
                 logger.info(f"Force-registered user {user.id} in profile command")
 
@@ -593,7 +606,7 @@ async def profile_command(
                 f"Профиль: {html.escape(admin_user['first_name'] or 'Без имени')}\n"
                 f"Баланс: {int(admin_user['balance'])}\n"
                 f"Транзакций: {total_transactions}\n"
-                f"Статус: {'админ' if admin_user['is_admin'] else 'пользователь'}"
+                f"Статус: {'админ' if admin_user['is_admin'] else 'пользователь'}",
             )
             return
 
@@ -602,9 +615,9 @@ async def profile_command(
 
 [INFO] <b>Основная информация:</b>
    • ID: {user.id}
-   • Имя: {html.escape(admin_user['first_name'] or 'Не указано')}
-   • Username: @{html.escape(admin_user['username'] or 'Не указан')}
-   • Баланс: {int(admin_user['balance'])} очков
+   • Имя: {html.escape(admin_user["first_name"] or "Не указано")}
+   • Username: @{html.escape(admin_user["username"] or "Не указан")}
+   • Баланс: {int(admin_user["balance"])} очков
 
 [STATS] <b>Статистика:</b>
    • Всего транзакций: {total_transactions}
@@ -619,7 +632,7 @@ async def profile_command(
    • Входящих запросов: 0
 
 [ADMIN] <b>Права доступа:</b>
-   • Статус: {'Администратор' if admin_user['is_admin'] else 'Пользователь'}
+   • Статус: {"Администратор" if admin_user["is_admin"] else "Пользователь"}
 
 [TIPS] <b>Советы:</b>
    • Для начисления ответьте «Парсинг» на сообщение игрового бота
@@ -674,15 +687,23 @@ async def stats_command(
             or 0
         )
 
-        total_purchases = db.query(UserPurchase).filter(
-            UserPurchase.user_id == user_db.id,
-        ).count()
+        total_purchases = (
+            db.query(UserPurchase)
+            .filter(
+                UserPurchase.user_id == user_db.id,
+            )
+            .count()
+        )
 
         week_ago = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        week_transactions = db.query(Transaction).filter(
-            Transaction.user_id == user_db.id,
-            Transaction.created_at >= week_ago,
-        ).count()
+        week_transactions = (
+            db.query(Transaction)
+            .filter(
+                Transaction.user_id == user_db.id,
+                Transaction.created_at >= week_ago,
+            )
+            .count()
+        )
 
         if is_short_mode(context):
             await _send_text_with_retry(
@@ -693,7 +714,7 @@ async def stats_command(
                 f"Потрачено: {total_spent}\n"
                 f"Баланс: {user_db.balance}\n"
                 f"Покупок: {total_purchases}\n"
-                f"За неделю операций: {week_transactions}"
+                f"За неделю операций: {week_transactions}",
             )
             return
 
@@ -709,7 +730,7 @@ async def stats_command(
 [STATS] <b>Активность:</b>
    • Транзакций за неделю: {week_transactions}
    • Дней в системе: {(datetime.utcnow() - user_db.created_at).days}
-   • Последняя активность: {user_db.last_activity.strftime('%d.%m.%Y %H:%M') if user_db.last_activity else 'Нет данных'}
+   • Последняя активность: {user_db.last_activity.strftime("%d.%m.%Y %H:%M") if user_db.last_activity else "Нет данных"}
 
 [TARGET] <b>Рекомендации:</b>
    • Заходите ежедневно для получения бонусов
