@@ -1612,17 +1612,52 @@ def telegram_webhook(secret: str):
                         
                         puzzle_id = puzzle.get("id", "unknown")
                         rating = puzzle.get("rating", "?")
+                        fen = puzzle.get("fen", "")
                         themes = ", ".join(puzzle.get("themes", [])[:3])
                         puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
+                        
+                        # Get initial move to show position after opponent's move
+                        initial_ply = puzzle.get("initialPly", 0)
+                        
+                        # Send board image using Lichess board export
+                        # Format: https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett
+                        board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett&lastMove="
                         
                         puzzle_msg = (
                             f"🧩 **Шахматная задача дня**\n\n"
                             f"Рейтинг: {rating}\n"
                             f"Темы: {themes}\n\n"
-                            f"[Открыть на Lichess]({puzzle_url_link})\n\n"
-                            "Решите задачу на Lichess и вернитесь сюда!"
+                            f"Ваш ход!"
                         )
-                        send_telegram_message(chat_id, puzzle_msg, parse_mode="Markdown")
+                        
+                        # Send photo with caption
+                        try:
+                            photo_response = requests.post(
+                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                                json={
+                                    "chat_id": chat_id,
+                                    "photo": board_image_url,
+                                    "caption": puzzle_msg,
+                                    "parse_mode": "Markdown",
+                                    "reply_markup": {
+                                        "inline_keyboard": [
+                                            [
+                                                {
+                                                    "text": "🔗 Решить на Lichess",
+                                                    "url": puzzle_url_link
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                },
+                                timeout=10,
+                            )
+                            if photo_response.status_code != 200:
+                                # Fallback to text message if image fails
+                                send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                        except Exception as photo_exc:
+                            print(f"Error sending photo: {photo_exc}")
+                            send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
                     else:
                         send_telegram_message(
                             chat_id,
