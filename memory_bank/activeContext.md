@@ -45,6 +45,36 @@
 - ✅ GDcards парсинг (курс 2:1, orbs → coins)
 - ✅ Триvia
 - ✅ Режимы ответов (short/long/short_all/long_all)
+- ✅ Chess module (CH-02, CH-03, CH-04)
+
+**Технический стек:**
+- Command router pattern в `api/index.py`
+- Прямые SQL queries через SQLAlchemy + `text()`
+- Supabase PostgreSQL через `DATABASE_URL`
+- Минимальные зависимости (flask, requests, sqlalchemy, psycopg2-binary)
+- Все stateless (без диалогов, ConversationHandler)
+
+### Hugging Face Runtime (Устаревший - отказ)
+
+**⚠️ Устаревший статус:** Hugging Face runtime больше не используется в production из-за нестабильной работы.
+
+**Причина отказа:**
+- Постоянные таймауты `getUpdates TimedOut` приводили к пропуску команд от пользователей
+- Проблемы с polling стабильностью наHF serverless
+- Необходимость постоянных перезапусков Space
+- Нестабильная обработка webhook updates
+
+**Миграция на Vercel:**
+- Все команды перенесены на Vercel webhook (`api/index.py`)
+- Vercel обеспечивает более стабильную обработку запросов
+- Синхронный API вызовы вместо async/await для совместимости с Vercel
+- Использование прямых HTTP запросов к Telegram API
+
+**Legacy код остаётся:**
+- `bot/bot.py` и `bot/commands/` — для legacy polling режима
+- GD commands в `bot/commands/gd_commands_ptb.py`
+- Всё ещё работает локально через `py -3.12 bot/main.py`
+- Не рекомендуется для production use
 
 **Технический стек:**
 - Command router pattern в `api/index.py`
@@ -85,7 +115,20 @@
    - ✅ Webhook обрабатывает команды без ошибок
 
 ### 🎯 Следующие шаги
-### 🎯 Следующие шаги
+
+1. **GD Module for Vercel** — приоритетное
+   - Перенести GD commands в `api/index.py` с префиксом `/gd_`
+   - Команды:
+     - `/gd_submit` — отправка прохождения
+     - `/gd_moderate` — админ-модерация
+     - `/gd_leaderboard` — топ уровней
+     - `/gd_my_stats` — личная статистика
+     - `/gd_player_stats` — статистика игрока
+     - `/gd_user <username>` — статистика из GD API
+     - `/gd_level <id>` — информация об уровне
+     - `/gd` — справка по всем GD командам
+   - Файлы: `api/index.py` (добавление GD handlers)
+   - Требуется: адаптация ConversationHandler под stateless Vercel
 
 1. **Chess Module: Доработка (CH-05, CH-06)** — 8%
    - Добавить детальные рейтинги в `/chess_rating` (bullet, blitz, rapid, classical)
@@ -153,23 +196,73 @@ database/migrations/
 - **Commands format:** underscore style (`/chess_link`, not `/chess link`)
 - **Database:** Supabase PostgreSQL, chess_accounts table with unique lichess_username constraint
 
+### GD Module Vercel Architecture (новая)
+```
+api/index.py                  # GD commands handler (Vercel webhook)
+├── get_gd_leaderboard()      # Show top levels
+├── get_my_stats()            # User personal stats
+├── get_player_stats()        # Another player stats
+├── /gd_submit                # Submit level completion (legacy - needs state)
+├── /gd_moderate              # Admin moderation (legacy - needs state)
+├── /gd_leaderboard           # Top 20 levels
+├── /gd_my_stats              # Personal statistics
+├── /gd_player_stats @user    # Another player stats
+├── /gd_user <username>       # GD API user stats
+├── /gd_level <id>            # GD API level info
+└── /gd                       # GD commands help
+
+database/database.py
+├── Level                     # Level definitions
+├── Submission                # User submissions
+├── PlayerStats               # User statistics
+└── LevelCompletion           # Completed levels
+
+database/migrations/
+└── 009_phase2_tables_supabase.sql  # GD tables
+```
+
+### GD Module Technical Details
+- **GD API Base:** `https://gd.api.lucasteam.xyz` (custom)
+- **Database:** Supabase PostgreSQL
+- **Commands format:** underscore style (`/gd_leaderboard`, `/gd_my_stats`)
+- **Vercel limitation:** ConversationHandler не поддерживается, нужна упрощённая реализация
+- **Админ-функционал:** требует дополнительной логики для stateless среды
+
 ## Блокеры
 
 Нет активных блокеров.
 
 ## Следующая сессия
 
-1. **Chess Module: Доработать детальные рейтинги и статистику**
+### Приоритет 1: GD Module для Vercel
+1. **Перенести GD commands в `api/index.py` с префиксом `/gd_`**
+   - `/gd_submit` — отправка прохождения
+   - `/gd_moderate` — админ-модерация  
+   - `/gd_leaderboard` — топ уровней
+   - `/gd_my_stats` — личная статистика
+   - `/gd_player_stats` — статистика игрока
+   - `/gd_user <username>` — статистика из GD API
+   - `/gd_level <id>` — информация об уровне
+   - `/gd` — справка по всем GD командам
+   - Файлы: `api/index.py` (добавление GD handlers)
+   - Требуется: адаптация под stateless Vercel (без ConversationHandler)
+
+2. **GD Module Testing** — после переноса
+   - Проверка всех команд
+   - Edge cases
+   - UI/UX
+
+### Приоритет 2: Chess Module Доработка (CH-05, CH-06)
    - Парсить `perfs` из Lichess API (bullet, blitz, rapid, classical ratings)
    - Показывать количество игр, winrate если доступно
    - Реализовать систему проверки решения puzzle (через callback buttons или текстовый ввод)
 
-2. **Chess Module: Система наград**
+3. **Chess Module: Система наград**
    - Интегрировать с таблицей `user_coins`
    - Начислять монеты за правильное решение puzzle
    - Добавить cooldown на получение наград (last_puzzle_at)
 
-3. **Universe Module: /pray команда**
+4. **Universe Module: /pray команда**
    - Генерация молитв через AI с каноническим форматом
    - Использовать существующий `call_ai_api()` с промптом из projectbrief
 
