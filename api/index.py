@@ -12,6 +12,8 @@ app = Flask(__name__)
 # Webhook secret
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+DEFAULT_RESPONSE_MODE = "short"
+CHAT_RESPONSE_MODES: dict[int, str] = {}
 
 
 def normalize_command(text: str | None) -> str:
@@ -39,16 +41,74 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
     response.raise_for_status()
 
 
-def build_start_text() -> str:
-    """Build a compact /start response for the Vercel webhook runtime."""
+def get_response_mode(chat_id: int | None) -> str:
+    """Return response mode for a chat in the lightweight Vercel runtime."""
 
-    return (
-        "🏦 BankBot работает на Vercel.\n\n"
-        "Доступные команды:\n"
-        "• /start — проверить, что бот отвечает\n"
-        "• /reading_trainer — тренажёр чтения\n\n"
-        "Если нужна банковская/игровая команда, напишите её — я добавлю обработчик в Vercel webhook."
-    )
+    if chat_id is None:
+        return DEFAULT_RESPONSE_MODE
+    return CHAT_RESPONSE_MODES.get(chat_id, DEFAULT_RESPONSE_MODE)
+
+
+def set_response_mode(chat_id: int, mode: str) -> None:
+    """Store a lightweight per-chat response mode for Vercel webhook replies."""
+
+    CHAT_RESPONSE_MODES[chat_id] = mode
+
+
+def build_short_start_text(name: str, user_id: int) -> str:
+    """Build the old short `/start` response."""
+
+    return f"""[BANK] LucasTeam BankBot
+Привет, {name}!
+Регистрация: ✅ Пользователь уже зарегистрирован
+ID: {user_id}
+
+Основное:
+/balance — баланс
+/profile — профиль
+/stats — статистика
+/short — краткие ответы
+/long — полный режим для себя
+/long_all — полный режим для всех"""
+
+
+def build_long_start_text(name: str, user_id: int) -> str:
+    """Build the old long `/start` response adapted for Vercel runtime."""
+
+    return f"""[BANK] Добро пожаловать в Мета-Игровую Платформу LucasTeam!
+
+[HELLO] Привет, {name}!
+
+[SYSTEM] Статус регистрации:
+✅ Пользователь уже зарегистрирован
+Ваш Telegram ID: {user_id}
+
+Я автоматически отслеживаю вашу активность в играх и начисляю банковские монеты.
+
+[COMMANDS] Основные команды:
+/start - запустить бота
+/balance - проверить баланс
+/history - история транзакций
+/profile - ваш профиль
+/stats - персональная статистика
+/short - краткие ответы
+/long - полные ответы
+/reading_trainer - тренажёр чтения
+
+[GAMES_SUPPORTED] Поддерживаемые игры:
+• Shmalala
+• GD Cards
+• Гуся Cards
+
+[PLAY] Просто играйте, а я буду начислять монеты за активность после безопасного reply-парсинга."""
+
+
+def build_start_text(name: str, user_id: int, mode: str) -> str:
+    """Build `/start` text for the selected response mode."""
+
+    if mode == "long":
+        return build_long_start_text(name, user_id)
+    return build_short_start_text(name, user_id)
 
 
 @app.route("/")
@@ -287,10 +347,19 @@ def telegram_webhook(secret: str):
         message = update.get("message", {})
         text = message.get("text", "")
         chat_id = message.get("chat", {}).get("id")
+        user = message.get("from", {})
+        user_id = user.get("id", chat_id)
+        name = user.get("first_name") or user.get("username") or "LucasTeam"
         command = normalize_command(text)
 
         if command == "/start" and chat_id:
-            send_telegram_message(chat_id, build_start_text())
+            send_telegram_message(chat_id, build_start_text(name, user_id, get_response_mode(chat_id)))
+        elif command == "/short" and chat_id:
+            set_response_mode(chat_id, "short")
+            send_telegram_message(chat_id, "Краткий режим включён. Напишите /start.")
+        elif command == "/long" and chat_id:
+            set_response_mode(chat_id, "long")
+            send_telegram_message(chat_id, "Полный режим включён. Напишите /start.")
         elif command == "/reading_trainer" and chat_id:
             # Send response with inline button
             response_text = (
