@@ -1,0 +1,1 @@
+"""Chess/Lichess integration package."""

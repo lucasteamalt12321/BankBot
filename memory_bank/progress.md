@@ -20,6 +20,22 @@
 
 ## Changelog
 
+### 2026-06-02 (Memory Bank canon sync)
+- Объединены две версии Memory Bank: каноническим источником оставлен `memory_bank/`, а `docs/memory-bank/` переведён в legacy mirror/указатель.
+- `memory_bank/projectbrief.md` приведён к правилу `AGENTS.md`: `## Project Deliverables` содержит стабильные ID, статусы, веса с суммой `100`; completed-вес = `90`, поэтому текущий канонический прогресс Phase 1 = `90/100`.
+- Устаревшие сведения из `docs/memory-bank` не перенесены как канон: ручной paste-парсинг, SQLite-only production, активный shop/games/D&D scope, Bridge/VK production runtime.
+- Полезное отличие legacy mirror про `bot/template_coder/` сверено с кодом и зафиксировано в `memory_bank/dialog_template_coder_module.md`: модуль параметрический, без pair/triple lookup tables, с `/done`.
+- Удалён секрет из legacy mirror: старый `docs/memory-bank/activeContext.md` содержал Telegram bot token. Токен нужно считать раскрытым и перевыпустить вне репозитория.
+- `docs/memory-bank/*` теперь ссылается на соответствующие файлы `memory_bank/*`, чтобы не создавать второй источник процента выполнения.
+
+### 2026-06-02 (P0 Vercel /start no-response fix)
+- Пользователь уточнил, что production сейчас на Vercel, не на Hugging Face.
+- Root cause: `api/index.py` Vercel webhook принимал Telegram updates, но отправлял Telegram `sendMessage` только для `/reading_trainer`; `/start` и `/start@lt_lo_game_bot` silently acknowledged with `{"ok": true}`.
+- Fix: добавлены `normalize_command()`, `send_telegram_message()`, `build_start_text()` и ветка обработки `/start` в `telegram_webhook()`.
+- Regression tests: `tests/unit/test_vercel_webhook_start.py` проверяет `/start` и mentioned `/start@lt_lo_game_bot` без реального Telegram API.
+- Verification: `python3 -m py_compile api/index.py ...` passed; `python3 -m ruff check api/index.py bot/bot.py bot/commands/chess_commands_ptb.py bot/chess/lichess_api.py tests/unit/test_chess_commands.py tests/unit/test_vercel_webhook_start.py` passed; `python3 -m pytest tests/unit/test_vercel_webhook_start.py -q` -> 2 passed.
+- Note: combined focused pytest with chess test currently needs full project deps (`aiogram` etc.); Vercel `/start` regression test passes independently.
+
 ### 2026-05-30 (Phase 2: GD-05 statistics commands)
 - **GD-05 completed:** Statistics commands in `bot/commands/gd_stats_commands_ptb.py`.
 - **Commands:**
@@ -345,6 +361,7 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
+- bf22963 (2026-06-02, Memory Bank canon sync baseline before documentation update)
 - af8ef71 (2026-05-30, Phase 2: GD-05 statistics commands implemented)
 - GD-05: Statistics commands implemented in `bot/commands/gd_stats_commands_ptb.py`
 - Commands: /leaderboard (top-20), /my_stats (personal), /player_stats @user

@@ -5,12 +5,50 @@ from __future__ import annotations
 import hmac
 import os
 from flask import Flask, jsonify, request
+import requests
 
 app = Flask(__name__)
 
 # Webhook secret
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+
+
+def normalize_command(text: str | None) -> str:
+    """Return command without bot mention and arguments."""
+
+    if not text:
+        return ""
+    first_token = text.strip().split(maxsplit=1)[0]
+    return first_token.split("@", maxsplit=1)[0].lower()
+
+
+def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
+    """Send a Telegram message from the Vercel webhook runtime."""
+
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+
+    payload = {"chat_id": chat_id, "text": text}
+    payload.update(extra_payload)
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        json=payload,
+        timeout=5,
+    )
+    response.raise_for_status()
+
+
+def build_start_text() -> str:
+    """Build a compact /start response for the Vercel webhook runtime."""
+
+    return (
+        "🏦 BankBot работает на Vercel.\n\n"
+        "Доступные команды:\n"
+        "• /start — проверить, что бот отвечает\n"
+        "• /reading_trainer — тренажёр чтения\n\n"
+        "Если нужна банковская/игровая команда, напишите её — я добавлю обработчик в Vercel webhook."
+    )
 
 
 @app.route("/")
@@ -244,16 +282,17 @@ def telegram_webhook(secret: str):
     if not update:
         return jsonify({"ok": True})
     
-    # Process /reading_trainer command
+    # Process Telegram commands supported by the Vercel webhook runtime.
     try:
         message = update.get("message", {})
         text = message.get("text", "")
         chat_id = message.get("chat", {}).get("id")
-        
-        if text == "/reading_trainer" and chat_id:
+        command = normalize_command(text)
+
+        if command == "/start" and chat_id:
+            send_telegram_message(chat_id, build_start_text())
+        elif command == "/reading_trainer" and chat_id:
             # Send response with inline button
-            import requests
-            
             response_text = (
                 "🧸 Тренажёр чтения и понимания\n\n"
                 "Приложение для тренировки чтения простых текстов.\n\n"
@@ -275,14 +314,10 @@ def telegram_webhook(secret: str):
                 ]]
             }
             
-            requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": response_text,
-                    "reply_markup": keyboard
-                },
-                timeout=5
+            send_telegram_message(
+                chat_id,
+                response_text,
+                reply_markup=keyboard,
             )
     except Exception as e:
         print(f"Error processing update: {e}")

@@ -1,9 +1,25 @@
 # Active Context
 
-**Последнее обновление:** 2026-05-30  
-**Текущая фаза:** Phase 2 Feature Expansion — GD Module 59% completed, Mom Module print feature added
+**Последнее обновление:** 2026-06-02  
+**Текущая фаза:** Memory Bank sync завершён; Phase 2 Feature Expansion остаётся активной
 
 ## Текущий фокус
+
+### Development in progress (2026-06-02)
+
+- Взята следующая компактная Phase 2 задача: **CH-02 — `/chess link <ник>`**.
+- Цель: добавить команду привязки Telegram-пользователя к Lichess аккаунту с проверкой существования ника через Lichess API и сохранением в таблицу `chess_accounts`.
+- Ограничение: не расширять production runtime лишними модулями; добавить только focused command handler, безопасный timeout и unit tests.
+- P0 interrupt: пользователь сообщил, что Vercel bot не отвечает на `/start`. Root cause найден: `api/index.py` Vercel webhook обрабатывал только `/reading_trainer`, для `/start` возвращал `{"ok": true}` без Telegram `sendMessage`. Исправлено: добавлены `normalize_command()`, `send_telegram_message()`, `build_start_text()` и обработка `/start`/`/start@bot`.
+
+### Memory Bank Canon Sync (2026-06-02)
+
+- Канонический Memory Bank: `memory_bank/` в корне репозитория.
+- `docs/memory-bank/` больше не является альтернативным источником статусов; это legacy mirror/указатель на `memory_bank/`.
+- `memory_bank/projectbrief.md` восстановлен по правилу `AGENTS.md`: раздел `## Project Deliverables` имеет стабильные ID, статусы, веса с суммой ровно `100`; completed-вес = `90`.
+- Из старого `docs/memory-bank` исключены как неканоничные: ручной paste-парсинг, SQLite-only production, активный shop/games/D&D scope, Bridge/VK как production runtime.
+- Полезная legacy-запись про `bot/template_coder/` перенесена в `memory_bank/dialog_template_coder_module.md`: фактический модуль параметрический, без pair/triple lookup tables, с `/done`.
+- В старом `docs/memory-bank/activeContext.md` был обнаружен Telegram bot token. Он удалён из memory mirror; токен следует считать скомпрометированным и перевыпустить через BotFather.
 
 ### ✅ Завершено в этой сессии
 1. **GD-07 (GD API Integration)** — 3%
