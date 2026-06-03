@@ -1,16 +1,44 @@
 # Active Context
 
-**Последнее обновление:** 2026-06-02  
-**Текущая фаза:** Memory Bank sync завершён; Phase 2 Feature Expansion остаётся активной
+**Последнее обновление:** 2026-06-03  
+**Текущая фаза:** Vercel Migration — перенос всех команд на Vercel serverless
 
 ## Текущий фокус
 
-### Development in progress (2026-06-02)
+### Vercel Full Migration (2026-06-03)
 
-- Взята следующая компактная Phase 2 задача: **CH-02 — `/chess link <ник>`**.
-- Цель: добавить команду привязки Telegram-пользователя к Lichess аккаунту с проверкой существования ника через Lichess API и сохранением в таблицу `chess_accounts`.
-- Ограничение: не расширять production runtime лишними модулями; добавить только focused command handler, безопасный timeout и unit tests.
-- P0 interrupt: пользователь сообщил, что Vercel bot не отвечает на `/start`. Root cause найден: `api/index.py` Vercel webhook обрабатывал только `/reading_trainer`, для `/start` возвращал `{"ok": true}` без Telegram `sendMessage`. Исправлено: добавлены `normalize_command()`, `send_telegram_message()`, `build_start_text()` и обработка `/start`/`/start@bot`.
+**Цель:** Перенести основной бот полностью на Vercel webhook (`api/index.py`).
+
+**Контекст:**
+- Основной бот (`bot/bot.py`) отключён
+- Vercel webhook — единственный production runtime
+- Supabase DATABASE_URL настроен и работает
+- Базовые команды работают: `/start`, `/balance`, `/stats`, `/profile`, `/reading_trainer`
+
+**Задача:** Добавить **35 команд** в Vercel webhook:
+
+**Команды для переноса:**
+1. **Базовые (6):** `start` ✅, `balance` ✅, `profile`/`user` ✅, `stats` ✅, `history`, `ping` ✅
+2. **Режимы (4):** `short` ✅, `short_all`, `long` ✅, `long_all`
+3. **Специальные (1):** `reading_trainer` ✅
+4. **AI (5):** `ai`/`ask`, `ai_help`, `chat`, `generate_prayer`, `ask_canon`
+5. **Магазин (11):** `shop`, `buy`, `buy_contact`, `buy_1-8`, `inventory`
+6. **Игры (1):** `trivia`
+7. **Админ базовые (3):** `admin`, `add_points`/`add_coins`, `add_admin`
+8. **Админ статистика (5):** `admin_stats`, `admin_users`, `admin_balances`, `admin_transactions`, `broadcast`
+
+**НЕ переносим:** социальные, мотивация, уведомления, games (кроме trivia), dnd, админ магазин/игры, конфигурация, диалоги, фоновые задачи.
+
+**Прогресс:**
+- ✅ Базовая инфраструктура (SQLAlchemy + Supabase)
+- ✅ 7/35 команд работают
+- ⏳ 28/35 команд осталось
+
+**Технический подход:**
+- Command router pattern в `api/index.py`
+- Прямые SQL queries через SQLAlchemy + `text()`
+- Минимальные зависимости (flask, requests, sqlalchemy, psycopg2-binary)
+- Все stateless (без диалогов, ConversationHandler)
 
 ### Memory Bank Canon Sync (2026-06-02)
 
