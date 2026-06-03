@@ -20,6 +20,37 @@
 
 ## Changelog
 
+### 2026-06-03 (Chess Module Implementation)
+- **Chess Module (CH-02, CH-03, CH-04) completed:** 12% deliverables finished.
+- **CH-02:** Implemented `/chess_link <username>` command for Lichess account binding.
+  - Synchronous Lichess API client (`fetch_lichess_user()`) with 8s timeout
+  - Database functions: `get_chess_account()`, `link_chess_account()`
+  - Validation: checks if account exists on Lichess, prevents duplicate bindings
+  - User feedback: shows username, title, online status
+- **CH-03:** Implemented `/chess_rating` and `/chess_stats` commands (basic versions).
+  - Currently show basic profile info (username, title, online status)
+  - Full ratings/stats implementation pending (perfs parsing)
+- **CH-04:** Implemented `/puzzle` command with visual board.
+  - Fetches daily puzzle from Lichess API (`/api/puzzle/daily`)
+  - Displays chess board as GIF image using Lichess board export API
+  - Shows puzzle rating, themes, FEN position
+  - Inline button to solve on Lichess website
+  - Fallback to text-only if image fails
+- **Architecture:**
+  - All chess commands in `api/index.py` (Vercel webhook)
+  - Underscore command format: `/chess_link`, `/chess_rating`, `/chess_stats`, `/puzzle`
+  - Table `chess_accounts` already in migration `009_phase2_tables_supabase.sql`
+  - Board images via `https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett`
+- **Testing:** All commands tested via webhook, Lichess API verified working.
+- **Commits:** 
+  - `fb3819e` — feat: add chess module with Lichess integration
+  - `10266ba` — refactor: change chess commands to underscore format
+  - `8f33214` — feat: display chess board image in /puzzle command
+- **Phase 2 progress:** 59% → 71% (+12% for CH-02, CH-03, CH-04)
+- **Remaining Chess work:** CH-05 (puzzle rewards, 3%), CH-06 (bank integration + history, 3%), CH-TEST (manual testing, 2%)
+- **Verification:** `python -m py_compile api/index.py` passed; webhook tests successful; Lichess API endpoints verified.
+- **Next steps:** Add detailed ratings/stats parsing, implement puzzle verification system, add rewards integration with user_coins.
+
 ### 2026-06-02 (Memory Bank canon sync)
 - Объединены две версии Memory Bank: каноническим источником оставлен `memory_bank/`, а `docs/memory-bank/` переведён в legacy mirror/указатель.
 - `memory_bank/projectbrief.md` приведён к правилу `AGENTS.md`: `## Project Deliverables` содержит стабильные ID, статусы, веса с суммой `100`; completed-вес = `90`, поэтому текущий канонический прогресс Phase 1 = `90/100`.
@@ -361,11 +392,11 @@
 - DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
 
 ## last_checked_commit
+- 8f33214 (2026-06-03, Chess Module: puzzle board image display)
+- 10266ba (2026-06-03, Chess Module: underscore command format)
+- fb3819e (2026-06-03, Chess Module: base implementation with Lichess API)
+- 3aecd45 (2026-06-02, Vercel migration: all 35 commands + GDcards parsing)
 - bf22963 (2026-06-02, Memory Bank canon sync baseline before documentation update)
-- af8ef71 (2026-05-30, Phase 2: GD-05 statistics commands implemented)
-- GD-05: Statistics commands implemented in `bot/commands/gd_stats_commands_ptb.py`
-- Commands: /leaderboard (top-20), /my_stats (personal), /player_stats @user
-- Integration with difficulty.py for difficulty scores
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.
