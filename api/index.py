@@ -796,9 +796,17 @@ ID: {user_id}
 /profile — профиль
 /stats — статистика
 /reading_trainer — тренажёр чтения
+/trivia — викторина
 /short — краткие ответы
 /long — полный режим для себя
-/long_all — полный режим для всех"""
+/long_all — полный режим для всех
+
+Разделы:
+/chess — шахматы
+/ai — искусственный интеллект
+/gd — geometry dash
+/shop — магазин
+/admin — админка"""
 
 
 def build_long_start_text(name: str, user_id: int) -> str:
@@ -1336,6 +1344,7 @@ def telegram_webhook(secret: str):
                 )
 
         # AI commands
+        # /ai command (parent for AI module)
         elif command == "/ai" or command == "/ask":
             if not chat_id:
                 return jsonify({"ok": True})
@@ -1356,8 +1365,10 @@ def telegram_webhook(secret: str):
         elif command == "/ai_help" and chat_id:
             send_telegram_message(
                 chat_id,
-                "🤖 AI команды:\n\n"
+                "🤖 **AI Module**\n\n"
                 "/ai <вопрос> — задать вопрос AI\n"
+                "/ask <вопрос> — алиас /ai\n"
+                "/ai_help — показать эту справку\n"
                 "/chat <персонаж> <текст> — диалог с персонажем\n"
                 "/generate_prayer — сгенерировать молитву\n"
                 "/ask_canon <вопрос> — вопрос по канону",
@@ -1370,7 +1381,8 @@ def telegram_webhook(secret: str):
                     "Использование: /chat <персонаж> <текст>\n\n"
                     "Доступные персонажи:\n"
                     "• олеговирус — навязчивое существо\n"
-                    "• чай — божественный мудрец",
+                    "• чай — божественный мудрец\n\n"
+                    "Пример: /chat олеговирус привет!",
                 )
             else:
                 character = args[1].lower()
@@ -1497,10 +1509,7 @@ def telegram_webhook(secret: str):
             question = call_ai_api(prompt, max_tokens=200)
             send_telegram_message(chat_id, f"🎯 Викторина:\n\n{question}")
 
-        # ============================================================================
-        # Chess Module Commands
-        # ============================================================================
-        
+        # /chess command
         elif command == "/chess" and chat_id:
             help_text = (
                 "♟ **Шахматный модуль BankBot**\n\n"
