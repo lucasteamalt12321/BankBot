@@ -1352,7 +1352,14 @@ def telegram_webhook(secret: str):
             if len(args) < 2:
                 send_telegram_message(
                     chat_id,
-                    "Использование: /ai <вопрос>\nПример: /ai Что такое олеговирус?",
+                    "**🤖 AI Module**\n\n"
+                    "/ai <вопрос> — задать вопрос AI\n"
+                    "/ask <вопрос> — алиас /ai\n"
+                    "/ai_help — показать эту справку\n"
+                    "/chat <персонаж> <текст> — диалог с персонажем\n"
+                    "/generate_prayer — сгенерировать молитву\n"
+                    "/ask_canon <вопрос> — вопрос по канону\n\n"
+                    "Пример: /ai Что такое олеговирус?",
                 )
             else:
                 question = args[1]
