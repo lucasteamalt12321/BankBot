@@ -1879,21 +1879,72 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
     try:
         message = callback_query.get("message", {})
         chat_id = message.get("chat", {}).get("id")
+        user = callback_query.get("from", {})
+        user_id = user.get("id")
         
-        # Get the original question data from the inline keyboard (for stateful version)
-        _ = message.get("reply_markup", {}).get("inline_keyboard", [])
+        # Parse callback_data: trivia_answer_{index}_{question_snippet}_{correct_index}
+        parts = callback_data.split("_")
+        if len(parts) < 5:
+            send_telegram_message(chat_id, "❌ Неверный формат ответа")
+            return
         
-        # For stateless Vercel: we can't verify exact answer without storing game state
-        # Just acknowledge callback (no coins awarded yet)
-        # In production with full state: store game state in DB and verify answer
+        try:
+            selected_index = int(parts[2])
+            correct_index = int(parts[4])
+        except ValueError:
+            send_telegram_message(chat_id, "❌ Ошибка парсинга ответа")
+            return
         
-        send_telegram_message(
-            chat_id,
-            "🎯 Викторина\n\n⚠️ Для полноценной викторины с проверкой ответов требуется сохранение состояния.\n\n"
-            "Ваш ответ: ... (нужна адаптация под Vercel stateless)",
-        )
+        if selected_index == correct_index:
+            # Correct answer - award coins
+            db = get_db_engine()
+            with db.connect() as conn:
+                row = conn.execute(
+                    text("SELECT id, balance FROM users WHERE telegram_id = :user_id"),
+                    {"user_id": user_id},
+                ).mappings().first()
+                
+                if row:
+                    user_db_id = row["id"]
+                    new_balance = int(row["balance"]) + 10
+                    conn.execute(
+                        text("UPDATE users SET balance = :new_balance WHERE id = :user_db_id"),
+                        {"new_balance": new_balance, "user_db_id": user_db_id},
+                    )
+                    conn.execute(
+                        text("""
+                            INSERT INTO transactions (user_id, amount, transaction_type, description)
+                            VALUES (:user_db_id, 10, 'trivia_win', 'Викторина: правильный ответ')
+                        """),
+                        {"user_db_id": user_db_id},
+                    )
+                    conn.commit()
+                    
+                    send_telegram_message(
+                        chat_id,
+                        f"🎉 Правильно! +10 монет\n💳 Новый баланс: {new_balance}",
+                    )
+                else:
+                    # Create user if not exists
+                    conn.execute(
+                        text("""
+                            INSERT INTO users (telegram_id, balance, total_earned, first_name, last_name, username, created_at)
+                            VALUES (:user_id, 10, 10, :first_name, :last_name, :username, CURRENT_TIMESTAMP)
+                        """),
+                        {
+                            "user_id": user_id,
+                            "first_name": user.get("first_name"),
+                            "last_name": user.get("last_name"),
+                            "username": user.get("username"),
+                        },
+                    )
+                    conn.commit()
+                    
+                    send_telegram_message(chat_id, "🎉 Правильно! +10 монет")
+        else:
+            send_telegram_message(chat_id, "❌ Неправильный ответ")
         
-        # Optional: ack the callback query (Telegram shows spinning circle)
+        # Ack callback
         bot_token = os.getenv("BOT_TOKEN", "")
         if bot_token:
             try:
