@@ -1882,18 +1882,26 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
         user = callback_query.get("from", {})
         user_id = user.get("id")
         
+        if not user_id:
+            print("trivia_callback: no user_id in callback_query")
+            return
+        
         # Parse callback_data: trivia_answer_{index}_{question_snippet}_{correct_index}
         parts = callback_data.split("_")
         if len(parts) < 5:
+            print(f"trivia_callback: invalid format {callback_data}")
             send_telegram_message(chat_id, "❌ Неверный формат ответа")
             return
         
         try:
             selected_index = int(parts[2])
             correct_index = int(parts[4])
-        except ValueError:
+        except ValueError as e:
+            print(f"trivia_callback: parse error {e}")
             send_telegram_message(chat_id, "❌ Ошибка парсинга ответа")
             return
+        
+        print(f"trivia_callback: user_id={user_id}, selected={selected_index}, correct={correct_index}")
         
         if selected_index == correct_index:
             # Correct answer - award coins
