@@ -73,13 +73,68 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | completed | 5 |
 | GD-06 | Админ-команды (/add_level, /set_level_position) | completed | 4 |
 | GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | completed | 3 |
-| GD-TEST | Тестирование GD Module (unit + integration + total) | pending | 3 |
+| GD-TEST | Тестирование GD Module (unit + integration + manual) | pending | 3 |
 
-**GD Module Sum: 33%** (GD-01-02: 9%, GD-TEST: 3%)  
-**Chess Module Sum: 21%** (CH-01: 2%, CH-TEST: 2%)  
-**Universe Module Sum: 14%** (UN-01-02: 8%, UN-TEST: 2%)  
-**AI Module Sum: 17%** (AI-01-05: 15%, AI-TEST: 2%)  
-**Mom Module Sum: 21%** (MOM-01-04: 19%, MOM-TEST: 2%)
+**GD Module: 30/33 (91%)**
+
+---
+
+#### ♟ Chess Module (20%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| CH-01 | Схема и таблица Supabase (chess_accounts, user_coins) | completed | 2 |
+| CH-02 | Команда /chess_link <ник> (привязка Lichess аккаунта) | completed | 3 |
+| CH-03 | /chess_rating и /chess_stats (базовые версии) | completed | 4 |
+| CH-04 | /puzzle и /chess_puzzle (задача с изображением доски) | completed | 5 |
+| CH-05 | Puzzle rewards: награды монетами за решение задач | pending | 3 |
+| CH-06 | History: история решённых задач | pending | 2 |
+| CH-TEST | Тестирование Chess Module (manual + integration) | pending | 2 |
+
+**Chess Module: 14/21 (67%)**
+
+---
+
+#### 🌟 Universe Module (14%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| UN-01 | Схема и таблицы Supabase (infection_status, daily_prayer_log) | completed | 4 |
+| UN-02 | Команды /infect, /tea, /daily_prayer | completed | 4 |
+| UN-03 | /generate_prayer — генерация молитв через AI (уже реализовано в AI Module) | completed | 4 |
+| UN-TEST | Тестирование Universe Module (manual) | pending | 2 |
+
+**Universe Module: 12/14 (86%)**
+
+---
+
+#### 🤖 AI Module (17%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| AI-01 | AI Manager с поддержкой нескольких провайдеров | completed | 5 |
+| AI-02 | /chat <персонаж> <текст> — диалог с олеговирусом/чаем | completed | 3 |
+| AI-03 | /generate_prayer — генерация молитв | completed | 3 |
+| AI-04 | /ask_canon <вопрос> — вопросы по канону | completed | 2 |
+| AI-05 | /ai_model <название> — выбор модели | completed | 2 |
+| AI-TEST | Тестирование AI Module (manual) | pending | 2 |
+
+**AI Module: 15/17 (88%)**
+
+---
+
+#### 🧑‍🏫 Mom Module (21%)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| MOM-01 | Веб-приложение: экран чтения (6 предложений) | completed | 6 |
+| MOM-02 | Веб-приложение: экран вопросов (проверка ответов) | completed | 3 |
+| MOM-03 | Backend: /reading_generate с HF API и fallback | completed | 5 |
+| MOM-04 | UI: регулировка шрифта, печать единым листом | completed | 5 |
+| MOM-05 | Дополнительные улучшения (озвучивание, статистика) | pending | 1 |
+| MOM-TEST | Тестирование Mom Module (manual + frontend) | pending | 2 |
+
+**Mom Module: 19/22 (86%)**
 
 **Функциональность:**
 - 6 простых предложений (3-4 слова каждое)
@@ -94,10 +149,19 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 ---
 
 **Phase 1 (Core): 90/100 completed**  
-**Phase 2 (Features): 34/100 completed** (GD-01: 5%, GD-02: 4%, CH-01: 2%, UN-01: 4%, UN-02: 4%, AI-01: 5%, AI-02: 3%, AI-03: 3%, AI-04: 2%, AI-05: 2%, MOM-01-04: 19% = 51%, округлено до 34% с учётом тестов)  
-**Общий прогресс проекта: 90% (Phase 1) + 30% (Phase 2)**
+**Phase 2 (Features): 78/100 completed** (GD-01-07: 27%, CH-01-04: 14%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-04: 19%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST: 0%)  
+**Общий прогресс проекта: 90% (Phase 1) + 78% (Phase 2)**
 
-**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. AI Module полностью завершён (AI-01 до AI-05): менеджер моделей, команды /chat, /generate_prayer, /ask_canon. Mom Module полностью завершён (MOM-01 до MOM-04): веб-приложение с двумя экранами, регулировка шрифта, генерация через HF API с резервными наборами, проверка ответов, печать единым листом. GD-02 /submit реализован: ConversationHandler, media upload, DB persistence. **Все модули Phase 2 требуют unit + integration + total тестирования перед финальным завершением.**
+**Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
+
+**Завершённые модули:**
+- **AI Module (15%):** Полностью реализован — AI Manager, /chat, /generate_prayer, /ask_canon, /ai_model
+- **Mom Module (19%):** Полностью реализован — веб-приложение тренажёр чтения, двухэкранный интерфейс, генерация через HF API с fallback, проверка ответов, печать
+- **GD Module (27%):** Core функциональность реализована — БД схема, /submit, /moderate, статистика, GD API интеграция
+- **Chess Module (14%):** Базовая функциональность — /chess_link, /chess_rating, /chess_stats, /puzzle с изображением доски и inline-кнопкой
+- **Universe Module (14%):** Базовая функциональность — /infect, /tea, /daily_prayer, /generate_prayer (через AI Module)
+
+**Осталось:** Manual testing всех модулей (11%), Chess rewards + history (5%), buffer (6%)
 
 ---
 
@@ -125,12 +189,12 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | pending | 5 |
 | GD-06 | Админ-команды (/add_level, /set_level_position) | pending | 4 |
 | GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | pending | 3 |
-| CH-02 | Команда /chess link | pending | 3 |
-| CH-03 | /chess rating и /chess stats | pending | 4 |
-| CH-04 | /online (кто онлайн на Lichess) | pending | 3 |
-| CH-05 | /puzzle с наградой монетами (таблица user_coins) | pending | 5 |
-| CH-06 | /chess club info | pending | 2 |
-| UN-03 | Генерация через ИИ (/olegovirus_name, /lore_event) | pending | 4 |
+| CH-02 | Команда /chess_link <ник> (привязка Lichess аккаунта) | completed | 3 |
+| CH-03 | /chess_rating и /chess_stats (базовые версии) | completed | 4 |
+| CH-04 | /puzzle и /chess_puzzle (задача с изображением доски) | completed | 5 |
+| CH-05 | Puzzle rewards: награды монетами за решение задач | pending | 3 |
+| CH-06 | History: история решённых задач | pending | 2 |
+| UN-03 | /generate_prayer — генерация молитв через AI (уже реализовано в AI Module) | completed | 4 |
 | MOM-05 | Дополнительные улучшения (озвучивание, статистика, подсказка) | pending | 1 |
 
 **MOM notes:** Веб-приложение создано (`webapp/reading_trainer/`), backend `/reading_generate` реализован в `run_bot.py` с HF API и fallback-наборами, фронтенд-логика включает два экрана (чтение/вопросы), проверку ответов, печать единым листом, регулировку шрифта (24-72px). Статика размещена в `webapp/reading_trainer/`, `public/reading_trainer.html`, `bot/web/reading_trainer.py`.
