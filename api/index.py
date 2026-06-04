@@ -620,6 +620,24 @@ def update_user_coins(user_id: int, balance_delta: int, puzzle_time: datetime) -
         return False
 
 
+def log_chess_game(user_id: int, lichess_username: str, puzzle_id: str, puzzle_rating: int | None, puzzle_themes: str | None) -> int:
+    """Log a chess game/puzzle attempt to history."""
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text(
+                    "INSERT INTO chess_games (user_id, lichess_username, puzzle_id, puzzle_rating, puzzle_themes) VALUES (:user_id, :username, :puzzle_id, :rating, :themes) RETURNING id"
+                ),
+                {"user_id": user_id, "username": lichess_username, "puzzle_id": puzzle_id, "rating": puzzle_rating, "themes": puzzle_themes},
+            ).mappings().first()
+            
+            conn.commit()
+            return result["id"] if result else 0
+    except Exception as exc:
+        print(f"Error logging chess game: {exc}")
+        return 0
+
+
 def link_chess_account(user_id: int, lichess_username: str) -> bool:
     """Link or update chess account for user."""
     try:
