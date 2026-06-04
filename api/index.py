@@ -1539,7 +1539,7 @@ def telegram_webhook(secret: str):
                     lines.append(f"{status} {item['name']}")
                 send_telegram_message(chat_id, "\n".join(lines))
 
-        # Trivia command - send native Telegram poll with question from canon
+        # Trivia command - send question with inline buttons for answers
         elif command == "/trivia" and chat_id:
             import importlib.util
             spec = importlib.util.spec_from_file_location(
@@ -1549,24 +1549,26 @@ def telegram_webhook(secret: str):
             spec.loader.exec_module(trivia_questions)
             
             question = trivia_questions.generate_trivia_question()
-            
-            poll_question = question["text"]
+            question_text = question["text"]
             options = question["options"]
             correct_index = question["correct_index"]
-            explanation = question["explanation"]
             
-            try:
-                send_telegram_poll(
-                    chat_id,
-                    question=poll_question,
-                    options=options,
-                    correct_option_id=correct_index,
-                    explanation=explanation,
-                )
-                return jsonify({"ok": True})
-            except Exception as e:
-                print(f"Failed to send poll: {e}")
-                send_telegram_message(chat_id, "❌ Не удалось отправить опрос. Попробуйте позже.")
+            inline_keyboard = []
+            for i, opt in enumerate(options):
+                inline_keyboard.append([
+                    {"text": f"✅ {opt}", "callback_data": f"trivia_answer_{i}_{question_text[:50].replace(' ', '_')}_{correct_index}"}
+                ])
+            
+            trivia_message = (
+                f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:"
+            )
+            send_telegram_message(chat_id, trivia_message, parse_mode="Markdown")
+            send_telegram_message(
+                chat_id,
+                "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +10 монет.",
+                reply_markup={"inline_keyboard": inline_keyboard},
+            )
+            return jsonify({"ok": True})
 
         # /chess command
         elif command == "/chess" and chat_id:
