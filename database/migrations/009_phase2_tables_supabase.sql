@@ -69,6 +69,23 @@ CREATE TABLE IF NOT EXISTS user_coins (
     last_puzzle_at TIMESTAMPTZ
 );
 
+-- Table: chess_games
+CREATE TABLE IF NOT EXISTS chess_games (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    lichess_username VARCHAR(50) NOT NULL,
+    puzzle_id VARCHAR(50) NOT NULL,
+    puzzle_rating INTEGER,
+    puzzle_themes TEXT,
+    solved BOOLEAN DEFAULT FALSE,
+    solved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_chess_games_user_id ON chess_games(user_id);
+CREATE INDEX IF NOT EXISTS ix_chess_games_puzzle_id ON chess_games(puzzle_id);
+CREATE INDEX IF NOT EXISTS ix_chess_games_solved ON chess_games(solved);
+
 -- ========== Universe Module ==========
 
 -- Table: infection_status
