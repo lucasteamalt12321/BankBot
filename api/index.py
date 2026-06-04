@@ -1439,7 +1439,7 @@ def telegram_webhook(secret: str):
                 "`/chess_link <ник>` — привязать Lichess аккаунт\n"
                 "`/chess_rating` — показать рейтинги\n"
                 "`/chess_stats` — показать статистику\n"
-                "`/puzzle` — решить шахматную задачу\n\n"
+                "`/puzzle` или `/chess_puzzle` — решить шахматную задачу\n\n"
                 "**Пример:**\n"
                 "`/chess_link DrNykterstein`"
             )
@@ -1584,8 +1584,8 @@ def telegram_webhook(secret: str):
                         "❌ Ошибка загрузки статистики. Попробуйте позже.",
                     )
         
-        # /puzzle command
-        elif command == "/puzzle" and chat_id:
+        # /puzzle and /chess_puzzle commands
+        elif command in ["/puzzle", "/chess_puzzle"] and chat_id:
             account = get_chess_account(user_id)
             if not account:
                 send_telegram_message(
@@ -1608,16 +1608,12 @@ def telegram_webhook(secret: str):
                     if response.status_code == 200:
                         puzzle_data = response.json()
                         puzzle = puzzle_data.get("puzzle", {})
-                        game = puzzle_data.get("game", {})
                         
                         puzzle_id = puzzle.get("id", "unknown")
                         rating = puzzle.get("rating", "?")
                         fen = puzzle.get("fen", "")
                         themes = ", ".join(puzzle.get("themes", [])[:3])
                         puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
-                        
-                        # Get initial move to show position after opponent's move
-                        initial_ply = puzzle.get("initialPly", 0)
                         
                         # Send board image using Lichess board export
                         # Format: https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett
