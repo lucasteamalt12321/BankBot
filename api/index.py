@@ -569,6 +569,57 @@ def get_chess_account(user_id: int) -> dict | None:
         return None
 
 
+def get_user_coins(user_id: int) -> dict | None:
+    """Get user coins and last puzzle time."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT balance, last_puzzle_at FROM user_coins WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            ).mappings().first()
+            
+            if row:
+                return {
+                    "balance": row["balance"],
+                    "last_puzzle_at": row["last_puzzle_at"],
+                }
+            return None
+    except Exception as exc:
+        print(f"Error getting user coins: {exc}")
+        return None
+
+
+def update_user_coins(user_id: int, balance_delta: int, puzzle_time: datetime) -> bool:
+    """Update user coins balance and puzzle timestamp."""
+    try:
+        with get_db_engine().connect() as conn:
+            existing = conn.execute(
+                text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            ).mappings().first()
+            
+            if existing:
+                conn.execute(
+                    text(
+                        "UPDATE user_coins SET balance = balance + :delta, last_puzzle_at = :now WHERE user_id = :user_id"
+                    ),
+                    {"delta": balance_delta, "now": puzzle_time, "user_id": user_id},
+                )
+            else:
+                conn.execute(
+                    text(
+                        "INSERT INTO user_coins (user_id, balance, last_puzzle_at) VALUES (:user_id, :delta, :now)"
+                    ),
+                    {"user_id": user_id, "delta": balance_delta, "now": puzzle_time},
+                )
+            
+            conn.commit()
+            return True
+    except Exception as exc:
+        print(f"Error updating user coins: {exc}")
+        return False
+
+
 def link_chess_account(user_id: int, lichess_username: str) -> bool:
     """Link or update chess account for user."""
     try:
@@ -1594,6 +1645,21 @@ def telegram_webhook(secret: str):
                     parse_mode="Markdown",
                 )
             else:
+                # Check cooldown (max 1 puzzle per day)
+                now = datetime.utcnow()
+                coins_data = get_user_coins(user_id)
+                
+                if coins_data and coins_data.get("last_puzzle_at"):
+                    last_puzzle = coins_data["last_puzzle_at"]
+                    from datetime import timedelta
+                    if now - last_puzzle < timedelta(hours=24):
+                        remaining = 24 - (now - last_puzzle).total_seconds() / 3600
+                        send_telegram_message(
+                            chat_id,
+                            f"⏳ Пожалуйста, подождите {remaining:.1f} часов до следующей задачи.",
+                        )
+                        return jsonify({"ok": True})
+                
                 send_telegram_message(
                     chat_id,
                     "🧩 Загружаю задачу...",
@@ -1655,10 +1721,22 @@ def telegram_webhook(secret: str):
                         except Exception as photo_exc:
                             print(f"Error sending photo: {photo_exc}")
                             send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                            photo_exc_occurred = True
+                        else:
+                            photo_exc_occurred = False
                     else:
                         send_telegram_message(
                             chat_id,
                             "❌ Не удалось загрузить задачу. Попробуйте позже.",
+                        )
+                        photo_exc_occurred = True
+                    
+                    # Award puzzle reward (5 coins, cooldown tracking) if photo sent successfully
+                    if not photo_exc_occurred and photo_response.status_code == 200:
+                        update_user_coins(user_id, 5, now)
+                        send_telegram_message(
+                            chat_id,
+                            f"💰 Вы получили 5 монет за участие!\nБаланс: {coins_data['balance'] + 5 if coins_data else 5} монет",
                         )
                 except Exception as exc:
                     print(f"Error fetching puzzle: {exc}")
