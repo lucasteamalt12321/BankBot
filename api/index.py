@@ -1514,40 +1514,44 @@ def telegram_webhook(secret: str):
                     lines.append(f"{status} {item['name']}")
                 send_telegram_message(chat_id, "\n".join(lines))
 
-        # Trivia command
+        # Trivia command - generate question from canon using AI
         elif command == "/trivia" and chat_id:
-            # Trivia from canon (Vercel stateless: simple text question with buttons)
-            # Import locally to avoid module dependency issues
-            import importlib.util
-            spec = importlib.util.spec_from_file_location(
-                "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
-            )
-            trivia_questions = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(trivia_questions)
+            # Try AI generation from canon knowledge first
+            trivia_message = generate_trivia_from_canon(chat_id)
             
-            question = trivia_questions.generate_trivia_question()
-            question_text = question["text"]
-            options = question["options"]
-            # correct_index and explanation are used in stateful version but skipped for Vercel stateless
-            
-            # Build inline keyboard for answers
-            inline_keyboard = []
-            for i, opt in enumerate(options):
-                inline_keyboard.append([
-                    {"text": f"✅ {opt}", "callback_data": f"trivia_answer_{i}"}
-                ])
-            
-            # Send question with buttons (user will click and bot handles callback)
-            send_telegram_message(
-                chat_id,
-                f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:",
-                parse_mode="Markdown",
-            )
-            send_telegram_message(
-                chat_id,
-                "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +25 монет.",
-                reply_markup={"inline_keyboard": inline_keyboard},
-            )
+            # Fallback to static questions if AI generation fails
+            if trivia_message is None:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location(
+                    "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
+                )
+                trivia_questions = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(trivia_questions)
+                
+                question = trivia_questions.generate_trivia_question()
+                question_text = question["text"]
+                options = question["options"]
+                
+                # Build inline keyboard for answers
+                inline_keyboard = []
+                for i, opt in enumerate(options):
+                    inline_keyboard.append([
+                        {"text": f"✅ {opt}", "callback_data": f"trivia_answer_{i}"}
+                    ])
+                
+                trivia_message = (
+                    f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:"
+                )
+                send_telegram_message(chat_id, trivia_message, parse_mode="Markdown")
+                send_telegram_message(
+                    chat_id,
+                    "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +25 монет.",
+                    reply_markup={"inline_keyboard": inline_keyboard},
+                )
+                return jsonify({"ok": True})
+            else:
+                # AI-generated question (simple text format, no callback)
+                send_telegram_message(chat_id, trivia_message)
 
         # /chess command
         elif command == "/chess" and chat_id:
@@ -1885,6 +1889,48 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
                 print(f"Error acking callback: {cb_err}")
     except Exception as exc:
         print(f"Error handling trivia answer: {exc}")
+
+
+def generate_trivia_from_canon(chat_id: int) -> str | None:
+    """Generate trivia question from canon knowledge using AI.
+    
+    Returns question string if successful, None if AI unavailable.
+    """
+    try:
+        canon_path = os.path.join(os.path.dirname(__file__), "..", "data", "canon_knowledge.txt")
+        canon_content = ""
+        
+        if os.path.exists(canon_path):
+            with open(canon_path, "r", encoding="utf-8") as f:
+                canon_content = f.read()[:5000]
+        
+        prompt = (
+            "Ты — создатель викторины по вселенной Олеговируса и LTL-паразита.\n\n"
+            "Вот контекст из канона (ограниченный фрагмент):\n"
+            f"{canon_content[:1500]}\n\n"
+            "Создай вопрос-викторину (на русском) с 4 вариантами ответа (A, B, C, D) по этому контексту.\n"
+            "Формат ответа ТОЧНО:\n"
+            "Вопрос: [вопрос]\n"
+            "A) [вариант A]\n"
+            "B) [вариант B]\n"
+            "C) [вариант C]\n"
+            "D) [вариант D]\n"
+            "Правильный: [буква правильного ответа]\n"
+            "Объяснение: [краткое объяснение]\n\n"
+            "Вопрос должен быть сложным, но справедливым, с однозначным правильным ответом."
+        )
+        
+        question = call_ai_api(prompt, max_tokens=300)
+        
+        # Validate AI response contains required format
+        if "Вопрос:" in question and "A)" in question and "Правильный:" in question:
+            return question
+        else:
+            print(f"AI trivia response invalid format: {question[:100]}")
+            return None
+    except Exception as exc:
+        print(f"Error generating trivia from canon: {exc}")
+        return None
 
 
 @app.route("/api/test_ai", methods=["GET"])
