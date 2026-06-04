@@ -14,7 +14,7 @@ from bot.trivia.service import TriviaService
 
 logger = structlog.get_logger()
 
-TRIVIA_COINS_REWARD = 25
+TRIVIA_COINS_REWARD = 10
 GAME_TIMEOUT_SECONDS = 60
 
 
