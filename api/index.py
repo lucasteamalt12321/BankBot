@@ -538,10 +538,12 @@ def fetch_lichess_user(username: str) -> dict | None:
             return None
         
         title = payload.get("title")
+        online_raw = payload.get("online", False)
+        online = online_raw if isinstance(online_raw, bool) else (online_raw == "true")
         return {
             "username": lichess_username.strip(),
             "title": title if isinstance(title, str) and title else None,
-            "online": bool(payload.get("online", False)),
+            "online": online,
         }
     except requests.exceptions.Timeout:
         raise RuntimeError("Lichess API timeout")
