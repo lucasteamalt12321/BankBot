@@ -1617,7 +1617,7 @@ def telegram_webhook(secret: str):
                         
                         # Send board image using Lichess board export
                         # Format: https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett
-                        board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett&lastMove="
+                        board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
                         
                         puzzle_msg = (
                             f"🧩 **Шахматная задача дня**\n\n"
@@ -1650,6 +1650,7 @@ def telegram_webhook(secret: str):
                             )
                             if photo_response.status_code != 200:
                                 # Fallback to text message if image fails
+                                print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
                                 send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
                         except Exception as photo_exc:
                             print(f"Error sending photo: {photo_exc}")
