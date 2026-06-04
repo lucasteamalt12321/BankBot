@@ -1599,14 +1599,25 @@ def telegram_webhook(secret: str):
                             "❌ Не удалось загрузить данные Lichess. Попробуйте позже.",
                         )
                     else:
-                        # For now, just show basic info (ratings need additional API call)
                         title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
                         online_text = "🟢 онлайн" if lichess_user.get("online") else "⚫ оффлайн"
+                        perfs = lichess_user.get("perfs", {})
+                        
+                        rating_parts = []
+                        rating_parts.append(f"**Статус:** {online_text}\n")
+                        
+                        if "bullet" in perfs:
+                            rating_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
+                        if "blitz" in perfs:
+                            rating_parts.append(f"⚡ **Молния:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                        if "rapid" in perfs:
+                            rating_parts.append(f"⏱️ **Быстрая:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                        if "classical" in perfs:
+                            rating_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
                         
                         rating_msg = (
                             f"♟ **Рейтинги {title_prefix}{lichess_user['username']}**\n\n"
-                            f"Статус: {online_text}\n\n"
-                            "📊 Подробные рейтинги скоро будут добавлены..."
+                            + "\n".join(rating_parts)
                         )
                         send_telegram_message(chat_id, rating_msg, parse_mode="Markdown")
                 except Exception as exc:
@@ -1640,10 +1651,34 @@ def telegram_webhook(secret: str):
                         )
                     else:
                         title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
+                        perfs = lichess_user.get("perfs", {})
+                        games = lichess_user.get("games", {})
+                        
+                        total_games = games.get("total", 0)
+                        win = games.get("win", 0)
+                        loss = games.get("loss", 0)
+                        draw = games.get("draw", 0)
+                        
+                        winrate = round((win / total_games * 100), 1) if total_games > 0 else 0
+                        
+                        stats_parts = []
+                        stats_parts.append(f"**Всего игр:** {total_games}")
+                        stats_parts.append(f"✅ **Побед:** {win} ({winrate}%)")
+                        stats_parts.append(f"❌ **Поражений:** {loss}")
+                        stats_parts.append(f"🤝 **Ничьих:** {draw}\n")
+                        
+                        if "bullet" in perfs:
+                            stats_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
+                        if "blitz" in perfs:
+                            stats_parts.append(f"⚡ **Молния:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                        if "rapid" in perfs:
+                            stats_parts.append(f"⏱️ **Быстрая:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                        if "classical" in perfs:
+                            stats_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
                         
                         stats_msg = (
                             f"♟ **Статистика {title_prefix}{lichess_user['username']}**\n\n"
-                            "📈 Детальная статистика скоро будет добавлена..."
+                            + "\n".join(stats_parts)
                         )
                         send_telegram_message(chat_id, stats_msg, parse_mode="Markdown")
                 except Exception as exc:
