@@ -771,6 +771,31 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
     response.raise_for_status()
 
 
+def send_telegram_poll(
+    chat_id: int, question: str, options: list[str], correct_option_id: int, explanation: str
+) -> None:
+    """Send a Telegram Poll (quiz type) from the Vercel webhook runtime."""
+
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+
+    payload = {
+        "chat_id": chat_id,
+        "question": question[:300],
+        "options": options,
+        "type": "quiz",
+        "correct_option_id": correct_option_id,
+        "is_anonymous": False,
+        "explanation": explanation[:200],
+    }
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPoll",
+        json=payload,
+        timeout=5,
+    )
+    response.raise_for_status()
+
+
 def get_response_mode(chat_id: int | None) -> str:
     """Return response mode for a chat in the lightweight Vercel runtime."""
 
@@ -1514,44 +1539,34 @@ def telegram_webhook(secret: str):
                     lines.append(f"{status} {item['name']}")
                 send_telegram_message(chat_id, "\n".join(lines))
 
-        # Trivia command - generate question from canon using AI
+        # Trivia command - send native Telegram poll with question from canon
         elif command == "/trivia" and chat_id:
-            # Try AI generation from canon knowledge first
-            trivia_message = generate_trivia_from_canon(chat_id)
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
+            )
+            trivia_questions = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(trivia_questions)
             
-            # Fallback to static questions if AI generation fails
-            if trivia_message is None:
-                import importlib.util
-                spec = importlib.util.spec_from_file_location(
-                    "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
-                )
-                trivia_questions = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(trivia_questions)
-                
-                question = trivia_questions.generate_trivia_question()
-                question_text = question["text"]
-                options = question["options"]
-                
-                # Build inline keyboard for answers
-                inline_keyboard = []
-                for i, opt in enumerate(options):
-                    inline_keyboard.append([
-                        {"text": f"✅ {opt}", "callback_data": f"trivia_answer_{i}"}
-                    ])
-                
-                trivia_message = (
-                    f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:"
-                )
-                send_telegram_message(chat_id, trivia_message, parse_mode="Markdown")
-                send_telegram_message(
+            question = trivia_questions.generate_trivia_question()
+            
+            poll_question = question["text"]
+            options = question["options"]
+            correct_index = question["correct_index"]
+            explanation = question["explanation"]
+            
+            try:
+                send_telegram_poll(
                     chat_id,
-                    "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +25 монет.",
-                    reply_markup={"inline_keyboard": inline_keyboard},
+                    question=poll_question,
+                    options=options,
+                    correct_option_id=correct_index,
+                    explanation=explanation,
                 )
                 return jsonify({"ok": True})
-            else:
-                # AI-generated question (simple text format, no callback)
-                send_telegram_message(chat_id, trivia_message)
+            except Exception as e:
+                print(f"Failed to send poll: {e}")
+                send_telegram_message(chat_id, "❌ Не удалось отправить опрос. Попробуйте позже.")
 
         # /chess command
         elif command == "/chess" and chat_id:
