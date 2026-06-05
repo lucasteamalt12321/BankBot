@@ -12,9 +12,8 @@ from sqlalchemy import create_engine, text
 app = Flask(__name__)
 
 # Webhook secret
-WEBHOOK_SECRET = os.getenv(
-    "WEBHOOK_SECRET", "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
-)
+_raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
+WEBHOOK_SECRET = _raw_webhook_secret if _raw_webhook_secret else "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
