@@ -41,7 +41,8 @@ def get_db_engine():
             or "sqlite:///data/bot.db"
         )
         DB_ENGINE = create_engine(
-            normalize_database_url(database_url), pool_pre_ping=True
+            normalize_database_url(database_url), pool_pre_ping=True,
+            connect_args={"connect_timeout": 10},
         )
     return DB_ENGINE
 
