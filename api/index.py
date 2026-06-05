@@ -1555,9 +1555,8 @@ def telegram_webhook(secret: str):
             
             inline_keyboard = []
             for i, opt in enumerate(options):
-                short_q = question_text[:30].replace(" ", "_").replace("«", "").replace("»", "")
                 inline_keyboard.append([
-                    {"text": f"✅ {opt}", "callback_data": f"trivia_{i}_{correct_index}_{short_q}"}
+                    {"text": f"✅ {opt}", "callback_data": f"trivia_{i}_{correct_index}"}
                 ])
             
             trivia_message = (
@@ -1887,9 +1886,9 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
             print("trivia_callback: no user_id in callback_query")
             return
         
-        # Parse callback_data: trivia_{index}_{correct_index}_{short_q}
+        # Parse callback_data: trivia_{index}_{correct_index}
         parts = callback_data.split("_")
-        if len(parts) < 4:
+        if len(parts) < 3:
             print(f"trivia_callback: invalid format {callback_data}")
             send_telegram_message(chat_id, "❌ Неверный формат ответа")
             return
