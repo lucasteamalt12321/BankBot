@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from telegram import Message, Update
@@ -13,6 +14,7 @@ from telegram.ext import ContextTypes
 
 from bot.ai import AiLiteService
 from bot.ai.knowledge_updater import update_ai_knowledge_cache
+from bot.ai.model_manager import AIModelManager
 from bot.response_modes import get_default_user_mode
 from bot.commands.feedback_commands import _append_feedback, _append_feedback_db
 
@@ -26,6 +28,52 @@ MAX_TRACKED_AI_RESPONSES = 200
 
 _ai_response_registry: dict[tuple[int, int], dict[str, Any]] = {}
 _pending_ai_improvements: dict[tuple[int, int], dict[str, Any]] = {}
+
+_ai_model_manager: AIModelManager | None = None
+_LOCAL_CANON_PATH = Path("data/canon_knowledge.txt")
+
+_AI_ASK_PROMPT = (
+    "Ты — справочный AI-помощник BankBot по канону вселенной Олеговируса и LTL-паразита "
+    "и командам бота. Отвечай на русском языке кратко (2-4 предложения), "
+    "опираясь на канон из файла знаний ниже. Если ответа нет в каноне, "
+    "переведи разговор к командам BankBot. Не придумывай фактов.\n\n"
+    "=== ФАЙЛ КАНОНА ===\n{canon}\n\n"
+    "Вопрос: {question}"
+)
+
+
+def _load_canon_snippet(max_chars: int = 1500) -> str:
+    """Load first N chars of the local canon knowledge file."""
+    try:
+        if _LOCAL_CANON_PATH.exists():
+            text = _LOCAL_CANON_PATH.read_text(encoding="utf-8")
+            return text[:max_chars].rstrip()
+    except OSError:
+        pass
+    return ""
+
+
+async def _try_ai_answer(question: str) -> str | None:
+    """Try to answer using AI API (Groq/HF). Returns None if unavailable."""
+    global _ai_model_manager
+
+    if _ai_model_manager is None:
+        _ai_model_manager = AIModelManager()
+
+    if not _ai_model_manager.is_available():
+        return None
+
+    canon = _load_canon_snippet()
+    prompt = _AI_ASK_PROMPT.format(canon=canon, question=question)
+
+    try:
+        response = await _ai_model_manager.get_response(prompt)
+        if response and response.text:
+            return response.text
+    except RuntimeError:
+        pass
+
+    return None
 
 AI_REPLY_TIMEOUTS = {
     "connect_timeout": 30,
@@ -191,7 +239,7 @@ async def handle_ai_feedback_reply(update: Update, context: ContextTypes.DEFAULT
 
 
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Answer a question with the local free AI-lite assistant."""
+    """Answer a question — tries AI API first, falls back to local AI-lite."""
     if not update.message:
         return
 
@@ -201,7 +249,15 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     mode = get_default_user_mode(update.effective_user.id if update.effective_user else None)
-    answer = ai_lite_service.answer(question, mode=mode)
+
+    answer = await _try_ai_answer(question)
+    if answer:
+        if update.effective_chat:
+            await update.message.chat.send_action("typing")
+        answer = f"🤖 {answer}"
+    else:
+        answer = ai_lite_service.answer(question, mode=mode)
+
     sent_message = await _reply_text_with_retry(update, answer)
     if sent_message and update.effective_chat:
         _register_ai_response(
