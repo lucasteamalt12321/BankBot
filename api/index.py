@@ -1876,12 +1876,13 @@ def telegram_webhook(secret: str):
 
 def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
     """Handle trivia answer selection."""
+    message = callback_query.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    user = callback_query.get("from", {})
+    user_id = user.get("id")
+    callback_query_id = callback_query.get("id")
+    
     try:
-        message = callback_query.get("message", {})
-        chat_id = message.get("chat", {}).get("id")
-        user = callback_query.get("from", {})
-        user_id = user.get("id")
-        
         if not user_id:
             print("trivia_callback: no user_id in callback_query")
             return
@@ -1904,67 +1905,70 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
         print(f"trivia_callback: user_id={user_id}, selected={selected_index}, correct={correct_index}")
         
         if selected_index == correct_index:
-            # Correct answer - award coins
-            db = get_db_engine()
-            with db.connect() as conn:
-                row = conn.execute(
-                    text("SELECT id, balance FROM users WHERE telegram_id = :user_id"),
-                    {"user_id": user_id},
-                ).mappings().first()
-                
-                if row:
-                    user_db_id = row["id"]
-                    new_balance = int(row["balance"]) + 10
-                    conn.execute(
-                        text("UPDATE users SET balance = :new_balance WHERE id = :user_db_id"),
-                        {"new_balance": new_balance, "user_db_id": user_db_id},
-                    )
-                    conn.execute(
-                        text("""
-                            INSERT INTO transactions (user_id, amount, transaction_type, description)
-                            VALUES (:user_db_id, 10, 'trivia_win', 'Викторина: правильный ответ')
-                        """),
-                        {"user_db_id": user_db_id},
-                    )
-                    conn.commit()
+            try:
+                db = get_db_engine()
+                with db.connect() as conn:
+                    row = conn.execute(
+                        text("SELECT id, balance FROM users WHERE telegram_id = :user_id"),
+                        {"user_id": user_id},
+                    ).mappings().first()
                     
-                    send_telegram_message(
-                        chat_id,
-                        f"🎉 Правильно! +10 монет\n💳 Новый баланс: {new_balance}",
-                    )
-                else:
-                    # Create user if not exists
-                    conn.execute(
-                        text("""
-                            INSERT INTO users (telegram_id, balance, total_earned, first_name, last_name, username, created_at)
-                            VALUES (:user_id, 10, 10, :first_name, :last_name, :username, CURRENT_TIMESTAMP)
-                        """),
-                        {
-                            "user_id": user_id,
-                            "first_name": user.get("first_name"),
-                            "last_name": user.get("last_name"),
-                            "username": user.get("username"),
-                        },
-                    )
-                    conn.commit()
-                    
-                    send_telegram_message(chat_id, "🎉 Правильно! +10 монет")
+                    if row:
+                        user_db_id = row["id"]
+                        new_balance = int(row["balance"]) + 10
+                        conn.execute(
+                            text("UPDATE users SET balance = :new_balance WHERE id = :user_db_id"),
+                            {"new_balance": new_balance, "user_db_id": user_db_id},
+                        )
+                        conn.execute(
+                            text("""
+                                INSERT INTO transactions (user_id, amount, transaction_type, description)
+                                VALUES (:user_db_id, 10, 'trivia_win', 'Викторина: правильный ответ')
+                            """),
+                            {"user_db_id": user_db_id},
+                        )
+                        conn.commit()
+                        
+                        send_telegram_message(
+                            chat_id,
+                            f"🎉 Правильно! +10 монет\n💳 Новый баланс: {new_balance}",
+                        )
+                    else:
+                        # Create user if not exists
+                        conn.execute(
+                            text("""
+                                INSERT INTO users (telegram_id, balance, total_earned, first_name, last_name, username, created_at)
+                                VALUES (:user_id, 10, 10, :first_name, :last_name, :username, CURRENT_TIMESTAMP)
+                            """),
+                            {
+                                "user_id": user_id,
+                                "first_name": user.get("first_name"),
+                                "last_name": user.get("last_name"),
+                                "username": user.get("username"),
+                            },
+                        )
+                        conn.commit()
+                        
+                        send_telegram_message(chat_id, "🎉 Правильно! +10 монет")
+            except Exception as db_err:
+                print(f"Error awarding trivia coins: {db_err}")
+                send_telegram_message(chat_id, "❌ Ошибка базы данных. Монеты не начислены.")
         else:
             send_telegram_message(chat_id, "❌ Неправильный ответ")
-        
-        # Ack callback
+    except Exception as exc:
+        print(f"Error handling trivia answer: {exc}")
+    finally:
+        # Always ack callback so button stops loading
         bot_token = os.getenv("BOT_TOKEN", "")
-        if bot_token:
+        if bot_token and callback_query_id:
             try:
                 requests.post(
                     f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
-                    json={"callback_query_id": callback_query.get("id")},
+                    json={"callback_query_id": callback_query_id},
                     timeout=5,
                 )
             except Exception as cb_err:
                 print(f"Error acking callback: {cb_err}")
-    except Exception as exc:
-        print(f"Error handling trivia answer: {exc}")
 
 
 def generate_trivia_from_canon(chat_id: int) -> str | None:
