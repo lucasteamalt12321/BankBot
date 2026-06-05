@@ -1109,7 +1109,7 @@ def telegram_webhook(secret: str):
     # Handle callback_query for trivia answers
     callback_query = update.get("callback_query", {})
     callback_data = callback_query.get("data", "")
-    if callback_data and callback_data.startswith("trivia_answer_"):
+    if callback_data and callback_data.startswith("trivia_"):
         trivia_answer_callback(callback_query, callback_data)
         return jsonify({"ok": True})
 
@@ -1555,8 +1555,9 @@ def telegram_webhook(secret: str):
             
             inline_keyboard = []
             for i, opt in enumerate(options):
+                short_q = question_text[:30].replace(" ", "_").replace("«", "").replace("»", "")
                 inline_keyboard.append([
-                    {"text": f"✅ {opt}", "callback_data": f"trivia_answer_{i}_{question_text[:50].replace(' ', '_')}_{correct_index}"}
+                    {"text": f"✅ {opt}", "callback_data": f"trivia_{i}_{correct_index}_{short_q}"}
                 ])
             
             trivia_message = (
@@ -1886,16 +1887,16 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
             print("trivia_callback: no user_id in callback_query")
             return
         
-        # Parse callback_data: trivia_answer_{index}_{question_snippet}_{correct_index}
+        # Parse callback_data: trivia_{index}_{correct_index}_{short_q}
         parts = callback_data.split("_")
-        if len(parts) < 5:
+        if len(parts) < 4:
             print(f"trivia_callback: invalid format {callback_data}")
             send_telegram_message(chat_id, "❌ Неверный формат ответа")
             return
         
         try:
-            selected_index = int(parts[2])
-            correct_index = int(parts[4])
+            selected_index = int(parts[1])
+            correct_index = int(parts[2])
         except ValueError as e:
             print(f"trivia_callback: parse error {e}")
             send_telegram_message(chat_id, "❌ Ошибка парсинга ответа")
