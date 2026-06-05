@@ -14,6 +14,7 @@ app = Flask(__name__)
 # Webhook secret
 _raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
 WEBHOOK_SECRET = _raw_webhook_secret if _raw_webhook_secret else "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
+print(f"[STARTUP] WEBHOOK_SECRET length: {len(WEBHOOK_SECRET)}, first 10 chars: {WEBHOOK_SECRET[:10]}")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
