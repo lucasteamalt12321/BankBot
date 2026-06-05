@@ -288,6 +288,7 @@ class AIModelManager:
         prompt: str,
         user_id: Optional[int] = None,
         preferred_provider: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> AIResponse:
         """
         Get AI response with automatic provider switching.
@@ -329,7 +330,18 @@ class AIModelManager:
         for provider in providers_to_try:
             try:
                 logger.info(f"Trying provider: {provider.name} ({provider.model})")
-                
+
+                if max_tokens is not None:
+                    provider = ProviderConfig(
+                        name=provider.name,
+                        provider_type=provider.provider_type,
+                        api_key=provider.api_key,
+                        endpoint=provider.endpoint,
+                        model=provider.model,
+                        timeout=provider.timeout,
+                        max_tokens=max_tokens,
+                    )
+
                 # Call appropriate provider
                 if provider.provider_type == ProviderType.HUGGINGFACE:
                     text = await self._call_huggingface(provider, prompt)
