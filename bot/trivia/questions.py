@@ -2,6 +2,134 @@
 """Lore questions and dynamic distractor generator for the Olegovirus and LTL-parasite trivia game."""
 
 import random
+import re
+from pathlib import Path
+
+from bot.ai.model_manager import AIModelManager
+
+
+_CANON_PATH = Path("data/canon_knowledge.txt")
+_ai_manager: AIModelManager | None = None
+
+
+def _get_ai_manager() -> AIModelManager:
+    global _ai_manager
+    if _ai_manager is None:
+        _ai_manager = AIModelManager()
+    return _ai_manager
+
+
+_AI_QUESTIONS_PROMPT = """Ты — генератор викторин по канону вселенной Олеговируса и LTL-паразита.
+Используя текст канона ниже, составь один вопрос с четырьмя вариантами ответа.
+
+Формат ответа (строго):
+Вопрос: <текст вопроса>
+1. <вариант>
+2. <вариант>
+3. <вариант>
+4. <вариант>
+Правильный ответ: <номер от 1 до 4>
+Объяснение: <почему это правильный ответ>
+
+Правила:
+- Вопрос должен проверять ЗНАНИЕ канона, а не быть очевидным.
+- Правильный ответ — точная цитата или факт из канона.
+- Неправильные варианты — правдоподобны, но неверны.
+- Не повторяй вопросы, которые уже были в этом чате (в истории нет контекста).
+- Пиши строго в указанном формате, без лишнего текста.
+
+=== КАНОН ===
+{canon}
+"""
+
+
+_AI_QUESTIONS_FALLBACK_TEMPLATE = """Ты — генератор викторин. Придумай вопрос на тему "Команды и возможности банковского бота BankBot".
+Составь один вопрос с четырьмя вариантами ответа.
+
+Формат ответа (строго):
+Вопрос: <текст вопроса>
+1. <вариант>
+2. <вариант>
+3. <вариант>
+4. <вариант>
+Правильный ответ: <номер от 1 до 4>
+Объяснение: <почему это правильный ответ>
+"""
+
+
+def _load_canon_for_trivia(max_chars: int = 2000) -> str:
+    """Load canon text for AI question generation context."""
+    try:
+        if _CANON_PATH.exists():
+            return _CANON_PATH.read_text(encoding="utf-8")[:max_chars].rstrip()
+    except OSError:
+        pass
+    return ""
+
+
+def _parse_ai_questions_response(text: str) -> dict | None:
+    """Parse AI response into a trivia question dict."""
+    lines = text.strip().split("\n")
+    question_text = ""
+    options: list[str] = []
+    correct_answer = ""
+    explanation = ""
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Вопрос:"):
+            question_text = stripped[len("Вопрос:"):].strip()
+        elif re.match(r"^[1-4]\.\s", stripped):
+            options.append(re.sub(r"^[1-4]\.\s*", "", stripped))
+        elif stripped.startswith("Правильный ответ:"):
+            correct_answer = stripped[len("Правильный ответ:"):].strip()
+        elif stripped.startswith("Объяснение:"):
+            explanation = stripped[len("Объяснение:"):].strip()
+
+    if not question_text or len(options) < 4 or not correct_answer or not explanation:
+        return None
+
+    try:
+        correct_idx = int(correct_answer) - 1
+    except ValueError:
+        return None
+
+    if correct_idx < 0 or correct_idx >= len(options):
+        return None
+
+    return {
+        "id": 0,
+        "text": question_text,
+        "options": options,
+        "correct_index": correct_idx,
+        "correct_text": options[correct_idx],
+        "explanation": explanation,
+    }
+
+
+async def generate_trivia_question_ai() -> dict | None:
+    """Generate a trivia question using AI API. Returns None if unavailable."""
+    manager = _get_ai_manager()
+    if not manager.is_available():
+        return None
+
+    canon = _load_canon_for_trivia()
+    if canon:
+        prompt = _AI_QUESTIONS_PROMPT.format(canon=canon)
+    else:
+        prompt = _AI_QUESTIONS_FALLBACK_TEMPLATE
+
+    try:
+        response = await manager.get_response(prompt, max_tokens=400)
+        if response and response.text:
+            parsed = _parse_ai_questions_response(response.text)
+            if parsed:
+                return parsed
+    except RuntimeError:
+        pass
+
+    return None
+
 
 TRIVIA_QUESTIONS = [
     # ── БЛОК 1 (ПРАВИЛА) — 3 вопроса ──────────────────────────────────────
@@ -163,28 +291,28 @@ TRIVIA_QUESTIONS = [
 ]
 
 
-def generate_trivia_question() -> dict:
-    """Select a random question and dynamically generate 3 fake options from the other questions.
+async def generate_trivia_question() -> dict:
+    """Generate a trivia question — tries AI API first, falls back to hardcoded pool.
 
     Returns:
         dict: A dict containing question text, shuffled options, correct option index,
               correct option text, and explanation.
     """
+    ai_question = await generate_trivia_question_ai()
+    if ai_question:
+        return ai_question
+
+    # Fallback: hardcoded pool
     question = random.choice(TRIVIA_QUESTIONS)
     correct_text = question["correct_text"]
 
-    # Gather all other correct answers to use as distractors
     distractors_pool = [
         q["correct_text"] for q in TRIVIA_QUESTIONS if q["correct_text"] != correct_text
     ]
-
-    # Select 3 unique random fake answers
     fake_answers = random.sample(distractors_pool, min(3, len(distractors_pool)))
 
-    # Combine and shuffle
     options = [correct_text] + fake_answers
     random.shuffle(options)
-
     correct_index = options.index(correct_text)
 
     return {
