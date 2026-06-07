@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
+import random
+import re
+import sys
 from datetime import datetime
 from flask import Flask, jsonify, request
 import requests
@@ -1094,6 +1098,189 @@ def reading_trainer():
     return html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+# ── Vercel trivia (no external imports) ──────────────────────────────────
+
+_TRIVIA_QUESTIONS: list[dict] = [
+    {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан"},
+    {"id": 2, "group": "rules", "text": "Что из перечисленного является строго ЗАПРЕЩЁННОЙ темой в каноническом творчестве?", "correct_text": "Внешность и медицинские диагнозы реальных людей"},
+    {"id": 3, "group": "rules", "text": "Какой уровень канонизации требует обязательного одобрения и Луки, и Олега?", "correct_text": "Высокий канон (🔵)"},
+    {"id": 4, "group": "tracks", "text": "Какой трек является первым документом вселенной Олеговируса?", "correct_text": "«Рома» (Олег, 11 декабря 2025)"},
+    {"id": 5, "group": "tracks", "text": "В каком треке впервые прозвучал термин «олеговирус»?", "correct_text": "«Олег, как ты задолбал» (Лука, 26 декабря 2025)"},
+    {"id": 6, "group": "tracks", "text": "Кто из сторонних участников первым внёс вклад в мифологию, написав трек «Олеговирус»?", "correct_text": "Рома"},
+    {"id": 7, "group": "tracks", "text": "Какая статья впервые дала Олеговирусу научное описание с антигенами KHM и POST?", "correct_text": "«Olegovirus checkmarevus» (Лука, апрель 2026)"},
+    {"id": 8, "group": "tracks", "text": "Почему трек «Вирус LucasTeamLuke» признан неканоничным?", "correct_text": "Нарушает именование (LucasTeamLuke) и упоминает внешность"},
+    {"id": 9, "group": "tracks", "text": "Какая статья Олега описывает LTL-паразита с синдромами СГД и СНЧ, но требует переработки из-за внешности?", "correct_text": "«LukasTeamLuke sp. nov.» (средний канон, 🟡)"},
+    {"id": 10, "group": "tracks", "text": "В каких отношениях состоят олеговирус и LTL-паразит согласно статье «Olegovirus checkmarevus»?", "correct_text": "Союзничество-конкурентство"},
+    {"id": 11, "group": "tracks", "text": "Какой трек Ромы впервые сводит обоих агентов (олеговирус и LTL-паразита) в одном пространстве?", "correct_text": "«Тень агента (V.2)» (апрель 2026)"},
+    {"id": 12, "group": "candy", "text": "Какая базовая награда конфетами за прохождение Nine Circles?", "correct_text": "1 конфета за 2% прохождения"},
+    {"id": 13, "group": "candy", "text": "Сколько конфет полагается за 1% на сложных партах (61-70%) Nine Circles?", "correct_text": "1 конфета за 1% прохождения"},
+    {"id": 14, "group": "candy", "text": "Кто такой «Хранитель конфет» в конфетной экономике?", "correct_text": "Лука (отказался от своей награды в 28 конфет)"},
+    {"id": 15, "group": "candy", "text": "Сколько конфет получил Рома после «инфляции счастья» (умножение на 1.5, округление вверх)?", "correct_text": "16 конфет"},
+    {"id": 16, "group": "tea", "text": "Каким священным выражением заканчиваются молитвы в Чайной религии (Teaology)?", "correct_text": "eight-nine"},
+    {"id": 17, "group": "tea", "text": "Кто автор и создатель Чайной религии (Teaology)?", "correct_text": "Лука (LucasTeam, 27 апреля 2026)"},
+    {"id": 18, "group": "tracks", "text": "Какой трек Луки стал первым «бытовым» произведением в каноне (3 мая 2026)?", "correct_text": "«Восемь километров (походный дневник)»"},
+    {"id": 19, "group": "ltrs", "text": "Какие координаты (хаос; экспрессивность) у Луки в рейтинге LTRS?", "correct_text": "(10; 46) — ритуальный экспрессив"},
+    {"id": 20, "group": "ltrs", "text": "Кто в рейтинге LTRS имеет тип личности «мемный экспрессив»?", "correct_text": "Рома (23; 26)"},
+    {"id": 21, "group": "glossary", "text": "Что такое «антиген KHM» в терминологии Олеговируса?", "correct_text": "Реакция «закатывание глаз» у окружающих"},
+    {"id": 22, "group": "glossary", "text": "Что в глоссарии канона означает термин «Парадокс ожидания»?", "correct_text": "Бронь парта сгорает, его проходит Хранитель конфет"},
+    {"id": 23, "group": "glossary", "text": "Кто в глоссарии LTRS определяется как «Пассивный изолят»?", "correct_text": "Саша (15; 14)"},
+]
+
+
+_AI_QUESTIONS_PROMPT = """Ты — генератор викторин по канону вселенной Олеговируса и LTL-паразита.
+Используя текст канона ниже, составь один вопрос с четырьмя вариантами ответа.
+
+Формат ответа (строго):
+Вопрос: <текст вопроса>
+1. <вариант>
+2. <вариант>
+3. <вариант>
+4. <вариант>
+Правильный ответ: <номер от 1 до 4>
+Объяснение: <почему это правильный ответ>
+
+ВАЖНЕЙШЕЕ ПРАВИЛО: Все четыре варианта ответа должны быть из ОДНОГО раздела канона.
+Примеры:
+  ПЛОХО: вопрос про треки → варианты про конфеты, чай, именование
+  ХОРОШО: вопрос про треки → все варианты — разные названия треков
+  ПЛОХО: вопрос про конфетную экономику → варианты про LTRS, антигены, имена
+  ХОРОШО: вопрос про конфетную экономику → все варианты про конфеты и проценты
+
+Правила:
+- Вопрос должен проверять ЗНАНИЕ канона, а не быть очевидным.
+- Правильный ответ — точная цитата или факт из канона.
+- Неправильные варианты должны звучать ПРАВДОПОДОБНО в той же теме.
+- НЕ используй имена участников (Лука, Олег, Рома, Никита и т.д.) как неправильные ответы.
+- Пиши строго в указанном формате, без лишнего текста.
+
+=== КАНОН ===
+{canon}
+"""
+
+_AI_QUESTIONS_FALLBACK_PROMPT = """Ты — генератор викторин. Придумай вопрос на тему "Команды и возможности банковского бота BankBot".
+Составь один вопрос с четырьмя вариантами ответа.
+
+Формат ответа (строго):
+Вопрос: <текст вопроса>
+1. <вариант>
+2. <вариант>
+3. <вариант>
+4. <вариант>
+Правильный ответ: <номер от 1 до 4>
+Объяснение: <почему это правильный ответ>
+"""
+
+
+def _load_canon_trivia(max_chars: int = 2000) -> str:
+    for candidate in [
+        os.path.join(os.path.dirname(__file__), "canon_knowledge.txt"),
+        os.path.join(os.path.dirname(__file__), "..", "data", "canon_knowledge.txt"),
+    ]:
+        try:
+            if os.path.exists(candidate):
+                with open(candidate, encoding="utf-8") as f:
+                    return f.read()[:max_chars].rstrip()
+        except OSError:
+            pass
+    return ""
+
+
+def _parse_ai_question(text: str) -> dict | None:
+    lines = text.strip().split("\n")
+    question_text = ""
+    options: list[str] = []
+    correct_answer = ""
+    explanation = ""
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Вопрос:"):
+            question_text = stripped[len("Вопрос:"):].strip()
+        elif re.match(r"^[1-4]\.\s", stripped):
+            options.append(re.sub(r"^[1-4]\.\s*", "", stripped))
+        elif stripped.startswith("Правильный ответ:"):
+            correct_answer = stripped[len("Правильный ответ:"):].strip()
+        elif stripped.startswith("Объяснение:"):
+            explanation = stripped[len("Объяснение:"):].strip()
+
+    if not question_text or len(options) < 4 or not correct_answer or not explanation:
+        return None
+
+    try:
+        correct_idx = int(correct_answer) - 1
+    except ValueError:
+        return None
+
+    if correct_idx < 0 or correct_idx >= len(options):
+        return None
+
+    return {
+        "text": question_text,
+        "options": options,
+        "correct_index": correct_idx,
+        "correct_text": options[correct_idx],
+        "explanation": explanation,
+    }
+
+
+def _call_ai_api_fast(prompt: str, max_tokens: int = 200, timeout: float = 4.0) -> str:
+    """Fast AI call with short timeout for trivia."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return "❌"
+    try:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.7},
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception:
+        pass
+    return "❌"
+
+
+def _vercel_trivia_question() -> dict | None:
+    # Try AI first with short timeout
+    canon = _load_canon_trivia()
+    if canon:
+        prompt = _AI_QUESTIONS_PROMPT.format(canon=canon[:1500])
+        ai_text = _call_ai_api_fast(prompt, max_tokens=400, timeout=5.0)
+        if ai_text and not ai_text.startswith("❌"):
+            parsed = _parse_ai_question(ai_text)
+            if parsed:
+                return parsed
+
+    # Fallback to hardcoded questions
+    if not _TRIVIA_QUESTIONS:
+        return None
+    question = random.choice(_TRIVIA_QUESTIONS)
+    correct_text = question["correct_text"]
+    q_group = question.get("group", "")
+
+    same_group = [q for q in _TRIVIA_QUESTIONS if q.get("group") == q_group and q["correct_text"] != correct_text]
+    other = [q for q in _TRIVIA_QUESTIONS if q.get("group") != q_group and q["correct_text"] != correct_text]
+
+    distractors_pool = [q["correct_text"] for q in same_group]
+    if len(distractors_pool) < 3:
+        distractors_pool += [q["correct_text"] for q in other]
+
+    fake_answers = random.sample(distractors_pool, min(3, len(distractors_pool)))
+
+    options = [correct_text] + fake_answers
+    random.shuffle(options)
+    correct_index = options.index(correct_text)
+
+    return {
+        "text": question["text"],
+        "options": options,
+        "correct_index": correct_index,
+        "correct_text": correct_text,
+    }
+
+
 @app.route("/telegram/webhook/<secret>", methods=["POST"])
 def telegram_webhook(secret: str):
     """Receive Telegram webhook and forward to processing."""
@@ -1542,31 +1729,21 @@ def telegram_webhook(secret: str):
 
         # Trivia command - send question with inline buttons for answers
         elif command == "/trivia" and chat_id:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location(
-                "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
-            )
-            trivia_questions = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(trivia_questions)
-            
-            question = trivia_questions.generate_trivia_question()
-            question_text = question["text"]
-            options = question["options"]
+            question = _vercel_trivia_question()
+            if not question:
+                send_telegram_message(chat_id, "Нет вопросов")
+                return jsonify({"ok": True})
+
             correct_index = question["correct_index"]
-            
             inline_keyboard = []
-            for i, opt in enumerate(options):
+            for i, opt in enumerate(question["options"]):
                 inline_keyboard.append([
-                    {"text": f"✅ {opt}", "callback_data": f"trivia_{i}_{correct_index}"}
+                    {"text": opt, "callback_data": f"trivia_{i}_{correct_index}"}
                 ])
-            
-            trivia_message = (
-                f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:"
-            )
-            send_telegram_message(chat_id, trivia_message, parse_mode="Markdown")
+
+            send_telegram_message(chat_id, question["text"])
             send_telegram_message(
-                chat_id,
-                "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +10 монет.",
+                chat_id, "Выберите ответ:",
                 reply_markup={"inline_keyboard": inline_keyboard},
             )
             return jsonify({"ok": True})
@@ -2057,27 +2234,19 @@ def test_ai():
 @app.route("/api/test_telegram", methods=["GET"])
 def test_telegram():
     """Test Telegram API access from Vercel."""
+    import json as _json
+    result = {"bot_token_set": bool(BOT_TOKEN)}
     try:
-        response = requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getMe",
-            timeout=10,
-        )
-        return jsonify(
-            {
-                "status": "success",
-                "telegram_accessible": True,
-                "status_code": response.status_code,
-                "response": response.json(),
-            }
-        )
+        me = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+        result["getMe"] = me.json() if me.ok else me.text[:200]
     except Exception as e:
-        return jsonify(
-            {
-                "status": "error",
-                "telegram_accessible": False,
-                "error": str(e),
-            }
-        )
+        result["getMe_error"] = str(e)
+    try:
+        wh = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
+        result["getWebhookInfo"] = wh.json().get("result") if wh.ok else wh.text[:200]
+    except Exception as e:
+        result["getWebhookInfo_error"] = str(e)
+    return jsonify(result)
 
 
 @app.route("/api/debug_hf", methods=["GET"])
@@ -2368,6 +2537,18 @@ def get_fallback_sets():
         },
     ]
 
+
+@app.route("/api/set_webhook", methods=["GET"])
+def set_webhook():
+    """Set Telegram webhook to the current Vercel deployment."""
+    secret = os.getenv("WEBHOOK_SECRET") or "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
+    base = request.host_url.rstrip("/")
+    webhook_url = f"{base}/telegram/webhook/{secret}"
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={webhook_url}&secret_token={secret}&allowed_updates=message&allowed_updates=callback_query", timeout=10)
+        return jsonify({"set": r.json(), "url": webhook_url, "bot_token_set": bool(BOT_TOKEN)})
+    except Exception as e:
+        return jsonify({"error": str(e), "url": webhook_url})
 
 # Vercel handler
 handler = app
