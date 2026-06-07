@@ -23,6 +23,7 @@ CANON_DOC_URL = f"https://docs.google.com/document/d/{CANON_DOC_ID}/edit?tab=t.0
 CANON_DOC_EXPORT_URL = f"https://docs.google.com/document/d/{CANON_DOC_ID}/export?format=txt"
 DEFAULT_CHANNEL_URL = "https://t.me/s/lucasteamgd"
 DEFAULT_CACHE_PATH = Path("data/ai_knowledge_cache.json")
+LOCAL_CANON_PATH = Path("data/canon_knowledge.txt")
 
 MAX_DYNAMIC_ENTRIES = 40
 MAX_ENTRY_TEXT_LENGTH = 1200
@@ -119,6 +120,78 @@ async def update_ai_knowledge_cache(
         entries_count=len(payload["entries"]),
         cache_path=str(cache_path),
     )
+
+
+def load_local_canon_knowledge(path: Path = LOCAL_CANON_PATH) -> tuple[DynamicKnowledgeEntry, ...]:
+    """Parse data/canon_knowledge.txt into structured entries with good keywords.
+
+    Splits by 📖 block headers and by glossary lines so each topic has its own
+    searchable entry with full canon text as the answer.
+    """
+
+    if not path.exists():
+        return ()
+
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+
+    blocks = re.split(r"(?=^[📖🔗🧩] )", raw, flags=re.MULTILINE)
+    entries: list[DynamicKnowledgeEntry] = []
+
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+
+        title_match = re.match(r"^[📖🔗🧩]\s*(.+?)$", block, re.MULTILINE)
+        block_title = title_match.group(1).strip() if title_match else "unknown"
+
+        cleaned = _compact_text(block)
+        if len(cleaned) < 30:
+            continue
+
+        if block_title == "unknown":
+            continue
+
+        if "ГЛОССАРИЙ" in block_title.upper():
+            _add_glossary_terms(cleaned, entries, path)
+            continue
+
+        keywords = _keywords_from_text(cleaned, extra=(block_title,))
+        entries.append(
+            DynamicKnowledgeEntry(
+                title=f"local_{block_title}",
+                keywords=keywords,
+                answer=cleaned,
+                source=str(path),
+                canon_level="local",
+            )
+        )
+
+    return tuple(entries)
+
+
+def _add_glossary_terms(text: str, entries: list[DynamicKnowledgeEntry], path: Path) -> None:
+    """Parse glossary lines and add individual term entries."""
+
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line or " — " not in line:
+            continue
+        term = line.split(" — ", 1)[0].strip()
+        if len(term) < 3:
+            continue
+        entries.append(
+            DynamicKnowledgeEntry(
+                title=f"glossary_{term}",
+                keywords=_keywords_from_text(term, extra=(term,)),
+                answer=line,
+                source=str(path),
+                canon_level="local_glossary",
+            )
+        )
 
 
 def load_dynamic_knowledge(cache_path: Path = DEFAULT_CACHE_PATH) -> tuple[DynamicKnowledgeEntry, ...]:

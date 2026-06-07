@@ -1,80 +1,27 @@
 # Active Context
 
-**Последнее обновление:** 2026-06-03  
-**Текущая фаза:** Phase 2 Feature Expansion — Chess Module Implementation
+**Последнее обновление:** 2026-06-06  
+**Текущая фаза:** Vercel Production Fixes + AI Trivia
 
 ## Текущий фокус
 
-### Chess Module Implementation (2026-06-03)
+### Vercel /trivia + AI Fixes (2026-06-06)
 
-**Цель:** Реализовать шахматный модуль с интеграцией Lichess API.
+**Цель:** Восстановить работу бота на Vercel, добавить AI-генерацию вопросов викторины через Groq.
 
-**Статус:** Базовая функциональность реализована и задеплоена.
+**Статус:** Бот работает на Vercel, викторина генерируется через Groq AI с контекстом канона.
 
 **Завершено:**
-- ✅ Синхронный Lichess API клиент для Vercel
-- ✅ `/chess` — справка по командам
-- ✅ `/chess_link <username>` — привязка Lichess аккаунта
-- ✅ `/chess_rating` — показ рейтингов (базовая версия)
-- ✅ `/chess_stats` — показ статистики (базовая версия)
-- ✅ `/puzzle` — ежедневная шахматная задача с изображением доски
-- ✅ Таблица `chess_accounts` в Supabase
-- ✅ Изображение шахматной доски через Lichess board export API
-- ✅ Inline кнопка для решения на Lichess
+- ✅ Исправлен HF Space import error (`short_mode_command` добавлен обратно в `core_commands.py`)
+- ✅ Обновлён `data/canon_knowledge.txt` до v2.9 (12 мая 2026)
+- ✅ AI-викторина на Vercel: Groq API + канон, fallback на 23 готовых вопроса
+- ✅ Webhook переключён с HF Space на Vercel
+- ✅ BOT_TOKEN настроен на Vercel (project-level env var)
+- ✅ `api/index.py` больше не зависит от `bot/*` модулей (вся логика inline)
 
 **Коммиты:**
-- `fb3819e` — базовая реализация chess модуля
-- `10266ba` — изменение формата команд на underscore
-- `8f33214` — добавление изображения доски в /puzzle
-
-**Осталось доделать:**
-- ⏳ Детальные рейтинги в `/chess_rating` (bullet, blitz, rapid, classical)
-- ⏳ Игровая статистика в `/chess_stats` (total games, wins, losses, draws)
-- ⏳ Система проверки решения задач
-- ⏳ Награды за решение задач (интеграция с user_coins)
-- ⏳ История решённых задач
-- ⏳ Таблица лидеров
-
-### Vercel Migration Status (Завершено)
-
-**35/35 команд** перенесены на Vercel webhook (`api/index.py`):
-- ✅ Все базовые команды
-- ✅ Все AI команды (с фиксом модели `llama-3.3-70b-versatile`)
-- ✅ Все админ команды
-- ✅ Магазин и инвентарь
-- ✅ GDcards парсинг (курс 2:1, orbs → coins)
-- ✅ Триvia
-- ✅ Режимы ответов (short/long/short_all/long_all)
-- ✅ Chess module (CH-02, CH-03, CH-04)
-
-**Технический стек:**
-- Command router pattern в `api/index.py`
-- Прямые SQL queries через SQLAlchemy + `text()`
-- Supabase PostgreSQL через `DATABASE_URL`
-- Минимальные зависимости (flask, requests, sqlalchemy, psycopg2-binary)
-- Все stateless (без диалогов, ConversationHandler)
-
-### Hugging Face Runtime (Устаревший - отказ)
-
-**⚠️ Устаревший статус:** Hugging Face runtime больше не используется в production из-за нестабильной работы.
-
-**Причина отказа:**
-- Постоянные таймауты `getUpdates TimedOut` приводили к пропуску команд от пользователей
-- Проблемы с polling стабильностью наHF serverless
-- Необходимость постоянных перезапусков Space
-- Нестабильная обработка webhook updates
-
-**Миграция на Vercel:**
-- Все команды перенесены на Vercel webhook (`api/index.py`)
-- Vercel обеспечивает более стабильную обработку запросов
-- Синхронный API вызовы вместо async/await для совместимости с Vercel
-- Использование прямых HTTP запросов к Telegram API
-
-**Legacy код остаётся:**
-- `bot/bot.py` и `bot/commands/` — для legacy polling режима
-- GD commands в `bot/commands/gd_commands_ptb.py`
-- Всё ещё работает локально через `py -3.12 bot/main.py`
-- Не рекомендуется для production use
+- `0b8980d` — fix: add short_mode_command and long_mode_command back to core_commands
+- `9a8a658` — ci: force vercel redeploy
 
 **Технический стек:**
 - Command router pattern в `api/index.py`

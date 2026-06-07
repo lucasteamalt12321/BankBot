@@ -72,3 +72,8 @@ test_results*.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Vercel env files
+.env.vercel
+.env.vercel.prod
+
