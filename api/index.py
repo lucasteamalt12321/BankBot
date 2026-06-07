@@ -507,122 +507,44 @@ def get_user_history(user_id: int, limit: int = 10) -> list[dict]:
 # Geometry Dash Module — GD API Client (synchronous)
 # ============================================================================
 
-_GD_BASE_URL = "http://www.boomlings.com/database"
-_GD_USER_ENDPOINT = f"{_GD_BASE_URL}/getGJUsers20.php"
-_GD_LEVEL_ENDPOINT = f"{_GD_BASE_URL}/downloadGJLevel22.php"
-_GD_GAME_VERSION = "22"
-_GD_BINARY_VERSION = "42"
-_GD_SECRET = "Wmfd2893gb7"
-
 
 def fetch_gd_user(username: str) -> dict | None:
     try:
-        resp = requests.post(
-            _GD_USER_ENDPOINT,
-            data={
-                "str": username, "total": 0, "page": 0,
-                "gameVersion": _GD_GAME_VERSION,
-                "binaryVersion": _GD_BINARY_VERSION,
-                "secret": _GD_SECRET,
-            },
+        resp = requests.get(
+            f"https://gdbrowser.com/api/profile/{username}",
             timeout=10,
         )
-        if resp.status_code != 200 or resp.text == "-1":
+        if resp.status_code != 200 or resp.text.startswith("-1"):
             return None
-        return _parse_gd_user(resp.text)
+        data = resp.json()
+        if not data or "username" not in data:
+            return None
+        data["creator_points"] = data.pop("cp", 0)
+        data["user_coins"] = data.pop("userCoins", 0)
+        return data
     except Exception as exc:
         print(f"Error fetching GD user {username}: {exc}")
         return None
 
 
-def _parse_gd_user(raw: str) -> dict:
-    parts = raw.split(":")
-    data = {}
-    for i in range(0, len(parts) - 1, 2):
-        k = parts[i]
-        v = parts[i + 1]
-        if k == "1":
-            data["username"] = v
-        elif k == "2":
-            data["user_id"] = int(v)
-        elif k == "3":
-            data["stars"] = int(v)
-        elif k == "4":
-            data["demons"] = int(v)
-        elif k == "6":
-            data["rank"] = int(v) if v != "0" else None
-        elif k == "8":
-            data["creator_points"] = int(v)
-        elif k == "13":
-            data["coins"] = int(v)
-        elif k == "16":
-            data["account_id"] = int(v)
-        elif k == "17":
-            data["user_coins"] = int(v)
-        elif k == "46":
-            data["diamonds"] = int(v)
-    return data
-
-
 def fetch_gd_level(level_id: int) -> dict | None:
     try:
-        resp = requests.post(
-            _GD_LEVEL_ENDPOINT,
-            data={
-                "levelID": level_id,
-                "gameVersion": _GD_GAME_VERSION,
-                "binaryVersion": _GD_BINARY_VERSION,
-                "secret": _GD_SECRET,
-            },
+        resp = requests.get(
+            f"https://gdbrowser.com/api/level/{level_id}",
             timeout=10,
         )
-        if resp.status_code != 200 or resp.text == "-1":
+        if resp.status_code != 200 or resp.text.startswith("-1"):
             return None
-        return _parse_gd_level(resp.text)
+        data = resp.json()
+        if not data or "name" not in data:
+            return None
+        data["level_id"] = int(data.pop("id", 0))
+        data["difficulty_name"] = data.pop("difficulty", "Unknown")
+        data["length_name"] = data.pop("length", "Unknown")
+        return data
     except Exception as exc:
         print(f"Error fetching GD level {level_id}: {exc}")
         return None
-
-
-def _parse_gd_level(raw: str) -> dict:
-    main = raw.split("#")[0]
-    parts = main.split(":")
-    data = {}
-    _difficulty_names = {0: "Easy", 1: "Easy", 2: "Normal", 3: "Hard", 4: "Harder", 5: "Insane"}
-    _demon_names = {3: "Easy Demon", 4: "Medium Demon", 5: "Hard Demon", 0: "Extreme Demon"}
-    _length_names = {0: "Tiny", 1: "Short", 2: "Medium", 3: "Long", 4: "XL"}
-    for i in range(0, len(parts) - 1, 2):
-        k = parts[i]
-        v = parts[i + 1]
-        if k == "1":
-            data["level_id"] = int(v)
-        elif k == "2":
-            data["name"] = v
-        elif k == "3":
-            data["description"] = v
-        elif k == "5":
-            data["version"] = int(v)
-        elif k == "6":
-            data["creator_id"] = int(v)
-        elif k == "9":
-            data["difficulty_name"] = _difficulty_names.get(int(v), "Unknown")
-        elif k == "10":
-            data["downloads"] = int(v)
-        elif k == "14":
-            data["likes"] = int(v)
-        elif k == "15":
-            data["length_name"] = _length_names.get(int(v), "Unknown")
-        elif k == "17":
-            data["is_demon"] = v == "1"
-        elif k == "18":
-            data["stars"] = int(v)
-        elif k == "37":
-            data["coins"] = int(v)
-        elif k == "38":
-            data["verified_coins"] = v == "1"
-        elif k == "43":
-            data["demon_difficulty_name"] = _demon_names.get(int(v), "Demon") if v else None
-    return data
 
 
 def format_gd_user_stats(data: dict) -> str:
@@ -643,10 +565,8 @@ def format_gd_level_info(data: dict) -> str:
     name = data.get("name", "Unknown")
     lid = data.get("level_id", "?")
     lines = [f"🎮 **{name}** (ID: {lid})\n"]
-    if data.get("is_demon") and data.get("demon_difficulty_name"):
-        lines.append(f"👹 Сложность: {data['demon_difficulty_name']}")
-    else:
-        lines.append(f"⭐ Сложность: {data.get('difficulty_name', 'Unknown')}")
+    difficulty = data.get("difficulty_name", "Unknown")
+    lines.append(f"⭐ Сложность: {difficulty}")
     lines.append(f"📏 Длина: {data.get('length_name', 'Unknown')}")
     lines.append(f"📥 Скачивания: {data.get('downloads', 0):,}")
     lines.append(f"👍 Лайки: {data.get('likes', 0):,}")
@@ -3247,23 +3167,6 @@ def test_ai():
                 "error": str(e),
             }
         )
-
-
-@app.route("/api/test_gd_api", methods=["GET"])
-def test_gd_api():
-    """Test GD API connectivity from Vercel."""
-    result = {}
-    for username in ["Riot", "Viprin", "123456789"]:
-        try:
-            resp = requests.post(
-                _GD_USER_ENDPOINT,
-                data={"str": username, "total": 0, "page": 0, "gameVersion": _GD_GAME_VERSION, "binaryVersion": _GD_BINARY_VERSION, "secret": _GD_SECRET},
-                timeout=8,
-            )
-            result[username] = {"status": resp.status_code, "body_preview": resp.text[:200]}
-        except Exception as e:
-            result[username] = {"error": str(e)}
-    return jsonify(result)
 
 
 @app.route("/api/test_telegram", methods=["GET"])
