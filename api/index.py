@@ -566,6 +566,9 @@ def format_gd_level_info(data: dict) -> str:
     lid = data.get("level_id", "?")
 
     lines = [f"🎮 **{name}** (ID: {lid})\n"]
+    creator = data.get("author") or data.get("creator", "")
+    if creator:
+        lines.append(f"👤 Создатель: **{creator}**")
     difficulty = data.get("difficulty_name", "Unknown")
     lines.append(f"⭐ Сложность: {difficulty}")
     lines.append(f"📏 Длина: {data.get('length_name', 'Unknown')}")
