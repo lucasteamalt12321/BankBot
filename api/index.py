@@ -2164,7 +2164,7 @@ def telegram_webhook(secret: str):
                     "/ask <вопрос> — алиас /ai\n"
                     "/ai_help — показать эту справку\n"
                     "/chat <персонаж> <текст> — диалог с персонажем\n"
-                    "/generate_prayer — сгенерировать молитву\n"
+                    "/generate_prayer или /pray — сгенерировать молитву\n"
                     "/ask_canon <вопрос> — вопрос по канону\n\n"
                     "Пример: /ai Что такое олеговирус?",
                 )
@@ -2184,7 +2184,7 @@ def telegram_webhook(secret: str):
                 "/ask <вопрос> — алиас /ai\n"
                 "/ai_help — показать эту справку\n"
                 "/chat <персонаж> <текст> — диалог с персонажем\n"
-                "/generate_prayer — сгенерировать молитву\n"
+                "/generate_prayer или /pray — сгенерировать молитву\n"
                 "/ask_canon <вопрос> — вопрос по канону",
             )
         elif command == "/chat" and chat_id:
@@ -2223,7 +2223,7 @@ def telegram_webhook(secret: str):
                 if prompt:
                     answer = call_ai_api(prompt)
                     send_telegram_message(chat_id, answer)
-        elif command == "/generate_prayer" and chat_id:
+        elif command in ["/generate_prayer", "/pray"] and chat_id:
             prompt = (
                 "Создай короткую молитву в стиле чайной религии.\n\n"
                 "СТРУКТУРА ОБЯЗАТЕЛЬНАЯ:\n"
