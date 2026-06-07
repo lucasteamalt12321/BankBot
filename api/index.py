@@ -3249,6 +3249,23 @@ def test_ai():
         )
 
 
+@app.route("/api/test_gd_api", methods=["GET"])
+def test_gd_api():
+    """Test GD API connectivity from Vercel."""
+    result = {}
+    for username in ["Riot", "Viprin", "123456789"]:
+        try:
+            resp = requests.post(
+                _GD_USER_ENDPOINT,
+                data={"str": username, "total": 0, "page": 0, "gameVersion": _GD_GAME_VERSION, "binaryVersion": _GD_BINARY_VERSION, "secret": _GD_SECRET},
+                timeout=8,
+            )
+            result[username] = {"status": resp.status_code, "body_preview": resp.text[:200]}
+        except Exception as e:
+            result[username] = {"error": str(e)}
+    return jsonify(result)
+
+
 @app.route("/api/test_telegram", methods=["GET"])
 def test_telegram():
     """Test Telegram API access from Vercel."""
