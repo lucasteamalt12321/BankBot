@@ -564,6 +564,7 @@ def format_gd_user_stats(data: dict) -> str:
 def format_gd_level_info(data: dict) -> str:
     name = data.get("name", "Unknown")
     lid = data.get("level_id", "?")
+
     lines = [f"🎮 **{name}** (ID: {lid})\n"]
     difficulty = data.get("difficulty_name", "Unknown")
     lines.append(f"⭐ Сложность: {difficulty}")
@@ -573,6 +574,27 @@ def format_gd_level_info(data: dict) -> str:
     if data.get("coins", 0) > 0:
         lines.append(f"🪙 Монеты: {data['coins']}")
     return "\n".join(lines)
+
+
+def search_gd_level(name: str) -> dict | None:
+    try:
+        resp = requests.get(
+            f"https://gdbrowser.com/api/search/{name}",
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        results = resp.json()
+        if not results or not isinstance(results, list) or "name" not in results[0]:
+            return None
+        data = results[0]
+        data["level_id"] = int(data.pop("id", 0))
+        data["difficulty_name"] = data.pop("difficulty", "Unknown")
+        data["length_name"] = data.pop("length", "Unknown")
+        return data
+    except Exception as exc:
+        print(f"Error searching GD level {name}: {exc}")
+        return None
 
 
 # ============================================================================
@@ -2674,27 +2696,28 @@ def telegram_webhook(secret: str):
                     print(f"gd_user error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных GD.")
 
-        # /gd_level <id>
+        # /gd_level <id или название>
         elif command == "/gd_level" and chat_id:
             args = text.split()[1:] if text else []
             if not args:
-                send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID>`\nПример: `/gd_level 10565740`", parse_mode="Markdown")
+                send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID или название>`\nПример: `/gd_level 10565740` или `/gd_level Bloodbath`", parse_mode="Markdown")
             else:
+                query = args[0].strip()
                 try:
-                    level_id = int(args[0])
-                except ValueError:
-                    send_telegram_message(chat_id, "❌ ID уровня должен быть числом.")
-                else:
+                    level_id = int(query)
                     send_telegram_message(chat_id, f"🔍 Ищу уровень с ID **{level_id}**...", parse_mode="Markdown")
-                    try:
-                        data = fetch_gd_level(level_id)
-                        if not data:
-                            send_telegram_message(chat_id, f"❌ Уровень с ID **{level_id}** не найден.", parse_mode="Markdown")
-                        else:
-                            send_telegram_message(chat_id, format_gd_level_info(data), parse_mode="Markdown")
-                    except Exception as exc:
-                        print(f"gd_level error: {exc}")
-                        send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
+                    data = fetch_gd_level(level_id)
+                except ValueError:
+                    send_telegram_message(chat_id, f"🔍 Ищу уровень **{query}**...", parse_mode="Markdown")
+                    data = search_gd_level(query)
+                try:
+                    if not data:
+                        send_telegram_message(chat_id, f"❌ Уровень **{query}** не найден.", parse_mode="Markdown")
+                    else:
+                        send_telegram_message(chat_id, format_gd_level_info(data), parse_mode="Markdown")
+                except Exception as exc:
+                    print(f"gd_level error: {exc}")
+                    send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
 
         # /leaderboard
         elif command == "/leaderboard" and chat_id:
