@@ -2224,6 +2224,7 @@ def telegram_webhook(secret: str):
                     answer = call_ai_api(prompt)
                     send_telegram_message(chat_id, answer)
         elif command in ["/generate_prayer", "/pray"] and chat_id:
+            send_telegram_message(chat_id, "🙏 Сочиняю молитву...")
             prompt = (
                 "Создай короткую молитву в стиле чайной религии.\n\n"
                 "СТРУКТУРА ОБЯЗАТЕЛЬНАЯ:\n"
@@ -2241,6 +2242,7 @@ def telegram_webhook(secret: str):
             )
             prayer = call_ai_api(prompt, max_tokens=150)
             send_telegram_message(chat_id, f"🙏 Молитва:\n\n{prayer}")
+            return jsonify({"ok": True})
         elif command == "/ask_canon" and chat_id:
             args = text.split(maxsplit=1)
             if len(args) < 2:
