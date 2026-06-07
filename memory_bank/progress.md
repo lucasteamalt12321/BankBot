@@ -817,4 +817,4 @@
 - Features: /gd_user (player stats), /gd_level (level info), print worksheet (text + questions on A4)
 
 ## last_checked_commit
-e57e9dd feat(parsing): implement parsing system for GDcards, Gusya Cards, Shmalala (2026-05-20)
+(NOT_COMMITTED_YET) feat(gd): port GD Module to Vercel webhook in api/index.py
