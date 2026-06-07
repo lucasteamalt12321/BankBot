@@ -2670,8 +2670,8 @@ def telegram_webhook(secret: str):
                 "🎮 **Geometry Dash Module**\n\n"
                 "**Команды:**\n"
                 "`/gd_user <ник>` — инфо об игроке в GD\n"
-                "`/gd_level <id>` — инфо об уровне GD\n"
-                "`/leaderboard` — топ уровней\n"
+                "`/gd_level <id/название>` — инфо об уровне GD\n"
+                "`/gd_leaderboard` — топ уровней\n"
                 "`/my_stats` — моя статистика\n"
                 "`/player_stats @user` — статистика игрока\n"
                 "`/submit <название>` — отправить прохождение\n"
@@ -2722,8 +2722,24 @@ def telegram_webhook(secret: str):
                     print(f"gd_level error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
 
-        # /leaderboard
+        # /leaderboard — top by balance
         elif command == "/leaderboard" and chat_id:
+            try:
+                top = get_top_balances(10)
+                if not top:
+                    send_telegram_message(chat_id, "📊 Таблица лидеров пока пуста.")
+                else:
+                    lines = ["🏆 **Таблица лидеров по монетам**\n"]
+                    for i, u in enumerate(top, 1):
+                        name = u["first_name"] if u["first_name"] != "—" else u["username"]
+                        lines.append(f"{i}. **{name}** — 💰 {u['balance']:,} монет")
+                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+            except Exception as exc:
+                print(f"leaderboard error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при загрузке лидеров.")
+
+        # /gd_leaderboard — GD уровень топ
+        elif command == "/gd_leaderboard" and chat_id:
             try:
                 levels = get_gd_leaderboard(20)
                 if not levels:
