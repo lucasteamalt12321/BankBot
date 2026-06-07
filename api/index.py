@@ -23,6 +23,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
 DB_ENGINE = None
+_GD_SUBMIT_STATE: dict[int, dict] = {}
+_GD_MODERATE_STATE: dict[int, int] = {}
 
 
 def normalize_database_url(url: str) -> str:
@@ -499,6 +501,402 @@ def get_user_history(user_id: int, limit: int = 10) -> list[dict]:
     except Exception as exc:
         print(f"Error getting user history: {exc}")
         return []
+
+
+# ============================================================================
+# Geometry Dash Module — GD API Client (synchronous)
+# ============================================================================
+
+_GD_BASE_URL = "http://www.boomlings.com/database"
+_GD_USER_ENDPOINT = f"{_GD_BASE_URL}/getGJUsers20.php"
+_GD_LEVEL_ENDPOINT = f"{_GD_BASE_URL}/downloadGJLevel22.php"
+_GD_GAME_VERSION = "22"
+_GD_BINARY_VERSION = "42"
+_GD_SECRET = "Wmfd2893gb7"
+
+
+def fetch_gd_user(username: str) -> dict | None:
+    try:
+        resp = requests.post(
+            _GD_USER_ENDPOINT,
+            data={
+                "str": username, "total": 0, "page": 0,
+                "gameVersion": _GD_GAME_VERSION,
+                "binaryVersion": _GD_BINARY_VERSION,
+                "secret": _GD_SECRET,
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200 or resp.text == "-1":
+            return None
+        return _parse_gd_user(resp.text)
+    except Exception as exc:
+        print(f"Error fetching GD user {username}: {exc}")
+        return None
+
+
+def _parse_gd_user(raw: str) -> dict:
+    parts = raw.split(":")
+    data = {}
+    for i in range(0, len(parts) - 1, 2):
+        k = parts[i]
+        v = parts[i + 1]
+        if k == "1":
+            data["username"] = v
+        elif k == "2":
+            data["user_id"] = int(v)
+        elif k == "3":
+            data["stars"] = int(v)
+        elif k == "4":
+            data["demons"] = int(v)
+        elif k == "6":
+            data["rank"] = int(v) if v != "0" else None
+        elif k == "8":
+            data["creator_points"] = int(v)
+        elif k == "13":
+            data["coins"] = int(v)
+        elif k == "16":
+            data["account_id"] = int(v)
+        elif k == "17":
+            data["user_coins"] = int(v)
+        elif k == "46":
+            data["diamonds"] = int(v)
+    return data
+
+
+def fetch_gd_level(level_id: int) -> dict | None:
+    try:
+        resp = requests.post(
+            _GD_LEVEL_ENDPOINT,
+            data={
+                "levelID": level_id,
+                "gameVersion": _GD_GAME_VERSION,
+                "binaryVersion": _GD_BINARY_VERSION,
+                "secret": _GD_SECRET,
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200 or resp.text == "-1":
+            return None
+        return _parse_gd_level(resp.text)
+    except Exception as exc:
+        print(f"Error fetching GD level {level_id}: {exc}")
+        return None
+
+
+def _parse_gd_level(raw: str) -> dict:
+    main = raw.split("#")[0]
+    parts = main.split(":")
+    data = {}
+    _difficulty_names = {0: "Easy", 1: "Easy", 2: "Normal", 3: "Hard", 4: "Harder", 5: "Insane"}
+    _demon_names = {3: "Easy Demon", 4: "Medium Demon", 5: "Hard Demon", 0: "Extreme Demon"}
+    _length_names = {0: "Tiny", 1: "Short", 2: "Medium", 3: "Long", 4: "XL"}
+    for i in range(0, len(parts) - 1, 2):
+        k = parts[i]
+        v = parts[i + 1]
+        if k == "1":
+            data["level_id"] = int(v)
+        elif k == "2":
+            data["name"] = v
+        elif k == "3":
+            data["description"] = v
+        elif k == "5":
+            data["version"] = int(v)
+        elif k == "6":
+            data["creator_id"] = int(v)
+        elif k == "9":
+            data["difficulty_name"] = _difficulty_names.get(int(v), "Unknown")
+        elif k == "10":
+            data["downloads"] = int(v)
+        elif k == "14":
+            data["likes"] = int(v)
+        elif k == "15":
+            data["length_name"] = _length_names.get(int(v), "Unknown")
+        elif k == "17":
+            data["is_demon"] = v == "1"
+        elif k == "18":
+            data["stars"] = int(v)
+        elif k == "37":
+            data["coins"] = int(v)
+        elif k == "38":
+            data["verified_coins"] = v == "1"
+        elif k == "43":
+            data["demon_difficulty_name"] = _demon_names.get(int(v), "Demon") if v else None
+    return data
+
+
+def format_gd_user_stats(data: dict) -> str:
+    lines = [f"📊 **Статистика игрока {data.get('username', 'Unknown')}**\n"]
+    lines.append(f"⭐ Звёзды: {data.get('stars', 0)}")
+    lines.append(f"👹 Демоны: {data.get('demons', 0)}")
+    lines.append(f"🏆 Creator Points: {data.get('creator_points', 0)}")
+    lines.append(f"🪙 Монеты: {data.get('coins', 0)}")
+    lines.append(f"💎 User Coins: {data.get('user_coins', 0)}")
+    lines.append(f"💠 Алмазы: {data.get('diamonds', 0)}")
+    rank = data.get("rank")
+    if rank:
+        lines.append(f"🌍 Глобальный ранг: #{rank}")
+    return "\n".join(lines)
+
+
+def format_gd_level_info(data: dict) -> str:
+    name = data.get("name", "Unknown")
+    lid = data.get("level_id", "?")
+    lines = [f"🎮 **{name}** (ID: {lid})\n"]
+    if data.get("is_demon") and data.get("demon_difficulty_name"):
+        lines.append(f"👹 Сложность: {data['demon_difficulty_name']}")
+    else:
+        lines.append(f"⭐ Сложность: {data.get('difficulty_name', 'Unknown')}")
+    lines.append(f"📏 Длина: {data.get('length_name', 'Unknown')}")
+    lines.append(f"📥 Скачивания: {data.get('downloads', 0):,}")
+    lines.append(f"👍 Лайки: {data.get('likes', 0):,}")
+    if data.get("coins", 0) > 0:
+        lines.append(f"🪙 Монеты: {data['coins']}")
+    return "\n".join(lines)
+
+
+# ============================================================================
+# Geometry Dash Module — Raw SQL Helpers
+# ============================================================================
+
+def get_gd_level(level_id: int) -> dict | None:
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT * FROM levels WHERE id = :id"), {"id": level_id}
+            ).mappings().first()
+            return dict(row) if row else None
+    except Exception as exc:
+        print(f"get_gd_level error: {exc}")
+        return None
+
+
+def get_gd_leaderboard(limit: int = 20) -> list[dict]:
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("SELECT * FROM levels ORDER BY position ASC LIMIT :lim"),
+                {"lim": limit},
+            ).mappings().all()
+            return [dict(r) for r in rows]
+    except Exception as exc:
+        print(f"get_gd_leaderboard error: {exc}")
+        return []
+
+
+def get_gd_completions_count(level_id: int) -> int:
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT COUNT(*) AS c FROM level_completions WHERE level_id = :lid"),
+                {"lid": level_id},
+            ).mappings().first()
+            return int(row["c"]) if row else 0
+    except Exception as exc:
+        print(f"get_gd_completions_count error: {exc}")
+        return 0
+
+
+def get_gd_player_stats(user_id: int) -> dict | None:
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT * FROM player_stats WHERE user_id = :uid"),
+                {"uid": user_id},
+            ).mappings().first()
+            return dict(row) if row else None
+    except Exception as exc:
+        print(f"get_gd_player_stats error: {exc}")
+        return None
+
+
+def get_gd_build_player_stats(user_id: int) -> dict:
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text("INSERT INTO player_stats (user_id, total_approved) VALUES (:uid, 0) ON CONFLICT (user_id) DO NOTHING"),
+                {"uid": user_id},
+            )
+            conn.commit()
+            row = conn.execute(
+                text("SELECT * FROM player_stats WHERE user_id = :uid"),
+                {"uid": user_id},
+            ).mappings().first()
+            return dict(row) if row else {}
+    except Exception as exc:
+        print(f"get_gd_build_player_stats error: {exc}")
+        return {}
+
+
+def get_gd_submission_counts(user_id: int) -> dict:
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("SELECT status, COUNT(*) AS c FROM submissions WHERE user_id = :uid GROUP BY status"),
+                {"uid": user_id},
+            ).mappings().all()
+            counts = {"total": 0, "pending": 0, "approved": 0, "rejected": 0}
+            for r in rows:
+                s = r["status"]
+                counts["total"] += int(r["c"])
+                if s in counts:
+                    counts[s] = int(r["c"])
+            return counts
+    except Exception as exc:
+        print(f"get_gd_submission_counts error: {exc}")
+        return {"total": 0, "pending": 0, "approved": 0, "rejected": 0}
+
+
+def get_gd_user_completions_count(user_id: int) -> int:
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT COUNT(*) AS c FROM level_completions WHERE user_id = :uid"),
+                {"uid": user_id},
+            ).mappings().first()
+            return int(row["c"]) if row else 0
+    except Exception as exc:
+        print(f"get_gd_user_completions_count error: {exc}")
+        return 0
+
+
+def get_gd_hardest_level_name(user_id: int) -> str:
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT l.name, l.position FROM player_stats ps
+                    JOIN levels l ON l.id = ps.hardest_level_id
+                    WHERE ps.user_id = :uid
+                """),
+                {"uid": user_id},
+            ).mappings().first()
+            return f"{row['name']} (поз. {row['position']})" if row else "Нет"
+    except Exception as exc:
+        print(f"get_gd_hardest_level_name error: {exc}")
+        return "Нет"
+
+
+def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str) -> int | None:
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text("""
+                    INSERT INTO submissions (user_id, username, level_name, media_file_id, media_type, status)
+                    VALUES (:uid, :un, :ln, :mfid, :mt, 'pending') RETURNING id
+                """),
+                {"uid": user_id, "un": username, "ln": level_name, "mfid": media_file_id, "mt": media_type},
+            ).mappings().first()
+            conn.commit()
+            return int(result["id"]) if result else None
+    except Exception as exc:
+        print(f"create_gd_submission error: {exc}")
+        return None
+
+
+def get_gd_pending_submissions(page: int = 0, per_page: int = 5) -> tuple[list[dict], int]:
+    try:
+        with get_db_engine().connect() as conn:
+            count_row = conn.execute(
+                text("SELECT COUNT(*) AS c FROM submissions WHERE status='pending'"),
+            ).mappings().first()
+            total = int(count_row["c"]) if count_row else 0
+            rows = conn.execute(
+                text("SELECT * FROM submissions WHERE status='pending' ORDER BY submitted_at DESC LIMIT :lim OFFSET :off"),
+                {"lim": per_page, "off": page * per_page},
+            ).mappings().all()
+            return [dict(r) for r in rows], total
+    except Exception as exc:
+        print(f"get_gd_pending_submissions error: {exc}")
+        return [], 0
+
+
+def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
+    try:
+        with get_db_engine().connect() as conn:
+            # Get submission
+            sub = conn.execute(
+                text("SELECT * FROM submissions WHERE id = :sid AND status='pending'"),
+                {"sid": submission_id},
+            ).mappings().first()
+            if not sub:
+                return False
+            # Approve
+            conn.execute(
+                text("UPDATE submissions SET status='approved', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid"),
+                {"sid": submission_id, "rid": reviewer_id},
+            )
+            # Update player stats
+            conn.execute(
+                text("""
+                    INSERT INTO player_stats (user_id, total_approved)
+                    VALUES (:uid, 1)
+                    ON CONFLICT (user_id) DO UPDATE SET total_approved = player_stats.total_approved + 1
+                """),
+                {"uid": sub["user_id"]},
+            )
+            # Track completion
+            if sub.get("level_name"):
+                level = conn.execute(
+                    text("SELECT id FROM levels WHERE name = :nm"),
+                    {"nm": sub["level_name"]},
+                ).mappings().first()
+                if level:
+                    conn.execute(
+                        text("""
+                            INSERT INTO level_completions (user_id, level_id)
+                            VALUES (:uid, :lid)
+                            ON CONFLICT (user_id, level_id) DO NOTHING
+                        """),
+                        {"uid": sub["user_id"], "lid": level["id"]},
+                    )
+            conn.commit()
+            return True
+    except Exception as exc:
+        print(f"approve_gd_submission_db error: {exc}")
+        return False
+
+
+def reject_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text("UPDATE submissions SET status='rejected', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid AND status='pending'"),
+                {"sid": submission_id, "rid": reviewer_id},
+            )
+            conn.commit()
+            return result.rowcount > 0
+    except Exception as exc:
+        print(f"reject_gd_submission_db error: {exc}")
+        return False
+
+
+def add_gd_level(name: str, position: int) -> int | None:
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text("INSERT INTO levels (name, position) VALUES (:nm, :pos) RETURNING id"),
+                {"nm": name, "pos": position},
+            ).mappings().first()
+            conn.commit()
+            return int(result["id"]) if result else None
+    except Exception as exc:
+        print(f"add_gd_level error: {exc}")
+        return None
+
+
+def set_gd_level_position(level_id: int, position: int) -> bool:
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text("UPDATE levels SET position=:pos WHERE id=:lid"),
+                {"lid": level_id, "pos": position},
+            )
+            conn.commit()
+            return result.rowcount > 0
+    except Exception as exc:
+        print(f"set_gd_level_position error: {exc}")
+        return False
 
 
 # ============================================================================
@@ -1461,12 +1859,16 @@ def telegram_webhook(secret: str):
     if not update:
         return jsonify({"ok": True})
     
-    # Handle callback_query for trivia answers
+    # Handle callback_query
     callback_query = update.get("callback_query", {})
     callback_data = callback_query.get("data", "")
-    if callback_data and callback_data.startswith("trivia_"):
-        trivia_answer_callback(callback_query, callback_data)
-        return jsonify({"ok": True})
+    if callback_data:
+        if callback_data.startswith("trivia_"):
+            trivia_answer_callback(callback_query, callback_data)
+            return jsonify({"ok": True})
+        if callback_data.startswith("gd_moderate_"):
+            gd_moderate_callback(callback_query, callback_data)
+            return jsonify({"ok": True})
 
     # Process Telegram commands supported by the Vercel webhook runtime.
     try:
@@ -2274,11 +2676,394 @@ def telegram_webhook(secret: str):
                         chat_id,
                         "❌ Ошибка загрузки задачи. Попробуйте позже.",
                     )
-    
+
+        # =====================================================================
+        # GD Module — submit follow-up
+        # =====================================================================
+        if command == "" and chat_id:
+            submit_state = _GD_SUBMIT_STATE.get(user_id)
+            if submit_state and submit_state.get("step") == "awaiting_media":
+                level_name = submit_state.get("level_name", "")
+                media_file_id = None
+                media_type = None
+                if message.get("photo"):
+                    media_file_id = message["photo"][-1].get("file_id", "")
+                    media_type = "photo"
+                elif message.get("video"):
+                    media_file_id = message["video"].get("file_id", "")
+                    media_type = "video"
+                elif message.get("document"):
+                    media_file_id = message["document"].get("file_id", "")
+                    media_type = "document"
+                else:
+                    send_telegram_message(chat_id, "❌ Пожалуйста, отправьте видео или фото с прохождением.")
+                    return jsonify({"ok": True})
+                sub_id = create_gd_submission(user_id, name, level_name, media_file_id, media_type)
+                _GD_SUBMIT_STATE.pop(user_id, None)
+                if sub_id:
+                    send_telegram_message(
+                        chat_id,
+                        f"✅ **Заявка отправлена!**\n\nУровень: **{level_name}**\nСтатус: **Ожидает модерации**\n\nВаша заявка будет рассмотрена администратором.",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Попробуйте позже.")
+                return jsonify({"ok": True})
+
+        # =====================================================================
+        # GD Module — commands
+        # =====================================================================
+
+        # /gd — help
+        elif command == "/gd" and chat_id:
+            send_telegram_message(
+                chat_id,
+                "🎮 **Geometry Dash Module**\n\n"
+                "**Команды:**\n"
+                "`/gd_user <ник>` — инфо об игроке в GD\n"
+                "`/gd_level <id>` — инфо об уровне GD\n"
+                "`/leaderboard` — топ уровней\n"
+                "`/my_stats` — моя статистика\n"
+                "`/player_stats @user` — статистика игрока\n"
+                "`/submit <название>` — отправить прохождение\n"
+                "`/moderate` — модерация (админ)\n"
+                "`/add_level <название> <позиция>` — добавить уровень (админ)\n"
+                "`/set_level_position <id> <позиция>` — изменить позицию (админ)",
+                parse_mode="Markdown",
+            )
+
+        # /gd_user <username>
+        elif command == "/gd_user" and chat_id:
+            args = text.split()[1:] if text else []
+            if not args:
+                send_telegram_message(chat_id, "❌ Использование: `/gd_user <ник>`\nПример: `/gd_user Riot`", parse_mode="Markdown")
+            else:
+                username = args[0].strip()
+                send_telegram_message(chat_id, f"🔍 Ищу игрока **{username}** в Geometry Dash...", parse_mode="Markdown")
+                try:
+                    data = fetch_gd_user(username)
+                    if not data:
+                        send_telegram_message(chat_id, f"❌ Игрок **{username}** не найден.", parse_mode="Markdown")
+                    else:
+                        send_telegram_message(chat_id, format_gd_user_stats(data), parse_mode="Markdown")
+                except Exception as exc:
+                    print(f"gd_user error: {exc}")
+                    send_telegram_message(chat_id, "❌ Ошибка получения данных GD.")
+
+        # /gd_level <id>
+        elif command == "/gd_level" and chat_id:
+            args = text.split()[1:] if text else []
+            if not args:
+                send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID>`\nПример: `/gd_level 10565740`", parse_mode="Markdown")
+            else:
+                try:
+                    level_id = int(args[0])
+                except ValueError:
+                    send_telegram_message(chat_id, "❌ ID уровня должен быть числом.")
+                else:
+                    send_telegram_message(chat_id, f"🔍 Ищу уровень с ID **{level_id}**...", parse_mode="Markdown")
+                    try:
+                        data = fetch_gd_level(level_id)
+                        if not data:
+                            send_telegram_message(chat_id, f"❌ Уровень с ID **{level_id}** не найден.", parse_mode="Markdown")
+                        else:
+                            send_telegram_message(chat_id, format_gd_level_info(data), parse_mode="Markdown")
+                    except Exception as exc:
+                        print(f"gd_level error: {exc}")
+                        send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
+
+        # /leaderboard
+        elif command == "/leaderboard" and chat_id:
+            try:
+                levels = get_gd_leaderboard(20)
+                if not levels:
+                    send_telegram_message(chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни.")
+                else:
+                    lines = ["🏆 **Geometry Dash — Топ-20 уровней**\n"]
+                    for lv in levels:
+                        cnt = get_gd_completions_count(lv["id"])
+                        score = 101 - lv["position"]
+                        lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {cnt}")
+                    lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
+                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+            except Exception as exc:
+                print(f"leaderboard error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при загрузке топа уровней.")
+
+        # /my_stats
+        elif command == "/my_stats" and chat_id:
+            try:
+                stats = get_gd_player_stats(user_id)
+                if not stats:
+                    send_telegram_message(chat_id, "📊 У вас пока нет статистики.\n\nОтправьте своё первое прохождение через /submit!")
+                else:
+                    sc = get_gd_submission_counts(user_id)
+                    hardest = get_gd_hardest_level_name(user_id)
+                    completed = get_gd_user_completions_count(user_id)
+                    lines = [
+                        f"📊 **Статистика {name}**\n",
+                        f"🏆 **Хардест:** {hardest}",
+                        f"✅ **Подтверждённых прохождений:** {stats.get('total_approved', 0)}",
+                        f"📝 **Всего заявок:** {sc['total']}",
+                        f"⏳ **На модерации:** {sc['pending']}",
+                        f"❌ **Отклонено:** {sc['rejected']}",
+                        f"🎮 **Пройдено уровней:** {completed}",
+                    ]
+                    if sc["total"] > 0:
+                        rate = (sc["approved"] / sc["total"]) * 100
+                        lines.append(f"📈 **Процент одобрения:** {rate:.1f}%")
+                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+            except Exception as exc:
+                print(f"my_stats error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики.")
+
+        # /player_stats @username
+        elif command == "/player_stats" and chat_id:
+            args = text.split()[1:] if text else []
+            if not args:
+                send_telegram_message(chat_id, "❌ Укажите пользователя: `/player_stats @username`", parse_mode="Markdown")
+            else:
+                target = args[0].lstrip("@")
+                try:
+                    with get_db_engine().connect() as conn:
+                        target_user = conn.execute(
+                            text("SELECT telegram_id FROM users WHERE username ILIKE :un LIMIT 1"),
+                            {"un": target},
+                        ).mappings().first()
+                    if not target_user:
+                        send_telegram_message(chat_id, f"📊 Пользователь **{target}** не найден.", parse_mode="Markdown")
+                    else:
+                        target_id = target_user["telegram_id"]
+                        stats = get_gd_player_stats(target_id)
+                        if not stats:
+                            send_telegram_message(chat_id, f"📊 У пользователя **{target}** пока нет статистики GD.", parse_mode="Markdown")
+                        else:
+                            hardest = get_gd_hardest_level_name(target_id)
+                            completed = get_gd_user_completions_count(target_id)
+                            lines = [
+                                "📊 **Статистика игрока**\n",
+                                f"🏆 **Хардест:** {hardest}",
+                                f"✅ **Подтверждённых прохождений:** {stats.get('total_approved', 0)}",
+                                f"🎮 **Пройдено уровней:** {completed}",
+                            ]
+                            send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                except Exception as exc:
+                    print(f"player_stats error: {exc}")
+                    send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики игрока.")
+
+        # /submit <level_name>
+        elif command == "/submit" and chat_id:
+            args = text.split(maxsplit=1)
+            if len(args) < 2:
+                send_telegram_message(chat_id, "❌ Использование: `/submit <название уровня>`\nПример: `/submit Tartarus`", parse_mode="Markdown")
+            else:
+                level_name = args[1].strip()
+                _GD_SUBMIT_STATE[user_id] = {"step": "awaiting_media", "level_name": level_name}
+                send_telegram_message(
+                    chat_id,
+                    f"🎮 **Geometry Dash — Отправка прохождения**\n\nУровень: **{level_name}**\n\nОтправьте видео или фото с прохождением уровня:",
+                )
+
+        # /moderate (admin only)
+        elif command == "/moderate" and chat_id:
+            if not check_admin(user_id):
+                send_telegram_message(chat_id, "🔒 Нет прав администратора")
+            else:
+                try:
+                    submissions, total = get_gd_pending_submissions(0, 5)
+                    if not submissions:
+                        send_telegram_message(chat_id, "✅ Все заявки обработаны! Новых заявок нет.")
+                    else:
+                        total_pages = (total + 4) // 5
+                        lines = ["🎮 **Geometry Dash — Модерация заявок**"]
+                        lines.append(f"Страница 1/{total_pages} ({total} заявок)\n")
+                        for s in submissions:
+                            ts_str = str(s.get("submitted_at", ""))[:19] if s.get("submitted_at") else ""
+                            lines.append(
+                                f"📝 Заявка #{s['id']}\n"
+                                f"👤 Пользователь: {s.get('username', s['user_id'])}\n"
+                                f"🏆 Уровень: **{s['level_name']}**\n"
+                                f"📅 Отправлено: {ts_str}\n"
+                                f"📄 Тип: {s.get('media_type', 'media')}\n"
+                            )
+                        inline_kb = []
+                        if total_pages > 1:
+                            inline_kb.append([{"text": "➡️ Вперёд", "callback_data": "gd_moderate_page_1"}])
+                        inline_kb.append([
+                            {"text": "✅ Подтвердить", "callback_data": f"gd_moderate_approve_{submissions[0]['id']}"},
+                            {"text": "❌ Отклонить", "callback_data": f"gd_moderate_reject_{submissions[0]['id']}"},
+                        ])
+                        _GD_MODERATE_STATE[chat_id] = 0
+                        send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown", reply_markup={"inline_keyboard": inline_kb})
+                except Exception as exc:
+                    print(f"moderate error: {exc}")
+                    send_telegram_message(chat_id, "❌ Ошибка при загрузке заявок. Попробуйте позже.")
+
+        # /add_level <name> <position> (admin only)
+        elif command == "/add_level" and chat_id:
+            if not check_admin(user_id):
+                send_telegram_message(chat_id, "🔒 Нет прав администратора")
+            else:
+                args = text.split()
+                if len(args) < 3:
+                    send_telegram_message(chat_id, "❌ Использование: `/add_level <название> <позиция>`\nПример: `/add_level Tartarus 1`", parse_mode="Markdown")
+                else:
+                    try:
+                        pos = int(args[-1])
+                        name = " ".join(args[1:-1])
+                        if add_gd_level(name, pos):
+                            send_telegram_message(chat_id, f"✅ Уровень **{name}** добавлен на позицию {pos}.", parse_mode="Markdown")
+                        else:
+                            send_telegram_message(chat_id, "❌ Ошибка при добавлении уровня.")
+                    except ValueError:
+                        send_telegram_message(chat_id, "❌ Позиция должна быть числом.")
+
+        # /set_level_position <id> <pos> (admin only)
+        elif command == "/set_level_position" and chat_id:
+            if not check_admin(user_id):
+                send_telegram_message(chat_id, "🔒 Нет прав администратора")
+            else:
+                args = text.split()
+                if len(args) < 3:
+                    send_telegram_message(chat_id, "❌ Использование: `/set_level_position <id> <позиция>`\nПример: `/set_level_position 1 5`", parse_mode="Markdown")
+                else:
+                    try:
+                        lid = int(args[1])
+                        pos = int(args[2])
+                        if set_gd_level_position(lid, pos):
+                            send_telegram_message(chat_id, f"✅ Позиция уровня #{lid} изменена на {pos}.")
+                        else:
+                            send_telegram_message(chat_id, "❌ Ошибка при изменении позиции уровня.")
+                    except ValueError:
+                        send_telegram_message(chat_id, "❌ ID и позиция должны быть числами.")
+
     except Exception as e:
         print(f"Error processing update: {e}")
-
     return jsonify({"ok": True})
+
+
+# ============================================================================
+# GD Module — moderation callback handler
+# ============================================================================
+
+def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
+    """Handle GD moderation inline button callbacks."""
+    user = callback_query.get("from", {})
+    user_id = user.get("id")
+    cq_id = callback_query.get("id")
+    msg = callback_query.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    try:
+        if not user_id or not chat_id:
+            return
+        parts = callback_data.split("_")
+        if len(parts) < 3:
+            return
+        action = parts[2]
+        if action == "page":
+            page = int(parts[3])
+            _gd_moderate_show_page(callback_query, chat_id, page)
+        elif action == "approve":
+            sub_id = int(parts[3])
+            if not check_admin(user_id):
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": cq_id, "text": "🔒 Нет прав администратора", "show_alert": True},
+                    timeout=5,
+                )
+                return
+            if approve_gd_submission_db(sub_id, user_id):
+                send_telegram_message(chat_id, f"✅ Заявка #{sub_id} подтверждена!")
+            else:
+                send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
+            page = _GD_MODERATE_STATE.get(chat_id, 0)
+            _gd_moderate_show_page(callback_query, chat_id, page)
+        elif action == "reject":
+            sub_id = int(parts[3])
+            if not check_admin(user_id):
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": cq_id, "text": "🔒 Нет прав администратора", "show_alert": True},
+                    timeout=5,
+                )
+                return
+            if reject_gd_submission_db(sub_id, user_id):
+                send_telegram_message(chat_id, f"❌ Заявка #{sub_id} отклонена!")
+            else:
+                send_telegram_message(chat_id, f"❌ Ошибка отклонения заявки #{sub_id}.")
+            page = _GD_MODERATE_STATE.get(chat_id, 0)
+            _gd_moderate_show_page(callback_query, chat_id, page)
+    except Exception as exc:
+        print(f"gd_moderate_callback error: {exc}")
+    finally:
+        if cq_id:
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": cq_id},
+                    timeout=5,
+                )
+            except Exception as cb_err:
+                print(f"Error acking gd_moderate callback: {cb_err}")
+
+
+def _gd_moderate_show_page(callback_query: dict, chat_id: int, page: int) -> None:
+    """Edit moderate message to show a new page."""
+    try:
+        submissions, total = get_gd_pending_submissions(page, 5)
+        if not submissions:
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+                    json={
+                        "chat_id": chat_id,
+                        "message_id": callback_query["message"]["message_id"],
+                        "text": "✅ Все заявки обработаны! Новых заявок нет.",
+                    },
+                    timeout=5,
+                )
+            except Exception:
+                pass
+            return
+        total_pages = (total + 4) // 5
+        lines = ["🎮 **Geometry Dash — Модерация заявок**"]
+        lines.append(f"Страница {page + 1}/{total_pages} ({total} заявок)\n")
+        for s in submissions:
+            ts_str = str(s.get("submitted_at", ""))[:19] if s.get("submitted_at") else ""
+            lines.append(
+                f"📝 Заявка #{s['id']}\n"
+                f"👤 Пользователь: {s.get('username', s['user_id'])}\n"
+                f"🏆 Уровень: **{s['level_name']}**\n"
+                f"📅 Отправлено: {ts_str}\n"
+                f"📄 Тип: {s.get('media_type', 'media')}\n"
+            )
+        inline_kb = []
+        nav_row = []
+        if page > 0:
+            nav_row.append({"text": "⬅️ Назад", "callback_data": f"gd_moderate_page_{page - 1}"})
+        if page < total_pages - 1:
+            nav_row.append({"text": "➡️ Вперёд", "callback_data": f"gd_moderate_page_{page + 1}"})
+        if nav_row:
+            inline_kb.append(nav_row)
+        inline_kb.append([
+            {"text": "✅ Подтвердить", "callback_data": f"gd_moderate_approve_{submissions[0]['id']}"},
+            {"text": "❌ Отклонить", "callback_data": f"gd_moderate_reject_{submissions[0]['id']}"},
+        ])
+        _GD_MODERATE_STATE[chat_id] = page
+        payload = {
+            "chat_id": chat_id,
+            "message_id": callback_query["message"]["message_id"],
+            "text": "\n".join(lines),
+            "parse_mode": "Markdown",
+            "reply_markup": {"inline_keyboard": inline_kb},
+        }
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+            json=payload,
+            timeout=5,
+        )
+    except Exception as exc:
+        print(f"_gd_moderate_show_page error: {exc}")
 
 
 def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:

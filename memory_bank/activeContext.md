@@ -1,32 +1,32 @@
 # Active Context
 
 **Последнее обновление:** 2026-06-07  
-**Текущая фаза:** D10 — Production E2E парсинг всех ботов на Vercel
+**Текущая фаза:** GD Module for Vercel — перенос GD команд на Vercel webhook
 
 ## Текущий фокус
 
-### D10 — E2E парсинг всех ботов на Vercel (2026-06-07)
+### GD Module for Vercel (2026-06-07)
 
 **Цель:** Довести парсинг игровых сообщений на Vercel до production E2E — все боты из чата LucasTeam должны парситься через reply "парсинг".
 
-**Статус:** ✅ Завершено. Реализованы парсеры для 6 ботов.
+**Статус:** ✅ Завершено. Все GD команды перенесены в `api/index.py` для Vercel.
 
 **Завершено:**
-- ✅ Единая `parse_bot_message()` — перебирает парсеры по приоритету
-- ✅ GDcards: карты (`🤩 Орбы: +X`) + сундуки (`🎁 X открыл сундук`)
-- ✅ Гуся Cards: монеты (`💰 Монеты • +X`)
-- ✅ Shmalala рыбалка: монеты (`🎣 [Рыбалка] ... Монеты: +X`)
-- ✅ Shmalala karma: рейтинг (`рейтинг: X ❤️`)
-- ✅ Чайометр: профиль чая (`👤 Имя ... Сегодня: X.X л.`)
-- ✅ BunkerRP: окончание игры (`Прошли в бункер: 1. Name`)
-- ✅ Курсы из таблицы `conversion_rates` (PostgreSQL) с fallback на хардкод
-- ✅ Курсы откалиброваны на основе анализа чата за месяц
+- ✅ Sync GD API клиент (`fetch_gd_user`, `fetch_gd_level`) через `requests`
+- ✅ `format_gd_user_stats()`, `format_gd_level_info()` — форматирование ответов
+- ✅ 18 raw-SQL helpers для работы с таблицами GD (levels, submissions, player_stats, level_completions)
+- ✅ `/gd` — справка по GD командам
+- ✅ `/gd_user <ник>` — инфо об игроке в GD
+- ✅ `/gd_level <id>` — инфо об уровне GD
+- ✅ `/leaderboard` — топ уровней с количеством прохождений
+- ✅ `/my_stats` — личная статистика
+- ✅ `/player_stats @user` — статистика другого игрока
+- ✅ `/submit <название>` — отправка прохождения (2-step: название → медиа)
+- ✅ `/moderate` — админ-модерация с пагинацией и inline-кнопками
+- ✅ `/add_level <название> <позиция>` — админ: добавить уровень
+- ✅ `/set_level_position <id> <позиция>` — админ: изменить позицию
+- ✅ Callback handler для `gd_moderate_*` (page/approve/reject)
 - ✅ Ruff + py_compile passed
-
-**Коэффициенты парсинга:**
-- GDcards: 2.5 | Гуся Cards: 5.0 | Shmalala: 2.5 | Чайометр: 1.0 | BunkerRP: 50 flat
-
-**Коммиты:** D10 (не закоммичено)
 
 **Технический стек:**
 - Command router pattern в `api/index.py`
@@ -68,20 +68,6 @@
 
 ### 🎯 Следующие шаги
 
-1. **GD Module for Vercel** — приоритетное
-   - Перенести GD commands в `api/index.py` с префиксом `/gd_`
-   - Команды:
-     - `/gd_submit` — отправка прохождения
-     - `/gd_moderate` — админ-модерация
-     - `/gd_leaderboard` — топ уровней
-     - `/gd_my_stats` — личная статистика
-     - `/gd_player_stats` — статистика игрока
-     - `/gd_user <username>` — статистика из GD API
-     - `/gd_level <id>` — информация об уровне
-     - `/gd` — справка по всем GD командам
-   - Файлы: `api/index.py` (добавление GD handlers)
-   - Требуется: адаптация ConversationHandler под stateless Vercel
-
 1. **Chess Module: Доработка (CH-05, CH-06)** — 8%
    - Добавить детальные рейтинги в `/chess_rating` (bullet, blitz, rapid, classical)
    - Добавить игровую статистику в `/chess_stats` (games, wins, losses, draws)
@@ -95,15 +81,15 @@
    - UN-TEST: Manual testing
 
 3. **GD Module Testing:** 3%
-   - Manual testing всех GD команд
+   - Manual testing всех GD команд через webhook
    - Edge cases и UI/UX проверки
 
 ## Checkpoint: Phase 2 Progress
 
-**Phase 2: 71/100 (71%)**
+**Phase 2: 74/100 (74%)** (+3% GD Module for Vercel)
 - ✅ AI Module: 15% (completed)
 - ✅ Mom Module: 19% (completed)
-- ✅ GD Module: 56% (GD-01 to GD-07 completed, GD-TEST manual testing remaining: 3%)
+- ✅ GD Module: 30% (GD-01 to GD-07 completed + GD for Vercel)
 - ⏳ Chess Module: 12% (CH-02, CH-03, CH-04 completed, CH-05, CH-06, CH-TEST remaining: 8%)
 - ⏳ Universe Module: 10% (UN-01-02 completed, UN-03 pending: 4%)
 
@@ -115,7 +101,7 @@
 - ⏳ CH-06: Bank integration + history (3%)
 - ⏳ CH-TEST: Manual testing (2%)
 
-**Remaining:** 29% (Chess: 8%, GD-TEST: 3%, Universe: 4%, buffer: 14%)
+**Remaining:** 26% (Chess: 8%, GD-TEST: 3%, Universe: 4%, buffer: 11%)
 
 ## Технический контекст
 
@@ -148,37 +134,51 @@ database/migrations/
 - **Commands format:** underscore style (`/chess_link`, not `/chess link`)
 - **Database:** Supabase PostgreSQL, chess_accounts table with unique lichess_username constraint
 
-### GD Module Vercel Architecture (новая)
+### GD Module Vercel Architecture (✅ портирован)
 ```
 api/index.py                  # GD commands handler (Vercel webhook)
-├── get_gd_leaderboard()      # Show top levels
-├── get_my_stats()            # User personal stats
-├── get_player_stats()        # Another player stats
-├── /gd_submit                # Submit level completion (legacy - needs state)
-├── /gd_moderate              # Admin moderation (legacy - needs state)
-├── /gd_leaderboard           # Top 20 levels
-├── /gd_my_stats              # Personal statistics
-├── /gd_player_stats @user    # Another player stats
-├── /gd_user <username>       # GD API user stats
-├── /gd_level <id>            # GD API level info
-└── /gd                       # GD commands help
-
-database/database.py
-├── Level                     # Level definitions
-├── Submission                # User submissions
-├── PlayerStats               # User statistics
-└── LevelCompletion           # Completed levels
+├── fetch_gd_user()            # Sync GD API client (user info)
+├── fetch_gd_level()           # Sync GD API client (level info)
+├── format_gd_user_stats()     # Format user response
+├── format_gd_level_info()     # Format level response
+├── get_gd_level()             # DB: level by ID
+├── get_gd_leaderboard()       # DB: top levels
+├── get_gd_completions_count() # DB: completion count per level
+├── get_gd_player_stats()      # DB: player stats
+├── get_gd_build_player_stats()# DB: create/get player stats
+├── get_gd_submission_counts() # DB: submission stats
+├── get_gd_user_completions_count() # DB: user completion count
+├── get_gd_hardest_level_name()# DB: user's hardest level
+├── create_gd_submission()     # DB: create submission
+├── get_gd_pending_submissions()# DB: paginated pending
+├── approve_gd_submission_db() # DB: approve + update stats
+├── reject_gd_submission_db()  # DB: reject
+├── add_gd_level()             # DB: add level
+├── set_gd_level_position()    # DB: update position
+├── gd_moderate_callback()     # Inline button handler
+├── _gd_moderate_show_page()   # Pagination handler
+├── /gd                        # Help
+├── /gd_user <nick>            # GD API user stats
+├── /gd_level <id>             # GD API level info
+├── /leaderboard               # Top 20 levels
+├── /my_stats                  # Personal stats
+├── /player_stats @user        # Other player stats
+├── /submit <name>             # 2-step submission
+├── /moderate                  # Admin moderation
+├── /add_level <name> <pos>    # Admin: add level
+└── /set_level_position <id> <pos> # Admin: set position
 
 database/migrations/
-└── 009_phase2_tables_supabase.sql  # GD tables
+└── 009_phase2_tables_supabase.sql  # GD tables (already applied)
 ```
 
 ### GD Module Technical Details
-- **GD API Base:** `https://gd.api.lucasteam.xyz` (custom)
-- **Database:** Supabase PostgreSQL
-- **Commands format:** underscore style (`/gd_leaderboard`, `/gd_my_stats`)
-- **Vercel limitation:** ConversationHandler не поддерживается, нужна упрощённая реализация
-- **Админ-функционал:** требует дополнительной логики для stateless среды
+- **GD API:** `http://www.boomlings.com/database` (official GD servers)
+- **Database:** Supabase PostgreSQL, raw SQL via `get_db_engine()`
+- **Commands format:** underscore style (`/gd_user`, `/gd_level`, `/player_stats`)
+- **Submit:** 2-step stateless (state in `_GD_SUBMIT_STATE` dict)
+- **Moderate:** Pagination with inline approve/reject buttons
+- **Callback:** Handled via `gd_moderate_*` prefix in webhook callback routing
 
 ## Блокеры
 
@@ -186,25 +186,12 @@ database/migrations/
 
 ## Следующая сессия
 
-### Приоритет 1: GD Module для Vercel
-1. **Перенести GD commands в `api/index.py` с префиксом `/gd_`**
-   - `/gd_submit` — отправка прохождения
-   - `/gd_moderate` — админ-модерация  
-   - `/gd_leaderboard` — топ уровней
-   - `/gd_my_stats` — личная статистика
-   - `/gd_player_stats` — статистика игрока
-   - `/gd_user <username>` — статистика из GD API
-   - `/gd_level <id>` — информация об уровне
-   - `/gd` — справка по всем GD командам
-   - Файлы: `api/index.py` (добавление GD handlers)
-   - Требуется: адаптация под stateless Vercel (без ConversationHandler)
+### GD Module Testing
+- Проверка всех GD команд через webhook
+- Edge cases
+- UI/UX
 
-2. **GD Module Testing** — после переноса
-   - Проверка всех команд
-   - Edge cases
-   - UI/UX
-
-### Приоритет 2: Chess Module Доработка (CH-05, CH-06)
+### Приоритет: Chess Module Доработка (CH-05, CH-06)
    - Парсить `perfs` из Lichess API (bullet, blitz, rapid, classical ratings)
    - Показывать количество игр, winrate если доступно
    - Реализовать систему проверки решения puzzle (через callback buttons или текстовый ввод)
