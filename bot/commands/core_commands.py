@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.error import NetworkError, TimedOut
 from telegram.ext import ContextTypes
 from bot.short_mode import is_short_mode
+from bot.response_modes import set_user_mode
 
 logger = structlog.get_logger()
 
@@ -161,6 +162,20 @@ ID: {user_id}
 /long — полный режим для себя
 /long_all — полный режим для всех
 """
+
+
+async def short_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Switch to short response mode."""
+    user_id = update.effective_user.id if update.effective_user else None
+    set_user_mode(user_id, "short")
+    await update.message.reply_text("✅ Короткий режим включен. Используйте /long для полных ответов.")
+
+
+async def long_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Switch to long response mode."""
+    user_id = update.effective_user.id if update.effective_user else None
+    set_user_mode(user_id, "long")
+    await update.message.reply_text("✅ Длинный режим включен. Используйте /short для кратких ответов.")
 
 
 async def welcome_command(

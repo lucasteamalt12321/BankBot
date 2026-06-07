@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
+import random
+import re
+import sys
 from datetime import datetime
 from flask import Flask, jsonify, request
 import requests
@@ -12,9 +16,9 @@ from sqlalchemy import create_engine, text
 app = Flask(__name__)
 
 # Webhook secret
-WEBHOOK_SECRET = os.getenv(
-    "WEBHOOK_SECRET", "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
-)
+_raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
+WEBHOOK_SECRET = _raw_webhook_secret if _raw_webhook_secret else "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
+print(f"[STARTUP] WEBHOOK_SECRET length: {len(WEBHOOK_SECRET)}, first 10 chars: {WEBHOOK_SECRET[:10]}")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
@@ -41,7 +45,8 @@ def get_db_engine():
             or "sqlite:///data/bot.db"
         )
         DB_ENGINE = create_engine(
-            normalize_database_url(database_url), pool_pre_ping=True
+            normalize_database_url(database_url), pool_pre_ping=True,
+            connect_args={"connect_timeout": 10},
         )
     return DB_ENGINE
 
@@ -771,6 +776,31 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
     response.raise_for_status()
 
 
+def send_telegram_poll(
+    chat_id: int, question: str, options: list[str], correct_option_id: int, explanation: str
+) -> None:
+    """Send a Telegram Poll (quiz type) from the Vercel webhook runtime."""
+
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+
+    payload = {
+        "chat_id": chat_id,
+        "question": question[:300],
+        "options": options,
+        "type": "quiz",
+        "correct_option_id": correct_option_id,
+        "is_anonymous": False,
+        "explanation": explanation[:200],
+    }
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPoll",
+        json=payload,
+        timeout=5,
+    )
+    response.raise_for_status()
+
+
 def get_response_mode(chat_id: int | None) -> str:
     """Return response mode for a chat in the lightweight Vercel runtime."""
 
@@ -1068,6 +1098,189 @@ def reading_trainer():
     return html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+# ── Vercel trivia (no external imports) ──────────────────────────────────
+
+_TRIVIA_QUESTIONS: list[dict] = [
+    {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан"},
+    {"id": 2, "group": "rules", "text": "Что из перечисленного является строго ЗАПРЕЩЁННОЙ темой в каноническом творчестве?", "correct_text": "Внешность и медицинские диагнозы реальных людей"},
+    {"id": 3, "group": "rules", "text": "Какой уровень канонизации требует обязательного одобрения и Луки, и Олега?", "correct_text": "Высокий канон (🔵)"},
+    {"id": 4, "group": "tracks", "text": "Какой трек является первым документом вселенной Олеговируса?", "correct_text": "«Рома» (Олег, 11 декабря 2025)"},
+    {"id": 5, "group": "tracks", "text": "В каком треке впервые прозвучал термин «олеговирус»?", "correct_text": "«Олег, как ты задолбал» (Лука, 26 декабря 2025)"},
+    {"id": 6, "group": "tracks", "text": "Кто из сторонних участников первым внёс вклад в мифологию, написав трек «Олеговирус»?", "correct_text": "Рома"},
+    {"id": 7, "group": "tracks", "text": "Какая статья впервые дала Олеговирусу научное описание с антигенами KHM и POST?", "correct_text": "«Olegovirus checkmarevus» (Лука, апрель 2026)"},
+    {"id": 8, "group": "tracks", "text": "Почему трек «Вирус LucasTeamLuke» признан неканоничным?", "correct_text": "Нарушает именование (LucasTeamLuke) и упоминает внешность"},
+    {"id": 9, "group": "tracks", "text": "Какая статья Олега описывает LTL-паразита с синдромами СГД и СНЧ, но требует переработки из-за внешности?", "correct_text": "«LukasTeamLuke sp. nov.» (средний канон, 🟡)"},
+    {"id": 10, "group": "tracks", "text": "В каких отношениях состоят олеговирус и LTL-паразит согласно статье «Olegovirus checkmarevus»?", "correct_text": "Союзничество-конкурентство"},
+    {"id": 11, "group": "tracks", "text": "Какой трек Ромы впервые сводит обоих агентов (олеговирус и LTL-паразита) в одном пространстве?", "correct_text": "«Тень агента (V.2)» (апрель 2026)"},
+    {"id": 12, "group": "candy", "text": "Какая базовая награда конфетами за прохождение Nine Circles?", "correct_text": "1 конфета за 2% прохождения"},
+    {"id": 13, "group": "candy", "text": "Сколько конфет полагается за 1% на сложных партах (61-70%) Nine Circles?", "correct_text": "1 конфета за 1% прохождения"},
+    {"id": 14, "group": "candy", "text": "Кто такой «Хранитель конфет» в конфетной экономике?", "correct_text": "Лука (отказался от своей награды в 28 конфет)"},
+    {"id": 15, "group": "candy", "text": "Сколько конфет получил Рома после «инфляции счастья» (умножение на 1.5, округление вверх)?", "correct_text": "16 конфет"},
+    {"id": 16, "group": "tea", "text": "Каким священным выражением заканчиваются молитвы в Чайной религии (Teaology)?", "correct_text": "eight-nine"},
+    {"id": 17, "group": "tea", "text": "Кто автор и создатель Чайной религии (Teaology)?", "correct_text": "Лука (LucasTeam, 27 апреля 2026)"},
+    {"id": 18, "group": "tracks", "text": "Какой трек Луки стал первым «бытовым» произведением в каноне (3 мая 2026)?", "correct_text": "«Восемь километров (походный дневник)»"},
+    {"id": 19, "group": "ltrs", "text": "Какие координаты (хаос; экспрессивность) у Луки в рейтинге LTRS?", "correct_text": "(10; 46) — ритуальный экспрессив"},
+    {"id": 20, "group": "ltrs", "text": "Кто в рейтинге LTRS имеет тип личности «мемный экспрессив»?", "correct_text": "Рома (23; 26)"},
+    {"id": 21, "group": "glossary", "text": "Что такое «антиген KHM» в терминологии Олеговируса?", "correct_text": "Реакция «закатывание глаз» у окружающих"},
+    {"id": 22, "group": "glossary", "text": "Что в глоссарии канона означает термин «Парадокс ожидания»?", "correct_text": "Бронь парта сгорает, его проходит Хранитель конфет"},
+    {"id": 23, "group": "glossary", "text": "Кто в глоссарии LTRS определяется как «Пассивный изолят»?", "correct_text": "Саша (15; 14)"},
+]
+
+
+_AI_QUESTIONS_PROMPT = """Ты — генератор викторин по канону вселенной Олеговируса и LTL-паразита.
+Используя текст канона ниже, составь один вопрос с четырьмя вариантами ответа.
+
+Формат ответа (строго):
+Вопрос: <текст вопроса>
+1. <вариант>
+2. <вариант>
+3. <вариант>
+4. <вариант>
+Правильный ответ: <номер от 1 до 4>
+Объяснение: <почему это правильный ответ>
+
+ВАЖНЕЙШЕЕ ПРАВИЛО: Все четыре варианта ответа должны быть из ОДНОГО раздела канона.
+Примеры:
+  ПЛОХО: вопрос про треки → варианты про конфеты, чай, именование
+  ХОРОШО: вопрос про треки → все варианты — разные названия треков
+  ПЛОХО: вопрос про конфетную экономику → варианты про LTRS, антигены, имена
+  ХОРОШО: вопрос про конфетную экономику → все варианты про конфеты и проценты
+
+Правила:
+- Вопрос должен проверять ЗНАНИЕ канона, а не быть очевидным.
+- Правильный ответ — точная цитата или факт из канона.
+- Неправильные варианты должны звучать ПРАВДОПОДОБНО в той же теме.
+- НЕ используй имена участников (Лука, Олег, Рома, Никита и т.д.) как неправильные ответы.
+- Пиши строго в указанном формате, без лишнего текста.
+
+=== КАНОН ===
+{canon}
+"""
+
+_AI_QUESTIONS_FALLBACK_PROMPT = """Ты — генератор викторин. Придумай вопрос на тему "Команды и возможности банковского бота BankBot".
+Составь один вопрос с четырьмя вариантами ответа.
+
+Формат ответа (строго):
+Вопрос: <текст вопроса>
+1. <вариант>
+2. <вариант>
+3. <вариант>
+4. <вариант>
+Правильный ответ: <номер от 1 до 4>
+Объяснение: <почему это правильный ответ>
+"""
+
+
+def _load_canon_trivia(max_chars: int = 2000) -> str:
+    for candidate in [
+        os.path.join(os.path.dirname(__file__), "canon_knowledge.txt"),
+        os.path.join(os.path.dirname(__file__), "..", "data", "canon_knowledge.txt"),
+    ]:
+        try:
+            if os.path.exists(candidate):
+                with open(candidate, encoding="utf-8") as f:
+                    return f.read()[:max_chars].rstrip()
+        except OSError:
+            pass
+    return ""
+
+
+def _parse_ai_question(text: str) -> dict | None:
+    lines = text.strip().split("\n")
+    question_text = ""
+    options: list[str] = []
+    correct_answer = ""
+    explanation = ""
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Вопрос:"):
+            question_text = stripped[len("Вопрос:"):].strip()
+        elif re.match(r"^[1-4]\.\s", stripped):
+            options.append(re.sub(r"^[1-4]\.\s*", "", stripped))
+        elif stripped.startswith("Правильный ответ:"):
+            correct_answer = stripped[len("Правильный ответ:"):].strip()
+        elif stripped.startswith("Объяснение:"):
+            explanation = stripped[len("Объяснение:"):].strip()
+
+    if not question_text or len(options) < 4 or not correct_answer or not explanation:
+        return None
+
+    try:
+        correct_idx = int(correct_answer) - 1
+    except ValueError:
+        return None
+
+    if correct_idx < 0 or correct_idx >= len(options):
+        return None
+
+    return {
+        "text": question_text,
+        "options": options,
+        "correct_index": correct_idx,
+        "correct_text": options[correct_idx],
+        "explanation": explanation,
+    }
+
+
+def _call_ai_api_fast(prompt: str, max_tokens: int = 200, timeout: float = 4.0) -> str:
+    """Fast AI call with short timeout for trivia."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return "❌"
+    try:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.7},
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception:
+        pass
+    return "❌"
+
+
+def _vercel_trivia_question() -> dict | None:
+    # Try AI first with short timeout
+    canon = _load_canon_trivia()
+    if canon:
+        prompt = _AI_QUESTIONS_PROMPT.format(canon=canon[:1500])
+        ai_text = _call_ai_api_fast(prompt, max_tokens=400, timeout=5.0)
+        if ai_text and not ai_text.startswith("❌"):
+            parsed = _parse_ai_question(ai_text)
+            if parsed:
+                return parsed
+
+    # Fallback to hardcoded questions
+    if not _TRIVIA_QUESTIONS:
+        return None
+    question = random.choice(_TRIVIA_QUESTIONS)
+    correct_text = question["correct_text"]
+    q_group = question.get("group", "")
+
+    same_group = [q for q in _TRIVIA_QUESTIONS if q.get("group") == q_group and q["correct_text"] != correct_text]
+    other = [q for q in _TRIVIA_QUESTIONS if q.get("group") != q_group and q["correct_text"] != correct_text]
+
+    distractors_pool = [q["correct_text"] for q in same_group]
+    if len(distractors_pool) < 3:
+        distractors_pool += [q["correct_text"] for q in other]
+
+    fake_answers = random.sample(distractors_pool, min(3, len(distractors_pool)))
+
+    options = [correct_text] + fake_answers
+    random.shuffle(options)
+    correct_index = options.index(correct_text)
+
+    return {
+        "text": question["text"],
+        "options": options,
+        "correct_index": correct_index,
+        "correct_text": correct_text,
+    }
+
+
 @app.route("/telegram/webhook/<secret>", methods=["POST"])
 def telegram_webhook(secret: str):
     """Receive Telegram webhook and forward to processing."""
@@ -1084,7 +1297,7 @@ def telegram_webhook(secret: str):
     # Handle callback_query for trivia answers
     callback_query = update.get("callback_query", {})
     callback_data = callback_query.get("data", "")
-    if callback_data and callback_data.startswith("trivia_answer_"):
+    if callback_data and callback_data.startswith("trivia_"):
         trivia_answer_callback(callback_query, callback_data)
         return jsonify({"ok": True})
 
@@ -1530,9 +1743,6 @@ def telegram_webhook(secret: str):
             explanation = question["explanation"]
             
             try:
-                # Build options list for Telegram poll
-                poll_options = [{"text": opt, "voter_count": 0} for opt in options]
-                
                 # Send native Telegram poll via API
                 bot_token = os.getenv("BOT_TOKEN", "")
                 if bot_token:
@@ -1557,30 +1767,32 @@ def telegram_webhook(secret: str):
                             "🎯 **Викторина по канону** отправлена!\nОтветьте на опрос выше. Правильный ответ даст +25 монет.",
                             parse_mode="Markdown",
                         )
+                        return jsonify({"ok": True})
                     else:
                         print(f"sendPoll error: {response.text}")
-                        # Fallback to text
                         raise Exception("sendPoll failed")
                 else:
                     raise Exception("BOT_TOKEN not set")
             except Exception as exc:
                 print(f"Error sending trivia poll: {exc}")
-                # Fallback to text question with buttons
-                send_telegram_message(
-                    chat_id,
-                    f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:",
-                    parse_mode="Markdown",
-                )
-                inline_keyboard = []
-                for i, opt in enumerate(options):
-                    inline_keyboard.append([
-                        {"text": f"✅ {opt}", "callback_data": f"trivia_answer_{i}"}
-                    ])
-                send_telegram_message(
-                    chat_id,
-                    "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +25 монет.",
-                    reply_markup={"inline_keyboard": inline_keyboard},
-                )
+            
+            # Fallback to text question with inline buttons
+            send_telegram_message(
+                chat_id,
+                f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:",
+                parse_mode="Markdown",
+            )
+            inline_keyboard = []
+            for i, opt in enumerate(options):
+                inline_keyboard.append([
+                    {"text": f"✅ {opt}", "callback_data": f"trivia_{i}_{correct_index}"}
+                ])
+            send_telegram_message(
+                chat_id,
+                "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +25 монет.",
+                reply_markup={"inline_keyboard": inline_keyboard},
+            )
+            return jsonify({"ok": True})
 
         # /chess command
         elif command == "/chess" and chat_id:
@@ -1888,36 +2100,99 @@ def telegram_webhook(secret: str):
 
 def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
     """Handle trivia answer selection."""
+    message = callback_query.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    user = callback_query.get("from", {})
+    user_id = user.get("id")
+    callback_query_id = callback_query.get("id")
+    
     try:
-        message = callback_query.get("message", {})
-        chat_id = message.get("chat", {}).get("id")
+        if not user_id:
+            print("trivia_callback: no user_id in callback_query")
+            return
         
-        # Get the original question data from the inline keyboard (for stateful version)
-        _ = message.get("reply_markup", {}).get("inline_keyboard", [])
+        # Parse callback_data: trivia_{index}_{correct_index}
+        parts = callback_data.split("_")
+        if len(parts) < 3:
+            print(f"trivia_callback: invalid format {callback_data}")
+            send_telegram_message(chat_id, "❌ Неверный формат ответа")
+            return
         
-        # For stateless Vercel: we can't verify exact answer without storing game state
-        # Just acknowledge callback (no coins awarded yet)
-        # In production with full state: store game state in DB and verify answer
+        try:
+            selected_index = int(parts[1])
+            correct_index = int(parts[2])
+        except ValueError as e:
+            print(f"trivia_callback: parse error {e}")
+            send_telegram_message(chat_id, "❌ Ошибка парсинга ответа")
+            return
         
-        send_telegram_message(
-            chat_id,
-            "🎯 Викторина\n\n⚠️ Для полноценной викторины с проверкой ответов требуется сохранение состояния.\n\n"
-            "Ваш ответ: ... (нужна адаптация под Vercel stateless)",
-        )
+        print(f"trivia_callback: user_id={user_id}, selected={selected_index}, correct={correct_index}")
         
-        # Optional: ack the callback query (Telegram shows spinning circle)
+        if selected_index == correct_index:
+            try:
+                db = get_db_engine()
+                with db.connect() as conn:
+                    row = conn.execute(
+                        text("SELECT id, balance FROM users WHERE telegram_id = :user_id"),
+                        {"user_id": user_id},
+                    ).mappings().first()
+                    
+                    if row:
+                        user_db_id = row["id"]
+                        new_balance = int(row["balance"]) + 10
+                        conn.execute(
+                            text("UPDATE users SET balance = :new_balance WHERE id = :user_db_id"),
+                            {"new_balance": new_balance, "user_db_id": user_db_id},
+                        )
+                        conn.execute(
+                            text("""
+                                INSERT INTO transactions (user_id, amount, transaction_type, description)
+                                VALUES (:user_db_id, 10, 'trivia_win', 'Викторина: правильный ответ')
+                            """),
+                            {"user_db_id": user_db_id},
+                        )
+                        conn.commit()
+                        
+                        send_telegram_message(
+                            chat_id,
+                            f"🎉 Правильно! +10 монет\n💳 Новый баланс: {new_balance}",
+                        )
+                    else:
+                        # Create user if not exists
+                        conn.execute(
+                            text("""
+                                INSERT INTO users (telegram_id, balance, total_earned, first_name, last_name, username, created_at)
+                                VALUES (:user_id, 10, 10, :first_name, :last_name, :username, CURRENT_TIMESTAMP)
+                            """),
+                            {
+                                "user_id": user_id,
+                                "first_name": user.get("first_name"),
+                                "last_name": user.get("last_name"),
+                                "username": user.get("username"),
+                            },
+                        )
+                        conn.commit()
+                        
+                        send_telegram_message(chat_id, "🎉 Правильно! +10 монет")
+            except Exception as db_err:
+                print(f"Error awarding trivia coins: {db_err}")
+                send_telegram_message(chat_id, "❌ Ошибка базы данных. Монеты не начислены.")
+        else:
+            send_telegram_message(chat_id, "❌ Неправильный ответ")
+    except Exception as exc:
+        print(f"Error handling trivia answer: {exc}")
+    finally:
+        # Always ack callback so button stops loading
         bot_token = os.getenv("BOT_TOKEN", "")
-        if bot_token:
+        if bot_token and callback_query_id:
             try:
                 requests.post(
                     f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
-                    json={"callback_query_id": callback_query.get("id")},
+                    json={"callback_query_id": callback_query_id},
                     timeout=5,
                 )
             except Exception as cb_err:
                 print(f"Error acking callback: {cb_err}")
-    except Exception as exc:
-        print(f"Error handling trivia answer: {exc}")
 
 
 def generate_trivia_from_canon(chat_id: int) -> str | None:
@@ -2005,27 +2280,19 @@ def test_ai():
 @app.route("/api/test_telegram", methods=["GET"])
 def test_telegram():
     """Test Telegram API access from Vercel."""
+    import json as _json
+    result = {"bot_token_set": bool(BOT_TOKEN)}
     try:
-        response = requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getMe",
-            timeout=10,
-        )
-        return jsonify(
-            {
-                "status": "success",
-                "telegram_accessible": True,
-                "status_code": response.status_code,
-                "response": response.json(),
-            }
-        )
+        me = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+        result["getMe"] = me.json() if me.ok else me.text[:200]
     except Exception as e:
-        return jsonify(
-            {
-                "status": "error",
-                "telegram_accessible": False,
-                "error": str(e),
-            }
-        )
+        result["getMe_error"] = str(e)
+    try:
+        wh = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
+        result["getWebhookInfo"] = wh.json().get("result") if wh.ok else wh.text[:200]
+    except Exception as e:
+        result["getWebhookInfo_error"] = str(e)
+    return jsonify(result)
 
 
 @app.route("/api/debug_hf", methods=["GET"])
@@ -2316,6 +2583,18 @@ def get_fallback_sets():
         },
     ]
 
+
+@app.route("/api/set_webhook", methods=["GET"])
+def set_webhook():
+    """Set Telegram webhook to the current Vercel deployment."""
+    secret = os.getenv("WEBHOOK_SECRET") or "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
+    base = request.host_url.rstrip("/")
+    webhook_url = f"{base}/telegram/webhook/{secret}"
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={webhook_url}&secret_token={secret}&allowed_updates=message&allowed_updates=callback_query", timeout=10)
+        return jsonify({"set": r.json(), "url": webhook_url, "bot_token_set": bool(BOT_TOKEN)})
+    except Exception as e:
+        return jsonify({"error": str(e), "url": webhook_url})
 
 # Vercel handler
 handler = app

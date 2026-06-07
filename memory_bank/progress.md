@@ -393,17 +393,24 @@
   - Unknown commands now receive a `/commands` fallback response instead of silence.
 
 ## Current Known Issues / Watchlist
-- HF networking can still produce Telegram `TimedOut`; PTB polling should remain active, but run logs should be monitored after deploy.
-- Telegram `RetryAfter: Flood control exceeded` happened after accumulated group `/start@lt_lo_game_bot` messages were processed. Safe `/start` remains the mitigation; do not re-enable blanket `drop_pending_updates=True` on HF unless command loss is acceptable.
-- After deployment, manually smoke-test `/start`, `/user`, `/ai`, `/shop`, `/games`, `/games_list`, `/dnd`, `/dnd_roll`, `/startgame`, `/turn`, `/feedback`, `/long`→`/start`, `/feedback_list` in Telegram.
-- DB01 production persistence is active; continue monitoring Supabase connection limits/latency and feedback storage.
+- HF Space (`lucasteam-bankbot.hf.space`) всё ещё показывает import error, не пересобирается из git push
+- `GROQ_API_KEY` добавлен на Vercel, работает для AI-викторины
+- BOT_TOKEN пересоздан на Vercel через `vercel env add`
+- Webhook теперь указывает на `bank-bot-ruby.vercel.app`
 
 ## last_checked_commit
-- 45324b1 (2026-06-03, HF deprecated, GD Module Vercel planning)
-- 72fb9c6 (2026-06-03, Chess Module final docs sync)
-- 8f33214 (2026-06-03, Chess Module: puzzle board image display)
-- 10266ba (2026-06-03, Chess Module: underscore command format)
-- fb3819e (2026-06-03, Chess Module: base implementation with Lichess API)
+- 9a8a658 (2026-06-06, force vercel redeploy)
+- 0b8980d (2026-06-06, fix: add short_mode_command back to core_commands)
+
+### 2026-06-06 (Vercel Production Fixes + AI Trivia)
+- **HF Space crashed** с `ImportError: cannot import name 'short_mode_command'` — `bot.py` импортирует `short_mode_command` из `core_commands.py`, но функция была удалена в предыдущем рефакторинге. **Fix:** добавлена обратно в `core_commands.py`.
+- **HF Space не пересобирается** из git push — Docker образ на HF Space не обновляется автоматически. **Webhook переключён на Vercel.**
+- **Vercel webhook не работал** — Telegram всё ещё отправлял updates на HF Space (webhook не был переключён, т.к. запросы к Telegram API не проходили с этой машины). **Fix:** добавлен endpoint `/api/set_webhook`, который переключает webhook с Vercel через Telegram API.
+- **BOT_TOKEN был пуст на Vercel** — проектная env var BOT_TOKEN была `""` (пустая строка). Бот не мог отправлять сообщения. **Fix:** удалён старый BOT_TOKEN через `vercel env rm`, создан новый через `vercel env add`.
+- **/trivia не работал через import questions.py** — на Vercel нет зависимостей `aiohttp`, `python-telegram-bot`. **Fix:** вся логика викторины (23 вопроса + AI-генерация + парсинг) перенесена напрямую в `api/index.py`.
+- **AI-викторина на Vercel:** Groq API + контекст канона (первые 1500 символов), таймаут 5 секунд. Если AI не отвечает — fallback на готовые вопросы.
+- **canon_knowledge.txt на Vercel:** файл скопирован в `api/canon_knowledge.txt` для доступа из serverless функции.
+- **Файлы:** `api/index.py` (+викторина, +AI, +set_webhook, +debug), `api/canon_knowledge.txt`, `bot/commands/core_commands.py` (+short_mode_command)
 
 ### 2026-05-04 (Network & Notification Fixes)
 - **Proxy Support**: Added `PROXY_URL` configuration to `src/config.py` and implemented proxy logic in `bot/bot.py` using `ApplicationBuilder.proxy_url`.

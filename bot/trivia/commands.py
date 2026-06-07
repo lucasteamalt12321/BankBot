@@ -14,7 +14,7 @@ from bot.trivia.service import TriviaService
 
 logger = structlog.get_logger()
 
-TRIVIA_COINS_REWARD = 25
+TRIVIA_COINS_REWARD = 10
 GAME_TIMEOUT_SECONDS = 60
 
 
@@ -39,7 +39,7 @@ async def trivia_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
     # Pick a random question and generate distractors dynamically
-    question = generate_trivia_question()
+    question = await generate_trivia_question()
     question_text = question["text"]
     options = question["options"]
     correct_shuffled_index = question["correct_index"]
