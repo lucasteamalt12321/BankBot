@@ -50,7 +50,56 @@ def get_db_engine():
             normalize_database_url(database_url), pool_pre_ping=True,
             connect_args={"connect_timeout": 10},
         )
+    _ensure_gd_tables(DB_ENGINE)
     return DB_ENGINE
+
+
+def _ensure_gd_tables(engine):
+    """Create GD module tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS levels (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    position INTEGER NOT NULL DEFAULT 0
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS submissions (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    username TEXT,
+                    level_name TEXT NOT NULL,
+                    media_file_id TEXT,
+                    media_type TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reviewed_at TIMESTAMP,
+                    reviewed_by BIGINT
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS player_stats (
+                    user_id BIGINT PRIMARY KEY,
+                    total_approved INTEGER DEFAULT 0,
+                    total_rejected INTEGER DEFAULT 0,
+                    hardest_level_id INTEGER,
+                    last_submission TIMESTAMP
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS level_completions (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    level_id INTEGER NOT NULL REFERENCES levels(id),
+                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, level_id)
+                )
+            """))
+            conn.commit()
+    except Exception as exc:
+        print(f"GD table init error: {exc}")
 
 
 def get_user_balance(user_id: int) -> tuple[int, bool]:
