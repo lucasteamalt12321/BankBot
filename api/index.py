@@ -1514,44 +1514,73 @@ def telegram_webhook(secret: str):
                     lines.append(f"{status} {item['name']}")
                 send_telegram_message(chat_id, "\n".join(lines))
 
-        # Trivia command - generate question from canon using AI
+        # Trivia command - use static questions with Telegram poll for Vercel
         elif command == "/trivia" and chat_id:
-            # Try AI generation from canon knowledge first
-            trivia_message = generate_trivia_from_canon(chat_id)
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
+            )
+            trivia_questions = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(trivia_questions)
             
-            # Fallback to static questions if AI generation fails
-            if trivia_message is None:
-                import importlib.util
-                spec = importlib.util.spec_from_file_location(
-                    "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
+            question = trivia_questions.generate_trivia_question()
+            question_text = question["text"]
+            options = question["options"]
+            correct_index = question["correct_index"]
+            explanation = question["explanation"]
+            
+            try:
+                # Build options list for Telegram poll
+                poll_options = [{"text": opt, "voter_count": 0} for opt in options]
+                
+                # Send native Telegram poll via API
+                bot_token = os.getenv("BOT_TOKEN", "")
+                if bot_token:
+                    response = requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendPoll",
+                        json={
+                            "chat_id": chat_id,
+                            "question": question_text[:300],
+                            "options": [opt[:100] for opt in options],
+                            "type": "quiz",
+                            "correct_option_id": correct_index,
+                            "explanation": explanation[:200],
+                            "explanation_parse_mode": "Markdown",
+                            "is_anonymous": False,
+                        },
+                        timeout=10,
+                    )
+                    
+                    if response.status_code == 200:
+                        send_telegram_message(
+                            chat_id,
+                            "🎯 **Викторина по канону** отправлена!\nОтветьте на опрос выше. Правильный ответ даст +25 монет.",
+                            parse_mode="Markdown",
+                        )
+                    else:
+                        print(f"sendPoll error: {response.text}")
+                        # Fallback to text
+                        raise Exception("sendPoll failed")
+                else:
+                    raise Exception("BOT_TOKEN not set")
+            except Exception as exc:
+                print(f"Error sending trivia poll: {exc}")
+                # Fallback to text question with buttons
+                send_telegram_message(
+                    chat_id,
+                    f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:",
+                    parse_mode="Markdown",
                 )
-                trivia_questions = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(trivia_questions)
-                
-                question = trivia_questions.generate_trivia_question()
-                question_text = question["text"]
-                options = question["options"]
-                
-                # Build inline keyboard for answers
                 inline_keyboard = []
                 for i, opt in enumerate(options):
                     inline_keyboard.append([
                         {"text": f"✅ {opt}", "callback_data": f"trivia_answer_{i}"}
                     ])
-                
-                trivia_message = (
-                    f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:"
-                )
-                send_telegram_message(chat_id, trivia_message, parse_mode="Markdown")
                 send_telegram_message(
                     chat_id,
                     "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +25 монет.",
                     reply_markup={"inline_keyboard": inline_keyboard},
                 )
-                return jsonify({"ok": True})
-            else:
-                # AI-generated question (simple text format, no callback)
-                send_telegram_message(chat_id, trivia_message)
 
         # /chess command
         elif command == "/chess" and chat_id:
