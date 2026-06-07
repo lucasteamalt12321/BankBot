@@ -66,6 +66,7 @@ def _ensure_gd_tables(engine):
                     position INTEGER NOT NULL DEFAULT 0
                 )
             """))
+            conn.commit()
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS submissions (
                     id SERIAL PRIMARY KEY,
@@ -80,6 +81,7 @@ def _ensure_gd_tables(engine):
                     reviewed_by BIGINT
                 )
             """))
+            conn.commit()
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS player_stats (
                     user_id BIGINT PRIMARY KEY,
@@ -89,6 +91,7 @@ def _ensure_gd_tables(engine):
                     last_submission TIMESTAMP
                 )
             """))
+            conn.commit()
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS level_completions (
                     id SERIAL PRIMARY KEY,
@@ -99,8 +102,9 @@ def _ensure_gd_tables(engine):
                 )
             """))
             conn.commit()
+        print("[GD] Tables ensured successfully")
     except Exception as exc:
-        print(f"GD table init error: {exc}")
+        print(f"[GD] Table init error: {exc}")
 
 
 def get_user_balance(user_id: int) -> tuple[int, bool]:
@@ -799,16 +803,33 @@ def get_gd_hardest_level_name(user_id: int) -> str:
 
 def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str) -> int | None:
     try:
-        with get_db_engine().connect() as conn:
-            result = conn.execute(
-                text("""
-                    INSERT INTO submissions (user_id, username, level_name, media_file_id, media_type, status)
-                    VALUES (:uid, :un, :ln, :mfid, :mt, 'pending') RETURNING id
-                """),
-                {"uid": user_id, "un": username, "ln": level_name, "mfid": media_file_id, "mt": media_type},
-            ).mappings().first()
-            conn.commit()
-            return int(result["id"]) if result else None
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            if media_file_id:
+                # Full submission with media
+                result = conn.execute(
+                    text("""
+                        INSERT INTO submissions (user_id, username, level_name, media_file_id, media_type, status)
+                        VALUES (:uid, :un, :ln, :mfid, :mt, 'pending') RETURNING id
+                    """),
+                    {"uid": user_id, "un": username, "ln": level_name, "mfid": media_file_id, "mt": media_type},
+                ).mappings().first()
+                conn.commit()
+                if result:
+                    return int(result["id"])
+                print("create_gd_submission: no result from RETURNING")
+                return None
+            else:
+                # Create placeholder submission (media pending)
+                result = conn.execute(
+                    text("""
+                        INSERT INTO submissions (user_id, username, level_name, status)
+                        VALUES (:uid, :un, :ln, 'pending_media') RETURNING id
+                    """),
+                    {"uid": user_id, "un": username, "ln": level_name},
+                ).mappings().first()
+                conn.commit()
+                return int(result["id"]) if result else None
     except Exception as exc:
         print(f"create_gd_submission error: {exc}")
         return None
@@ -2705,6 +2726,54 @@ def telegram_webhook(secret: str):
         # GD Module — submit follow-up
         # =====================================================================
         if command == "" and chat_id:
+            # GD submit — check pending_media submission in DB (survives cold starts)
+            pending_sub = None
+            try:
+                with get_db_engine().connect() as conn:
+                    row = conn.execute(
+                        text("SELECT id, level_name FROM submissions WHERE user_id = :uid AND status = 'pending_media' ORDER BY submitted_at DESC LIMIT 1"),
+                        {"uid": user_id},
+                    ).mappings().first()
+                    if row:
+                        pending_sub = dict(row)
+            except Exception as exc:
+                print(f"Error fetching pending submission: {exc}")
+
+            if pending_sub:
+                sub_id = pending_sub["id"]
+                level_name = pending_sub["level_name"]
+                media_file_id = None
+                media_type = None
+                if message.get("photo"):
+                    media_file_id = message["photo"][-1].get("file_id", "")
+                    media_type = "photo"
+                elif message.get("video"):
+                    media_file_id = message["video"].get("file_id", "")
+                    media_type = "video"
+                elif message.get("document"):
+                    media_file_id = message["document"].get("file_id", "")
+                    media_type = "document"
+                else:
+                    send_telegram_message(chat_id, "❌ Пожалуйста, отправьте видео или фото с прохождением.")
+                    return jsonify({"ok": True})
+                try:
+                    with get_db_engine().connect() as conn:
+                        conn.execute(
+                            text("UPDATE submissions SET media_file_id = :mfid, media_type = :mt, status = 'pending', submitted_at = CURRENT_TIMESTAMP WHERE id = :sid"),
+                            {"mfid": media_file_id, "mt": media_type, "sid": sub_id},
+                        )
+                        conn.commit()
+                    send_telegram_message(
+                        chat_id,
+                        f"✅ **Заявка отправлена!**\n\nУровень: **{level_name}**\nСтатус: **Ожидает модерации**\n\nВаша заявка будет рассмотрена администратором.",
+                        parse_mode="Markdown",
+                    )
+                except Exception as exc:
+                    print(f"Error updating submission #{sub_id}: {exc}")
+                    send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.")
+                return jsonify({"ok": True})
+
+            # Legacy in-memory fallback
             submit_state = _GD_SUBMIT_STATE.get(user_id)
             if submit_state and submit_state.get("step") == "awaiting_media":
                 level_name = submit_state.get("level_name", "")
@@ -2722,17 +2791,20 @@ def telegram_webhook(secret: str):
                 else:
                     send_telegram_message(chat_id, "❌ Пожалуйста, отправьте видео или фото с прохождением.")
                     return jsonify({"ok": True})
-                sub_id = create_gd_submission(user_id, name, level_name, media_file_id, media_type)
-                _GD_SUBMIT_STATE.pop(user_id, None)
-                if sub_id:
-                    send_telegram_message(
-                        chat_id,
-                        f"✅ **Заявка отправлена!**\n\nУровень: **{level_name}**\nСтатус: **Ожидает модерации**\n\nВаша заявка будет рассмотрена администратором.",
-                        parse_mode="Markdown",
-                    )
-                else:
-                    send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Попробуйте позже.")
-                return jsonify({"ok": True})
+                    sub_id = create_gd_submission(user_id, name, level_name, media_file_id, media_type)
+                    _GD_SUBMIT_STATE.pop(user_id, None)
+                    if sub_id:
+                        send_telegram_message(
+                            chat_id,
+                            f"✅ **Заявка отправлена!**\n\nУровень: **{level_name}**\nСтатус: **Ожидает модерации**\n\nВаша заявка будет рассмотрена администратором.",
+                            parse_mode="Markdown",
+                        )
+                    else:
+                        send_telegram_message(
+                            chat_id,
+                            "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.",
+                        )
+                    return jsonify({"ok": True})
 
             # GD approve — position input
             approve_state = _GD_APPROVE_STATE.get(user_id)
@@ -2930,6 +3002,14 @@ def telegram_webhook(secret: str):
                 send_telegram_message(chat_id, "❌ Использование: `/submit <название уровня>`\nПример: `/submit Tartarus`", parse_mode="Markdown")
             else:
                 level_name = args[1].strip()
+                # Create placeholder submission (no media yet)
+                sub_id = create_gd_submission(user_id, name, level_name, "", "")
+                if not sub_id:
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка при создании заявки. Попробуйте позже.",
+                    )
+                    return jsonify({"ok": True})
                 _GD_SUBMIT_STATE[user_id] = {"step": "awaiting_media", "level_name": level_name}
                 send_telegram_message(
                     chat_id,
