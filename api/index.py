@@ -2702,7 +2702,7 @@ def telegram_webhook(secret: str):
             if not args:
                 send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID или название>`\nПример: `/gd_level 10565740` или `/gd_level Bloodbath`", parse_mode="Markdown")
             else:
-                query = args[0].strip()
+                query = " ".join(args).strip()
                 try:
                     level_id = int(query)
                     send_telegram_message(chat_id, f"🔍 Ищу уровень с ID **{level_id}**...", parse_mode="Markdown")
