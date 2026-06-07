@@ -1880,6 +1880,8 @@ def telegram_webhook(secret: str):
         name = user.get("first_name") or user.get("username") or "LucasTeam"
         command = normalize_command(text)
 
+        print(f"[WEBHOOK] command='{command}' text='{text[:50]}' user_id={user_id} chat_id={chat_id}")
+
         # Check for parsing trigger (reply to game bot with "Парсинг" or /parse or /parsing)
         reply_to = message.get("reply_to_message")
         is_parsing_trigger = (
