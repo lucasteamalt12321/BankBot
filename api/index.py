@@ -2829,6 +2829,7 @@ def telegram_webhook(secret: str):
                     chat_id,
                     f"🎮 **Geometry Dash — Отправка прохождения**\n\nУровень: **{level_name}**\n\nОтправьте видео или фото с прохождением уровня:",
                 )
+                return jsonify({"ok": True})
 
         # /moderate (admin only)
         elif command == "/moderate" and chat_id:
