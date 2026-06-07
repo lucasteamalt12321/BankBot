@@ -725,39 +725,206 @@ def normalize_command(text: str | None) -> str:
     return first_token.split("@", maxsplit=1)[0].lower()
 
 
-def parse_gdcards_message(text: str) -> dict | None:
-    """Parse GDcards message and extract orbs."""
-    import re
+BOT_CONVERSION_RATES = {
+    "gdcards": 2.5,
+    "gusya_cards": 5.0,
+    "shmalala": 2.5,
+    "shmalala_karma": 0.5,
+    "bunkerrp": 50.0,
+    "chaometer": 1.0,
+}
 
+
+def get_conversion_rate(bot_name: str) -> float:
+    try:
+        db = get_db_engine()
+        with db.connect() as conn:
+            row = conn.execute(
+                text("SELECT k FROM conversion_rates WHERE bot_name = :bn LIMIT 1"),
+                {"bn": bot_name},
+            ).mappings().first()
+            if row:
+                return float(row["k"])
+    except Exception:
+        pass
+    return BOT_CONVERSION_RATES.get(bot_name, 1.0)
+
+
+def parse_gdcards_message(text: str) -> dict | None:
     if not text:
         return None
-
-    # Check if this is a GDcards message (has card emoji and orbs)
+    chest_match = re.search(r"🎁\s*(\S+)\s+открыл сундук и получил\s+(\d+)\s+орб", text)
+    if chest_match:
+        player = chest_match.group(1).strip()
+        orbs = int(chest_match.group(2))
+        k = get_conversion_rate("gdcards")
+        return {
+            "game": "GDcards",
+            "orbs": orbs,
+            "player": player,
+            "card": "Сундук",
+            "coins": int(orbs * k),
+            "rate": k,
+        }
     if "🃏" not in text and "GDcards" not in text:
         return None
-
-    # Parse orbs: 🤩 Орбы: +5
     orbs_match = re.search(r"🤩 Орбы:\s*\+(\d+)", text)
     if not orbs_match:
         return None
-
     orbs = int(orbs_match.group(1))
-
-    # Parse player: Игрок: LucasTeam
     player_match = re.search(r"Игрок:\s*(.+)", text)
     player = player_match.group(1).strip() if player_match else "Неизвестно"
-
-    # Parse card: Карта: TopZeraYT
     card_match = re.search(r"Карта:\s*(.+)", text)
     card = card_match.group(1).strip() if card_match else "Неизвестно"
-
+    k = get_conversion_rate("gdcards")
     return {
         "game": "GDcards",
         "orbs": orbs,
         "player": player,
         "card": card,
-        "coins": orbs * 2,  # Курс GDcards 2:1
+        "coins": int(orbs * k),
+        "rate": k,
     }
+
+
+def parse_shmalala_fishing_message(text: str) -> dict | None:
+    if not text or "🎣 [Рыбалка]" not in text:
+        return None
+    match = re.search(r"Монеты:\s*\+(\d+)", text)
+    if not match:
+        return None
+    coins_raw = int(match.group(1))
+    player_match = re.search(r"Рыбак:\s*(.+)", text)
+    player = player_match.group(1).strip() if player_match else "Неизвестно"
+    k = get_conversion_rate("shmalala")
+    return {
+        "game": "Shmalala",
+        "amount": coins_raw,
+        "player": player,
+        "type": "fishing",
+        "coins": int(coins_raw * k),
+        "rate": k,
+    }
+
+
+def parse_shmalala_karma_message(text: str) -> dict | None:
+    if not text:
+        return None
+    if "❤️" not in text and "рейтинг" not in text:
+        return None
+    match = re.search(r"(?:Теперь\s+(?:его|её|её)\s+)?рейтинг:\s*(\d+)", text)
+    if not match:
+        match = re.search(r"❤️\s*Рейтинг:\s*\+(\d+)", text)
+    if not match:
+        return None
+    rating = int(match.group(1))
+    player_match = re.search(r"пользователя\s+(.+)", text)
+    player = player_match.group(1).strip() if player_match else "Неизвестно"
+    k = get_conversion_rate("shmalala_karma")
+    return {
+        "game": "Shmalala",
+        "amount": rating,
+        "player": player,
+        "type": "karma",
+        "coins": int(rating * k),
+        "rate": k,
+    }
+
+
+def parse_bunkerrp_message(text: str) -> dict | None:
+    if not text or "Прошли в бункер:" not in text:
+        return None
+    winners = []
+    in_winners = False
+    for line in text.splitlines():
+        if "Прошли в бункер:" in line:
+            in_winners = True
+            continue
+        if "Не прошли в бункер:" in line:
+            break
+        if in_winners:
+            line = line.strip()
+            m = re.match(r"\d+\.\s*(.+)", line)
+            if m:
+                winners.append(m.group(1).strip())
+    if not winners:
+        return None
+    player = winners[0]
+    k = get_conversion_rate("bunkerrp")
+    return {
+        "game": "BunkerRP",
+        "winners": winners,
+        "player": player,
+        "type": "game_end",
+        "coins": int(k),
+        "rate": k,
+    }
+
+
+def parse_gusya_cards_message(text: str) -> dict | None:
+    if not text or "💰" not in text:
+        return None
+    match = re.search(r"💰\s*Монеты\s*•\s*\+(\d+)", text)
+    if not match:
+        match = re.search(r"Монеты\s*•\s*\+(\d+)", text)
+    if not match:
+        return None
+    coins_raw = int(match.group(1))
+    player_match = re.search(r"(?:Игрок|игрок):\s*(.+)", text)
+    player = player_match.group(1).strip() if player_match else "Неизвестно"
+    k = get_conversion_rate("gusya_cards")
+    return {
+        "game": "Гуся Cards",
+        "amount": coins_raw,
+        "player": player,
+        "type": "coins",
+        "coins": int(coins_raw * k),
+        "rate": k,
+    }
+
+
+def parse_chaometer_message(text: str) -> dict | None:
+    """Parse Чайометр profile message."""
+    if not text or "Профиль" not in text or "л." not in text:
+        return None
+    player_match = re.search(r"👤\s*(.+)", text)
+    if not player_match:
+        return None
+    player = player_match.group(1).strip()
+    today_match = re.search(r"Сегодня:\s*([\d.]+)\s*л", text)
+    if not today_match:
+        return None
+    today_liters = float(today_match.group(1))
+    total_match = re.search(r"Всего:\s*([\d.]+)\s*л", text)
+    total_liters = float(total_match.group(1)) if total_match else today_liters
+    k = get_conversion_rate("chaometer")
+    return {
+        "game": "Чайометр",
+        "amount": today_liters,
+        "total": total_liters,
+        "player": player,
+        "type": "tea",
+        "coins": int(today_liters * k),
+        "rate": k,
+        "unit": "л.",
+    }
+
+
+def parse_bot_message(text: str) -> dict | None:
+    if not text:
+        return None
+    for parser in [
+        parse_gdcards_message,
+        parse_gusya_cards_message,
+        parse_shmalala_fishing_message,
+        parse_shmalala_karma_message,
+        parse_chaometer_message,
+        parse_bunkerrp_message,
+    ]:
+        result = parser(text)
+        if result:
+            return result
+    return None
 
 
 def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
@@ -1325,19 +1492,35 @@ def telegram_webhook(secret: str):
 
         if reply_to and is_parsing_trigger:
             replied_text = reply_to.get("text") or reply_to.get("caption", "")
-            parsed = parse_gdcards_message(replied_text)
+            parsed = parse_bot_message(replied_text)
 
             if parsed and chat_id:
-                # Add coins to user balance
                 coins = parsed["coins"]
-                description = (
-                    f"Парсинг {parsed['game']}: +{parsed['orbs']} orbs (курс 2:1)"
-                )
+                if coins <= 0:
+                    send_telegram_message(chat_id, "❌ Сумма начисления должна быть положительной")
+                    return jsonify({"ok": True})
 
+                if parsed["game"] == "GDcards":
+                    detail = f"{parsed['game']}: {parsed['orbs']} orbs × {parsed['rate']}"
+                    item_name = parsed["card"]
+                elif parsed["game"] == "Гуся Cards":
+                    detail = f"{parsed['game']}: {parsed['amount']} монет × {parsed['rate']}"
+                    item_name = parsed["type"]
+                elif parsed["game"] == "Чайометр":
+                    detail = f"{parsed['game']}: {parsed['amount']} {parsed['unit']} × {parsed['rate']}"
+                    item_name = "чай"
+                elif parsed["game"] == "Shmalala":
+                    detail = f"{parsed['game']} ({parsed['type']}): {parsed['amount']} × {parsed['rate']}"
+                    item_name = parsed["type"]
+                else:
+                    detail = f"{parsed['game']}: ×{parsed['rate']}"
+                    item_name = parsed["game"]
+
+                description = f"Парсинг {parsed['game']}: +{coins}"
                 if add_user_balance(user_id, coins, description):
                     send_telegram_message(
                         chat_id,
-                        f"✅ Начислено {coins} очков за {parsed['card']}\n({parsed['game']}: {parsed['orbs']} orbs × 2)",
+                        f"✅ Начислено {coins} очков за {item_name}\n({detail})",
                     )
                 else:
                     send_telegram_message(chat_id, "❌ Ошибка начисления")
@@ -1345,7 +1528,7 @@ def telegram_webhook(secret: str):
             elif chat_id:
                 send_telegram_message(
                     chat_id,
-                    "❌ Не удалось распарсить сообщение (поддерживается только GDcards)",
+                    "❌ Не удалось распарсить сообщение. Поддерживаются: GDcards, Гуся Cards, Shmalala, Чайометр, BunkerRP",
                 )
                 return jsonify({"ok": True})
 

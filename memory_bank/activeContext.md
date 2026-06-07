@@ -1,27 +1,32 @@
 # Active Context
 
-**Последнее обновление:** 2026-06-06  
-**Текущая фаза:** Vercel Production Fixes + AI Trivia
+**Последнее обновление:** 2026-06-07  
+**Текущая фаза:** D10 — Production E2E парсинг всех ботов на Vercel
 
 ## Текущий фокус
 
-### Vercel /trivia + AI Fixes (2026-06-06)
+### D10 — E2E парсинг всех ботов на Vercel (2026-06-07)
 
-**Цель:** Восстановить работу бота на Vercel, добавить AI-генерацию вопросов викторины через Groq.
+**Цель:** Довести парсинг игровых сообщений на Vercel до production E2E — все боты из чата LucasTeam должны парситься через reply "парсинг".
 
-**Статус:** Бот работает на Vercel, викторина генерируется через Groq AI с контекстом канона.
+**Статус:** ✅ Завершено. Реализованы парсеры для 6 ботов.
 
 **Завершено:**
-- ✅ Исправлен HF Space import error (`short_mode_command` добавлен обратно в `core_commands.py`)
-- ✅ Обновлён `data/canon_knowledge.txt` до v2.9 (12 мая 2026)
-- ✅ AI-викторина на Vercel: Groq API + канон, fallback на 23 готовых вопроса
-- ✅ Webhook переключён с HF Space на Vercel
-- ✅ BOT_TOKEN настроен на Vercel (project-level env var)
-- ✅ `api/index.py` больше не зависит от `bot/*` модулей (вся логика inline)
+- ✅ Единая `parse_bot_message()` — перебирает парсеры по приоритету
+- ✅ GDcards: карты (`🤩 Орбы: +X`) + сундуки (`🎁 X открыл сундук`)
+- ✅ Гуся Cards: монеты (`💰 Монеты • +X`)
+- ✅ Shmalala рыбалка: монеты (`🎣 [Рыбалка] ... Монеты: +X`)
+- ✅ Shmalala karma: рейтинг (`рейтинг: X ❤️`)
+- ✅ Чайометр: профиль чая (`👤 Имя ... Сегодня: X.X л.`)
+- ✅ BunkerRP: окончание игры (`Прошли в бункер: 1. Name`)
+- ✅ Курсы из таблицы `conversion_rates` (PostgreSQL) с fallback на хардкод
+- ✅ Курсы откалиброваны на основе анализа чата за месяц
+- ✅ Ruff + py_compile passed
 
-**Коммиты:**
-- `0b8980d` — fix: add short_mode_command and long_mode_command back to core_commands
-- `9a8a658` — ci: force vercel redeploy
+**Коэффициенты парсинга:**
+- GDcards: 2.5 | Гуся Cards: 5.0 | Shmalala: 2.5 | Чайометр: 1.0 | BunkerRP: 50 flat
+
+**Коммиты:** D10 (не закоммичено)
 
 **Технический стек:**
 - Command router pattern в `api/index.py`

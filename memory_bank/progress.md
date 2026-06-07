@@ -399,8 +399,23 @@
 - Webhook теперь указывает на `bank-bot-ruby.vercel.app`
 
 ## last_checked_commit
-- 9a8a658 (2026-06-06, force vercel redeploy)
-- 0b8980d (2026-06-06, fix: add short_mode_command back to core_commands)
+- 61c6421 (2026-06-07, merge: resolve conflict - keep sendPoll trivia with compatible callback format)
+
+### 2026-06-07 (D10 — E2E парсинг всех ботов на Vercel + калибровка коэффициентов)
+- **D10 (ParserRegistry + E2E парсинг):** Значительный прогресс. В `api/index.py` добавлены парсеры для всех ботов из чата.
+- **Новые функции в api/index.py:**
+  - `parse_bot_message()` — единая точка входа, перебирает парсеры по приоритету
+  - `parse_gdcards_message()` — расширен: карты (`🤩 Орбы: +X`) + сундуки (`🎁 X открыл сундук`)
+  - `parse_gusya_cards_message()` — новый: монеты (`💰 Монеты • +X`)
+  - `parse_shmalala_fishing_message()` — новый: рыбалка (`🎣 [Рыбалка] ... Монеты: +X`)
+  - `parse_shmalala_karma_message()` — новый: рейтинг (`рейтинг: X ❤️`)
+  - `parse_chaometer_message()` — новый: профиль чая (`👤 Имя ... Сегодня: X.X л.`)
+  - `parse_bunkerrp_message()` — новый: окончание игры (`Прошли в бункер: 1. Name`)
+  - `get_conversion_rate()` — читает курс из `conversion_rates` таблицы, fallback на хардкод
+- **Курсы:** GDcards=2.5, Гуся Cards=5.0, Shmalala=2.5, Shmalala karma=0.5, Чайометр=1.0, BunkerRP=50.0
+- **Калибровка:** проанализирован экспорт чата за месяц (106 сообщений Чайометра, 48 GDcards, 70 Shmalala), курсы подобраны под ~50-100 монет/день на бота
+- **Вебхук:** заменён `parse_gdcards_message()` на `parse_bot_message()` с детальным сообщением о начислении
+- **Verification:** `py_compile` OK, `ruff check` OK
 
 ### 2026-06-06 (Vercel Production Fixes + AI Trivia)
 - **HF Space crashed** с `ImportError: cannot import name 'short_mode_command'` — `bot.py` импортирует `short_mode_command` из `core_commands.py`, но функция была удалена в предыдущем рефакторинге. **Fix:** добавлена обратно в `core_commands.py`.
