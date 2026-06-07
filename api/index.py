@@ -25,6 +25,7 @@ CHAT_RESPONSE_MODES: dict[int, str] = {}
 DB_ENGINE = None
 _GD_SUBMIT_STATE: dict[int, dict] = {}
 _GD_MODERATE_STATE: dict[int, int] = {}
+_GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, username}
 
 
 def normalize_database_url(url: str) -> str:
@@ -646,6 +647,31 @@ def search_gd_level(name: str) -> dict | None:
         return data
     except Exception as exc:
         print(f"Error searching GD level {name}: {exc}")
+        return None
+
+
+def get_gddl_recommendation(level_name: str) -> int | None:
+    """Get recommended GDDL position for a level by searching gdbrowser."""
+    try:
+        resp = requests.get(
+            f"https://gdbrowser.com/api/search/{level_name}",
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        results = resp.json()
+        if not results or not isinstance(results, list) or "name" not in results[0]:
+            return None
+        data = results[0]
+        demon_list = data.get("demonList")
+        if demon_list and isinstance(demon_list, (int, float)) and demon_list > 0:
+            return int(demon_list)
+        stars = data.get("stars", 0)
+        if stars >= 10:
+            return max(1, 300 - stars * 10)
+        return None
+    except Exception as exc:
+        print(f"Error getting GDDL recommendation for {level_name}: {exc}")
         return None
 
 
@@ -2708,6 +2734,37 @@ def telegram_webhook(secret: str):
                     send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Попробуйте позже.")
                 return jsonify({"ok": True})
 
+            # GD approve — position input
+            approve_state = _GD_APPROVE_STATE.get(user_id)
+            if approve_state:
+                text_stripped = text.strip() if text else ""
+                try:
+                    position = int(text_stripped)
+                    if position < 1:
+                        send_telegram_message(chat_id, "❌ Позиция должна быть положительным числом.")
+                        return jsonify({"ok": True})
+                    sub_id = approve_state["sub_id"]
+                    level_name = approve_state["level_name"]
+                    # Add level to levels table
+                    level_id = add_gd_level(level_name, position)
+                    if not level_id:
+                        send_telegram_message(chat_id, f"❌ Ошибка при добавлении уровня **{level_name}** в топ.", parse_mode="Markdown")
+                    else:
+                        # Approve submission
+                        if approve_gd_submission_db(sub_id, user_id):
+                            send_telegram_message(
+                                chat_id,
+                                f"✅ Заявка #{sub_id} подтверждена!\n"
+                                f"🏆 Уровень **{level_name}** добавлен в топ на позицию **#{position}**.",
+                                parse_mode="Markdown",
+                            )
+                        else:
+                            send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
+                    _GD_APPROVE_STATE.pop(user_id, None)
+                except ValueError:
+                    send_telegram_message(chat_id, "❌ Пожалуйста, введите число — позицию в топе.")
+                return jsonify({"ok": True})
+
         # =====================================================================
         # GD Module — commands
         # =====================================================================
@@ -2988,12 +3045,27 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
                     timeout=5,
                 )
                 return
-            if approve_gd_submission_db(sub_id, user_id):
-                send_telegram_message(chat_id, f"✅ Заявка #{sub_id} подтверждена!")
-            else:
-                send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
-            page = _GD_MODERATE_STATE.get(chat_id, 0)
-            _gd_moderate_show_page(callback_query, chat_id, page)
+            sub = None
+            with get_db_engine().connect() as conn:
+                row = conn.execute(
+                    text("SELECT * FROM submissions WHERE id = :sid AND status='pending'"),
+                    {"sid": sub_id},
+                ).mappings().first()
+                if row:
+                    sub = dict(row)
+            if not sub:
+                send_telegram_message(chat_id, f"❌ Заявка #{sub_id} не найдена.")
+                return
+            level_name = sub["level_name"]
+            rec = get_gddl_recommendation(level_name)
+            rec_text = f" (рекомендация: **#{rec}**)" if rec else ""
+            _GD_APPROVE_STATE[user_id] = {"sub_id": sub_id, "level_name": level_name, "username": sub.get("username", "")}
+            send_telegram_message(
+                chat_id,
+                f"📝 Заявка #{sub_id}: уровень **{level_name}**{rec_text}\n\n"
+                f"Введите позицию в топе (число):",
+                parse_mode="Markdown",
+            )
         elif action == "reject":
             sub_id = int(parts[3])
             if not check_admin(user_id):
