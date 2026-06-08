@@ -51,7 +51,6 @@ def get_db_engine():
             normalize_database_url(database_url), pool_pre_ping=True,
             connect_args={"connect_timeout": 10},
         )
-    _ensure_gd_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -3731,6 +3730,13 @@ def set_webhook():
         return jsonify({"set": r.json(), "url": webhook_url, "bot_token_set": bool(BOT_TOKEN)})
     except Exception as e:
         return jsonify({"error": str(e), "url": webhook_url})
+
+# Initialize database tables on cold start
+try:
+    _ensure_gd_tables(get_db_engine())
+    print("[INIT] GD tables initialized")
+except Exception as init_exc:
+    print(f"[INIT] GD table init failed: {init_exc}")
 
 # Vercel handler
 handler = app
