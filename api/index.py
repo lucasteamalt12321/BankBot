@@ -1321,6 +1321,29 @@ def parse_gusya_cards_message(text: str) -> dict | None:
     }
 
 
+def parse_chaometer_drink_message(text: str) -> dict | None:
+    """Parse Чайометр drink result message (not profile)."""
+    if not text or "ты выпил" not in text or "л." not in text:
+        return None
+    match = re.search(r"(.+?), ты выпил\(а\)\s*([\d.]+)\s*л\..*?всего\s*[-–]\s*([\d.]+)\s*л", text, re.IGNORECASE)
+    if not match:
+        return None
+    player = match.group(1).strip()
+    amount = float(match.group(2))
+    total = float(match.group(3))
+    k = get_conversion_rate("chaometer")
+    return {
+        "game": "Чайометр",
+        "amount": amount,
+        "total": total,
+        "player": player,
+        "type": "tea",
+        "coins": int(amount * k),
+        "rate": k,
+        "unit": "л.",
+    }
+
+
 def parse_chaometer_message(text: str) -> dict | None:
     """Parse Чайометр profile message."""
     if not text or "Профиль" not in text or "л." not in text:
@@ -1356,6 +1379,7 @@ def parse_bot_message(text: str) -> dict | None:
         parse_gusya_cards_message,
         parse_shmalala_fishing_message,
         parse_shmalala_karma_message,
+        parse_chaometer_drink_message,
         parse_chaometer_message,
         parse_bunkerrp_message,
     ]:
@@ -3733,10 +3757,42 @@ def set_webhook():
 
 # Initialize database tables on cold start
 try:
-    _ensure_gd_tables(get_db_engine())
-    print("[INIT] GD tables initialized")
+    engine = get_db_engine()
+    _ensure_gd_tables(engine)
+    print("[INIT] GD tables initialized successfully")
 except Exception as init_exc:
     print(f"[INIT] GD table init failed: {init_exc}")
+
+# Debug endpoint to test submissions table
+@app.route("/api/debug_db", methods=["GET"])
+def debug_db():
+    """Debug database and GD tables."""
+    import json as _json
+    result = {"db_url_set": bool(os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("SUPABASE_DB_URL"))}
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            # Check table existence
+            tables = []
+            for tbl in ["levels", "submissions", "player_stats", "level_completions"]:
+                try:
+                    conn.execute(text(f"SELECT 1 FROM {tbl} LIMIT 0"))
+                    tables.append(f"{tbl}:exists")
+                except Exception:
+                    tables.append(f"{tbl}:missing")
+            result["tables"] = tables
+            # Try inserting into submissions
+            result_ins = conn.execute(text("INSERT INTO submissions (user_id, username, level_name, status) VALUES (0, 'test', 'test_level', 'pending_media') RETURNING id")).mappings().first()
+            conn.commit()
+            result["insert_id"] = int(result_ins["id"]) if result_ins else None
+            # Cleanup
+            conn.execute(text("DELETE FROM submissions WHERE user_id = 0"))
+            conn.commit()
+    except Exception as e:
+        result["error"] = str(e)
+    except Exception as e:
+        result["error"] = str(e)
+    return jsonify(result)
 
 # Vercel handler
 handler = app
