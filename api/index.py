@@ -58,8 +58,13 @@ def _ensure_gd_tables(engine):
     """Create GD module tables if they don't exist."""
     try:
         with engine.connect() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS level_completions"))
+            conn.execute(text("DROP TABLE IF EXISTS submissions"))
+            conn.execute(text("DROP TABLE IF EXISTS player_stats"))
+            conn.execute(text("DROP TABLE IF EXISTS levels"))
+            conn.commit()
             conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS levels (
+                CREATE TABLE levels (
                     id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
                     position INTEGER NOT NULL DEFAULT 0
@@ -67,7 +72,7 @@ def _ensure_gd_tables(engine):
             """))
             conn.commit()
             conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS submissions (
+                CREATE TABLE submissions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     username TEXT,
@@ -82,7 +87,7 @@ def _ensure_gd_tables(engine):
             """))
             conn.commit()
             conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS player_stats (
+                CREATE TABLE player_stats (
                     user_id BIGINT PRIMARY KEY,
                     total_approved INTEGER DEFAULT 0,
                     total_rejected INTEGER DEFAULT 0,
@@ -92,7 +97,7 @@ def _ensure_gd_tables(engine):
             """))
             conn.commit()
             conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS level_completions (
+                CREATE TABLE level_completions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     level_id INTEGER NOT NULL REFERENCES levels(id),
