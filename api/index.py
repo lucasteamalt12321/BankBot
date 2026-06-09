@@ -2820,20 +2820,29 @@ def telegram_webhook(secret: str):
                 else:
                     send_telegram_message(chat_id, "❌ Пожалуйста, отправьте видео или фото с прохождением.")
                     return jsonify({"ok": True})
-                    sub_id = create_gd_submission(user_id, name, level_name, media_file_id, media_type)
-                    _GD_SUBMIT_STATE.pop(user_id, None)
-                    if sub_id:
-                        send_telegram_message(
-                            chat_id,
-                            f"✅ **Заявка отправлена!**\n\nУровень: **{level_name}**\nСтатус: **Ожидает модерации**\n\nВаша заявка будет рассмотрена администратором.",
-                            parse_mode="Markdown",
-                        )
-                    else:
-                        send_telegram_message(
-                            chat_id,
-                            "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.",
-                        )
-                    return jsonify({"ok": True})
+                sub_id = create_gd_submission(user_id, name, level_name, media_file_id, media_type)
+                _GD_SUBMIT_STATE.pop(user_id, None)
+                if sub_id:
+                    send_telegram_message(
+                        chat_id,
+                        f"✅ **Заявка отправлена!**\n\nУровень: **{level_name}**\nСтатус: **Ожидает модерации**\n\nВаша заявка будет рассмотрена администратором.",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.",
+                    )
+                return jsonify({"ok": True})
+
+            # If message has photo/video but no pending submission, tell user
+            if message.get("photo") or message.get("video") or message.get("document"):
+                send_telegram_message(
+                    chat_id,
+                    "❌ Не найдена ожидающая заявка. Сначала используйте `/submit <название уровня>`, затем отправьте фото/видео.",
+                    parse_mode="Markdown",
+                )
+                return jsonify({"ok": True})
 
             # GD approve — position input
             approve_state = _GD_APPROVE_STATE.get(user_id)
