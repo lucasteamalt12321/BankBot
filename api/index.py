@@ -51,6 +51,7 @@ def get_db_engine():
             normalize_database_url(database_url), pool_pre_ping=True,
             connect_args={"connect_timeout": 10},
         )
+    _ensure_gd_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -58,10 +59,10 @@ def _ensure_gd_tables(engine):
     """Create GD module tables if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS level_completions"))
-            conn.execute(text("DROP TABLE IF EXISTS submissions"))
-            conn.execute(text("DROP TABLE IF EXISTS player_stats"))
-            conn.execute(text("DROP TABLE IF EXISTS levels"))
+            conn.execute(text("DROP TABLE IF EXISTS level_completions CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS submissions CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS player_stats CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS levels CASCADE"))
             conn.commit()
             conn.execute(text("""
                 CREATE TABLE levels (
