@@ -56,24 +56,18 @@ def get_db_engine():
 
 
 def _ensure_gd_tables(engine):
-    """Create GD module tables if they don't exist."""
+    """Create GD module tables if they don't exist (preserves existing data)."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS level_completions CASCADE"))
-            conn.execute(text("DROP TABLE IF EXISTS submissions CASCADE"))
-            conn.execute(text("DROP TABLE IF EXISTS player_stats CASCADE"))
-            conn.execute(text("DROP TABLE IF EXISTS levels CASCADE"))
-            conn.commit()
             conn.execute(text("""
-                CREATE TABLE levels (
+                CREATE TABLE IF NOT EXISTS levels (
                     id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
                     position INTEGER NOT NULL DEFAULT 0
                 )
             """))
-            conn.commit()
             conn.execute(text("""
-                CREATE TABLE submissions (
+                CREATE TABLE IF NOT EXISTS submissions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     username TEXT,
@@ -86,9 +80,8 @@ def _ensure_gd_tables(engine):
                     reviewed_by BIGINT
                 )
             """))
-            conn.commit()
             conn.execute(text("""
-                CREATE TABLE player_stats (
+                CREATE TABLE IF NOT EXISTS player_stats (
                     user_id BIGINT PRIMARY KEY,
                     total_approved INTEGER DEFAULT 0,
                     total_rejected INTEGER DEFAULT 0,
@@ -96,9 +89,8 @@ def _ensure_gd_tables(engine):
                     last_submission TIMESTAMP
                 )
             """))
-            conn.commit()
             conn.execute(text("""
-                CREATE TABLE level_completions (
+                CREATE TABLE IF NOT EXISTS level_completions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     level_id INTEGER NOT NULL REFERENCES levels(id),
@@ -106,6 +98,18 @@ def _ensure_gd_tables(engine):
                     UNIQUE(user_id, level_id)
                 )
             """))
+            # Add missing columns if table exists (safe migration)
+            for col_sql in [
+                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS username TEXT",
+                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS media_file_id TEXT",
+                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS media_type TEXT",
+                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
+                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS reviewed_by BIGINT",
+            ]:
+                try:
+                    conn.execute(text(col_sql))
+                except Exception:
+                    pass
             conn.commit()
         print("[GD] Tables ensured successfully")
     except Exception as exc:
