@@ -3805,9 +3805,20 @@ def debug_db():
             conn.commit()
     except Exception as e:
         result["error"] = str(e)
-    except Exception as e:
-        result["error"] = str(e)
     return jsonify(result)
+
+
+@app.route("/api/debug_submissions", methods=["GET"])
+def debug_submissions():
+    """List all submissions for debugging."""
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            rows = conn.execute(text("SELECT id, user_id, level_name, status, media_file_id IS NOT NULL AS has_media FROM submissions ORDER BY id DESC LIMIT 20")).mappings().all()
+            return jsonify({"submissions": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
 
 # Vercel handler
 handler = app
