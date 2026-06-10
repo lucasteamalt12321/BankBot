@@ -446,6 +446,61 @@ def add_user_balance(user_id: int, amount: int, description: str = "") -> bool:
         return False
 
 
+def find_user_by_name(name: str) -> int | None:
+    """Find Telegram user ID by fuzzy name/username matching."""
+    if not name or not name.strip():
+        return None
+    name = name.strip().lower()
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("SELECT telegram_id, username, first_name, last_name FROM users"),
+            ).mappings().all()
+            candidates = [dict(r) for r in rows]
+    except Exception as exc:
+        print(f"Error finding user: {exc}")
+        return None
+
+    best = None
+    best_score = 0
+    for u in candidates:
+        score = 0
+        uid = u["telegram_id"]
+        uname = (u.get("username") or "").lower()
+        fname = (u.get("first_name") or "").lower()
+        lname = (u.get("last_name") or "").lower()
+        full = f"{fname} {lname}".strip()
+        # Exact username match (highest)
+        if uname and (uname == name or uname == name.lstrip("@")):
+            score = 100
+        # Exact first_name match
+        elif fname == name:
+            score = 80
+        # Exact last_name match
+        elif lname == name:
+            score = 70
+        # Full name match
+        elif full == name:
+            score = 90
+        # First name + underscore/space match (e.g. "ivan" matches "ivan_petrov" username)
+        elif uname and (uname.startswith(name) or uname.endswith(name)):
+            score = 60
+        # Starts with match
+        elif fname and fname.startswith(name):
+            score = 50
+        elif lname and lname.startswith(name):
+            score = 40
+        # Contains
+        elif fname and name in fname:
+            score = 30
+        elif lname and name in lname:
+            score = 20
+        if score > best_score:
+            best_score = score
+            best = uid
+    return best
+
+
 def get_game_state(user_id: int, game_name: str, metric: str = "") -> float:
     """Get stored previous value for a game metric."""
     try:
@@ -2021,11 +2076,17 @@ def telegram_webhook(secret: str):
                 metric = parsed.get("type", "balance")
                 total = parsed.get("total", amount)
                 is_balance = parsed.get("is_balance", False)
+                player_name = parsed.get("player", "")
+
+                # Determine target user (player from message, not command sender)
+                target_id = find_user_by_name(player_name) if player_name else None
+                target_user_id = target_id or user_id
+                target_name = player_name or name
 
                 if is_balance:
                     # Track cumulative value, award coins for difference
                     tracked_value = total if "total" in parsed else amount
-                    prev_value = get_game_state(user_id, game, metric)
+                    prev_value = get_game_state(target_user_id, game, metric)
                     diff = tracked_value - prev_value
                     if diff < 0:
                         diff = tracked_value
@@ -2037,14 +2098,12 @@ def telegram_webhook(secret: str):
                     if coins <= 0:
                         send_telegram_message(chat_id, f"ℹ️ {game}: прирост {diff:.1f} слишком мал для начисления.")
                         return jsonify({"ok": True})
-                    set_game_state(user_id, game, metric, tracked_value)
+                    set_game_state(target_user_id, game, metric, tracked_value)
                     description = f"Парсинг {game}: +{coins} (прирост {diff:.1f})"
                     if game == "Чайометр":
                         detail = f"{game}: +{diff:.1f} л. × {rate}"
-                        item_name = "чая"
                     else:
                         detail = f"{game}: +{diff:.1f} × {rate}"
-                        item_name = metric
                 else:
                     # Delta (earned amount) — use directly
                     coins = parsed["coins"]
@@ -2053,22 +2112,19 @@ def telegram_webhook(secret: str):
                         return jsonify({"ok": True})
                     if game == "GDcards":
                         detail = f"{game}: {parsed['orbs']} orbs × {parsed['rate']}"
-                        item_name = parsed.get("card", game)
                     elif game == "Гуся Cards":
                         detail = f"{game}: {parsed['amount']} монет × {parsed['rate']}"
-                        item_name = parsed.get("type", game)
                     elif game == "Shmalala":
                         detail = f"{game} ({parsed['type']}): {parsed['amount']} × {parsed['rate']}"
-                        item_name = parsed["type"]
                     else:
                         detail = f"{game}: ×{parsed['rate']}"
-                        item_name = game
                     description = f"Парсинг {game}: +{coins}"
 
-                if add_user_balance(user_id, coins, description):
+                if add_user_balance(target_user_id, coins, description):
+                    mention = f"**{target_name}**" if target_id else f"**{target_name}**"
                     send_telegram_message(
                         chat_id,
-                        f"✅ Начислено {coins} очков за {item_name}\n({detail})",
+                        f"✅ Начислено {coins} очков {mention}\n({detail})",
                     )
                 else:
                     send_telegram_message(chat_id, "❌ Ошибка начисления")
