@@ -98,18 +98,16 @@ def _ensure_gd_tables(engine):
                     UNIQUE(user_id, level_id)
                 )
             """))
-            # Add missing columns if table exists (safe migration)
-            for col_sql in [
-                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS username TEXT",
-                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS media_file_id TEXT",
-                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS media_type TEXT",
-                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
-                "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS reviewed_by BIGINT",
-            ]:
-                try:
-                    conn.execute(text(col_sql))
-                except Exception:
-                    pass
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS game_states (
+                    user_id BIGINT NOT NULL,
+                    game_name TEXT NOT NULL,
+                    metric TEXT NOT NULL DEFAULT '',
+                    value REAL NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, game_name, metric)
+                )
+            """))
             conn.commit()
         print("[GD] Tables ensured successfully")
     except Exception as exc:
@@ -445,6 +443,40 @@ def add_user_balance(user_id: int, amount: int, description: str = "") -> bool:
             return True
     except Exception as exc:
         print(f"Error adding balance: {exc}")
+        return False
+
+
+def get_game_state(user_id: int, game_name: str, metric: str = "") -> float:
+    """Get stored previous value for a game metric."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT value FROM game_states WHERE user_id = :uid AND game_name = :gn AND metric = :m"),
+                {"uid": user_id, "gn": game_name, "m": metric},
+            ).mappings().first()
+            return float(row["value"]) if row else 0.0
+    except Exception as exc:
+        print(f"Error getting game state: {exc}")
+        return 0.0
+
+
+def set_game_state(user_id: int, game_name: str, metric: str, value: float) -> bool:
+    """Store current game metric value for future diffing."""
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO game_states (user_id, game_name, metric, value, updated_at)
+                    VALUES (:uid, :gn, :m, :v, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id, game_name, metric) DO UPDATE
+                    SET value = :v, updated_at = CURRENT_TIMESTAMP
+                """),
+                {"uid": user_id, "gn": game_name, "m": metric, "v": value},
+            )
+            conn.commit()
+            return True
+    except Exception as exc:
+        print(f"Error setting game state: {exc}")
         return False
 
 
@@ -1213,6 +1245,7 @@ def parse_gdcards_message(text: str) -> dict | None:
             "card": "Сундук",
             "coins": int(orbs * k),
             "rate": k,
+            "is_balance": False,
         }
     if "🃏" not in text and "GDcards" not in text:
         return None
@@ -1232,6 +1265,7 @@ def parse_gdcards_message(text: str) -> dict | None:
         "card": card,
         "coins": int(orbs * k),
         "rate": k,
+        "is_balance": False,
     }
 
 
@@ -1252,6 +1286,7 @@ def parse_shmalala_fishing_message(text: str) -> dict | None:
         "type": "fishing",
         "coins": int(coins_raw * k),
         "rate": k,
+        "is_balance": False,
     }
 
 
@@ -1269,6 +1304,8 @@ def parse_shmalala_karma_message(text: str) -> dict | None:
     player_match = re.search(r"пользователя\s+(.+)", text)
     player = player_match.group(1).strip() if player_match else "Неизвестно"
     k = get_conversion_rate("shmalala_karma")
+    # Determine if this is a balance or earned amount
+    is_balance = "+" not in match.group(0)
     return {
         "game": "Shmalala",
         "amount": rating,
@@ -1276,6 +1313,7 @@ def parse_shmalala_karma_message(text: str) -> dict | None:
         "type": "karma",
         "coins": int(rating * k),
         "rate": k,
+        "is_balance": is_balance,
     }
 
 
@@ -1303,9 +1341,11 @@ def parse_bunkerrp_message(text: str) -> dict | None:
         "game": "BunkerRP",
         "winners": winners,
         "player": player,
+        "amount": len(winners),
         "type": "game_end",
         "coins": int(k),
         "rate": k,
+        "is_balance": False,
     }
 
 
@@ -1328,6 +1368,7 @@ def parse_gusya_cards_message(text: str) -> dict | None:
         "type": "coins",
         "coins": int(coins_raw * k),
         "rate": k,
+        "is_balance": False,
     }
 
 
@@ -1351,6 +1392,7 @@ def parse_chaometer_drink_message(text: str) -> dict | None:
         "coins": int(amount * k),
         "rate": k,
         "unit": "л.",
+        "is_balance": True,
     }
 
 
@@ -1378,6 +1420,7 @@ def parse_chaometer_message(text: str) -> dict | None:
         "coins": int(today_liters * k),
         "rate": k,
         "unit": "л.",
+        "is_balance": True,
     }
 
 
@@ -1973,28 +2016,55 @@ def telegram_webhook(secret: str):
             parsed = parse_bot_message(replied_text)
 
             if parsed and chat_id:
-                coins = parsed["coins"]
-                if coins <= 0:
-                    send_telegram_message(chat_id, "❌ Сумма начисления должна быть положительной")
-                    return jsonify({"ok": True})
+                game = parsed["game"]
+                amount = parsed["amount"]
+                metric = parsed.get("type", "balance")
+                total = parsed.get("total", amount)
+                is_balance = parsed.get("is_balance", False)
 
-                if parsed["game"] == "GDcards":
-                    detail = f"{parsed['game']}: {parsed['orbs']} orbs × {parsed['rate']}"
-                    item_name = parsed["card"]
-                elif parsed["game"] == "Гуся Cards":
-                    detail = f"{parsed['game']}: {parsed['amount']} монет × {parsed['rate']}"
-                    item_name = parsed["type"]
-                elif parsed["game"] == "Чайометр":
-                    detail = f"{parsed['game']}: {parsed['amount']} {parsed['unit']} × {parsed['rate']}"
-                    item_name = "чай"
-                elif parsed["game"] == "Shmalala":
-                    detail = f"{parsed['game']} ({parsed['type']}): {parsed['amount']} × {parsed['rate']}"
-                    item_name = parsed["type"]
+                if is_balance:
+                    # Track cumulative value, award coins for difference
+                    tracked_value = total if "total" in parsed else amount
+                    prev_value = get_game_state(user_id, game, metric)
+                    diff = tracked_value - prev_value
+                    if diff < 0:
+                        diff = tracked_value
+                    if diff == 0:
+                        send_telegram_message(chat_id, f"ℹ️ {game}: значение не изменилось с прошлого раза ({prev_value:.1f}).")
+                        return jsonify({"ok": True})
+                    rate = parsed.get("rate", 1.0)
+                    coins = int(diff * rate)
+                    if coins <= 0:
+                        send_telegram_message(chat_id, f"ℹ️ {game}: прирост {diff:.1f} слишком мал для начисления.")
+                        return jsonify({"ok": True})
+                    set_game_state(user_id, game, metric, tracked_value)
+                    description = f"Парсинг {game}: +{coins} (прирост {diff:.1f})"
+                    if game == "Чайометр":
+                        detail = f"{game}: +{diff:.1f} л. × {rate}"
+                        item_name = "чая"
+                    else:
+                        detail = f"{game}: +{diff:.1f} × {rate}"
+                        item_name = metric
                 else:
-                    detail = f"{parsed['game']}: ×{parsed['rate']}"
-                    item_name = parsed["game"]
+                    # Delta (earned amount) — use directly
+                    coins = parsed["coins"]
+                    if coins <= 0:
+                        send_telegram_message(chat_id, "❌ Сумма начисления должна быть положительной")
+                        return jsonify({"ok": True})
+                    if game == "GDcards":
+                        detail = f"{game}: {parsed['orbs']} orbs × {parsed['rate']}"
+                        item_name = parsed.get("card", game)
+                    elif game == "Гуся Cards":
+                        detail = f"{game}: {parsed['amount']} монет × {parsed['rate']}"
+                        item_name = parsed.get("type", game)
+                    elif game == "Shmalala":
+                        detail = f"{game} ({parsed['type']}): {parsed['amount']} × {parsed['rate']}"
+                        item_name = parsed["type"]
+                    else:
+                        detail = f"{game}: ×{parsed['rate']}"
+                        item_name = game
+                    description = f"Парсинг {game}: +{coins}"
 
-                description = f"Парсинг {parsed['game']}: +{coins}"
                 if add_user_balance(user_id, coins, description):
                     send_telegram_message(
                         chat_id,
