@@ -2084,12 +2084,18 @@ def telegram_webhook(secret: str):
                 target_name = player_name or name
 
                 if is_balance:
-                    # Track cumulative value, award coins for difference
-                    tracked_value = total if "total" in parsed else amount
                     prev_value = get_game_state(target_user_id, game, metric)
-                    diff = tracked_value - prev_value
+                    if "total" in parsed:
+                        track_value = total
+                        if prev_value == 0:
+                            diff = amount
+                        else:
+                            diff = track_value - prev_value
+                    else:
+                        track_value = amount
+                        diff = track_value - prev_value
                     if diff < 0:
-                        diff = tracked_value
+                        diff = track_value
                     if diff == 0:
                         send_telegram_message(chat_id, f"ℹ️ {game}: значение не изменилось с прошлого раза ({prev_value:.1f}).")
                         return jsonify({"ok": True})
@@ -2098,7 +2104,7 @@ def telegram_webhook(secret: str):
                     if coins <= 0:
                         send_telegram_message(chat_id, f"ℹ️ {game}: прирост {diff:.1f} слишком мал для начисления.")
                         return jsonify({"ok": True})
-                    set_game_state(target_user_id, game, metric, tracked_value)
+                    set_game_state(target_user_id, game, metric, track_value)
                     description = f"Парсинг {game}: +{coins} (прирост {diff:.1f})"
                     if game == "Чайометр":
                         detail = f"{game}: +{diff:.1f} л. × {rate}"
