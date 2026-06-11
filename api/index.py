@@ -1431,10 +1431,10 @@ def parse_chaometer_drink_message(text: str) -> dict | None:
     """Parse Чайометр drink result message (not profile)."""
     if not text or "ты выпил" not in text or "л." not in text:
         return None
-    match = re.search(r"(.+?), ты выпил\(а\)\s*([\d.]+)\s*л\..*?всего\s*[-–]\s*([\d.]+)\s*л", text, re.IGNORECASE)
+    match = re.search(r"(.+?), ты выпил\(а\)\s*([\d.]+)\s*л\..*?всего\s*[-–]\s*([\d.]+)\s*л", text, re.IGNORECASE | re.DOTALL)
     if not match:
         return None
-    player = match.group(1).strip()
+    player = match.group(1).strip().split("\n")[-1].strip()
     amount = float(match.group(2))
     total = float(match.group(3))
     k = get_conversion_rate("chaometer")
