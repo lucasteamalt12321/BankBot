@@ -2971,15 +2971,6 @@ def telegram_webhook(secret: str):
                     )
                 return jsonify({"ok": True})
 
-            # If message has photo/video but no pending submission, tell user
-            if message.get("photo") or message.get("video") or message.get("document"):
-                send_telegram_message(
-                    chat_id,
-                    "❌ Не найдена ожидающая заявка. Сначала используйте `/submit <название уровня>`, затем отправьте фото/видео.",
-                    parse_mode="Markdown",
-                )
-                return jsonify({"ok": True})
-
             # GD approve — position input
             approve_state = _GD_APPROVE_STATE.get(user_id)
             if approve_state:
