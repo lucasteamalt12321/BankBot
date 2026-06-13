@@ -1296,6 +1296,7 @@ def parse_gdcards_message(text: str) -> dict | None:
         return {
             "game": "GDcards",
             "orbs": orbs,
+            "amount": orbs,
             "player": player,
             "card": "Сундук",
             "coins": int(orbs * k),
@@ -1316,6 +1317,7 @@ def parse_gdcards_message(text: str) -> dict | None:
     return {
         "game": "GDcards",
         "orbs": orbs,
+        "amount": orbs,
         "player": player,
         "card": card,
         "coins": int(orbs * k),

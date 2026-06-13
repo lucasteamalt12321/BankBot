@@ -42,7 +42,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | D07 | Рефакторинг bot.py на модули | completed | 5 |
 | D08 | Middleware обработки ошибок | completed | 5 |
 | D09 | Graceful shutdown | completed | 4 |
-| D10 | ParserRegistry + production E2E парсинг игровых сообщений | in_progress | 5 |
+| D10 | ParserRegistry + production E2E парсинг игровых сообщений | completed | 5 |
 | D11 | Блокировки балансов + Unit of Work | completed | 5 |
 | D12 | Connection pooling | completed | 3 |
 | D13 | Аудит SQL injection | completed | 5 |
@@ -56,7 +56,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | D23 | Persistent PostgreSQL/Supabase production storage | completed | 9 |
 | D24 | HF webhook runtime baseline + production diagnostics | completed | 8 |
 
-**Phase 1 Sum: 90/100 completed** (D10 и D18 остаются `in_progress`).
+**Phase 1 Sum: 95/100 completed** (D18 остаётся `in_progress`).
 
 **Legacy note:** ранняя копия `docs/memory-bank/projectbrief.md` содержала устаревший список с ручным парсингом, SQLite-only runtime и shop/games/D&D как активным scope. Эти сведения не являются каноном. Bridge/VK остаются в репозитории как legacy/compatibility-код, но не учитываются как production deliverables текущего webhook-first BankBot.
 
@@ -148,9 +148,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-**Phase 1 (Core): 90/100 completed**  
+**Phase 1 (Core): 95/100 completed**  
 **Phase 2 (Features): 78/100 completed** (GD-01-07: 27%, CH-01-04: 14%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-04: 19%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST: 0%)  
-**Общий прогресс проекта: 90% (Phase 1) + 78% (Phase 2)**
+**Общий прогресс проекта: 95% (Phase 1) + 78% (Phase 2)**
 
 **Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
 
