@@ -399,7 +399,7 @@
 - Webhook теперь указывает на `bank-bot-ruby.vercel.app`
 
 ## last_checked_commit
-- 61c6421 (2026-06-07, merge: resolve conflict - keep sendPoll trivia with compatible callback format)
+- a349ca8 (2026-06-07, remote changes)
 
 ### 2026-06-07 (D10 — E2E парсинг всех ботов на Vercel + калибровка коэффициентов)
 - **D10 (ParserRegistry + E2E парсинг):** Значительный прогресс. В `api/index.py` добавлены парсеры для всех ботов из чата.
