@@ -30,6 +30,10 @@ BOT_USERNAME: str = "lt_lo_game_bot"
 
 # Character system (replaces /chat)
 CHARACTER_PROMPTS: dict[str, str] = {
+    "нейтральный": (
+        "Ты помощник. Отвечай кратко и по делу, без лишних символов и Role play. "
+        "Пользователь сказал: {text}"
+    ),
     "олеговирус": (
         "Ты — олеговирус, существо, которое постоянно издаёт звуки 'кхм-кхм', "
         "любит придираться к чужим текстам. Ответь кратко (1-2 предложения). "
@@ -41,8 +45,8 @@ CHARACTER_PROMPTS: dict[str, str] = {
         "Ответь кратко (1-2 предложения). Пользователь сказал: {text}"
     ),
 }
-CHARACTER_EMOJI: dict[str, str] = {"олеговирус": "🦠", "чай": "☕"}
-DEFAULT_CHARACTER = "чай"
+CHARACTER_EMOJI: dict[str, str] = {"нейтральный": "", "олеговирус": "🦠", "чай": "☕"}
+DEFAULT_CHARACTER = "нейтральный"
 _user_character_cache: dict[int, str] = {}
 _global_character: str = DEFAULT_CHARACTER
 _GD_SUBMIT_STATE: dict[int, dict] = {}
@@ -2345,7 +2349,8 @@ def telegram_webhook(secret: str):
                 prompt = build_character_prompt(character, user_text)
                 answer = call_ai_api(prompt)
                 emoji = CHARACTER_EMOJI.get(character, "")
-                send_telegram_message(chat_id, f"{emoji} {answer}")
+                prefix = f"{emoji} " if emoji else ""
+                send_telegram_message(chat_id, f"{prefix}{answer}")
                 return jsonify({"ok": True})
             else:
                 # User replied with empty text or just mention
