@@ -3952,4 +3952,3 @@ def debug_submissions():
 # Vercel handler
 handler = app
 application = app
-
