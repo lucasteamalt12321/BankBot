@@ -23,6 +23,28 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
 DB_ENGINE = None
+
+# Bot identity for reply/mention detection
+BOT_ID: int | None = None
+BOT_USERNAME: str = "lt_lo_game_bot"
+
+# Character system (replaces /chat)
+CHARACTER_PROMPTS: dict[str, str] = {
+    "олеговирус": (
+        "Ты — олеговирус, существо, которое постоянно издаёт звуки 'кхм-кхм', "
+        "любит придираться к чужим текстам. Ответь кратко (1-2 предложения). "
+        "Пользователь сказал: {text}"
+    ),
+    "чай": (
+        "Ты — верховный божественный Чай, воплощение покоя и мудрости. "
+        "Говори вдохновляюще, используй слова 'настой', 'eight-nine'. "
+        "Ответь кратко (1-2 предложения). Пользователь сказал: {text}"
+    ),
+}
+CHARACTER_EMOJI: dict[str, str] = {"олеговирус": "🦠", "чай": "☕"}
+DEFAULT_CHARACTER = "олеговирус"
+_user_character_cache: dict[int, str] = {}
+_global_character: str = DEFAULT_CHARACTER
 _GD_SUBMIT_STATE: dict[int, dict] = {}
 _GD_MODERATE_STATE: dict[int, int] = {}
 _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, username}
@@ -112,6 +134,7 @@ def _ensure_gd_tables(engine):
         print("[GD] Tables ensured successfully")
     except Exception as exc:
         print(f"[GD] Table init error: {exc}")
+    _ensure_user_preferences_table(engine)
 
 
 def get_user_balance(user_id: int) -> tuple[int, bool]:
@@ -192,6 +215,151 @@ def get_user_stats(user_id: int) -> dict:
     except Exception as exc:
         print(f"Error getting user stats: {exc}")
         return {"earned": 0, "spent": 0, "total_transactions": 0, "purchases": 0}
+
+
+def _ensure_user_preferences_table(engine):
+    """Create user_preferences table if it doesn't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_preferences (
+                    user_id BIGINT PRIMARY KEY,
+                    preferred_character VARCHAR(20) DEFAULT 'олеговирус',
+                    preferred_ai_model VARCHAR(50),
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.commit()
+        print("[INIT] user_preferences table ensured")
+    except Exception as exc:
+        print(f"[INIT] user_preferences table error: {exc}")
+
+
+def _load_bot_id() -> int | None:
+    """Load bot's Telegram user_id via getMe API call."""
+    global BOT_ID
+    if BOT_ID is not None:
+        return BOT_ID
+    if not BOT_TOKEN:
+        return None
+    try:
+        resp = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+        if resp.ok:
+            data = resp.json()
+            BOT_ID = data["result"]["id"]
+            print(f"[STARTUP] BOT_ID loaded: {BOT_ID}")
+            return BOT_ID
+    except Exception as exc:
+        print(f"[STARTUP] Failed to load BOT_ID: {exc}")
+    return None
+
+
+def get_user_character(user_id: int) -> str:
+    """Get user's preferred character from DB with in-memory cache."""
+    if user_id in _user_character_cache:
+        return _user_character_cache[user_id]
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT preferred_character FROM user_preferences WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            ).mappings().first()
+            if row and row["preferred_character"]:
+                char = row["preferred_character"].lower()
+                if char in CHARACTER_PROMPTS:
+                    _user_character_cache[user_id] = char
+                    return char
+    except Exception as exc:
+        print(f"Error getting user character: {exc}")
+    return DEFAULT_CHARACTER
+
+
+def set_user_character(user_id: int, character: str) -> bool:
+    """Set user's preferred character in DB."""
+    character = character.lower()
+    if character not in CHARACTER_PROMPTS:
+        return False
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(text("""
+                INSERT INTO user_preferences (user_id, preferred_character, updated_at)
+                VALUES (:user_id, :character, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id)
+                DO UPDATE SET preferred_character = :character, updated_at = CURRENT_TIMESTAMP
+            """), {"user_id": user_id, "character": character})
+            conn.commit()
+        _user_character_cache[user_id] = character
+        return True
+    except Exception as exc:
+        print(f"Error setting user character: {exc}")
+        return False
+
+
+def get_global_character() -> str:
+    """Get global default character."""
+    return _global_character
+
+
+def set_global_character(character: str) -> bool:
+    """Set global default character."""
+    global _global_character
+    character = character.lower()
+    if character not in CHARACTER_PROMPTS:
+        return False
+    _global_character = character
+    return True
+
+
+def build_character_prompt(character: str, user_text: str) -> str:
+    """Build AI prompt for a character."""
+    template = CHARACTER_PROMPTS.get(character, CHARACTER_PROMPTS[DEFAULT_CHARACTER])
+    return template.format(text=user_text)
+
+
+def detect_bot_reply(message: dict) -> bool:
+    """Check if message is a reply to the bot itself."""
+    reply_to = message.get("reply_to_message")
+    if not reply_to:
+        return False
+    sender = reply_to.get("from", {})
+    if sender.get("id") == BOT_ID:
+        return True
+    if sender.get("is_bot") and BOT_ID and sender.get("id") == BOT_ID:
+        return True
+    return False
+
+
+def detect_bot_mention(text: str | None, entities: list | None) -> tuple[bool, str]:
+    """Check if message mentions the bot. Returns (is_mention, cleaned_text)."""
+    if not text:
+        return False, ""
+    # Check entities for @mention
+    if entities:
+        for ent in entities:
+            if ent.get("type") == "mention":
+                offset = ent.get("offset", 0)
+                length = ent.get("length", 0)
+                mention = text[offset:offset + length]
+                if mention.lower() == f"@{BOT_USERNAME}".lower():
+                    # Remove the mention from text
+                    cleaned = (text[:offset] + text[offset + length:]).strip()
+                    return True, cleaned
+    # Check text_mention entities (user without username)
+    if entities:
+        for ent in entities:
+            if ent.get("type") == "text_mention":
+                user = ent.get("user", {})
+                if user.get("id") == BOT_ID:
+                    offset = ent.get("offset", 0)
+                    length = ent.get("length", 0)
+                    cleaned = (text[:offset] + text[offset + length:]).strip()
+                    return True, cleaned
+    # Simple text check for @username
+    mention_pattern = f"@{BOT_USERNAME}"
+    if mention_pattern.lower() in text.lower():
+        cleaned = re.sub(re.escape(mention_pattern), "", text, flags=re.IGNORECASE).strip()
+        return True, cleaned
+    return False, text
 
 
 def get_shop_items(limit: int = 20) -> list[dict]:
@@ -1572,6 +1740,10 @@ ID: {user_id}
 /long — полный режим для себя
 /long_all — полный режим для всех
 
+AI:
+/character — выбрать характер
+💬 Или ответьте на сообщение бота / @упомяньте бота
+
 Разделы:
 /chess — шахматы
 /ai — искусственный интеллект
@@ -1602,6 +1774,10 @@ def build_long_start_text(name: str, user_id: int) -> str:
 /short - краткие ответы
 /long - полные ответы
 /reading_trainer - тренажёр чтения
+
+[AI] AI-помощник:
+/character - выбрать характер (олеговирус или чай)
+💬 Или просто ответьте на сообщение бота или упомяните @lt_lo_game_bot
 
 [GAMES_SUPPORTED] Поддерживаемые игры:
 • Shmalala
@@ -2144,6 +2320,38 @@ def telegram_webhook(secret: str):
                 )
                 return jsonify({"ok": True})
 
+        # AI response on reply to bot message or @mention
+        if BOT_ID is None:
+            _load_bot_id()
+        
+        # Check for reply to bot message
+        is_bot_reply = detect_bot_reply(message)
+        # Check for @mention of bot
+        is_mention, mention_text = detect_bot_mention(text, message.get("entities"))
+        
+        if chat_id and (is_bot_reply or is_mention):
+            # Get user's character preference
+            character = get_user_character(user_id)
+            # Extract user text
+            if is_bot_reply and reply_to:
+                user_text = text or ""
+            elif is_mention:
+                user_text = mention_text
+            else:
+                user_text = text or ""
+            
+            if user_text.strip():
+                # Build prompt and call AI
+                prompt = build_character_prompt(character, user_text)
+                answer = call_ai_api(prompt)
+                emoji = CHARACTER_EMOJI.get(character, "")
+                send_telegram_message(chat_id, f"{emoji} {answer}")
+                return jsonify({"ok": True})
+            else:
+                # User replied with empty text or just mention
+                send_telegram_message(chat_id, f"💬 Напишите сообщение для {character}")
+                return jsonify({"ok": True})
+
         if command == "/start" and chat_id:
             send_telegram_message(
                 chat_id, build_start_text(name, user_id, get_response_mode(chat_id))
@@ -2373,10 +2581,10 @@ def telegram_webhook(secret: str):
                     "/ai <вопрос> — задать вопрос AI\n"
                     "/ask <вопрос> — алиас /ai\n"
                     "/ai_help — показать эту справку\n"
-                    "/chat <персонаж> <текст> — диалог с персонажем\n"
+                    "/character — выбрать характер\n"
                     "/generate_prayer или /pray — сгенерировать молитву\n"
                     "/ask_canon <вопрос> — вопрос по канону\n\n"
-                    "Пример: /ai Что такое олеговирус?",
+                    "💡 Или просто ответьте на сообщение бота или упомяните @lt_lo_game_bot",
                 )
             else:
                 question = args[1]
@@ -2393,46 +2601,62 @@ def telegram_webhook(secret: str):
                 "/ai <вопрос> — задать вопрос AI\n"
                 "/ask <вопрос> — алиас /ai\n"
                 "/ai_help — показать эту справку\n"
-                "/chat <персонаж> <текст> — диалог с персонажем\n"
+                "/character — выбрать характер\n"
                 "/generate_prayer или /pray — сгенерировать молитву\n"
-                "/ask_canon <вопрос> — вопрос по канону",
+                "/ask_canon <вопрос> — вопрос по канону\n\n"
+                "💡 Или просто ответьте на сообщение бота или упомяните @lt_lo_game_bot",
             )
-        elif command == "/chat" and chat_id:
-            args = text.split(maxsplit=2)
-            if len(args) < 3:
+        elif command == "/character" and chat_id:
+            args = text.split()
+            if len(args) < 2:
+                # Show current character and available options
+                current = get_user_character(user_id)
+                chars = "\n".join([f"• {k} {CHARACTER_EMOJI.get(k, '')}" for k in CHARACTER_PROMPTS])
                 send_telegram_message(
                     chat_id,
-                    "Использование: /chat <персонаж> <текст>\n\n"
-                    "Доступные персонажи:\n"
-                    "• олеговирус — навязчивое существо\n"
-                    "• чай — божественный мудрец\n\n"
-                    "Пример: /chat олеговирус привет!",
+                    f"🎭 Текущий характер: **{current}** {CHARACTER_EMOJI.get(current, '')}\n\n"
+                    f"Доступные характеры:\n{chars}\n\n"
+                    f"Смена: /character <имя>\n"
+                    f"Пример: /character чай",
                 )
             else:
                 character = args[1].lower()
-                user_text = args[2]
-
-                if character == "олеговирус":
-                    prompt = (
-                        f"Ты — олеговирус, существо, которое постоянно издаёт звуки 'кхм-кхм', "
-                        f"любит придираться к чужим текстам. Ответь кратко (1-2 предложения). "
-                        f"Пользователь сказал: {user_text}"
-                    )
-                elif character == "чай":
-                    prompt = (
-                        f"Ты — верховный божественный Чай, воплощение покоя и мудрости. "
-                        f"Говори вдохновляюще, используй слова 'настой', 'eight-nine'. "
-                        f"Ответь кратко (1-2 предложения). Пользователь сказал: {user_text}"
+                if set_user_character(user_id, character):
+                    emoji = CHARACTER_EMOJI.get(character, "")
+                    send_telegram_message(
+                        chat_id,
+                        f"✅ Характер изменён на: **{character}** {emoji}\n\n"
+                        f"Теперь при ответе на сообщение бота или @упоминании бот будет отвечать в стиле {character}.",
                     )
                 else:
+                    chars = ", ".join(CHARACTER_PROMPTS.keys())
                     send_telegram_message(
-                        chat_id, f"❌ Неизвестный персонаж: {character}"
+                        chat_id,
+                        f"❌ Неизвестный характер: {character}\n\n"
+                        f"Доступные: {chars}",
                     )
-                    prompt = None
-
-                if prompt:
-                    answer = call_ai_api(prompt)
-                    send_telegram_message(chat_id, answer)
+        elif command == "/character_all" and chat_id:
+            if not check_admin(user_id):
+                send_telegram_message(chat_id, "🔒 Только для админов")
+            else:
+                args = text.split()
+                if len(args) < 2:
+                    current = get_global_character()
+                    send_telegram_message(
+                        chat_id,
+                        f"🌐 Глобальный характер: **{current}** {CHARACTER_EMOJI.get(current, '')}\n\n"
+                        f"Смена: /character_all <имя>",
+                    )
+                else:
+                    character = args[1].lower()
+                    if set_global_character(character):
+                        emoji = CHARACTER_EMOJI.get(character, "")
+                        send_telegram_message(
+                            chat_id,
+                            f"✅ Глобальный характер изменён на: **{character}** {emoji}",
+                        )
+                    else:
+                        send_telegram_message(chat_id, f"❌ Неизвестный характер: {character}")
         elif command in ["/generate_prayer", "/pray"] and chat_id:
             send_telegram_message(chat_id, "🙏 Сочиняю молитву...")
             prompt = (
@@ -3933,6 +4157,12 @@ try:
     print("[INIT] GD tables initialized successfully")
 except Exception as init_exc:
     print(f"[INIT] GD table init failed: {init_exc}")
+
+# Load bot ID at startup for reply/mention detection
+try:
+    _load_bot_id()
+except Exception as bot_id_exc:
+    print(f"[INIT] BOT_ID load failed (will retry on first request): {bot_id_exc}")
 
 # Debug endpoint to test submissions table
 @app.route("/api/debug_db", methods=["GET"])
