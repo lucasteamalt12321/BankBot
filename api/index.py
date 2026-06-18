@@ -4202,6 +4202,12 @@ def debug_db():
             # Cleanup
             conn.execute(text("DELETE FROM submissions WHERE user_id = 0"))
             conn.commit()
+            # Check user_preferences table
+            try:
+                conn.execute(text("SELECT 1 FROM user_preferences LIMIT 0"))
+                result["user_preferences"] = "exists"
+            except Exception:
+                result["user_preferences"] = "missing"
     except Exception as e:
         result["error"] = str(e)
     return jsonify(result)
