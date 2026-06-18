@@ -3894,10 +3894,37 @@ def set_webhook():
     base = request.host_url.rstrip("/")
     webhook_url = f"{base}/telegram/webhook/{secret}"
     try:
-        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={webhook_url}&secret_token={secret}&allowed_updates=message&allowed_updates=callback_query", timeout=10)
+        r = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+            params={
+                "url": webhook_url,
+                "secret_token": secret,
+                "allowed_updates": ["message", "callback_query"],
+            },
+            timeout=10,
+        )
         return jsonify({"set": r.json(), "url": webhook_url, "bot_token_set": bool(BOT_TOKEN)})
     except Exception as e:
         return jsonify({"error": str(e), "url": webhook_url})
+
+
+@app.route("/api/debug_webhook", methods=["GET"])
+def debug_webhook():
+    """Debug: check webhook state on Telegram."""
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
+        info = r.json().get("result", {})
+        return jsonify({
+            "token_configured": bool(BOT_TOKEN),
+            "secret_len": len(os.getenv("WEBHOOK_SECRET") or ""),
+            "webhook_url": info.get("url"),
+            "pending_update_count": info.get("pending_update_count"),
+            "last_error_message": info.get("last_error_message"),
+            "has_custom_certificate": info.get("has_custom_certificate"),
+            "max_connections": info.get("max_connections"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 # Initialize database tables on cold start
 try:
