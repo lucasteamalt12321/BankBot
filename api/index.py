@@ -49,6 +49,11 @@ CHARACTER_EMOJI: dict[str, str] = {"нейтральный": "", "олегови
 DEFAULT_CHARACTER = "нейтральный"
 _user_character_cache: dict[int, str] = {}
 _global_character: str = DEFAULT_CHARACTER
+# Conversation memory for AI context
+_CHAT_MEMORY: dict[int, list[dict]] = {}  # per-user: last 10 personal messages
+_CHAT_MEMORY_LIMIT = 10
+_CHAT_GLOBAL: list[dict] = []  # global chat: last 50 messages across all users
+_CHAT_GLOBAL_LIMIT = 50
 _GD_SUBMIT_STATE: dict[int, dict] = {}
 _GD_MODERATE_STATE: dict[int, int] = {}
 _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, username}
@@ -320,6 +325,83 @@ def build_character_prompt(character: str, user_text: str) -> str:
     """Build AI prompt for a character."""
     template = CHARACTER_PROMPTS.get(character, CHARACTER_PROMPTS[DEFAULT_CHARACTER])
     return template.format(text=user_text)
+
+
+def add_chat_memory(user_id: int, role: str, text: str) -> None:
+    """Add a message to user's conversation memory and global chat history."""
+    # Per-user memory
+    if user_id not in _CHAT_MEMORY:
+        _CHAT_MEMORY[user_id] = []
+    _CHAT_MEMORY[user_id].append({"role": role, "content": text})
+    if len(_CHAT_MEMORY[user_id]) > _CHAT_MEMORY_LIMIT:
+        _CHAT_MEMORY[user_id] = _CHAT_MEMORY[user_id][-_CHAT_MEMORY_LIMIT:]
+    # Global chat memory
+    _CHAT_GLOBAL.append({"role": role, "content": text, "user_id": user_id})
+    if len(_CHAT_GLOBAL) > _CHAT_GLOBAL_LIMIT:
+        _CHAT_GLOBAL = _CHAT_GLOBAL[-_CHAT_GLOBAL_LIMIT:]
+
+
+def get_chat_memory(user_id: int) -> list[dict]:
+    """Get user's personal conversation memory (last 10 messages)."""
+    return _CHAT_MEMORY.get(user_id, [])
+
+
+def get_global_chat_memory() -> list[dict]:
+    """Get global chat history (last 50 messages, without user_id field)."""
+    return [{"role": m["role"], "content": m["content"]} for m in _CHAT_GLOBAL]
+
+
+def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str:
+    """Call AI with conversation context (personal + global chat)."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return "❌ AI недоступен (нет GROQ_API_KEY)"
+
+    # Build messages with memory
+    messages = []
+    
+    # Add global chat context (last 50 messages from all users)
+    global_memory = get_global_chat_memory()
+    if global_memory:
+        messages.extend(global_memory)
+    
+    # Add personal conversation memory (last 10 messages)
+    personal_memory = get_chat_memory(user_id)
+    if personal_memory:
+        messages.extend(personal_memory)
+    
+    # Add current message
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.8,
+            },
+            timeout=10.0,
+        )
+        if response.status_code == 200:
+            result = response.json()
+            answer = result["choices"][0]["message"]["content"]
+            # Save to memory
+            add_chat_memory(user_id, "user", prompt)
+            add_chat_memory(user_id, "assistant", answer)
+            return answer
+        else:
+            error_detail = response.text[:200] if response.text else "No details"
+            print(f"AI API error {response.status_code}: {error_detail}")
+            return f"❌ Ошибка AI: {response.status_code}"
+    except Exception as exc:
+        print(f"Error calling AI API: {exc}")
+        return f"❌ Ошибка AI: {str(exc)}"
 
 
 def detect_bot_reply(message: dict) -> bool:
@@ -2347,9 +2429,9 @@ def telegram_webhook(secret: str):
                 user_text = text or ""
             
             if user_text.strip():
-                # Build prompt and call AI
+                # Build prompt and call AI with memory
                 prompt = build_character_prompt(character, user_text)
-                answer = call_ai_api(prompt)
+                answer = call_ai_with_memory(user_id, prompt)
                 emoji = CHARACTER_EMOJI.get(character, "")
                 prefix = f"{emoji} " if emoji else ""
                 send_telegram_message(chat_id, f"{prefix}{answer}")
@@ -2599,7 +2681,7 @@ def telegram_webhook(secret: str):
                     send_telegram_message(chat_id, "❌ Вопрос слишком короткий")
                 else:
                     prompt = f"Ты помощник, отвечающий кратко и по делу. Вопрос пользователя: {question}\n\nОтветь в 2-3 предложениях."
-                    answer = call_ai_api(prompt, max_tokens=200)
+                    answer = call_ai_with_memory(user_id, prompt, max_tokens=200)
                     send_telegram_message(chat_id, answer)
         elif command == "/ai_help" and chat_id:
             send_telegram_message(
