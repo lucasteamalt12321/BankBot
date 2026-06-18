@@ -42,7 +42,7 @@ CHARACTER_PROMPTS: dict[str, str] = {
     ),
 }
 CHARACTER_EMOJI: dict[str, str] = {"олеговирус": "🦠", "чай": "☕"}
-DEFAULT_CHARACTER = "олеговирус"
+DEFAULT_CHARACTER = "чай"
 _user_character_cache: dict[int, str] = {}
 _global_character: str = DEFAULT_CHARACTER
 _GD_SUBMIT_STATE: dict[int, dict] = {}
@@ -224,7 +224,7 @@ def _ensure_user_preferences_table(engine):
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS user_preferences (
                     user_id BIGINT PRIMARY KEY,
-                    preferred_character VARCHAR(20) DEFAULT 'олеговирус',
+                    preferred_character VARCHAR(20) DEFAULT 'чай',
                     preferred_ai_model VARCHAR(50),
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
