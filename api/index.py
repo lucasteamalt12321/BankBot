@@ -259,7 +259,7 @@ def _load_bot_id() -> int | None:
 
 
 def get_user_character(user_id: int) -> str:
-    """Get user's preferred character from DB with in-memory cache."""
+    """Get user's preferred character from cache first, then DB."""
     if user_id in _user_character_cache:
         return _user_character_cache[user_id]
     try:
@@ -273,16 +273,19 @@ def get_user_character(user_id: int) -> str:
                 if char in CHARACTER_PROMPTS:
                     _user_character_cache[user_id] = char
                     return char
-    except Exception as exc:
-        print(f"Error getting user character: {exc}")
+    except Exception:
+        pass  # Table may not exist, that's fine
     return DEFAULT_CHARACTER
 
 
 def set_user_character(user_id: int, character: str) -> bool:
-    """Set user's preferred character in DB."""
+    """Set user's preferred character. Updates cache always, DB if possible."""
     character = character.lower()
     if character not in CHARACTER_PROMPTS:
         return False
+    # Always update in-memory cache
+    _user_character_cache[user_id] = character
+    # Try DB write (table may not exist yet)
     try:
         with get_db_engine().connect() as conn:
             conn.execute(text("""
@@ -292,11 +295,10 @@ def set_user_character(user_id: int, character: str) -> bool:
                 DO UPDATE SET preferred_character = :character, updated_at = CURRENT_TIMESTAMP
             """), {"user_id": user_id, "character": character})
             conn.commit()
-        _user_character_cache[user_id] = character
-        return True
+        print(f"[CHARACTER] User {user_id} set character to {character} (DB+cache)")
     except Exception as exc:
-        print(f"Error setting user character: {exc}")
-        return False
+        print(f"[CHARACTER] User {user_id} set character to {character} (cache only, DB error: {exc})")
+    return True
 
 
 def get_global_character() -> str:
@@ -4168,6 +4170,12 @@ try:
     _load_bot_id()
 except Exception as bot_id_exc:
     print(f"[INIT] BOT_ID load failed (will retry on first request): {bot_id_exc}")
+
+# Ensure user_preferences table exists
+try:
+    _ensure_user_preferences_table(get_db_engine())
+except Exception as pref_exc:
+    print(f"[INIT] user_preferences table init failed: {pref_exc}")
 
 # Debug endpoint to test submissions table
 @app.route("/api/debug_db", methods=["GET"])
