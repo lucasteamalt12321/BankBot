@@ -245,6 +245,30 @@ def _ensure_user_preferences_table(engine):
         print(f"[INIT] user_preferences table error: {exc}")
 
 
+def _ensure_chess_games_table(engine):
+    """Create chess_games table if it doesn't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chess_games (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    lichess_username VARCHAR(50) NOT NULL,
+                    puzzle_id VARCHAR(50) NOT NULL,
+                    puzzle_rating INTEGER,
+                    puzzle_themes TEXT,
+                    solved BOOLEAN DEFAULT FALSE,
+                    solved_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chess_games_user_id ON chess_games(user_id)"))
+            conn.commit()
+        print("[INIT] chess_games table ensured")
+    except Exception as exc:
+        print(f"[INIT] chess_games table error: {exc}")
+
+
 def _load_bot_id() -> int | None:
     """Load bot's Telegram user_id via getMe API call."""
     global BOT_ID
@@ -4486,6 +4510,12 @@ try:
     _ensure_user_preferences_table(get_db_engine())
 except Exception as pref_exc:
     print(f"[INIT] user_preferences table init failed: {pref_exc}")
+
+# Ensure chess_games table exists
+try:
+    _ensure_chess_games_table(get_db_engine())
+except Exception as chess_exc:
+    print(f"[INIT] chess_games table init failed: {chess_exc}")
 
 # Debug endpoint to test submissions table
 @app.route("/api/debug_db", methods=["GET"])
