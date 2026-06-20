@@ -3166,12 +3166,12 @@ def telegram_webhook(secret: str):
                     
                     board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
                     
-                        puzzle_msg = (
-                            f"🧩 **Шахматная задача дня**\n\n"
-                            f"Рейтинг: {rating}\n"
-                            f"Темы: {themes}\n\n"
-                            f"Введите ход в формате UCI (например: `e2e4` или `g1f3`):"
-                        )
+                    puzzle_msg = (
+                        f"🧩 **Шахматная задача дня**\n\n"
+                        f"Рейтинг: {rating}\n"
+                        f"Темы: {themes}\n\n"
+                        f"Введите ход в формате UCI (например: `e2e4` или `g1f3`):"
+                    )
                     
                     try:
                         photo_response = requests.post(
