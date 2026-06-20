@@ -3209,8 +3209,7 @@ def telegram_webhook(secret: str):
                         photo_exc_occurred = True
                     
                     # Log puzzle attempt and prompt for answer
-                    photo_ok = 'photo_response' in dir() and photo_response.status_code == 200
-                    if photo_ok:
+                    if photo_response.status_code == 200:
                         log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
                 except Exception as exc:
                     print(f"Error fetching puzzle: {exc}")
