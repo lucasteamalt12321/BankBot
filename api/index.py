@@ -1901,6 +1901,41 @@ def health():
     return jsonify({"status": "healthy", "platform": "vercel"})
 
 
+@app.route("/debug_puzzle")
+def debug_puzzle():
+    """Debug endpoint to test puzzle system."""
+    import traceback as tb
+    results = {"bot_token_set": bool(BOT_TOKEN), "bot_id": BOT_ID}
+    
+    # Test send_telegram_message
+    if BOT_TOKEN:
+        try:
+            resp = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+            results["getMe"] = {"status": resp.status_code, "ok": resp.ok}
+        except Exception as e:
+            results["getMe"] = {"error": str(e)}
+    
+    # Test DB connection
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(text("SELECT count(*) as cnt FROM chess_accounts")).mappings().first()
+            results["chess_accounts_count"] = row["cnt"] if row else -1
+    except Exception as e:
+        results["db_error"] = str(e)
+    
+    return jsonify(results)
+
+
+@app.route("/test_send/<int:chat_id>")
+def test_send(chat_id):
+    """Test sending a message to a chat_id."""
+    try:
+        send_telegram_message(chat_id, "🔧 Тестовое сообщение от BankBot")
+        return jsonify({"ok": True, "chat_id": chat_id})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @app.route("/reading_trainer.html")
 def reading_trainer():
     """Serve reading trainer HTML."""
