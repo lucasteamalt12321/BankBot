@@ -457,12 +457,35 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | Module | Commands Tested | Edge Cases | DB Checks | Status |
 |--------|----------------|------------|-----------|--------|
 | GD | 0/9 | 0/5 | 0/3 | 0% |
-| CH | 0/7 | 0/4 | 0/2 | 0% |
+| CH | 5/7 | 2/4 | 0/2 | 71% |
 | UN | 0/5 | 0/4 | 0/2 | 0% |
 | AI | 3/5 | 2/5 | 0/1 | 60% |
 | AIC | 0/2 | 0/3 | 0/1 | 0% |
 | MOM | 0/4 | 0/4 | 0/0 | 0% |
-| **Total** | **3/32** | **2/25** | **0/9** | **9%** |
+| Admin | 2/2 | 0/0 | 0/0 | 100% |
+| **Total** | **10/34** | **4/25** | **0/9** | **29%** |
+
+### CH tested (2026-06-20):
+- ✅ /chess_link LucasTeam — account linked
+- ✅ /chess_rating — ratings with blitz/rapid labels
+- ✅ /chess_stats — full stats (2525 games, winrate)
+- ✅ /puzzle — random puzzle with FEN derivation from PGN
+- ✅ /chess_history — works (empty state OK)
+- ✅ puzzle answer handler — UCI moves accepted and verified
+- ✅ /errors — admin error journal
+- ✅ /clear_errors — clears error log
+
+### Bugs found & fixed:
+- `text` variable shadowed `sqlalchemy.text()` → renamed to `msg_text`
+- Regex broke `response.text` → fixed
+- `response.msg_text` → `response.text`
+- `if text` → `if msg_text` (4 places)
+- Chess labels: "Молния"→"Блиц", "Быстрая"→"Рапид"
+- `/puzzle` "задача дня" → "задача" (random now)
+- `games.total` mapping from Lichess API `count.all`
+- `/puzzle/next` doesn't return FEN → derive from PGN via python-chess
+- Solution format: list vs string handled
+- `chess_games` auto-table creation on startup
 
 ---
 
