@@ -49,6 +49,7 @@ CHARACTER_EMOJI: dict[str, str] = {"нейтральный": "", "олегови
 DEFAULT_CHARACTER = "нейтральный"
 _user_character_cache: dict[int, str] = {}
 _global_character: str = DEFAULT_CHARACTER
+ADMIN_TELEGRAM_ID = 2091908459
 # Conversation memory for AI context
 _CHAT_MEMORY: dict[int, list[dict]] = {}  # per-user: last 10 personal messages
 _CHAT_MEMORY_LIMIT = 10
@@ -57,6 +58,9 @@ _CHAT_GLOBAL_LIMIT = 50
 _GD_SUBMIT_STATE: dict[int, dict] = {}
 _GD_MODERATE_STATE: dict[int, int] = {}
 _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, username}
+# Error logging system
+_ERROR_LOG: list[dict] = []
+_ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 
 
@@ -1809,6 +1813,90 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
         print(f"[SEND_MSG] EXCEPTION: {exc}")
 
 
+def notify_admin(text: str) -> None:
+    """Send error notification to admin Telegram."""
+    if ADMIN_TELEGRAM_ID and BOT_TOKEN:
+        send_telegram_message(ADMIN_TELEGRAM_ID, f"⚠️ {text}")
+
+
+def log_error(module: str, error_type: str, message: str, context: str = "") -> None:
+    """Log error to in-memory buffer, get AI recommendation, notify admin."""
+    from datetime import datetime as _dt
+    recommendation = _get_ai_recommendation(module, error_type, message, context)
+    entry = {
+        "time": _dt.utcnow().strftime("%H:%M"),
+        "module": module,
+        "error_type": error_type,
+        "message": message,
+        "context": context,
+        "recommendation": recommendation,
+    }
+    _ERROR_LOG.append(entry)
+    if len(_ERROR_LOG) > _ERROR_LOG_LIMIT:
+        _ERROR_LOG.pop(0)
+    notify_admin(f"🔴 [{module}] {message}\n💡 {recommendation}")
+
+
+def _get_ai_recommendation(module: str, error_type: str, message: str, context: str = "") -> str:
+    """Get AI-generated fix recommendation for an error."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return _static_recommendation(module, error_type)
+
+    prompt = (
+        f"Ты — DevOps инженер. Кратко (1-2 предложения) на русском языке порекомендуй "
+        f"как исправить ошибку в production Telegram-боте на Vercel:\n"
+        f"- Модуль: {module}\n"
+        f"- Тип ошибки: {error_type}\n"
+        f"- Сообщение: {message}\n"
+        f"- Контекст: {context or 'нет'}\n"
+        f"Ответ ТОЛЬКО текст рекомендации, без приветствий и пояснений."
+    )
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 100,
+                "temperature": 0.3,
+            },
+            timeout=8,
+        )
+        if response.status_code == 200:
+            return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        pass
+    return _static_recommendation(module, error_type)
+
+
+def _static_recommendation(module: str, error_type: str) -> str:
+    """Fallback static recommendations when AI is unavailable."""
+    recs = {
+        ("DB", "table_missing"): "Выполнить миграцию 009_phase2_tables_supabase.sql",
+        ("DB", "connection"): "Проверить DATABASE_URL в Vercel env vars",
+        ("Chess", "lichess_api"): "Lichess API недоступен, повторить позже",
+        ("Chess", "history_query"): "Таблица chess_games — перезапустить бот (автосоздание)",
+        ("Chess", "fen_derivation"): "Проверить python-chess в requirements.txt",
+        ("Chess", "fen_empty"): "Lichess API мог изменить формат ответа",
+        ("GD", "gd_api"): "GD API (boomlings.com) недоступен",
+        ("GD", "gd_level_api"): "GD API недоступен, повторить позже",
+        ("GD", "submission_save"): "Проверить таблицу submissions в Supabase",
+        ("GD", "approve_failed"): "Проверить таблицу level_completions в Supabase",
+        ("GD", "leaderboard"): "Проверить таблицу player_stats в Supabase",
+        ("GD", "level_top"): "Проверить таблицу levels в Supabase",
+        ("GD", "my_stats"): "Проверить таблицу player_stats/submissions",
+        ("GD", "player_stats"): "Проверить таблицу player_stats в Supabase",
+        ("AI", "groq_api"): "Проверить GROQ_API_KEY в Vercel env",
+        ("Telegram", "send_failed"): "Проверить BOT_TOKEN, rate limits Telegram",
+    }
+    return recs.get((module, error_type), "Проверить логи Vercel для деталей")
+
+
 def send_telegram_poll(
     chat_id: int, question: str, options: list[str], correct_option_id: int, explanation: str
 ) -> None:
@@ -1850,6 +1938,8 @@ def set_response_mode(chat_id: int, mode: str) -> None:
 
 def build_short_start_text(name: str, user_id: int) -> str:
     """Build the old short `/start` response."""
+    is_admin = user_id == ADMIN_TELEGRAM_ID
+    admin_section = "\n\nАдмин:\n/errors — журнал ошибок\n/clear_errors — очистить ошибки" if is_admin else ""
 
     return f"""[BANK] LucasTeam BankBot
 Привет, {name}!
@@ -1875,7 +1965,7 @@ AI:
 /ai — искусственный интеллект
 /gd — geometry dash
 /shop — магазин
-/admin — админка"""
+/admin — админка{admin_section}"""
 
 
 def build_long_start_text(name: str, user_id: int) -> str:
@@ -2614,6 +2704,26 @@ def telegram_webhook(secret: str):
                 chat_id,
                 f"Профиль: {name}\nБаланс: {balance}\nТранзакций: {stats['total_transactions']}\nСтатус: {'админ' if is_admin else 'пользователь'}",
             )
+        elif command == "/errors" and chat_id:
+            if user_id != ADMIN_TELEGRAM_ID:
+                send_telegram_message(chat_id, "❌ Только админ может просматривать ошибки.")
+            elif not _ERROR_LOG:
+                send_telegram_message(chat_id, "✅ Ошибок нет — всё чисто!")
+            else:
+                recent = _ERROR_LOG[-10:]
+                lines = [f"📋 **Ошибки** ({len(_ERROR_LOG)} всего, последние {len(recent)}):\n"]
+                for e in reversed(recent):
+                    lines.append(f"🕐 {e['time']} | 🔴 {e['module']}/{e['error_type']}")
+                    lines.append(f"   {e['message'][:100]}")
+                    lines.append(f"   💡 {e['recommendation']}\n")
+                send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+        elif command == "/clear_errors" and chat_id:
+            if user_id != ADMIN_TELEGRAM_ID:
+                send_telegram_message(chat_id, "❌ Только админ может очищать ошибки.")
+            else:
+                count = len(_ERROR_LOG)
+                _ERROR_LOG.clear()
+                send_telegram_message(chat_id, f"🗑 Очищено {count} ошибок.")
         elif command == "/history" and chat_id:
             history = get_user_history(user_id, limit=10)
             if not history:
@@ -3314,8 +3424,10 @@ def telegram_webhook(secret: str):
                                 fen = board.mirror().fen()
                     except Exception as fen_exc:
                         print(f"Error deriving FEN from PGN: {fen_exc}")
+                        log_error("Chess", "fen_derivation", f"FEN parse error: {fen_exc}", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
                     
                     if not fen:
+                        log_error("Chess", "fen_empty", "Empty FEN after derivation", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
                         send_telegram_message(
                             chat_id,
                             "❌ Не удалось отобразить доску. Попробуйте позже.",
@@ -3415,6 +3527,7 @@ def telegram_webhook(secret: str):
                         send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
                 except Exception as exc:
                     print(f"Error fetching chess history: {exc}")
+                    log_error("Chess", "history_query", f"chess_history user={user_id}: {exc}", f"query: chess_games WHERE user_id={user_id}")
                     send_telegram_message(
                         chat_id,
                         "❌ Ошибка загрузки истории. Попробуйте позже.",
@@ -3501,6 +3614,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"Error updating submission #{sub_id}: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.")
+                    log_error("GD", "submission_save", f"GD submit save failed user={user_id}", f"INSERT INTO submissions failed")
                 return jsonify({"ok": True})
 
             # Legacy in-memory fallback
@@ -3562,6 +3676,7 @@ def telegram_webhook(secret: str):
                             )
                         else:
                             send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
+                            log_error("GD", "approve_failed", f"GD approve failed sub_id={sub_id}", f"approve_gd_submission_db returned False")
                     _GD_APPROVE_STATE.pop(user_id, None)
                 except ValueError:
                     send_telegram_message(chat_id, "❌ Пожалуйста, введите число — позицию в топе.")
@@ -3606,6 +3721,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"gd_user error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных GD.")
+                    log_error("GD", "gd_api", f"GD API user lookup failed: {exc}", f"username={text.split()[1] if len(text.split()) > 1 else '?'}")
 
         # /gd_level <id или название>
         elif command == "/gd_level" and chat_id:
@@ -3629,6 +3745,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"gd_level error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
+                    log_error("GD", "gd_level_api", f"GD API level lookup failed: {exc}", f"query={text.split()[1] if len(text.split()) > 1 else '?'}")
 
         # /leaderboard — top by balance
         elif command == "/leaderboard" and chat_id:
@@ -3645,6 +3762,7 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"leaderboard error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при загрузке лидеров.")
+                log_error("GD", "leaderboard", f"Leaderboard load failed: {exc}", "get_top_balances or get_gd_leaderboard query failed")
 
         # /gd_leaderboard — GD уровень топ
         elif command == "/gd_leaderboard" and chat_id:
@@ -3663,6 +3781,7 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"leaderboard error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при загрузке топа уровней.")
+                log_error("GD", "level_top", f"GD level top load failed: {exc}", "get_gd_leaderboard query failed")
 
         # /my_stats
         elif command == "/my_stats" and chat_id:
@@ -3690,6 +3809,7 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"my_stats error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики.")
+                log_error("GD", "my_stats", f"my_stats load failed user={user_id}: {exc}", "get_gd_player_stats or get_gd_submission_counts failed")
 
         # /player_stats @username
         elif command == "/player_stats" and chat_id:
@@ -3724,6 +3844,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"player_stats error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики игрока.")
+                    log_error("GD", "player_stats", f"player_stats load failed: {exc}", f"query player_stats for user in chat {chat_id}")
 
         # /submit <level_name>
         elif command == "/submit" and chat_id:

@@ -1,9 +1,35 @@
 # Active Context
 
-**Последнее обновление:** 2026-06-07  
-**Текущая фаза:** GD Module for Vercel — перенос GD команд на Vercel webhook
+**Последнее обновление:** 2026-06-20  
+**Текущая фаза:** Error Logging System + Chess Module Testing
 
 ## Текущий фокус
+
+### Error Logging System (2026-06-20)
+
+**Цель:** Админ-панель для мониторинга ошибок с рекомендациями по исправлению.
+
+**Статус:** В работе.
+
+**Реализация:**
+- `_ERROR_LOG` — in-memory кольцевой буфер (последние 50 ошибок)
+- `log_error(module, error_type, message, recommendation)` — логирование ошибок
+- `notify_admin(text)` — уведомление админа в Telegram при критических ошибках
+- `/errors` — админ-команда: последние 10 ошибок с рекомендациями
+- `/clear_errors` — админ-команда: очистка лога
+
+**Категории ошибок:**
+| Модуль | Тип | Рекомендация |
+|--------|-----|--------------|
+| DB | table_missing | Миграция из 009_phase2_tables_supabase.sql |
+| DB | connection | Проверить DATABASE_URL в Vercel env |
+| Chess | lichess_api | Lichess API недоступен |
+| Chess | history_query | Таблица chess_games не создана |
+| GD | gd_api | GD API недоступен |
+| GD | submission_save | Проверить таблицу submissions |
+| AI | groq_api | Проверить GROQ_API_KEY |
+
+**Точки входа:** `api/index.py` —addErrorLog ~15 критичных error handlers + 2 admin commands
 
 ### GD Module for Vercel (2026-06-07)
 
