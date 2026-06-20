@@ -3137,80 +3137,71 @@ def telegram_webhook(secret: str):
                     headers = {"Accept": "application/json", "User-Agent": "BankBot/ChessModule"}
                     response = requests.get(puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
                     
-                    if response.status_code == 200:
-                        puzzle_data = response.json()
-                        puzzle = puzzle_data.get("puzzle", {})
-                        
-                        puzzle_id = puzzle.get("id", "unknown")
-                        rating = puzzle.get("rating", "?")
-                        fen = puzzle.get("fen", "")
-                        themes = ", ".join(puzzle.get("themes", [])[:3])
-                        solution = puzzle.get("solution", "")
-                        puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
-                        
-                        # Store pending puzzle for this user
-                        _PENDING_PUZZLES[user_id] = {
-                            "puzzle_id": puzzle_id,
-                            "solution": solution,
-                            "rating": rating,
-                            "themes": themes,
-                            "chat_id": chat_id,
-                            "username": account["lichess_username"],
-                        }
-                        
-                        # Send board image using Lichess board export
-                        # Format: https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett
-                        board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
-                        
-                        puzzle_msg = (
-                            f"🧩 **Шахматная задача дня**\n\n"
-                            f"Рейтинг: {rating}\n"
-                            f"Темы: {themes}\n\n"
-                            f"Введите ваш ход (например: `e2e4` или `Nf3`):"
-                        )
-                        
-                        # Send photo with caption
-                        try:
-                            photo_response = requests.post(
-                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                                json={
-                                    "chat_id": chat_id,
-                                    "photo": board_image_url,
-                                    "caption": puzzle_msg,
-                                    "parse_mode": "Markdown",
-                                    "reply_markup": {
-                                        "inline_keyboard": [
-                                            [
-                                                {
-                                                    "text": "🔗 Решить на Lichess",
-                                                    "url": puzzle_url_link
-                                                }
-                                            ]
-                                        ]
-                                    }
-                                },
-                                timeout=10,
-                            )
-                            if photo_response.status_code != 200:
-                                # Fallback to text message if image fails
-                                print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
-                                send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
-                        except Exception as photo_exc:
-                            print(f"Error sending photo: {photo_exc}")
-                            send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
-                            photo_exc_occurred = True
-                        else:
-                            photo_exc_occurred = False
-                    else:
+                    if response.status_code != 200:
                         send_telegram_message(
                             chat_id,
                             "❌ Не удалось загрузить задачу. Попробуйте позже.",
                         )
-                        photo_exc_occurred = True
+                        return jsonify({"ok": True})
                     
-                    # Log puzzle attempt and prompt for answer
-                    if photo_response.status_code == 200:
-                        log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
+                    puzzle_data = response.json()
+                    puzzle = puzzle_data.get("puzzle", {})
+                    
+                    puzzle_id = puzzle.get("id", "unknown")
+                    rating = puzzle.get("rating", "?")
+                    fen = puzzle.get("fen", "")
+                    themes = ", ".join(puzzle.get("themes", [])[:3])
+                    solution = puzzle.get("solution", "")
+                    puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
+                    
+                    # Store pending puzzle for this user
+                    _PENDING_PUZZLES[user_id] = {
+                        "puzzle_id": puzzle_id,
+                        "solution": solution,
+                        "rating": rating,
+                        "themes": themes,
+                        "chat_id": chat_id,
+                        "username": account["lichess_username"],
+                    }
+                    
+                    board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
+                    
+                        puzzle_msg = (
+                            f"🧩 **Шахматная задача дня**\n\n"
+                            f"Рейтинг: {rating}\n"
+                            f"Темы: {themes}\n\n"
+                            f"Введите ход в формате UCI (например: `e2e4` или `g1f3`):"
+                        )
+                    
+                    try:
+                        photo_response = requests.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                            json={
+                                "chat_id": chat_id,
+                                "photo": board_image_url,
+                                "caption": puzzle_msg,
+                                "parse_mode": "Markdown",
+                                "reply_markup": {
+                                    "inline_keyboard": [
+                                        [
+                                            {
+                                                "text": "🔗 Решить на Lichess",
+                                                "url": puzzle_url_link
+                                            }
+                                        ]
+                                    ]
+                                }
+                            },
+                            timeout=10,
+                        )
+                        if photo_response.status_code != 200:
+                            print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
+                            send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                    except Exception as photo_exc:
+                        print(f"Error sending photo: {photo_exc}")
+                        send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                    
+                    log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
                 except Exception as exc:
                     print(f"Error fetching puzzle: {exc}")
                     send_telegram_message(
