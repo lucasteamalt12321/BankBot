@@ -3159,6 +3159,9 @@ def telegram_webhook(secret: str):
                 
                 if coins_data and coins_data.get("last_puzzle_at"):
                     last_puzzle = coins_data["last_puzzle_at"]
+                    # Make naive for comparison (Supabase may return tz-aware)
+                    if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
+                        last_puzzle = last_puzzle.replace(tzinfo=None)
                     from datetime import timedelta
                     if now - last_puzzle < timedelta(hours=24):
                         remaining = 24 - (now - last_puzzle).total_seconds() / 3600
