@@ -1822,6 +1822,7 @@ def notify_admin(text: str) -> None:
 def log_error(module: str, error_type: str, message: str, context: str = "") -> None:
     """Log error to in-memory buffer, get AI recommendation, notify admin."""
     from datetime import datetime as _dt
+    import traceback as _tb
     recommendation = _get_ai_recommendation(module, error_type, message, context)
     entry = {
         "time": _dt.utcnow().strftime("%H:%M"),
@@ -1830,6 +1831,7 @@ def log_error(module: str, error_type: str, message: str, context: str = "") -> 
         "message": message,
         "context": context,
         "recommendation": recommendation,
+        "traceback": _tb.format_exc()[:500],
     }
     _ERROR_LOG.append(entry)
     if len(_ERROR_LOG) > _ERROR_LOG_LIMIT:
@@ -1843,13 +1845,26 @@ def _get_ai_recommendation(module: str, error_type: str, message: str, context: 
     if not groq_key:
         return _static_recommendation(module, error_type)
 
+    # Try to get relevant code snippet from error traceback
+    import traceback
+    code_snippet = ""
+    try:
+        tb = traceback.format_exc()
+        if tb and "line" in tb:
+            # Extract last few lines of traceback
+            lines = tb.strip().split("\n")
+            code_snippet = "\n".join(lines[-4:]) if len(lines) > 4 else tb[:500]
+    except Exception:
+        pass
+
     prompt = (
-        f"Ты — DevOps инженер. Кратко (1-2 предложения) на русском языке порекомендуй "
-        f"как исправить ошибку в production Telegram-боте на Vercel:\n"
+        f"Ты — Python DevOps инженер. Кратко (1-2 предложения) на русском языке порекомендуй "
+        f"как исправить ошибку в production Telegram-боте на Vercel.\n"
         f"- Модуль: {module}\n"
         f"- Тип ошибки: {error_type}\n"
-        f"- Сообщение: {message}\n"
+        f"- Сообщение об ошибке: {message}\n"
         f"- Контекст: {context or 'нет'}\n"
+        f"{'- Traceback код:\\n' + code_snippet + '\\n' if code_snippet else ''}"
         f"Ответ ТОЛЬКО текст рекомендации, без приветствий и пояснений."
     )
     try:
@@ -2535,19 +2550,19 @@ def telegram_webhook(secret: str):
     # Process Telegram commands supported by the Vercel webhook runtime.
     try:
         message = update.get("message", {})
-        text = message.get("text", "")
+        msg_text = message.get("text", "")
         chat_id = message.get("chat", {}).get("id")
         user = message.get("from", {})
         user_id = user.get("id", chat_id)
         name = user.get("first_name") or user.get("username") or "LucasTeam"
-        command = normalize_command(text)
+        command = normalize_command(msg_text)
 
-        print(f"[WEBHOOK] command='{command}' text='{text[:50]}' user_id={user_id} chat_id={chat_id}")
+        print(f"[WEBHOOK] command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
 
         # Check for parsing trigger (reply to game bot with "Парсинг" or /parse or /parsing)
         reply_to = message.get("reply_to_message")
         is_parsing_trigger = (
-            text and text.lower().strip() in ["парсинг", "parsing"]
+            msg_text and msg_text.lower().strip() in ["парсинг", "parsing"]
         ) or command in ["/parse", "/parsing"]
 
         # Debug logging
@@ -2646,11 +2661,11 @@ def telegram_webhook(secret: str):
             character = get_user_character(user_id)
             # Extract user text
             if is_bot_reply and reply_to:
-                user_text = text or ""
+                user_text = msg_text or ""
             elif is_mention:
                 user_text = mention_text
             else:
-                user_text = text or ""
+                user_text = msg_text or ""
             
             if user_text.strip():
                 # Build prompt and call AI with memory
@@ -2715,7 +2730,11 @@ def telegram_webhook(secret: str):
                 for e in reversed(recent):
                     lines.append(f"🕐 {e['time']} | 🔴 {e['module']}/{e['error_type']}")
                     lines.append(f"   {e['message'][:100]}")
-                    lines.append(f"   💡 {e['recommendation']}\n")
+                    lines.append(f"   💡 {e['recommendation']}")
+                    tb = e.get('traceback', '')
+                    if tb:
+                        lines.append(f"   📎 `{tb[-150:]}`")
+                    lines.append("")
                 send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
         elif command == "/clear_errors" and chat_id:
             if user_id != ADMIN_TELEGRAM_ID:
@@ -2765,7 +2784,7 @@ def telegram_webhook(secret: str):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
                 # Parse: /add_points @user 100 описание
-                args = text.split()[1:] if len(text.split()) > 1 else []
+                args = msg_text.split()[1:] if len(msg_text.split()) > 1 else []
                 if len(args) < 2:
                     send_telegram_message(
                         chat_id, "Формат: /add_points @username сумма [описание]"
@@ -2810,7 +2829,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()[1:] if len(text.split()) > 1 else []
+                args = msg_text.split()[1:] if len(msg_text.split()) > 1 else []
                 if len(args) < 1:
                     send_telegram_message(chat_id, "Формат: /add_admin telegram_id")
                 else:
@@ -2855,7 +2874,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()[1:] if len(text.split()) > 1 else []
+                args = msg_text.split()[1:] if len(msg_text.split()) > 1 else []
                 if len(args) < 1:
                     send_telegram_message(
                         chat_id, "Формат: /admin_transactions telegram_id"
@@ -2906,7 +2925,7 @@ def telegram_webhook(secret: str):
         elif command == "/ai" or command == "/ask":
             if not chat_id:
                 return jsonify({"ok": True})
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(
                     chat_id,
@@ -2940,7 +2959,7 @@ def telegram_webhook(secret: str):
                 "💡 Или просто ответьте на сообщение бота или упомяните @lt_lo_game_bot",
             )
         elif command == "/character" and chat_id:
-            args = text.split()
+            args = msg_text.split()
             if len(args) < 2:
                 # Show current character and available options
                 current = get_user_character(user_id)
@@ -2972,7 +2991,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Только для админов")
             else:
-                args = text.split()
+                args = msg_text.split()
                 if len(args) < 2:
                     current = get_global_character()
                     send_telegram_message(
@@ -3011,7 +3030,7 @@ def telegram_webhook(secret: str):
             send_telegram_message(chat_id, f"🙏 Молитва:\n\n{prayer}")
             return jsonify({"ok": True})
         elif command == "/ask_canon" and chat_id:
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(
                     chat_id,
@@ -3040,7 +3059,7 @@ def telegram_webhook(secret: str):
                 lines.append("\nКупить: /buy <номер>")
                 send_telegram_message(chat_id, "\n".join(lines))
         elif command == "/buy" and chat_id:
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(chat_id, "Формат: /buy <номер товара>")
             else:
@@ -3123,7 +3142,7 @@ def telegram_webhook(secret: str):
                         )
                         return jsonify({"ok": True})
                     else:
-                        print(f"sendPoll error: {response.text}")
+                        print(f"sendPoll error: {response.msg_text}")
                         raise Exception("sendPoll failed")
                 else:
                     raise Exception("BOT_TOKEN not set")
@@ -3169,7 +3188,7 @@ def telegram_webhook(secret: str):
         
         # /chess_link <username>
         elif command == "/chess_link" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if text else []
             
             if len(args) < 1:
                 send_telegram_message(
@@ -3475,7 +3494,7 @@ def telegram_webhook(secret: str):
                             timeout=10,
                         )
                         if photo_response.status_code != 200:
-                            print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
+                            print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.msg_text}")
                             send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
                     except Exception as photo_exc:
                         print(f"Error sending photo: {photo_exc}")
@@ -3538,7 +3557,7 @@ def telegram_webhook(secret: str):
         # =====================================================================
         if chat_id and user_id in _PENDING_PUZZLES and not command.startswith("/"):
             pending = _PENDING_PUZZLES[user_id]
-            user_move = text.strip().lower()
+            user_move = msg_text.strip().lower()
             solution = pending["solution"]
             # Handle both string and list formats
             if isinstance(solution, list):
@@ -3653,7 +3672,7 @@ def telegram_webhook(secret: str):
             # GD approve — position input
             approve_state = _GD_APPROVE_STATE.get(user_id)
             if approve_state:
-                text_stripped = text.strip() if text else ""
+                text_stripped = msg_text.strip() if msg_text else ""
                 try:
                     position = int(text_stripped)
                     if position < 1:
@@ -3706,7 +3725,7 @@ def telegram_webhook(secret: str):
 
         # /gd_user <username>
         elif command == "/gd_user" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Использование: `/gd_user <ник>`\nПример: `/gd_user Riot`", parse_mode="Markdown")
             else:
@@ -3721,11 +3740,11 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"gd_user error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных GD.")
-                    log_error("GD", "gd_api", f"GD API user lookup failed: {exc}", f"username={text.split()[1] if len(text.split()) > 1 else '?'}")
+                    log_error("GD", "gd_api", f"GD API user lookup failed: {exc}", f"username={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}")
 
         # /gd_level <id или название>
         elif command == "/gd_level" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID или название>`\nПример: `/gd_level 10565740` или `/gd_level Bloodbath`", parse_mode="Markdown")
             else:
@@ -3745,7 +3764,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"gd_level error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
-                    log_error("GD", "gd_level_api", f"GD API level lookup failed: {exc}", f"query={text.split()[1] if len(text.split()) > 1 else '?'}")
+                    log_error("GD", "gd_level_api", f"GD API level lookup failed: {exc}", f"query={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}")
 
         # /leaderboard — top by balance
         elif command == "/leaderboard" and chat_id:
@@ -3813,7 +3832,7 @@ def telegram_webhook(secret: str):
 
         # /player_stats @username
         elif command == "/player_stats" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Укажите пользователя: `/player_stats @username`", parse_mode="Markdown")
             else:
@@ -3848,7 +3867,7 @@ def telegram_webhook(secret: str):
 
         # /submit <level_name>
         elif command == "/submit" and chat_id:
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(chat_id, "❌ Использование: `/submit <название уровня>`\nПример: `/submit Tartarus`", parse_mode="Markdown")
             else:
@@ -3908,7 +3927,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()
+                args = msg_text.split()
                 if len(args) < 3:
                     send_telegram_message(chat_id, "❌ Использование: `/add_level <название> <позиция>`\nПример: `/add_level Tartarus 1`", parse_mode="Markdown")
                 else:
@@ -3927,7 +3946,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()
+                args = msg_text.split()
                 if len(args) < 3:
                     send_telegram_message(chat_id, "❌ Использование: `/set_level_position <id> <позиция>`\nПример: `/set_level_position 1 5`", parse_mode="Markdown")
                 else:
@@ -4345,7 +4364,7 @@ def debug_hf():
 
 @app.route("/api/reading_generate", methods=["POST", "GET"])
 def reading_generate():
-    """Generate reading text and questions using AI API."""
+    """Generate reading msg_text and questions using AI API."""
     try:
         import requests
         import json
@@ -4525,7 +4544,7 @@ def reading_generate():
         return jsonify(story_data)
 
     except Exception as e:
-        print(f"Error generating reading text: {e}")
+        print(f"Error generating reading msg_text: {e}")
         import traceback
 
         traceback.print_exc()
