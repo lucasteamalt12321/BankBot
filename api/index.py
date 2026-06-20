@@ -2654,7 +2654,7 @@ def telegram_webhook(secret: str):
         # Check for reply to bot message
         is_bot_reply = detect_bot_reply(message)
         # Check for @mention of bot
-        is_mention, mention_text = detect_bot_mention(text, message.get("entities"))
+        is_mention, mention_text = detect_bot_mention(msg_text, message.get("entities"))
         
         if chat_id and (is_bot_reply or is_mention):
             # Get user's character preference
@@ -3142,7 +3142,7 @@ def telegram_webhook(secret: str):
                         )
                         return jsonify({"ok": True})
                     else:
-                        print(f"sendPoll error: {response.msg_text}")
+                        print(f"sendPoll error: {response.text}")
                         raise Exception("sendPoll failed")
                 else:
                     raise Exception("BOT_TOKEN not set")
@@ -3188,7 +3188,7 @@ def telegram_webhook(secret: str):
         
         # /chess_link <username>
         elif command == "/chess_link" and chat_id:
-            args = msg_text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             
             if len(args) < 1:
                 send_telegram_message(
@@ -3494,7 +3494,7 @@ def telegram_webhook(secret: str):
                             timeout=10,
                         )
                         if photo_response.status_code != 200:
-                            print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.msg_text}")
+                            print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
                             send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
                     except Exception as photo_exc:
                         print(f"Error sending photo: {photo_exc}")
@@ -3725,7 +3725,7 @@ def telegram_webhook(secret: str):
 
         # /gd_user <username>
         elif command == "/gd_user" and chat_id:
-            args = msg_text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Использование: `/gd_user <ник>`\nПример: `/gd_user Riot`", parse_mode="Markdown")
             else:
@@ -3744,7 +3744,7 @@ def telegram_webhook(secret: str):
 
         # /gd_level <id или название>
         elif command == "/gd_level" and chat_id:
-            args = msg_text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID или название>`\nПример: `/gd_level 10565740` или `/gd_level Bloodbath`", parse_mode="Markdown")
             else:
@@ -3832,7 +3832,7 @@ def telegram_webhook(secret: str):
 
         # /player_stats @username
         elif command == "/player_stats" and chat_id:
-            args = msg_text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Укажите пользователя: `/player_stats @username`", parse_mode="Markdown")
             else:
@@ -4544,7 +4544,7 @@ def reading_generate():
         return jsonify(story_data)
 
     except Exception as e:
-        print(f"Error generating reading msg_text: {e}")
+        print(f"Error generating reading text: {e}")
         import traceback
 
         traceback.print_exc()
