@@ -3399,7 +3399,7 @@ def telegram_webhook(secret: str):
         # =====================================================================
         # Chess Module — puzzle answer handler
         # =====================================================================
-        if command == "" and chat_id and user_id in _PENDING_PUZZLES:
+        if chat_id and user_id in _PENDING_PUZZLES and not command.startswith("/"):
             pending = _PENDING_PUZZLES[user_id]
             user_move = text.strip().lower()
             solution = pending["solution"]
