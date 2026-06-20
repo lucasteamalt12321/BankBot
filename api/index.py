@@ -3103,8 +3103,11 @@ def telegram_webhook(secret: str):
         
         # /puzzle and /chess_puzzle commands
         elif command in ["/puzzle", "/chess_puzzle"] and chat_id:
+            print(f"[PUZZLE] user_id={user_id}, chat_id={chat_id}")
             account = get_chess_account(user_id)
+            print(f"[PUZZLE] account={account}")
             if not account:
+                print(f"[PUZZLE] No account, sending error")
                 send_telegram_message(
                     chat_id,
                     "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
@@ -3649,6 +3652,8 @@ def telegram_webhook(secret: str):
 
     except Exception as e:
         print(f"Error processing update: {e}")
+        import traceback
+        traceback.print_exc()
     return jsonify({"ok": True})
 
 
