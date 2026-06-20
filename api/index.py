@@ -57,6 +57,7 @@ _CHAT_GLOBAL_LIMIT = 50
 _GD_SUBMIT_STATE: dict[int, dict] = {}
 _GD_MODERATE_STATE: dict[int, int] = {}
 _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, username}
+_PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 
 
 def normalize_database_url(url: str) -> str:
@@ -2916,8 +2917,11 @@ def telegram_webhook(secret: str):
                 "`/chess_rating` — показать рейтинги\n"
                 "`/chess_stats` — показать статистику\n"
                 "`/puzzle` или `/chess_puzzle` — решить шахматную задачу\n"
-                "`/puzzle_solved` — подтвердить решение (+5 монет)\n"
                 "`/chess_history` — история решённых задач\n\n"
+                "**Как решать задачи:**\n"
+                "1. Отправьте `/puzzle`\n"
+                "2. Введите ваш ход (например: `e2e4`)\n"
+                "3. За правильный ответ — +5 монет\n\n"
                 "**Пример:**\n"
                 "`/chess_link DrNykterstein`"
             )
@@ -3141,7 +3145,18 @@ def telegram_webhook(secret: str):
                         rating = puzzle.get("rating", "?")
                         fen = puzzle.get("fen", "")
                         themes = ", ".join(puzzle.get("themes", [])[:3])
+                        solution = puzzle.get("solution", "")
                         puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
+                        
+                        # Store pending puzzle for this user
+                        _PENDING_PUZZLES[user_id] = {
+                            "puzzle_id": puzzle_id,
+                            "solution": solution,
+                            "rating": rating,
+                            "themes": themes,
+                            "chat_id": chat_id,
+                            "username": account["lichess_username"],
+                        }
                         
                         # Send board image using Lichess board export
                         # Format: https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett
@@ -3151,7 +3166,7 @@ def telegram_webhook(secret: str):
                             f"🧩 **Шахматная задача дня**\n\n"
                             f"Рейтинг: {rating}\n"
                             f"Темы: {themes}\n\n"
-                            f"Ваш ход!"
+                            f"Введите ваш ход (например: `e2e4` или `Nf3`):"
                         )
                         
                         # Send photo with caption
@@ -3193,69 +3208,15 @@ def telegram_webhook(secret: str):
                         )
                         photo_exc_occurred = True
                     
-                    # Log puzzle attempt (no automatic reward — must verify solution)
+                    # Log puzzle attempt and prompt for answer
                     photo_ok = 'photo_response' in dir() and photo_response.status_code == 200
                     if photo_ok:
                         log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
-                        send_telegram_message(
-                            chat_id,
-                            "💡 Решите задачу на Lichess и отправьте `/puzzle_solved` для получения монет.",
-                            parse_mode="Markdown",
-                        )
                 except Exception as exc:
                     print(f"Error fetching puzzle: {exc}")
                     send_telegram_message(
                         chat_id,
                         "❌ Ошибка загрузки задачи. Попробуйте позже.",
-                    )
-
-        # /puzzle_solved — mark last puzzle as solved and award coins
-        elif command == "/puzzle_solved" and chat_id:
-            account = get_chess_account(user_id)
-            if not account:
-                send_telegram_message(
-                    chat_id,
-                    "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
-                    parse_mode="Markdown",
-                )
-            else:
-                try:
-                    with get_db_engine().connect() as conn:
-                        # Find last unsolved puzzle for this user
-                        row = conn.execute(
-                            text(
-                                "SELECT id, puzzle_id, puzzle_rating FROM chess_games "
-                                "WHERE user_id = :user_id AND solved = FALSE "
-                                "ORDER BY created_at DESC LIMIT 1"
-                            ),
-                            {"user_id": user_id},
-                        ).mappings().first()
-
-                        if not row:
-                            send_telegram_message(
-                                chat_id,
-                                "ℹ️ Нет задач для подтверждения. Сначала решите: /puzzle",
-                            )
-                        else:
-                            # Mark as solved and award 5 coins
-                            conn.execute(
-                                text(
-                                    "UPDATE chess_games SET solved = TRUE, solved_at = NOW() WHERE id = :id"
-                                ),
-                                {"id": row["id"]},
-                            )
-                            conn.commit()
-
-                            update_user_coins(user_id, 5, datetime.utcnow())
-                            send_telegram_message(
-                                chat_id,
-                                f"✅ Задача {row['puzzle_id']} засчитана!\n💰 +5 монет",
-                            )
-                except Exception as exc:
-                    print(f"Error in puzzle_solved: {exc}")
-                    send_telegram_message(
-                        chat_id,
-                        "❌ Ошибка подтверждения. Попробуйте позже.",
                     )
 
         # /chess_history — история решённых задач
@@ -3301,6 +3262,33 @@ def telegram_webhook(secret: str):
                         "❌ Ошибка загрузки истории. Попробуйте позже.",
                     )
 
+        # =====================================================================
+        # Chess Module — puzzle answer handler
+        # =====================================================================
+        if command == "" and chat_id and user_id in _PENDING_PUZZLES:
+            pending = _PENDING_PUZZLES[user_id]
+            user_move = text.strip().lower()
+            solution_moves = pending["solution"].split()
+            
+            if solution_moves and user_move == solution_moves[0].lower():
+                # Correct move — award coins
+                del _PENDING_PUZZLES[user_id]
+                update_user_coins(user_id, 5, datetime.utcnow())
+                send_telegram_message(
+                    chat_id,
+                    f"✅ **Правильно!**\n\nХод: `{solution_moves[0]}`\n💰 +5 монет",
+                    parse_mode="Markdown",
+                )
+            else:
+                # Wrong move — show correct solution
+                correct = solution_moves[0] if solution_moves else "?"
+                del _PENDING_PUZZLES[user_id]
+                send_telegram_message(
+                    chat_id,
+                    f"❌ **Неверно.**\n\nПравильный ход: `{correct}`\nПопробуйте следующую задачу: /puzzle",
+                    parse_mode="Markdown",
+                )
+        
         # =====================================================================
         # GD Module — submit follow-up
         # =====================================================================
