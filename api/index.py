@@ -1763,7 +1763,8 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
     """Send a Telegram message from the Vercel webhook runtime."""
 
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN is not configured")
+        print("[SEND_MSG] BOT_TOKEN is empty!")
+        return
 
     payload = {"chat_id": chat_id, "text": text}
     payload.update(extra_payload)
@@ -1773,12 +1774,9 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
             json=payload,
             timeout=5,
         )
-        if response.status_code != 200:
-            print(f"[SEND_MSG] FAILED: status={response.status_code} text={response.text[:200]}")
-        response.raise_for_status()
+        print(f"[SEND_MSG] chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
     except Exception as exc:
         print(f"[SEND_MSG] EXCEPTION: {exc}")
-        raise
 
 
 def send_telegram_poll(
