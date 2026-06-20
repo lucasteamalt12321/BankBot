@@ -1,7 +1,7 @@
 # Active Context
 
 **Последнее обновление:** 2026-06-20  
-**Текущая фаза:** Error Logging System + Chess Module Testing
+**Текущая фаза:** Chess Module Testing (прервано)
 
 ## Текущий фокус
 
