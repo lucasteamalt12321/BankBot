@@ -1767,12 +1767,18 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
 
     payload = {"chat_id": chat_id, "text": text}
     payload.update(extra_payload)
-    response = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json=payload,
-        timeout=5,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json=payload,
+            timeout=5,
+        )
+        if response.status_code != 200:
+            print(f"[SEND_MSG] FAILED: status={response.status_code} text={response.text[:200]}")
+        response.raise_for_status()
+    except Exception as exc:
+        print(f"[SEND_MSG] EXCEPTION: {exc}")
+        raise
 
 
 def send_telegram_poll(
