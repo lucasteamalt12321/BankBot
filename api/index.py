@@ -329,6 +329,7 @@ def build_character_prompt(character: str, user_text: str) -> str:
 
 def add_chat_memory(user_id: int, role: str, text: str) -> None:
     """Add a message to user's conversation memory and global chat history."""
+    global _CHAT_GLOBAL
     # Per-user memory
     if user_id not in _CHAT_MEMORY:
         _CHAT_MEMORY[user_id] = []
