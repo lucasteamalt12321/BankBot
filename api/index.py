@@ -1340,6 +1340,8 @@ def fetch_lichess_user(username: str) -> dict | None:
             "username": lichess_username.strip(),
             "title": title if isinstance(title, str) and title else None,
             "online": online,
+            "perfs": payload.get("perfs", {}),
+            "games": payload.get("count", {}),
         }
     except requests.exceptions.Timeout:
         raise RuntimeError("Lichess API timeout")
@@ -2912,7 +2914,8 @@ def telegram_webhook(secret: str):
                 "`/chess_link <ник>` — привязать Lichess аккаунт\n"
                 "`/chess_rating` — показать рейтинги\n"
                 "`/chess_stats` — показать статистику\n"
-                "`/puzzle` или `/chess_puzzle` — решить шахматную задачу\n\n"
+                "`/puzzle` или `/chess_puzzle` — решить шахматную задачу\n"
+                "`/chess_history` — история решённых задач\n\n"
                 "**Пример:**\n"
                 "`/chess_link DrNykterstein`"
             )
@@ -3189,8 +3192,10 @@ def telegram_webhook(secret: str):
                         photo_exc_occurred = True
                     
                     # Award puzzle reward (5 coins, cooldown tracking) if photo sent successfully
-                    if not photo_exc_occurred and photo_response.status_code == 200:
+                    photo_ok = 'photo_response' in dir() and photo_response.status_code == 200
+                    if photo_ok:
                         update_user_coins(user_id, 5, now)
+                        log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
                         send_telegram_message(
                             chat_id,
                             f"💰 Вы получили 5 монет за участие!\nБаланс: {coins_data['balance'] + 5 if coins_data else 5} монет",
@@ -3200,6 +3205,49 @@ def telegram_webhook(secret: str):
                     send_telegram_message(
                         chat_id,
                         "❌ Ошибка загрузки задачи. Попробуйте позже.",
+                    )
+
+        # /chess_history — история решённых задач
+        elif command == "/chess_history" and chat_id:
+            account = get_chess_account(user_id)
+            if not account:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
+                    parse_mode="Markdown",
+                )
+            else:
+                try:
+                    with get_db_engine().connect() as conn:
+                        rows = conn.execute(
+                            text(
+                                "SELECT puzzle_id, puzzle_rating, puzzle_themes, solved, solved_at, created_at "
+                                "FROM chess_games WHERE user_id = :user_id ORDER BY created_at DESC LIMIT 10"
+                            ),
+                            {"user_id": user_id},
+                        ).mappings().all()
+
+                    if not rows:
+                        send_telegram_message(
+                            chat_id,
+                            "📋 У вас пока нет истории задач. Решите первую: /puzzle",
+                        )
+                    else:
+                        coins = get_user_coins(user_id)
+                        balance = coins["balance"] if coins else 0
+                        lines = [f"📋 **История задач** ({account['lichess_username']})\n💰 Баланс: {balance} монет\n"]
+                        for r in rows:
+                            status = "✅" if r["solved"] else "⏳"
+                            rating = r["puzzle_rating"] or "?"
+                            themes = r["puzzle_themes"] or "—"
+                            link = f"https://lichess.org/training/{r['puzzle_id']}"
+                            lines.append(f"{status} [{r['puzzle_id']}]({link}) | Рейтинг: {rating} | {themes}")
+                        send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                except Exception as exc:
+                    print(f"Error fetching chess history: {exc}")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка загрузки истории. Попробуйте позже.",
                     )
 
         # =====================================================================

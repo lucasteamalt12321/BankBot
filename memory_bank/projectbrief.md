@@ -87,11 +87,11 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | CH-02 | Команда /chess_link <ник> (привязка Lichess аккаунта) | completed | 3 |
 | CH-03 | /chess_rating и /chess_stats (базовые версии) | completed | 4 |
 | CH-04 | /puzzle и /chess_puzzle (задача с изображением доски) | completed | 5 |
-| CH-05 | Puzzle rewards: награды монетами за решение задач | pending | 3 |
-| CH-06 | History: история решённых задач | pending | 2 |
+| CH-05 | Puzzle rewards: награды монетами за решение задач | completed | 3 |
+| CH-06 | History: история решённых задач | completed | 2 |
 | CH-TEST | Тестирование Chess Module (manual + integration) | pending | 2 |
 
-**Chess Module: 14/21 (67%)**
+**Chess Module: 18/21 (86%)**
 
 ---
 
@@ -123,6 +123,25 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+#### 💬 AI Chat — Reply & Mention Mode (8%)
+
+Новый модуль: AI-ответы на реплаи и @упоминания бота. Заменяет команду `/chat`.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| AIC-01 | Кэширование BOT_ID при старте (getMe) | completed | 1 |
+| AIC-02 | Характер пользователя в user_preferences (preferred_character) | completed | 1 |
+| AIC-03 | Обнаружение реплаев на сообщения бота (reply_to.from.id == BOT_ID) | completed | 1 |
+| AIC-04 | Обнаружение @упоминаний бота (entities type=mention) | completed | 1 |
+| AIC-05 | AI-роутинг: построение prompt по характеру + call_ai_api() | completed | 1 |
+| AIC-06 | Команда /character — выбор характера для пользователя | completed | 1 |
+| AIC-07 | Команда /character_all — глобальный характер (только админы) | completed | 1 |
+| AIC-08 | Удаление /chat, обновление справки /start | completed | 1 |
+
+**AI Chat Module: 8/8 (100%)**
+
+---
+
 #### 🧑‍🏫 Mom Module (21%)
 
 | ID | Deliverable | Status | Weight |
@@ -149,19 +168,20 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 ---
 
 **Phase 1 (Core): 95/100 completed**  
-**Phase 2 (Features): 78/100 completed** (GD-01-07: 27%, CH-01-04: 14%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-04: 19%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST: 0%)  
-**Общий прогресс проекта: 95% (Phase 1) + 78% (Phase 2)**
+**Phase 2 (Features): 86/100 completed** (GD-01-07: 27%, CH-01-06: 18%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-04: 19%, AIC-01-08: 8%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST: 0%)  
+**Общий прогресс проекта: 95% (Phase 1) + 86% (Phase 2)**
 
 **Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
 
 **Завершённые модули:**
 - **AI Module (15%):** Полностью реализован — AI Manager, /chat, /generate_prayer, /ask_canon, /ai_model
+- **AI Chat Module (8%):** Полностью реализован — reply/mention AI, /character, /character_all, память 10 личных + 50 глобальных сообщений
 - **Mom Module (19%):** Полностью реализован — веб-приложение тренажёр чтения, двухэкранный интерфейс, генерация через HF API с fallback, проверка ответов, печать
 - **GD Module (27%):** Core функциональность реализована — БД схема, /submit, /moderate, статистика, GD API интеграция
-- **Chess Module (14%):** Базовая функциональность — /chess_link, /chess_rating, /chess_stats, /puzzle с изображением доски и inline-кнопкой
+- **Chess Module (18%):** Полностью реализована — /chess_link, /chess_rating, /chess_stats, /puzzle с изображением доски и inline-кнопкой, награды 5 монет за решение, история решённых задач
 - **Universe Module (14%):** Базовая функциональность — /infect, /tea, /daily_prayer, /generate_prayer (через AI Module)
 
-**Осталось:** Manual testing всех модулей (11%), Chess rewards + history (5%), buffer (6%)
+**Осталось:** Manual testing всех модулей (11%), buffer (3%)
 
 ---
 
@@ -437,11 +457,12 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | Module | Commands Tested | Edge Cases | DB Checks | Status |
 |--------|----------------|------------|-----------|--------|
 | GD | 0/9 | 0/5 | 0/3 | 0% |
-| CH | 0/6 | 0/4 | 0/2 | 0% |
+| CH | 0/7 | 0/4 | 0/2 | 0% |
 | UN | 0/5 | 0/4 | 0/2 | 0% |
-| AI | 0/5 | 0/5 | 0/1 | 0% |
+| AI | 3/5 | 2/5 | 0/1 | 60% |
+| AIC | 0/2 | 0/3 | 0/1 | 0% |
 | MOM | 0/4 | 0/4 | 0/0 | 0% |
-| **Total** | **0/29** | **0/22** | **0/8** | **0%** |
+| **Total** | **3/32** | **2/25** | **0/9** | **9%** |
 
 ---
 
