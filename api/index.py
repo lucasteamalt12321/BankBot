@@ -1338,12 +1338,18 @@ def fetch_lichess_user(username: str) -> dict | None:
         title = payload.get("title")
         online_raw = payload.get("online", False)
         online = online_raw if isinstance(online_raw, bool) else (online_raw == "true")
+        count = payload.get("count", {})
         return {
             "username": lichess_username.strip(),
             "title": title if isinstance(title, str) and title else None,
             "online": online,
             "perfs": payload.get("perfs", {}),
-            "games": payload.get("count", {}),
+            "games": {
+                "total": count.get("all", 0),
+                "win": count.get("win", 0),
+                "loss": count.get("loss", 0),
+                "draw": count.get("draw", 0),
+            },
         }
     except requests.exceptions.Timeout:
         raise RuntimeError("Lichess API timeout")
@@ -3122,9 +3128,9 @@ def telegram_webhook(secret: str):
                         if "bullet" in perfs:
                             rating_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
                         if "blitz" in perfs:
-                            rating_parts.append(f"⚡ **Молния:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                            rating_parts.append(f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
                         if "rapid" in perfs:
-                            rating_parts.append(f"⏱️ **Быстрая:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                            rating_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
                         if "classical" in perfs:
                             rating_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
                         
@@ -3183,9 +3189,9 @@ def telegram_webhook(secret: str):
                         if "bullet" in perfs:
                             stats_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
                         if "blitz" in perfs:
-                            stats_parts.append(f"⚡ **Молния:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                            stats_parts.append(f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
                         if "rapid" in perfs:
-                            stats_parts.append(f"⏱️ **Быстрая:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                            stats_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
                         if "classical" in perfs:
                             stats_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
                         
@@ -3239,8 +3245,8 @@ def telegram_webhook(secret: str):
                 )
                 
                 try:
-                    # Fetch daily puzzle from Lichess
-                    puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/daily"
+                    # Fetch random puzzle from Lichess (not daily — random each time)
+                    puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/next"
                     headers = {"Accept": "application/json", "User-Agent": "BankBot/ChessModule"}
                     response = requests.get(puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
                     
@@ -3274,7 +3280,7 @@ def telegram_webhook(secret: str):
                     board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
                     
                     puzzle_msg = (
-                        f"🧩 **Шахматная задача дня**\n\n"
+                        f"🧩 **Шахматная задача**\n\n"
                         f"Рейтинг: {rating}\n"
                         f"Темы: {themes}\n\n"
                         f"Введите ход в формате UCI (например: `e2e4` или `g1f3`):"
