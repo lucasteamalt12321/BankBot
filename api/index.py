@@ -1936,6 +1936,67 @@ def test_send(chat_id):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@app.route("/test_puzzle/<int:user_id>")
+def test_puzzle(user_id):
+    """Simulate puzzle handler step by step."""
+    results = {"user_id": user_id}
+    
+    # Step 1: get_chess_account
+    try:
+        account = get_chess_account(user_id)
+        results["account"] = account
+    except Exception as e:
+        results["account_error"] = str(e)
+        return jsonify(results)
+    
+    if not account:
+        results["action"] = "no_account"
+        return jsonify(results)
+    
+    # Step 2: get_user_coins
+    try:
+        coins_data = get_user_coins(user_id)
+        results["coins_data"] = coins_data
+    except Exception as e:
+        results["coins_error"] = str(e)
+        return jsonify(results)
+    
+    # Step 3: cooldown check
+    now = datetime.utcnow()
+    if coins_data and coins_data.get("last_puzzle_at"):
+        last_puzzle = coins_data["last_puzzle_at"]
+        if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
+            last_puzzle = last_puzzle.replace(tzinfo=None)
+        from datetime import timedelta
+        diff = now - last_puzzle
+        results["last_puzzle"] = str(last_puzzle)
+        results["hours_since"] = diff.total_seconds() / 3600
+        if diff < timedelta(hours=24):
+            results["action"] = "cooldown"
+            return jsonify(results)
+    
+    # Step 4: fetch Lichess puzzle
+    try:
+        import requests as req
+        puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/daily"
+        resp = req.get(puzzle_url, headers={"Accept": "application/json", "User-Agent": "BankBot"}, timeout=8)
+        results["lichess_status"] = resp.status_code
+        if resp.status_code == 200:
+            data = resp.json()
+            puzzle = data.get("puzzle", {})
+            results["puzzle_id"] = puzzle.get("id")
+            results["rating"] = puzzle.get("rating")
+            results["solution"] = puzzle.get("solution", "")[:50]
+            results["action"] = "success"
+        else:
+            results["action"] = "lichess_error"
+    except Exception as e:
+        results["lichess_error"] = str(e)
+        results["action"] = "lichess_exception"
+    
+    return jsonify(results)
+
+
 @app.route("/reading_trainer.html")
 def reading_trainer():
     """Serve reading trainer HTML."""
