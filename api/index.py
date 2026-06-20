@@ -2916,6 +2916,7 @@ def telegram_webhook(secret: str):
                 "`/chess_rating` — показать рейтинги\n"
                 "`/chess_stats` — показать статистику\n"
                 "`/puzzle` или `/chess_puzzle` — решить шахматную задачу\n"
+                "`/puzzle_solved` — подтвердить решение (+5 монет)\n"
                 "`/chess_history` — история решённых задач\n\n"
                 "**Пример:**\n"
                 "`/chess_link DrNykterstein`"
@@ -3192,20 +3193,69 @@ def telegram_webhook(secret: str):
                         )
                         photo_exc_occurred = True
                     
-                    # Award puzzle reward (5 coins, cooldown tracking) if photo sent successfully
+                    # Log puzzle attempt (no automatic reward — must verify solution)
                     photo_ok = 'photo_response' in dir() and photo_response.status_code == 200
                     if photo_ok:
-                        update_user_coins(user_id, 5, now)
                         log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
                         send_telegram_message(
                             chat_id,
-                            f"💰 Вы получили 5 монет за участие!\nБаланс: {coins_data['balance'] + 5 if coins_data else 5} монет",
+                            "💡 Решите задачу на Lichess и отправьте `/puzzle_solved` для получения монет.",
+                            parse_mode="Markdown",
                         )
                 except Exception as exc:
                     print(f"Error fetching puzzle: {exc}")
                     send_telegram_message(
                         chat_id,
                         "❌ Ошибка загрузки задачи. Попробуйте позже.",
+                    )
+
+        # /puzzle_solved — mark last puzzle as solved and award coins
+        elif command == "/puzzle_solved" and chat_id:
+            account = get_chess_account(user_id)
+            if not account:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
+                    parse_mode="Markdown",
+                )
+            else:
+                try:
+                    with get_db_engine().connect() as conn:
+                        # Find last unsolved puzzle for this user
+                        row = conn.execute(
+                            text(
+                                "SELECT id, puzzle_id, puzzle_rating FROM chess_games "
+                                "WHERE user_id = :user_id AND solved = FALSE "
+                                "ORDER BY created_at DESC LIMIT 1"
+                            ),
+                            {"user_id": user_id},
+                        ).mappings().first()
+
+                        if not row:
+                            send_telegram_message(
+                                chat_id,
+                                "ℹ️ Нет задач для подтверждения. Сначала решите: /puzzle",
+                            )
+                        else:
+                            # Mark as solved and award 5 coins
+                            conn.execute(
+                                text(
+                                    "UPDATE chess_games SET solved = TRUE, solved_at = NOW() WHERE id = :id"
+                                ),
+                                {"id": row["id"]},
+                            )
+                            conn.commit()
+
+                            update_user_coins(user_id, 5, datetime.utcnow())
+                            send_telegram_message(
+                                chat_id,
+                                f"✅ Задача {row['puzzle_id']} засчитана!\n💰 +5 монет",
+                            )
+                except Exception as exc:
+                    print(f"Error in puzzle_solved: {exc}")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка подтверждения. Попробуйте позже.",
                     )
 
         # /chess_history — история решённых задач
