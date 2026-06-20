@@ -3214,23 +3214,24 @@ def telegram_webhook(secret: str):
                     parse_mode="Markdown",
                 )
             else:
-                # Check cooldown (max 1 puzzle per day)
+                # Check cooldown (max 1 puzzle per day) — REMOVED for testing
+                # TODO: re-enable after testing
                 now = datetime.utcnow()
                 coins_data = get_user_coins(user_id)
                 
-                if coins_data and coins_data.get("last_puzzle_at"):
-                    last_puzzle = coins_data["last_puzzle_at"]
-                    # Make naive for comparison (Supabase may return tz-aware)
-                    if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
-                        last_puzzle = last_puzzle.replace(tzinfo=None)
-                    from datetime import timedelta
-                    if now - last_puzzle < timedelta(hours=24):
-                        remaining = 24 - (now - last_puzzle).total_seconds() / 3600
-                        send_telegram_message(
-                            chat_id,
-                            f"⏳ Пожалуйста, подождите {remaining:.1f} часов до следующей задачи.",
-                        )
-                        return jsonify({"ok": True})
+                # Cooldown disabled — allow multiple puzzles per day
+                # if coins_data and coins_data.get("last_puzzle_at"):
+                #     last_puzzle = coins_data["last_puzzle_at"]
+                #     if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
+                #         last_puzzle = last_puzzle.replace(tzinfo=None)
+                #     from datetime import timedelta
+                #     if now - last_puzzle < timedelta(hours=24):
+                #         remaining = 24 - (now - last_puzzle).total_seconds() / 3600
+                #         send_telegram_message(
+                #             chat_id,
+                #             f"⏳ Пожалуйста, подождите {remaining:.1f} часов до следующей задачи.",
+                #         )
+                #         return jsonify({"ok": True})
                 
                 send_telegram_message(
                     chat_id,
