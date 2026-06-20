@@ -3259,13 +3259,44 @@ def telegram_webhook(secret: str):
                     
                     puzzle_data = response.json()
                     puzzle = puzzle_data.get("puzzle", {})
+                    game = puzzle_data.get("game", {})
                     
                     puzzle_id = puzzle.get("id", "unknown")
                     rating = puzzle.get("rating", "?")
-                    fen = puzzle.get("fen", "")
                     themes = ", ".join(puzzle.get("themes", [])[:3])
                     solution = puzzle.get("solution", "")
+                    initial_ply = puzzle.get("initialPly", 0)
                     puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
+                    
+                    # Derive FEN from game PGN + initialPly
+                    fen = ""
+                    try:
+                        import io
+                        import chess.pgn
+                        pgn_text = game.get("pgn", "")
+                        pgn_io = io.StringIO(pgn_text)
+                        pgn_game = chess.pgn.read_game(pgn_io)
+                        if pgn_game:
+                            board = pgn_game.board()
+                            moves = list(pgn_game.mainline_moves())
+                            for i, move in enumerate(moves):
+                                if i >= initial_ply:
+                                    break
+                                board.push(move)
+                            fen = board.fen()
+                            # Lichess board images show from white's perspective
+                            # If black to move, flip the board
+                            if board.turn == chess.BLACK:
+                                fen = board.mirror().fen()
+                    except Exception as fen_exc:
+                        print(f"Error deriving FEN from PGN: {fen_exc}")
+                    
+                    if not fen:
+                        send_telegram_message(
+                            chat_id,
+                            "❌ Не удалось отобразить доску. Попробуйте позже.",
+                        )
+                        return jsonify({"ok": True})
                     
                     # Store pending puzzle for this user
                     _PENDING_PUZZLES[user_id] = {
@@ -3371,7 +3402,12 @@ def telegram_webhook(secret: str):
         if command == "" and chat_id and user_id in _PENDING_PUZZLES:
             pending = _PENDING_PUZZLES[user_id]
             user_move = text.strip().lower()
-            solution_moves = pending["solution"].split()
+            solution = pending["solution"]
+            # Handle both string and list formats
+            if isinstance(solution, list):
+                solution_moves = solution
+            else:
+                solution_moves = solution.split()
             
             if solution_moves and user_move == solution_moves[0].lower():
                 # Correct move — award coins
