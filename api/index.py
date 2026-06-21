@@ -3789,14 +3789,16 @@ def telegram_webhook(secret: str):
             if not levels:
                 send_telegram_message(chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни.")
             else:
+                send_telegram_message(chat_id, "DEBUG: entered else branch")
                 lines = ["🏆 **Geometry Dash — Топ-20 уровней**\n"]
                 for lv in levels:
-                    cnt = get_gd_completions_count(lv["id"])
+                    send_telegram_message(chat_id, f"DEBUG: looping lv={lv}")
+                    cnt = 0
                     score = 101 - lv["position"]
                     lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {cnt}")
                 lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
                 msg = "\n".join(lines)
-                send_telegram_message(chat_id, f"DEBUG: msg={msg!r}")
+                send_telegram_message(chat_id, f"DEBUG: sending msg, len={len(msg)}")
                 send_telegram_message(chat_id, msg, parse_mode="Markdown")
 
         # /my_stats
