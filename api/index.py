@@ -2647,6 +2647,36 @@ def telegram_webhook(secret: str):
                 )
                 return jsonify({"ok": True})
 
+        # GD approve — position input (must be before AI block to avoid interception)
+        approve_state = _GD_APPROVE_STATE.get(user_id)
+        if approve_state and msg_text:
+            text_stripped = msg_text.strip()
+            try:
+                position = int(text_stripped)
+                if position < 1:
+                    send_telegram_message(chat_id, "❌ Позиция должна быть положительным числом.")
+                else:
+                    sub_id = approve_state["sub_id"]
+                    level_name = approve_state["level_name"]
+                    level_id = add_gd_level(level_name, position)
+                    if not level_id:
+                        send_telegram_message(chat_id, f"❌ Ошибка при добавлении уровня **{level_name}** в топ.", parse_mode="Markdown")
+                    else:
+                        if approve_gd_submission_db(sub_id, user_id):
+                            send_telegram_message(
+                                chat_id,
+                                f"✅ Заявка #{sub_id} подтверждена!\n"
+                                f"🏆 Уровень **{level_name}** добавлен в топ на позицию **#{position}**.",
+                                parse_mode="Markdown",
+                            )
+                        else:
+                            send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
+                            log_error("GD", "approve_failed", f"GD approve failed sub_id={sub_id}", "approve_gd_submission_db returned False")
+                _GD_APPROVE_STATE.pop(user_id, None)
+            except ValueError:
+                send_telegram_message(chat_id, "❌ Пожалуйста, введите число — позицию в топе.")
+            return jsonify({"ok": True})
+
         # AI response on reply to bot message or @mention
         if BOT_ID is None:
             _load_bot_id()
@@ -3366,7 +3396,7 @@ def telegram_webhook(secret: str):
             account = get_chess_account(user_id)
             print(f"[PUZZLE] account={account}")
             if not account:
-                print(f"[PUZZLE] No account, sending error")
+                print("[PUZZLE] No account, sending error")
                 send_telegram_message(
                     chat_id,
                     "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
@@ -3633,7 +3663,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"Error updating submission #{sub_id}: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.")
-                    log_error("GD", "submission_save", f"GD submit save failed user={user_id}", f"INSERT INTO submissions failed")
+                    log_error("GD", "submission_save", f"GD submit save failed user={user_id}", "INSERT INTO submissions failed")
                 return jsonify({"ok": True})
 
             # Legacy in-memory fallback
@@ -3667,38 +3697,6 @@ def telegram_webhook(secret: str):
                         chat_id,
                         "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.",
                     )
-                return jsonify({"ok": True})
-
-            # GD approve — position input
-            approve_state = _GD_APPROVE_STATE.get(user_id)
-            if approve_state:
-                text_stripped = msg_text.strip() if msg_text else ""
-                try:
-                    position = int(text_stripped)
-                    if position < 1:
-                        send_telegram_message(chat_id, "❌ Позиция должна быть положительным числом.")
-                        return jsonify({"ok": True})
-                    sub_id = approve_state["sub_id"]
-                    level_name = approve_state["level_name"]
-                    # Add level to levels table
-                    level_id = add_gd_level(level_name, position)
-                    if not level_id:
-                        send_telegram_message(chat_id, f"❌ Ошибка при добавлении уровня **{level_name}** в топ.", parse_mode="Markdown")
-                    else:
-                        # Approve submission
-                        if approve_gd_submission_db(sub_id, user_id):
-                            send_telegram_message(
-                                chat_id,
-                                f"✅ Заявка #{sub_id} подтверждена!\n"
-                                f"🏆 Уровень **{level_name}** добавлен в топ на позицию **#{position}**.",
-                                parse_mode="Markdown",
-                            )
-                        else:
-                            send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
-                            log_error("GD", "approve_failed", f"GD approve failed sub_id={sub_id}", f"approve_gd_submission_db returned False")
-                    _GD_APPROVE_STATE.pop(user_id, None)
-                except ValueError:
-                    send_telegram_message(chat_id, "❌ Пожалуйста, введите число — позицию в топе.")
                 return jsonify({"ok": True})
 
         # =====================================================================
