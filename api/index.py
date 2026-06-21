@@ -3799,8 +3799,8 @@ def telegram_webhook(secret: str):
                 lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
                 msg = "\n".join(lines)
                 send_telegram_message(chat_id, f"DEBUG: sending msg, len={len(msg)}")
-                send_telegram_message(chat_id, msg)  # plain text
-                send_telegram_message(chat_id, msg, parse_mode="Markdown")
+                # Test simple message variants
+                send_telegram_message(chat_id, str(levels))
 
         # /my_stats
         elif command == "/my_stats" and chat_id:
