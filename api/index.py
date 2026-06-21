@@ -3783,27 +3783,19 @@ def telegram_webhook(secret: str):
 
         # /gd_leaderboard — GD уровень топ
         elif command == "/gd_leaderboard" and chat_id:
-            send_telegram_message(chat_id, f"DEBUG: command={command} chat_id={chat_id}")
             send_telegram_message(chat_id, "📊 Загружаю топ уровней...")
-            try:
-                levels = get_gd_leaderboard(20)
-                if not levels:
-                    send_telegram_message(chat_id, f"DEBUG: levels empty, got {levels}")
-                    send_telegram_message(chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни.")
-                else:
-                    send_telegram_message(chat_id, f"DEBUG: got {len(levels)} levels")
-                    lines = ["🏆 **Geometry Dash — Топ-20 уровней**\n"]
-                    for lv in levels:
-                        cnt = get_gd_completions_count(lv["id"])
-                        score = 101 - lv["position"]
-                        lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {cnt}")
-                    lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
-                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
-            except Exception as exc:
-                print(f"leaderboard error: {exc}")
-                import traceback; traceback.print_exc()
-                send_telegram_message(chat_id, f"❌ Ошибка: {exc}")
-                log_error("GD", "level_top", f"GD level top load failed: {exc}", "get_gd_leaderboard query failed")
+            levels = get_gd_leaderboard(20)
+            send_telegram_message(chat_id, f"DEBUG: levels={levels}")
+            if not levels:
+                send_telegram_message(chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни.")
+            else:
+                lines = ["🏆 **Geometry Dash — Топ-20 уровней**\n"]
+                for lv in levels:
+                    cnt = get_gd_completions_count(lv["id"])
+                    score = 101 - lv["position"]
+                    lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {cnt}")
+                lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
+                send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
 
         # /my_stats
         elif command == "/my_stats" and chat_id:
