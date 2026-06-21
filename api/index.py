@@ -3798,7 +3798,7 @@ def telegram_webhook(secret: str):
                     score = 101 - lv["position"]
                     lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {lv['completions']}")
                 lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
-                send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                send_telegram_message(chat_id, "\n".join(lines))
 
         # /my_stats
         elif command == "/my_stats" and chat_id:
