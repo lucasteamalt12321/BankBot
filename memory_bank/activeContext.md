@@ -95,29 +95,25 @@
 ### 🎯 Следующие шаги
 
 1. **Chess Module: Доработка (CH-05, CH-06)** — 8%
-   - Добавить детальные рейтинги в `/chess_rating` (bullet, blitz, rapid, classical)
-   - Добавить игровую статистику в `/chess_stats` (games, wins, losses, draws)
-   - Реализовать систему проверки решения задач
-   - Добавить награды за решение задач (интеграция с user_coins)
-   - Добавить историю решённых задач
-   - CH-TEST: Manual testing всех команд
+   - Система наград за решение задач
+   - История решённых задач
+   - CH-TEST
 
-2. **Universe Module (UN-03):** 4%
-   - UN-03: /pray команда с генерацией молитв через AI
-   - UN-TEST: Manual testing
+2. **GD Module Testing:** 3%
+   - Ручное тестирование всех GD команд через webhook
 
-3. **GD Module Testing:** 3%
+3. **Universe Module (UN-TEST):** 2%
    - Manual testing всех GD команд через webhook
    - Edge cases и UI/UX проверки
 
 ## Checkpoint: Phase 2 Progress
 
-**Phase 2: 74/100 (74%)** (+3% GD Module for Vercel)
+**Phase 2: 78/100 (78%)** (+3% GD Module + +1% UN-03)
 - ✅ AI Module: 15% (completed)
 - ✅ Mom Module: 19% (completed)
 - ✅ GD Module: 30% (GD-01 to GD-07 completed + GD for Vercel)
+- ✅ Universe Module: 12% (UN-01 to UN-03 completed)
 - ⏳ Chess Module: 12% (CH-02, CH-03, CH-04 completed, CH-05, CH-06, CH-TEST remaining: 8%)
-- ⏳ Universe Module: 10% (UN-01-02 completed, UN-03 pending: 4%)
 
 **Chess Module Progress: 12/20 (60%)**
 - ✅ CH-02: /chess_link command (3%)
