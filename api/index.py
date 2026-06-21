@@ -1081,7 +1081,13 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
     try:
         with get_db_engine().connect() as conn:
             rows = conn.execute(
-                text("SELECT * FROM levels ORDER BY position ASC LIMIT :lim"),
+                text("""
+                    SELECT l.*, COALESCE(c.cnt, 0) AS completions
+                    FROM levels l
+                    LEFT JOIN (SELECT level_id, COUNT(*) AS cnt FROM level_completions GROUP BY level_id) c ON c.level_id = l.id
+                    ORDER BY l.position ASC
+                    LIMIT :lim
+                """),
                 {"lim": limit},
             ).mappings().all()
             return [dict(r) for r in rows]
@@ -1806,7 +1812,7 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json=payload,
-            timeout=5,
+            timeout=3,
         )
         print(f"[SEND_MSG] chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
     except Exception as exc:
@@ -3789,12 +3795,10 @@ def telegram_webhook(secret: str):
             else:
                 lines = ["🏆 **Geometry Dash — Топ-20 уровней**\n"]
                 for lv in levels:
-                    cnt = get_gd_completions_count(lv["id"])
                     score = 101 - lv["position"]
-                    lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {cnt}")
+                    lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {lv['completions']}")
                 lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
-                msg = "\n".join(lines)
-                send_telegram_message(chat_id, msg, parse_mode="Markdown")
+                send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
 
         # /my_stats
         elif command == "/my_stats" and chat_id:
