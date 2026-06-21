@@ -3799,9 +3799,7 @@ def telegram_webhook(secret: str):
                 lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
                 msg = "\n".join(lines)
                 send_telegram_message(chat_id, f"DEBUG: sending msg, len={len(msg)}")
-                # Test markdown with just first line
-                first_line = f"**#{lv['position']}** {lv['name']}"
-                send_telegram_message(chat_id, first_line, parse_mode="Markdown")
+                send_telegram_message(chat_id, msg, parse_mode="Markdown")
 
         # /my_stats
         elif command == "/my_stats" and chat_id:
