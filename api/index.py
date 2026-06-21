@@ -3794,10 +3794,12 @@ def telegram_webhook(secret: str):
                         score = 101 - lv["position"]
                         lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {cnt}")
                     lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
-                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                    msg = "\n".join(lines)
+                    print(f"[GD_LEADERBOARD] Sending {len(lines)} lines, {len(msg)} chars")
+                    send_telegram_message(chat_id, msg, parse_mode="Markdown")
             except Exception as exc:
                 print(f"leaderboard error: {exc}")
-                send_telegram_message(chat_id, "❌ Ошибка при загрузке топа уровней.")
+                send_telegram_message(chat_id, f"❌ Ошибка при загрузке топа уровней: {exc}")
                 log_error("GD", "level_top", f"GD level top load failed: {exc}", "get_gd_leaderboard query failed")
 
         # /my_stats
