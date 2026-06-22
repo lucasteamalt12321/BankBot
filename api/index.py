@@ -3527,14 +3527,17 @@ def telegram_webhook(secret: str):
                         "themes": themes,
                         "chat_id": chat_id,
                         "username": account["lichess_username"],
+                        "initial_ply": initial_ply,
                     }
                     
                     board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
                     
+                    turn = "Белых" if initial_ply % 2 == 0 else "Чёрных"
                     puzzle_msg = (
                         f"🧩 **Шахматная задача**\n\n"
                         f"Рейтинг: {rating}\n"
-                        f"Темы: {themes}\n\n"
+                        f"Темы: {themes}\n"
+                        f"Ход: {turn}\n\n"
                         f"Введите ход в формате UCI (например: `e2e4` или `g1f3`):"
                     )
                     
@@ -3624,6 +3627,10 @@ def telegram_webhook(secret: str):
         if chat_id and user_id in _PENDING_PUZZLES and not command.startswith("/"):
             pending = _PENDING_PUZZLES[user_id]
             user_move = msg_text.strip().lower()
+            # UCI move validation: 4-5 chars, letters+digits (e.g. e2e4, g1f3, e7e8q)
+            import re
+            if not re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', user_move):
+                return jsonify({"ok": True})
             solution = pending["solution"]
             # Handle both string and list formats
             if isinstance(solution, list):
