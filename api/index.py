@@ -1109,7 +1109,7 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
                     FROM levels l
                     LEFT JOIN (SELECT level_id, COUNT(*) AS cnt FROM level_completions GROUP BY level_id) c ON c.level_id = l.id
                     LEFT JOIN (
-                        SELECT lc.level_id, ARRAY_AGG(u.first_name ORDER BY lc.completed_at) AS completers
+                        SELECT lc.level_id, STRING_AGG(u.first_name, ', ' ORDER BY lc.completed_at) AS completers
                         FROM level_completions lc
                         JOIN users u ON u.telegram_id = lc.user_id
                         GROUP BY lc.level_id
@@ -3826,8 +3826,7 @@ def telegram_webhook(secret: str):
                 lines = ["🏆 Geometry Dash — Топ-20 уровней\n"]
                 for lv in levels:
                     diff = lv.get("difficulty", "Unknown")
-                    completers_list = lv.get("completers", []) or []
-                    completers_str = ", ".join(completers_list[:5]) if completers_list else "—"
+                    completers_str = lv.get("completers") or "—"
                     lines.append(f"#{lv['position']} {lv['name']}\n   💀 {diff}\n   ✅ Прохождений: {lv['completions']}\n   👤 {completers_str}")
                 lines.append("\nИспользуйте /my_stats для просмотра своей статистики")
                 send_telegram_message(chat_id, "\n".join(lines))
