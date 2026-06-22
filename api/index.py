@@ -3795,8 +3795,7 @@ def telegram_webhook(secret: str):
             else:
                 lines = ["🏆 Geometry Dash — Топ-20 уровней\n"]
                 for lv in levels:
-                    score = 101 - lv["position"]
-                    lines.append(f"#{lv['position']} {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {lv['completions']}")
+                    lines.append(f"#{lv['position']} {lv['name']}\n   ✅ Прохождений: {lv['completions']}")
                 lines.append("\nИспользуйте /my_stats для просмотра своей статистики")
                 send_telegram_message(chat_id, "\n".join(lines))
 
