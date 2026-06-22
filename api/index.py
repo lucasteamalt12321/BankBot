@@ -99,9 +99,11 @@ def _ensure_gd_tables(engine):
                 CREATE TABLE IF NOT EXISTS levels (
                     id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
-                    position INTEGER NOT NULL DEFAULT 0
+                    position INTEGER NOT NULL DEFAULT 0,
+                    difficulty TEXT DEFAULT 'Unknown'
                 )
             """))
+            conn.execute(text("ALTER TABLE levels ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT 'Unknown'"))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS submissions (
                     id SERIAL PRIMARY KEY,
@@ -1061,6 +1063,26 @@ def get_gddl_recommendation(level_name: str) -> int | None:
         return None
 
 
+def get_gd_difficulty_name(level_name: str) -> str:
+    """Get human-readable difficulty for a level from gdbrowser."""
+    try:
+        resp = requests.get(f"https://gdbrowser.com/api/search/{level_name}", timeout=10)
+        if resp.status_code != 200:
+            return "Unknown"
+        results = resp.json()
+        if not results or not isinstance(results, list):
+            return "Unknown"
+        data = results[0]
+        if data.get("isDemon"):
+            demon = data.get("demonDifficulty", 0)
+            demons = {1: "Easy Demon", 2: "Medium Demon", 3: "Hard Demon", 4: "Insane Demon", 5: "Extreme Demon"}
+            return demons.get(demon, "Demon")
+        return data.get("difficultyName", "Unknown")
+    except Exception as exc:
+        print(f"Error getting difficulty for {level_name}: {exc}")
+        return "Unknown"
+
+
 # ============================================================================
 # Geometry Dash Module — Raw SQL Helpers
 # ============================================================================
@@ -1082,9 +1104,16 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
         with get_db_engine().connect() as conn:
             rows = conn.execute(
                 text("""
-                    SELECT l.*, COALESCE(c.cnt, 0) AS completions
+                    SELECT l.*, COALESCE(c.cnt, 0) AS completions,
+                           COALESCE(u.completers, '{}') AS completers
                     FROM levels l
                     LEFT JOIN (SELECT level_id, COUNT(*) AS cnt FROM level_completions GROUP BY level_id) c ON c.level_id = l.id
+                    LEFT JOIN (
+                        SELECT lc.level_id, ARRAY_AGG(u.first_name ORDER BY lc.completed_at) AS completers
+                        FROM level_completions lc
+                        JOIN users u ON u.telegram_id = lc.user_id
+                        GROUP BY lc.level_id
+                    ) u ON u.level_id = l.id
                     ORDER BY l.position ASC
                     LIMIT :lim
                 """),
@@ -1300,12 +1329,12 @@ def reject_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
         return False
 
 
-def add_gd_level(name: str, position: int) -> int | None:
+def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int | None:
     try:
         with get_db_engine().connect() as conn:
             result = conn.execute(
-                text("INSERT INTO levels (name, position) VALUES (:nm, :pos) RETURNING id"),
-                {"nm": name, "pos": position},
+                text("INSERT INTO levels (name, position, difficulty) VALUES (:nm, :pos, :diff) RETURNING id"),
+                {"nm": name, "pos": position, "diff": difficulty},
             ).mappings().first()
             conn.commit()
             return int(result["id"]) if result else None
@@ -2664,7 +2693,8 @@ def telegram_webhook(secret: str):
                 else:
                     sub_id = approve_state["sub_id"]
                     level_name = approve_state["level_name"]
-                    level_id = add_gd_level(level_name, position)
+                    difficulty = get_gd_difficulty_name(level_name)
+                    level_id = add_gd_level(level_name, position, difficulty)
                     if not level_id:
                         send_telegram_message(chat_id, f"❌ Ошибка при добавлении уровня **{level_name}** в топ.", parse_mode="Markdown")
                     else:
@@ -3795,7 +3825,10 @@ def telegram_webhook(secret: str):
             else:
                 lines = ["🏆 Geometry Dash — Топ-20 уровней\n"]
                 for lv in levels:
-                    lines.append(f"#{lv['position']} {lv['name']}\n   ✅ Прохождений: {lv['completions']}")
+                    diff = lv.get("difficulty", "Unknown")
+                    completers_list = lv.get("completers", []) or []
+                    completers_str = ", ".join(completers_list[:5]) if completers_list else "—"
+                    lines.append(f"#{lv['position']} {lv['name']}\n   💀 {diff}\n   ✅ Прохождений: {lv['completions']}\n   👤 {completers_str}")
                 lines.append("\nИспользуйте /my_stats для просмотра своей статистики")
                 send_telegram_message(chat_id, "\n".join(lines))
 
@@ -3931,7 +3964,8 @@ def telegram_webhook(secret: str):
                     try:
                         pos = int(args[-1])
                         name = " ".join(args[1:-1])
-                        if add_gd_level(name, pos):
+                        difficulty = get_gd_difficulty_name(name)
+                        if add_gd_level(name, pos, difficulty):
                             send_telegram_message(chat_id, f"✅ Уровень **{name}** добавлен на позицию {pos}.", parse_mode="Markdown")
                         else:
                             send_telegram_message(chat_id, "❌ Ошибка при добавлении уровня.")
