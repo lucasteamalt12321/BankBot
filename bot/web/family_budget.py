@@ -651,8 +651,13 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
             <div class="card">
                 <h1>💰 Семейный бюджет</h1>
                 <p class="subtitle">Учёт семейных трат и долгов</p>
+                <div id="auth-user-section" style="margin-bottom:16px;text-align:center;font-size:14px;color:#8e8e93;"></div>
                 <button class="btn btn-primary" onclick="showCreateFamily()">👨‍👩‍👧‍👦 Создать семью</button>
                 <button class="btn btn-secondary" onclick="showJoinFamily()">🔑 Присоединиться по коду</button>
+                <hr style="margin:16px 0;border:none;border-top:1px solid #e5e5ea;">
+                <label class="label">Ваш ID (из ссылки от бота)</label>
+                <input class="input" id="auth-user-id" placeholder="Например, 123456789" value="">
+                <button class="btn btn-secondary btn-small" onclick="saveUserId()">💾 Сохранить ID</button>
             </div>
         </div>
 
@@ -759,9 +764,23 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
     </div>
 
     <script>
-        const BASE = '/api/budget';
-        let USER_ID = new URLSearchParams(window.location.search).get('user_id') || '';
-        let STATE = { family: null, debts: [], members: [] };
+          const BASE = '/api/budget';
+          let USER_ID = new URLSearchParams(window.location.search).get('user_id') || localStorage.getItem('budget_user_id') || '';
+          let STATE = { family: null, debts: [], members: [] };
+
+          window.onerror = function(msg, url, line) {
+              var e = document.getElementById('auth-user-section');
+              if (e) e.innerHTML = '⚠️ Ошибка JS: ' + msg + ' (строка ' + line + ')';
+          };
+
+          function saveUserId() {
+              var v = document.getElementById('auth-user-id').value.trim();
+              if (!v) { showToast('Введите ваш ID'); return; }
+              USER_ID = v;
+              localStorage.setItem('budget_user_id', v);
+              showToast('ID сохранён');
+              loadDashboard();
+          }
 
         async function api(method, path, body) {
             const opts = { method, headers: { 'Content-Type': 'application/json', 'X-User-Id': USER_ID } };
@@ -797,27 +816,31 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
             showAuth();
         }
 
-        async function createFamily() {
-            const name = document.getElementById('family-name').value.trim();
-            const displayName = document.getElementById('create-display-name').value.trim() || 'Участник';
-            if (!name) { showToast('Введите название семьи'); return; }
-            const res = await post('/family/create', { name, display_name: displayName });
-            if (res.error) { showToast(res.error); return; }
-            STATE.family = res.family;
-            showToast('Семья создана! Код: ' + res.family.invite_code);
-            await loadDashboard();
-        }
+          async function createFamily() {
+              try {
+                  const name = document.getElementById('family-name').value.trim();
+                  const displayName = document.getElementById('create-display-name').value.trim() || 'Участник';
+                  if (!name) { showToast('Введите название семьи'); return; }
+                  const res = await post('/family/create', { name, display_name: displayName });
+                  if (res.error) { showToast(res.error); return; }
+                  STATE.family = res.family;
+                  showToast('Семья создана! Код: ' + res.family.invite_code);
+                  await loadDashboard();
+              } catch(e) { showToast('Ошибка: ' + e.message); }
+          }
 
-        async function joinFamily() {
-            const code = document.getElementById('invite-code').value.trim();
-            const displayName = document.getElementById('join-display-name').value.trim() || 'Участник';
-            if (!code) { showToast('Введите код приглашения'); return; }
-            const res = await post('/family/join', { code, display_name: displayName });
-            if (res.error) { showToast(res.error); return; }
-            STATE.family = res.family;
-            showToast('Вы присоединились к семье!');
-            await loadDashboard();
-        }
+          async function joinFamily() {
+              try {
+                  const code = document.getElementById('invite-code').value.trim();
+                  const displayName = document.getElementById('join-display-name').value.trim() || 'Участник';
+                  if (!code) { showToast('Введите код приглашения'); return; }
+                  const res = await post('/family/join', { code, display_name: displayName });
+                  if (res.error) { showToast(res.error); return; }
+                  STATE.family = res.family;
+                  showToast('Вы присоединились к семье!');
+                  await loadDashboard();
+              } catch(e) { showToast('Ошибка: ' + e.message); }
+          }
 
           async function loadDashboard() {
               if (!USER_ID) { showToast('Необходима авторизация'); showAuth(); return; }
@@ -912,29 +935,31 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
             showScreen('screen-add-expense');
         }
 
-        async function createExpense() {
-            const payerId = document.getElementById('expense-payer').value;
-            const checkboxes = document.querySelectorAll('#expense-for-whom input[type=checkbox]:checked');
-            const forWhomIds = Array.from(checkboxes).map(c => c.value);
-            const amount = parseInt(document.getElementById('expense-amount').value);
-            const category = document.getElementById('expense-category').value;
-            const description = document.getElementById('expense-description').value.trim();
+          async function createExpense() {
+              try {
+                  const payerId = document.getElementById('expense-payer').value;
+                  const checkboxes = document.querySelectorAll('#expense-for-whom input[type=checkbox]:checked');
+                  const forWhomIds = Array.from(checkboxes).map(c => c.value);
+                  const amount = parseInt(document.getElementById('expense-amount').value);
+                  const category = document.getElementById('expense-category').value;
+                  const description = document.getElementById('expense-description').value.trim();
 
-            if (!forWhomIds.length) { showToast('Выберите, за кого заплатили'); return; }
-            if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
+                  if (!forWhomIds.length) { showToast('Выберите, за кого заплатили'); return; }
+                  if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
 
-            const res = await post('/transactions', {
-                family_id: STATE.family.id,
-                payer_id: payerId,
-                amount,
-                category,
-                description,
-                for_whom_ids: forWhomIds
-            });
-            if (res.error) { showToast(res.error); return; }
-            showToast('Трата добавлена!');
-            await loadDashboard();
-        }
+                  const res = await post('/transactions', {
+                      family_id: STATE.family.id,
+                      payer_id: payerId,
+                      amount,
+                      category,
+                      description,
+                      for_whom_ids: forWhomIds
+                  });
+                  if (res.error) { showToast(res.error); return; }
+                  showToast('Трата добавлена!');
+                  await loadDashboard();
+              } catch(e) { showToast('Ошибка: ' + e.message); }
+          }
 
         let _payData = null;
 
@@ -947,24 +972,27 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
             showScreen('screen-pay-debt');
         }
 
-        async function payDebt() {
-            const amount = parseInt(document.getElementById('pay-amount').value);
-            if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
-            const res = await post('/debts/pay', {
-                family_id: STATE.family.id,
-                debtor_id: _payData.debtor_id,
-                creditor_id: _payData.creditor_id,
-                amount
-            });
-            if (res.error) { showToast(res.error); return; }
-            showToast('Долг погашен!');
-            await loadDashboard();
-        }
+          async function payDebt() {
+              try {
+                  const amount = parseInt(document.getElementById('pay-amount').value);
+                  if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
+                  const res = await post('/debts/pay', {
+                      family_id: STATE.family.id,
+                      debtor_id: _payData.debtor_id,
+                      creditor_id: _payData.creditor_id,
+                      amount
+                  });
+                  if (res.error) { showToast(res.error); return; }
+                  showToast('Долг погашен!');
+                  await loadDashboard();
+              } catch(e) { showToast('Ошибка: ' + e.message); }
+          }
 
-        // Init
-        if (USER_ID) {
-            loadDashboard();
-        }
+          // Init
+          document.getElementById('auth-user-id').value = USER_ID;
+          if (USER_ID) {
+              loadDashboard();
+          }
     </script>
 </body>
 </html>"""
