@@ -819,10 +819,17 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
             await loadDashboard();
         }
 
-        async function loadDashboard() {
-            if (!USER_ID) { showToast('Необходима авторизация'); showAuth(); return; }
-            const status = await get('/family/status?user_id=' + USER_ID);
-            if (!status.family) { showAuth(); return; }
+          async function loadDashboard() {
+              if (!USER_ID) { showToast('Необходима авторизация'); showAuth(); return; }
+              let status;
+              try {
+                  status = await get('/family/status?user_id=' + USER_ID);
+              } catch(e) {
+                  console.error('Failed to load family status', e);
+                  showAuth();
+                  return;
+              }
+              if (!status.family) { showAuth(); return; }
             STATE.family = status.family;
 
             document.getElementById('dash-family-name').textContent = '🏠 ' + status.family.name;
@@ -863,7 +870,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
                 return '<div class="row">' +
                     '<div class="debt-info"><div class="debt-text">' + esc(debtorName) + ' → ' + esc(creditorName) + '</div>' +
                     '<div class="debt-amount">' + d.amount_left + ' ₽</div></div>' +
-                    '<button class="btn btn-small btn-primary" onclick="showPayDebt(\'' + d.debtor_id + '\',\'' + d.creditor_id + '\',' + d.amount_left + ')">Погасить</button>' +
+                    '<button class="btn btn-small btn-primary" onclick="showPayDebt(\'' + esc(d.debtor_id) + '\',\'' + esc(d.creditor_id) + '\',' + d.amount_left + ')">Погасить</button>' +
                     '</div>';
             }).join('');
         }

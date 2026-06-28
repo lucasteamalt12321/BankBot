@@ -88,6 +88,7 @@ def get_db_engine():
             connect_args={"connect_timeout": 10},
         )
     _ensure_gd_tables(DB_ENGINE)
+    _ensure_budget_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -273,6 +274,84 @@ def _ensure_chess_games_table(engine):
         print("[INIT] chess_games table ensured")
     except Exception as exc:
         print(f"[INIT] chess_games table error: {exc}")
+
+
+def _ensure_budget_tables(engine):
+    """Create Family Budget tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS families (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    admin_id TEXT NOT NULL,
+                    invite_code TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_families_invite_code ON families(invite_code)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_families_admin_id ON families(admin_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS family_members (
+                    id SERIAL PRIMARY KEY,
+                    family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+                    user_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_family_members_family_id ON family_members(family_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_family_members_user_id ON family_members(user_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS budget_transactions (
+                    id SERIAL PRIMARY KEY,
+                    family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+                    payer_id TEXT NOT NULL,
+                    amount INTEGER NOT NULL,
+                    category TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_budget_transactions_family_id ON budget_transactions(family_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS transaction_details (
+                    id SERIAL PRIMARY KEY,
+                    transaction_id INTEGER NOT NULL REFERENCES budget_transactions(id) ON DELETE CASCADE,
+                    for_whom_id TEXT NOT NULL,
+                    share INTEGER NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_transaction_details_txn_id ON transaction_details(transaction_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS debts (
+                    id SERIAL PRIMARY KEY,
+                    family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+                    debtor_id TEXT NOT NULL,
+                    creditor_id TEXT NOT NULL,
+                    amount_left INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debts_family_id ON debts(family_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debts_debtor_id ON debts(debtor_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debts_creditor_id ON debts(creditor_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id SERIAL PRIMARY KEY,
+                    family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+                    debtor_id TEXT NOT NULL,
+                    creditor_id TEXT NOT NULL,
+                    amount INTEGER NOT NULL,
+                    paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_payments_family_id ON payments(family_id)"))
+            conn.commit()
+        print("[BUDGET] Tables ensured successfully")
+    except Exception as exc:
+        print(f"[BUDGET] Table init error: {exc}")
 
 
 def _load_bot_id() -> int | None:
