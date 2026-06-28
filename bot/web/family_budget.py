@@ -766,6 +766,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
     <script>
           const BASE = '/api/budget';
           let USER_ID = new URLSearchParams(window.location.search).get('user_id') || localStorage.getItem('budget_user_id') || '';
+          // USER_ID_SERVER_INJECT
           let STATE = { family: null, debts: [], members: [] };
 
           window.onerror = function(msg, url, line) {
@@ -999,5 +1000,15 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
 
 
 def family_budget_page():
-    """GET /family_budget — serve the SPA."""
-    return Response(FAMILY_BUDGET_HTML, mimetype="text/html")
+    """GET /family_budget — serve the SPA with user_id pre-filled from query."""
+    uid = request.args.get("user_id", "")
+    html = FAMILY_BUDGET_HTML.replace(
+        'id="auth-user-id" placeholder="Например, 123456789" value=""',
+        f'id="auth-user-id" placeholder="Например, 123456789" value="{uid}"',
+    )
+    # Also set USER_ID via server-rendered script variable instead of URL parse
+    html = html.replace(
+        "// USER_ID_SERVER_INJECT",
+        f"USER_ID = '{uid}' || USER_ID;",
+    )
+    return Response(html, mimetype="text/html")
