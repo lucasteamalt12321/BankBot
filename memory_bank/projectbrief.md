@@ -48,7 +48,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | D13 | Аудит SQL injection | completed | 5 |
 | D16 | Аудит и очистка неиспользуемого кода | completed | 4 |
 | D17 | Объединение дублирующихся парсеров | completed | 3 |
-| D18 | E2E тесты основных сценариев парсинга и банка | in_progress | 5 |
+| D18 | E2E тесты основных сценариев парсинга и банка | completed | 5 |
 | D19 | Тесты безопасности (SQL injection, race conditions) | completed | 3 |
 | D20 | Coverage 80%+ | completed | 3 |
 | D21 | Документация (README, DEPLOYMENT.md, диаграммы) | completed | 2 |
@@ -56,7 +56,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | D23 | Persistent PostgreSQL/Supabase production storage | completed | 9 |
 | D24 | HF webhook runtime baseline + production diagnostics | completed | 8 |
 
-**Phase 1 Sum: 95/100 completed** (D18 остаётся `in_progress`).
+**Phase 1 Sum: 100/100 completed** (D18 завершён).
 
 **Legacy note:** ранняя копия `docs/memory-bank/projectbrief.md` содержала устаревший список с ручным парсингом, SQLite-only runtime и shop/games/D&D как активным scope. Эти сведения не являются каноном. Bridge/VK остаются в репозитории как legacy/compatibility-код, но не учитываются как production deliverables текущего webhook-first BankBot.
 
@@ -148,9 +148,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-**Phase 1 (Core): 95/100 completed**  
+**Phase 1 (Core): 100/100 completed**  
 **Phase 2 (Features): 78/100 completed** (GD-01-07: 27%, CH-01-04: 14%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-04: 19%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST: 0%)  
-**Общий прогресс проекта: 95% (Phase 1) + 78% (Phase 2)**
+**Общий прогресс проекта: 100% (Phase 1) + 78% (Phase 2)**
 
 **Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
 

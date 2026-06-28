@@ -399,7 +399,20 @@
 - Webhook теперь указывает на `bank-bot-ruby.vercel.app`
 
 ## last_checked_commit
-- a349ca8 (2026-06-07, remote changes)
+6091a4f (2026-06-13, D18 E2E tests)
+
+### 2026-06-13 (D18 — E2E tests for parsing + bank)
+- **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
+- **Tests in `tests/unit/test_vercel_parsing_e2e.py`:**
+  - 7 parser unit tests (GDcards card/chest, Gusya, Shmalala fish/karma, Chaometer, BunkerRP)
+  - 3 edge case tests (empty/gibberish, markdown tea action)
+  - 1 test: negative/zero coins not returned
+  - 7 webhook integration tests (5 bots + failure message + no-reply)
+  - 1 test: priority GDcards over Shmalala
+- **Bugfix:** Added missing `amount` key to GDcards chest and card parsers (required by webhook handler at line 2075).
+- **Bugfix:** Fixed DB mock setup for webhook tests — `execute().mappings().first()` returns `{"id": 1}` and `.all()` returns `[]`.
+- **Verification:** All 19 + 3 smoke tests = 22 passed.
+- **Commit:** `6091a4f` — D18: Fix GDcards amount key, add 19 E2E parsing tests
 
 ### 2026-06-07 (D10 — E2E парсинг всех ботов на Vercel + калибровка коэффициентов)
 - **D10 (ParserRegistry + E2E парсинг):** Значительный прогресс. В `api/index.py` добавлены парсеры для всех ботов из чата.
