@@ -23,9 +23,45 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
 DB_ENGINE = None
+
+# Bot identity for reply/mention detection
+BOT_ID: int | None = None
+BOT_USERNAME: str = "lt_lo_game_bot"
+
+# Character system (replaces /chat)
+CHARACTER_PROMPTS: dict[str, str] = {
+    "нейтральный": (
+        "Ты помощник. Отвечай кратко и по делу, без лишних символов и Role play. "
+        "Пользователь сказал: {text}"
+    ),
+    "олеговирус": (
+        "Ты — олеговирус, существо, которое постоянно издаёт звуки 'кхм-кхм', "
+        "любит придираться к чужим текстам. Ответь кратко (1-2 предложения). "
+        "Пользователь сказал: {text}"
+    ),
+    "чай": (
+        "Ты — верховный божественный Чай, воплощение покоя и мудрости. "
+        "Говори вдохновляюще, используй слова 'настой', 'eight-nine'. "
+        "Ответь кратко (1-2 предложения). Пользователь сказал: {text}"
+    ),
+}
+CHARACTER_EMOJI: dict[str, str] = {"нейтральный": "", "олеговирус": "🦠", "чай": "☕"}
+DEFAULT_CHARACTER = "нейтральный"
+_user_character_cache: dict[int, str] = {}
+_global_character: str = DEFAULT_CHARACTER
+ADMIN_TELEGRAM_ID = 2091908459
+# Conversation memory for AI context
+_CHAT_MEMORY: dict[int, list[dict]] = {}  # per-user: last 10 personal messages
+_CHAT_MEMORY_LIMIT = 10
+_CHAT_GLOBAL: list[dict] = []  # global chat: last 50 messages across all users
+_CHAT_GLOBAL_LIMIT = 50
 _GD_SUBMIT_STATE: dict[int, dict] = {}
 _GD_MODERATE_STATE: dict[int, int] = {}
 _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, username}
+# Error logging system
+_ERROR_LOG: list[dict] = []
+_ERROR_LOG_LIMIT = 50
+_PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 
 
 def normalize_database_url(url: str) -> str:
@@ -63,9 +99,11 @@ def _ensure_gd_tables(engine):
                 CREATE TABLE IF NOT EXISTS levels (
                     id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
-                    position INTEGER NOT NULL DEFAULT 0
+                    position INTEGER NOT NULL DEFAULT 0,
+                    difficulty TEXT DEFAULT 'Unknown'
                 )
             """))
+            conn.execute(text("ALTER TABLE levels ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT 'Unknown'"))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS submissions (
                     id SERIAL PRIMARY KEY,
@@ -112,6 +150,7 @@ def _ensure_gd_tables(engine):
         print("[GD] Tables ensured successfully")
     except Exception as exc:
         print(f"[GD] Table init error: {exc}")
+    _ensure_user_preferences_table(engine)
 
 
 def get_user_balance(user_id: int) -> tuple[int, bool]:
@@ -192,6 +231,255 @@ def get_user_stats(user_id: int) -> dict:
     except Exception as exc:
         print(f"Error getting user stats: {exc}")
         return {"earned": 0, "spent": 0, "total_transactions": 0, "purchases": 0}
+
+
+def _ensure_user_preferences_table(engine):
+    """Create user_preferences table if it doesn't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_preferences (
+                    user_id BIGINT PRIMARY KEY,
+                    preferred_character VARCHAR(20) DEFAULT 'чай',
+                    preferred_ai_model VARCHAR(50),
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.commit()
+        print("[INIT] user_preferences table ensured")
+    except Exception as exc:
+        print(f"[INIT] user_preferences table error: {exc}")
+
+
+def _ensure_chess_games_table(engine):
+    """Create chess_games table if it doesn't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chess_games (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    lichess_username VARCHAR(50) NOT NULL,
+                    puzzle_id VARCHAR(50) NOT NULL,
+                    puzzle_rating INTEGER,
+                    puzzle_themes TEXT,
+                    solved BOOLEAN DEFAULT FALSE,
+                    solved_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chess_games_user_id ON chess_games(user_id)"))
+            conn.commit()
+        print("[INIT] chess_games table ensured")
+    except Exception as exc:
+        print(f"[INIT] chess_games table error: {exc}")
+
+
+def _load_bot_id() -> int | None:
+    """Load bot's Telegram user_id via getMe API call."""
+    global BOT_ID
+    if BOT_ID is not None:
+        return BOT_ID
+    if not BOT_TOKEN:
+        return None
+    try:
+        resp = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+        if resp.ok:
+            data = resp.json()
+            BOT_ID = data["result"]["id"]
+            print(f"[STARTUP] BOT_ID loaded: {BOT_ID}")
+            return BOT_ID
+    except Exception as exc:
+        print(f"[STARTUP] Failed to load BOT_ID: {exc}")
+    return None
+
+
+def get_user_character(user_id: int) -> str:
+    """Get user's preferred character from cache first, then DB."""
+    if user_id in _user_character_cache:
+        return _user_character_cache[user_id]
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT preferred_character FROM user_preferences WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            ).mappings().first()
+            if row and row["preferred_character"]:
+                char = row["preferred_character"].lower()
+                if char in CHARACTER_PROMPTS:
+                    _user_character_cache[user_id] = char
+                    return char
+    except Exception:
+        pass  # Table may not exist, that's fine
+    return DEFAULT_CHARACTER
+
+
+def set_user_character(user_id: int, character: str) -> bool:
+    """Set user's preferred character. Updates cache always, DB if possible."""
+    character = character.lower()
+    if character not in CHARACTER_PROMPTS:
+        return False
+    # Always update in-memory cache
+    _user_character_cache[user_id] = character
+    # Try DB write (table may not exist yet)
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(text("""
+                INSERT INTO user_preferences (user_id, preferred_character, updated_at)
+                VALUES (:user_id, :character, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id)
+                DO UPDATE SET preferred_character = :character, updated_at = CURRENT_TIMESTAMP
+            """), {"user_id": user_id, "character": character})
+            conn.commit()
+        print(f"[CHARACTER] User {user_id} set character to {character} (DB+cache)")
+    except Exception as exc:
+        print(f"[CHARACTER] User {user_id} set character to {character} (cache only, DB error: {exc})")
+    return True
+
+
+def get_global_character() -> str:
+    """Get global default character."""
+    return _global_character
+
+
+def set_global_character(character: str) -> bool:
+    """Set global default character."""
+    global _global_character
+    character = character.lower()
+    if character not in CHARACTER_PROMPTS:
+        return False
+    _global_character = character
+    return True
+
+
+def build_character_prompt(character: str, user_text: str) -> str:
+    """Build AI prompt for a character."""
+    template = CHARACTER_PROMPTS.get(character, CHARACTER_PROMPTS[DEFAULT_CHARACTER])
+    return template.format(text=user_text)
+
+
+def add_chat_memory(user_id: int, role: str, text: str) -> None:
+    """Add a message to user's conversation memory and global chat history."""
+    global _CHAT_GLOBAL
+    # Per-user memory
+    if user_id not in _CHAT_MEMORY:
+        _CHAT_MEMORY[user_id] = []
+    _CHAT_MEMORY[user_id].append({"role": role, "content": text})
+    if len(_CHAT_MEMORY[user_id]) > _CHAT_MEMORY_LIMIT:
+        _CHAT_MEMORY[user_id] = _CHAT_MEMORY[user_id][-_CHAT_MEMORY_LIMIT:]
+    # Global chat memory
+    _CHAT_GLOBAL.append({"role": role, "content": text, "user_id": user_id})
+    if len(_CHAT_GLOBAL) > _CHAT_GLOBAL_LIMIT:
+        _CHAT_GLOBAL = _CHAT_GLOBAL[-_CHAT_GLOBAL_LIMIT:]
+
+
+def get_chat_memory(user_id: int) -> list[dict]:
+    """Get user's personal conversation memory (last 10 messages)."""
+    return _CHAT_MEMORY.get(user_id, [])
+
+
+def get_global_chat_memory() -> list[dict]:
+    """Get global chat history (last 50 messages, without user_id field)."""
+    return [{"role": m["role"], "content": m["content"]} for m in _CHAT_GLOBAL]
+
+
+def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str:
+    """Call AI with conversation context (personal + global chat)."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return "❌ AI недоступен (нет GROQ_API_KEY)"
+
+    # Build messages with memory
+    messages = []
+    
+    # Add global chat context (last 50 messages from all users)
+    global_memory = get_global_chat_memory()
+    if global_memory:
+        messages.extend(global_memory)
+    
+    # Add personal conversation memory (last 10 messages)
+    personal_memory = get_chat_memory(user_id)
+    if personal_memory:
+        messages.extend(personal_memory)
+    
+    # Add current message
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.8,
+            },
+            timeout=10.0,
+        )
+        if response.status_code == 200:
+            result = response.json()
+            answer = result["choices"][0]["message"]["content"]
+            # Save to memory
+            add_chat_memory(user_id, "user", prompt)
+            add_chat_memory(user_id, "assistant", answer)
+            return answer
+        else:
+            error_detail = response.text[:200] if response.text else "No details"
+            print(f"AI API error {response.status_code}: {error_detail}")
+            return f"❌ Ошибка AI: {response.status_code}"
+    except Exception as exc:
+        print(f"Error calling AI API: {exc}")
+        return f"❌ Ошибка AI: {str(exc)}"
+
+
+def detect_bot_reply(message: dict) -> bool:
+    """Check if message is a reply to the bot itself."""
+    reply_to = message.get("reply_to_message")
+    if not reply_to:
+        return False
+    sender = reply_to.get("from", {})
+    if sender.get("id") == BOT_ID:
+        return True
+    if sender.get("is_bot") and BOT_ID and sender.get("id") == BOT_ID:
+        return True
+    return False
+
+
+def detect_bot_mention(text: str | None, entities: list | None) -> tuple[bool, str]:
+    """Check if message mentions the bot. Returns (is_mention, cleaned_text)."""
+    if not text:
+        return False, ""
+    # Check entities for @mention
+    if entities:
+        for ent in entities:
+            if ent.get("type") == "mention":
+                offset = ent.get("offset", 0)
+                length = ent.get("length", 0)
+                mention = text[offset:offset + length]
+                if mention.lower() == f"@{BOT_USERNAME}".lower():
+                    # Remove the mention from text
+                    cleaned = (text[:offset] + text[offset + length:]).strip()
+                    return True, cleaned
+    # Check text_mention entities (user without username)
+    if entities:
+        for ent in entities:
+            if ent.get("type") == "text_mention":
+                user = ent.get("user", {})
+                if user.get("id") == BOT_ID:
+                    offset = ent.get("offset", 0)
+                    length = ent.get("length", 0)
+                    cleaned = (text[:offset] + text[offset + length:]).strip()
+                    return True, cleaned
+    # Simple text check for @username
+    mention_pattern = f"@{BOT_USERNAME}"
+    if mention_pattern.lower() in text.lower():
+        cleaned = re.sub(re.escape(mention_pattern), "", text, flags=re.IGNORECASE).strip()
+        return True, cleaned
+    return False, text
 
 
 def get_shop_items(limit: int = 20) -> list[dict]:
@@ -775,6 +1063,26 @@ def get_gddl_recommendation(level_name: str) -> int | None:
         return None
 
 
+def get_gd_difficulty_name(level_name: str) -> str:
+    """Get human-readable difficulty for a level from gdbrowser."""
+    try:
+        resp = requests.get(f"https://gdbrowser.com/api/search/{level_name}", timeout=10)
+        if resp.status_code != 200:
+            return "Unknown"
+        results = resp.json()
+        if not results or not isinstance(results, list):
+            return "Unknown"
+        data = results[0]
+        if data.get("isDemon"):
+            demon = data.get("demonDifficulty", 0)
+            demons = {1: "Easy Demon", 2: "Medium Demon", 3: "Hard Demon", 4: "Insane Demon", 5: "Extreme Demon"}
+            return demons.get(demon, "Demon")
+        return data.get("difficultyName", "Unknown")
+    except Exception as exc:
+        print(f"Error getting difficulty for {level_name}: {exc}")
+        return "Unknown"
+
+
 # ============================================================================
 # Geometry Dash Module — Raw SQL Helpers
 # ============================================================================
@@ -795,7 +1103,20 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
     try:
         with get_db_engine().connect() as conn:
             rows = conn.execute(
-                text("SELECT * FROM levels ORDER BY position ASC LIMIT :lim"),
+                text("""
+                    SELECT l.*, COALESCE(c.cnt, 0) AS completions,
+                           COALESCE(u.completers, '{}') AS completers
+                    FROM levels l
+                    LEFT JOIN (SELECT level_id, COUNT(*) AS cnt FROM level_completions GROUP BY level_id) c ON c.level_id = l.id
+                    LEFT JOIN (
+                        SELECT lc.level_id, STRING_AGG(u.first_name, ', ' ORDER BY lc.completed_at) AS completers
+                        FROM level_completions lc
+                        JOIN users u ON u.telegram_id = lc.user_id
+                        GROUP BY lc.level_id
+                    ) u ON u.level_id = l.id
+                    ORDER BY l.position ASC
+                    LIMIT :lim
+                """),
                 {"lim": limit},
             ).mappings().all()
             return [dict(r) for r in rows]
@@ -1008,12 +1329,12 @@ def reject_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
         return False
 
 
-def add_gd_level(name: str, position: int) -> int | None:
+def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int | None:
     try:
         with get_db_engine().connect() as conn:
             result = conn.execute(
-                text("INSERT INTO levels (name, position) VALUES (:nm, :pos) RETURNING id"),
-                {"nm": name, "pos": position},
+                text("INSERT INTO levels (name, position, difficulty) VALUES (:nm, :pos, :diff) RETURNING id"),
+                {"nm": name, "pos": position, "diff": difficulty},
             ).mappings().first()
             conn.commit()
             return int(result["id"]) if result else None
@@ -1080,10 +1401,18 @@ def fetch_lichess_user(username: str) -> dict | None:
         title = payload.get("title")
         online_raw = payload.get("online", False)
         online = online_raw if isinstance(online_raw, bool) else (online_raw == "true")
+        count = payload.get("count", {})
         return {
             "username": lichess_username.strip(),
             "title": title if isinstance(title, str) and title else None,
             "online": online,
+            "perfs": payload.get("perfs", {}),
+            "games": {
+                "total": count.get("all", 0),
+                "win": count.get("win", 0),
+                "loss": count.get("loss", 0),
+                "draw": count.get("draw", 0),
+            },
         }
     except requests.exceptions.Timeout:
         raise RuntimeError("Lichess API timeout")
@@ -1503,16 +1832,119 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
     """Send a Telegram message from the Vercel webhook runtime."""
 
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN is not configured")
+        print("[SEND_MSG] BOT_TOKEN is empty!")
+        return
 
     payload = {"chat_id": chat_id, "text": text}
     payload.update(extra_payload)
-    response = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json=payload,
-        timeout=5,
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json=payload,
+            timeout=3,
+        )
+        print(f"[SEND_MSG] chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
+    except Exception as exc:
+        print(f"[SEND_MSG] EXCEPTION: {exc}")
+
+
+def notify_admin(text: str) -> None:
+    """Send error notification to admin Telegram."""
+    if ADMIN_TELEGRAM_ID and BOT_TOKEN:
+        send_telegram_message(ADMIN_TELEGRAM_ID, f"⚠️ {text}")
+
+
+def log_error(module: str, error_type: str, message: str, context: str = "") -> None:
+    """Log error to in-memory buffer, get AI recommendation, notify admin."""
+    from datetime import datetime as _dt
+    import traceback as _tb
+    recommendation = _get_ai_recommendation(module, error_type, message, context)
+    entry = {
+        "time": _dt.utcnow().strftime("%H:%M"),
+        "module": module,
+        "error_type": error_type,
+        "message": message,
+        "context": context,
+        "recommendation": recommendation,
+        "traceback": _tb.format_exc()[:500],
+    }
+    _ERROR_LOG.append(entry)
+    if len(_ERROR_LOG) > _ERROR_LOG_LIMIT:
+        _ERROR_LOG.pop(0)
+    notify_admin(f"🔴 [{module}] {message}\n💡 {recommendation}")
+
+
+def _get_ai_recommendation(module: str, error_type: str, message: str, context: str = "") -> str:
+    """Get AI-generated fix recommendation for an error."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return _static_recommendation(module, error_type)
+
+    # Try to get relevant code snippet from error traceback
+    import traceback
+    code_snippet = ""
+    try:
+        tb = traceback.format_exc()
+        if tb and "line" in tb:
+            # Extract last few lines of traceback
+            lines = tb.strip().split("\n")
+            code_snippet = "\n".join(lines[-4:]) if len(lines) > 4 else tb[:500]
+    except Exception:
+        pass
+
+    prompt = (
+        f"Ты — Python DevOps инженер. Кратко (1-2 предложения) на русском языке порекомендуй "
+        f"как исправить ошибку в production Telegram-боте на Vercel.\n"
+        f"- Модуль: {module}\n"
+        f"- Тип ошибки: {error_type}\n"
+        f"- Сообщение об ошибке: {message}\n"
+        f"- Контекст: {context or 'нет'}\n"
+        f"{'- Traceback код:\\n' + code_snippet + '\\n' if code_snippet else ''}"
+        f"Ответ ТОЛЬКО текст рекомендации, без приветствий и пояснений."
     )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 100,
+                "temperature": 0.3,
+            },
+            timeout=8,
+        )
+        if response.status_code == 200:
+            return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        pass
+    return _static_recommendation(module, error_type)
+
+
+def _static_recommendation(module: str, error_type: str) -> str:
+    """Fallback static recommendations when AI is unavailable."""
+    recs = {
+        ("DB", "table_missing"): "Выполнить миграцию 009_phase2_tables_supabase.sql",
+        ("DB", "connection"): "Проверить DATABASE_URL в Vercel env vars",
+        ("Chess", "lichess_api"): "Lichess API недоступен, повторить позже",
+        ("Chess", "history_query"): "Таблица chess_games — перезапустить бот (автосоздание)",
+        ("Chess", "fen_derivation"): "Проверить python-chess в requirements.txt",
+        ("Chess", "fen_empty"): "Lichess API мог изменить формат ответа",
+        ("GD", "gd_api"): "GD API (boomlings.com) недоступен",
+        ("GD", "gd_level_api"): "GD API недоступен, повторить позже",
+        ("GD", "submission_save"): "Проверить таблицу submissions в Supabase",
+        ("GD", "approve_failed"): "Проверить таблицу level_completions в Supabase",
+        ("GD", "leaderboard"): "Проверить таблицу player_stats в Supabase",
+        ("GD", "level_top"): "Проверить таблицу levels в Supabase",
+        ("GD", "my_stats"): "Проверить таблицу player_stats/submissions",
+        ("GD", "player_stats"): "Проверить таблицу player_stats в Supabase",
+        ("AI", "groq_api"): "Проверить GROQ_API_KEY в Vercel env",
+        ("Telegram", "send_failed"): "Проверить BOT_TOKEN, rate limits Telegram",
+    }
+    return recs.get((module, error_type), "Проверить логи Vercel для деталей")
 
 
 def send_telegram_poll(
@@ -1556,6 +1988,8 @@ def set_response_mode(chat_id: int, mode: str) -> None:
 
 def build_short_start_text(name: str, user_id: int) -> str:
     """Build the old short `/start` response."""
+    is_admin = user_id == ADMIN_TELEGRAM_ID
+    admin_section = "\n\nАдмин:\n/errors — журнал ошибок\n/clear_errors — очистить ошибки" if is_admin else ""
 
     return f"""[BANK] LucasTeam BankBot
 Привет, {name}!
@@ -1572,12 +2006,16 @@ ID: {user_id}
 /long — полный режим для себя
 /long_all — полный режим для всех
 
+AI:
+/character — выбрать характер
+💬 Или ответьте на сообщение бота / @упомяньте бота
+
 Разделы:
 /chess — шахматы
 /ai — искусственный интеллект
 /gd — geometry dash
 /shop — магазин
-/admin — админка"""
+/admin — админка{admin_section}"""
 
 
 def build_long_start_text(name: str, user_id: int) -> str:
@@ -1603,6 +2041,10 @@ def build_long_start_text(name: str, user_id: int) -> str:
 /long - полные ответы
 /reading_trainer - тренажёр чтения
 
+[AI] AI-помощник:
+/character - выбрать характер (олеговирус или чай)
+💬 Или просто ответьте на сообщение бота или упомяните @lt_lo_game_bot
+
 [GAMES_SUPPORTED] Поддерживаемые игры:
 • Shmalala
 • GD Cards
@@ -1627,6 +2069,102 @@ def index():
 @app.route("/health")
 def health():
     return jsonify({"status": "healthy", "platform": "vercel"})
+
+
+@app.route("/debug_puzzle")
+def debug_puzzle():
+    """Debug endpoint to test puzzle system."""
+    import traceback as tb
+    results = {"bot_token_set": bool(BOT_TOKEN), "bot_id": BOT_ID}
+    
+    # Test send_telegram_message
+    if BOT_TOKEN:
+        try:
+            resp = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+            results["getMe"] = {"status": resp.status_code, "ok": resp.ok}
+        except Exception as e:
+            results["getMe"] = {"error": str(e)}
+    
+    # Test DB connection
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(text("SELECT count(*) as cnt FROM chess_accounts")).mappings().first()
+            results["chess_accounts_count"] = row["cnt"] if row else -1
+    except Exception as e:
+        results["db_error"] = str(e)
+    
+    return jsonify(results)
+
+
+@app.route("/test_send/<int:chat_id>")
+def test_send(chat_id):
+    """Test sending a message to a chat_id."""
+    try:
+        send_telegram_message(chat_id, "🔧 Тестовое сообщение от BankBot")
+        return jsonify({"ok": True, "chat_id": chat_id})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/test_puzzle/<int:user_id>")
+def test_puzzle(user_id):
+    """Simulate puzzle handler step by step."""
+    results = {"user_id": user_id}
+    
+    # Step 1: get_chess_account
+    try:
+        account = get_chess_account(user_id)
+        results["account"] = account
+    except Exception as e:
+        results["account_error"] = str(e)
+        return jsonify(results)
+    
+    if not account:
+        results["action"] = "no_account"
+        return jsonify(results)
+    
+    # Step 2: get_user_coins
+    try:
+        coins_data = get_user_coins(user_id)
+        results["coins_data"] = coins_data
+    except Exception as e:
+        results["coins_error"] = str(e)
+        return jsonify(results)
+    
+    # Step 3: cooldown check
+    now = datetime.utcnow()
+    if coins_data and coins_data.get("last_puzzle_at"):
+        last_puzzle = coins_data["last_puzzle_at"]
+        if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
+            last_puzzle = last_puzzle.replace(tzinfo=None)
+        from datetime import timedelta
+        diff = now - last_puzzle
+        results["last_puzzle"] = str(last_puzzle)
+        results["hours_since"] = diff.total_seconds() / 3600
+        if diff < timedelta(hours=24):
+            results["action"] = "cooldown"
+            return jsonify(results)
+    
+    # Step 4: fetch Lichess puzzle
+    try:
+        import requests as req
+        puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/daily"
+        resp = req.get(puzzle_url, headers={"Accept": "application/json", "User-Agent": "BankBot"}, timeout=8)
+        results["lichess_status"] = resp.status_code
+        if resp.status_code == 200:
+            data = resp.json()
+            puzzle = data.get("puzzle", {})
+            results["puzzle_id"] = puzzle.get("id")
+            results["rating"] = puzzle.get("rating")
+            results["solution"] = puzzle.get("solution", "")[:50]
+            results["action"] = "success"
+        else:
+            results["action"] = "lichess_error"
+    except Exception as e:
+        results["lichess_error"] = str(e)
+        results["action"] = "lichess_exception"
+    
+    return jsonify(results)
 
 
 @app.route("/reading_trainer.html")
@@ -2047,19 +2585,19 @@ def telegram_webhook(secret: str):
     # Process Telegram commands supported by the Vercel webhook runtime.
     try:
         message = update.get("message", {})
-        text = message.get("text", "")
+        msg_text = message.get("text", "")
         chat_id = message.get("chat", {}).get("id")
         user = message.get("from", {})
         user_id = user.get("id", chat_id)
         name = user.get("first_name") or user.get("username") or "LucasTeam"
-        command = normalize_command(text)
+        command = normalize_command(msg_text)
 
-        print(f"[WEBHOOK] command='{command}' text='{text[:50]}' user_id={user_id} chat_id={chat_id}")
+        print(f"[WEBHOOK] command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
 
         # Check for parsing trigger (reply to game bot with "Парсинг" or /parse or /parsing)
         reply_to = message.get("reply_to_message")
         is_parsing_trigger = (
-            text and text.lower().strip() in ["парсинг", "parsing"]
+            msg_text and msg_text.lower().strip() in ["парсинг", "parsing"]
         ) or command in ["/parse", "/parsing"]
 
         # Debug logging
@@ -2144,6 +2682,70 @@ def telegram_webhook(secret: str):
                 )
                 return jsonify({"ok": True})
 
+        # GD approve — position input (must be before AI block to avoid interception)
+        approve_state = _GD_APPROVE_STATE.get(user_id)
+        if approve_state and msg_text:
+            text_stripped = msg_text.strip()
+            try:
+                position = int(text_stripped)
+                if position < 1:
+                    send_telegram_message(chat_id, "❌ Позиция должна быть положительным числом.")
+                else:
+                    sub_id = approve_state["sub_id"]
+                    level_name = approve_state["level_name"]
+                    difficulty = get_gd_difficulty_name(level_name)
+                    level_id = add_gd_level(level_name, position, difficulty)
+                    if not level_id:
+                        send_telegram_message(chat_id, f"❌ Ошибка при добавлении уровня **{level_name}** в топ.", parse_mode="Markdown")
+                    else:
+                        if approve_gd_submission_db(sub_id, user_id):
+                            send_telegram_message(
+                                chat_id,
+                                f"✅ Заявка #{sub_id} подтверждена!\n"
+                                f"🏆 Уровень **{level_name}** добавлен в топ на позицию **#{position}**.",
+                                parse_mode="Markdown",
+                            )
+                        else:
+                            send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
+                            log_error("GD", "approve_failed", f"GD approve failed sub_id={sub_id}", "approve_gd_submission_db returned False")
+                _GD_APPROVE_STATE.pop(user_id, None)
+            except ValueError:
+                send_telegram_message(chat_id, "❌ Пожалуйста, введите число — позицию в топе.")
+            return jsonify({"ok": True})
+
+        # AI response on reply to bot message or @mention
+        if BOT_ID is None:
+            _load_bot_id()
+        
+        # Check for reply to bot message
+        is_bot_reply = detect_bot_reply(message)
+        # Check for @mention of bot
+        is_mention, mention_text = detect_bot_mention(msg_text, message.get("entities"))
+        
+        if chat_id and (is_bot_reply or is_mention):
+            # Get user's character preference
+            character = get_user_character(user_id)
+            # Extract user text
+            if is_bot_reply and reply_to:
+                user_text = msg_text or ""
+            elif is_mention:
+                user_text = mention_text
+            else:
+                user_text = msg_text or ""
+            
+            if user_text.strip():
+                # Build prompt and call AI with memory
+                prompt = build_character_prompt(character, user_text)
+                answer = call_ai_with_memory(user_id, prompt)
+                emoji = CHARACTER_EMOJI.get(character, "")
+                prefix = f"{emoji} " if emoji else ""
+                send_telegram_message(chat_id, f"{prefix}{answer}")
+                return jsonify({"ok": True})
+            else:
+                # User replied with empty text or just mention
+                send_telegram_message(chat_id, f"💬 Напишите сообщение для {character}")
+                return jsonify({"ok": True})
+
         if command == "/start" and chat_id:
             send_telegram_message(
                 chat_id, build_start_text(name, user_id, get_response_mode(chat_id))
@@ -2183,6 +2785,30 @@ def telegram_webhook(secret: str):
                 chat_id,
                 f"Профиль: {name}\nБаланс: {balance}\nТранзакций: {stats['total_transactions']}\nСтатус: {'админ' if is_admin else 'пользователь'}",
             )
+        elif command == "/errors" and chat_id:
+            if user_id != ADMIN_TELEGRAM_ID:
+                send_telegram_message(chat_id, "❌ Только админ может просматривать ошибки.")
+            elif not _ERROR_LOG:
+                send_telegram_message(chat_id, "✅ Ошибок нет — всё чисто!")
+            else:
+                recent = _ERROR_LOG[-10:]
+                lines = [f"📋 **Ошибки** ({len(_ERROR_LOG)} всего, последние {len(recent)}):\n"]
+                for e in reversed(recent):
+                    lines.append(f"🕐 {e['time']} | 🔴 {e['module']}/{e['error_type']}")
+                    lines.append(f"   {e['message'][:100]}")
+                    lines.append(f"   💡 {e['recommendation']}")
+                    tb = e.get('traceback', '')
+                    if tb:
+                        lines.append(f"   📎 `{tb[-150:]}`")
+                    lines.append("")
+                send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+        elif command == "/clear_errors" and chat_id:
+            if user_id != ADMIN_TELEGRAM_ID:
+                send_telegram_message(chat_id, "❌ Только админ может очищать ошибки.")
+            else:
+                count = len(_ERROR_LOG)
+                _ERROR_LOG.clear()
+                send_telegram_message(chat_id, f"🗑 Очищено {count} ошибок.")
         elif command == "/history" and chat_id:
             history = get_user_history(user_id, limit=10)
             if not history:
@@ -2224,7 +2850,7 @@ def telegram_webhook(secret: str):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
                 # Parse: /add_points @user 100 описание
-                args = text.split()[1:] if len(text.split()) > 1 else []
+                args = msg_text.split()[1:] if len(msg_text.split()) > 1 else []
                 if len(args) < 2:
                     send_telegram_message(
                         chat_id, "Формат: /add_points @username сумма [описание]"
@@ -2269,7 +2895,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()[1:] if len(text.split()) > 1 else []
+                args = msg_text.split()[1:] if len(msg_text.split()) > 1 else []
                 if len(args) < 1:
                     send_telegram_message(chat_id, "Формат: /add_admin telegram_id")
                 else:
@@ -2314,7 +2940,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()[1:] if len(text.split()) > 1 else []
+                args = msg_text.split()[1:] if len(msg_text.split()) > 1 else []
                 if len(args) < 1:
                     send_telegram_message(
                         chat_id, "Формат: /admin_transactions telegram_id"
@@ -2365,7 +2991,7 @@ def telegram_webhook(secret: str):
         elif command == "/ai" or command == "/ask":
             if not chat_id:
                 return jsonify({"ok": True})
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(
                     chat_id,
@@ -2373,10 +2999,10 @@ def telegram_webhook(secret: str):
                     "/ai <вопрос> — задать вопрос AI\n"
                     "/ask <вопрос> — алиас /ai\n"
                     "/ai_help — показать эту справку\n"
-                    "/chat <персонаж> <текст> — диалог с персонажем\n"
+                    "/character — выбрать характер\n"
                     "/generate_prayer или /pray — сгенерировать молитву\n"
                     "/ask_canon <вопрос> — вопрос по канону\n\n"
-                    "Пример: /ai Что такое олеговирус?",
+                    "💡 Или просто ответьте на сообщение бота или упомяните @lt_lo_game_bot",
                 )
             else:
                 question = args[1]
@@ -2384,7 +3010,7 @@ def telegram_webhook(secret: str):
                     send_telegram_message(chat_id, "❌ Вопрос слишком короткий")
                 else:
                     prompt = f"Ты помощник, отвечающий кратко и по делу. Вопрос пользователя: {question}\n\nОтветь в 2-3 предложениях."
-                    answer = call_ai_api(prompt, max_tokens=200)
+                    answer = call_ai_with_memory(user_id, prompt, max_tokens=200)
                     send_telegram_message(chat_id, answer)
         elif command == "/ai_help" and chat_id:
             send_telegram_message(
@@ -2393,46 +3019,62 @@ def telegram_webhook(secret: str):
                 "/ai <вопрос> — задать вопрос AI\n"
                 "/ask <вопрос> — алиас /ai\n"
                 "/ai_help — показать эту справку\n"
-                "/chat <персонаж> <текст> — диалог с персонажем\n"
+                "/character — выбрать характер\n"
                 "/generate_prayer или /pray — сгенерировать молитву\n"
-                "/ask_canon <вопрос> — вопрос по канону",
+                "/ask_canon <вопрос> — вопрос по канону\n\n"
+                "💡 Или просто ответьте на сообщение бота или упомяните @lt_lo_game_bot",
             )
-        elif command == "/chat" and chat_id:
-            args = text.split(maxsplit=2)
-            if len(args) < 3:
+        elif command == "/character" and chat_id:
+            args = msg_text.split()
+            if len(args) < 2:
+                # Show current character and available options
+                current = get_user_character(user_id)
+                chars = "\n".join([f"• {k} {CHARACTER_EMOJI.get(k, '')}" for k in CHARACTER_PROMPTS])
                 send_telegram_message(
                     chat_id,
-                    "Использование: /chat <персонаж> <текст>\n\n"
-                    "Доступные персонажи:\n"
-                    "• олеговирус — навязчивое существо\n"
-                    "• чай — божественный мудрец\n\n"
-                    "Пример: /chat олеговирус привет!",
+                    f"🎭 Текущий характер: **{current}** {CHARACTER_EMOJI.get(current, '')}\n\n"
+                    f"Доступные характеры:\n{chars}\n\n"
+                    f"Смена: /character <имя>\n"
+                    f"Пример: /character чай",
                 )
             else:
                 character = args[1].lower()
-                user_text = args[2]
-
-                if character == "олеговирус":
-                    prompt = (
-                        f"Ты — олеговирус, существо, которое постоянно издаёт звуки 'кхм-кхм', "
-                        f"любит придираться к чужим текстам. Ответь кратко (1-2 предложения). "
-                        f"Пользователь сказал: {user_text}"
-                    )
-                elif character == "чай":
-                    prompt = (
-                        f"Ты — верховный божественный Чай, воплощение покоя и мудрости. "
-                        f"Говори вдохновляюще, используй слова 'настой', 'eight-nine'. "
-                        f"Ответь кратко (1-2 предложения). Пользователь сказал: {user_text}"
+                if set_user_character(user_id, character):
+                    emoji = CHARACTER_EMOJI.get(character, "")
+                    send_telegram_message(
+                        chat_id,
+                        f"✅ Характер изменён на: **{character}** {emoji}\n\n"
+                        f"Теперь при ответе на сообщение бота или @упоминании бот будет отвечать в стиле {character}.",
                     )
                 else:
+                    chars = ", ".join(CHARACTER_PROMPTS.keys())
                     send_telegram_message(
-                        chat_id, f"❌ Неизвестный персонаж: {character}"
+                        chat_id,
+                        f"❌ Неизвестный характер: {character}\n\n"
+                        f"Доступные: {chars}",
                     )
-                    prompt = None
-
-                if prompt:
-                    answer = call_ai_api(prompt)
-                    send_telegram_message(chat_id, answer)
+        elif command == "/character_all" and chat_id:
+            if not check_admin(user_id):
+                send_telegram_message(chat_id, "🔒 Только для админов")
+            else:
+                args = msg_text.split()
+                if len(args) < 2:
+                    current = get_global_character()
+                    send_telegram_message(
+                        chat_id,
+                        f"🌐 Глобальный характер: **{current}** {CHARACTER_EMOJI.get(current, '')}\n\n"
+                        f"Смена: /character_all <имя>",
+                    )
+                else:
+                    character = args[1].lower()
+                    if set_global_character(character):
+                        emoji = CHARACTER_EMOJI.get(character, "")
+                        send_telegram_message(
+                            chat_id,
+                            f"✅ Глобальный характер изменён на: **{character}** {emoji}",
+                        )
+                    else:
+                        send_telegram_message(chat_id, f"❌ Неизвестный характер: {character}")
         elif command in ["/generate_prayer", "/pray"] and chat_id:
             send_telegram_message(chat_id, "🙏 Сочиняю молитву...")
             prompt = (
@@ -2454,7 +3096,7 @@ def telegram_webhook(secret: str):
             send_telegram_message(chat_id, f"🙏 Молитва:\n\n{prayer}")
             return jsonify({"ok": True})
         elif command == "/ask_canon" and chat_id:
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(
                     chat_id,
@@ -2483,7 +3125,7 @@ def telegram_webhook(secret: str):
                 lines.append("\nКупить: /buy <номер>")
                 send_telegram_message(chat_id, "\n".join(lines))
         elif command == "/buy" and chat_id:
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(chat_id, "Формат: /buy <номер товара>")
             else:
@@ -2599,7 +3241,12 @@ def telegram_webhook(secret: str):
                 "`/chess_link <ник>` — привязать Lichess аккаунт\n"
                 "`/chess_rating` — показать рейтинги\n"
                 "`/chess_stats` — показать статистику\n"
-                "`/puzzle` или `/chess_puzzle` — решить шахматную задачу\n\n"
+                "`/puzzle` или `/chess_puzzle` — решить шахматную задачу\n"
+                "`/chess_history` — история решённых задач\n\n"
+                "**Как решать задачи:**\n"
+                "1. Отправьте `/puzzle`\n"
+                "2. Введите ваш ход (например: `e2e4`)\n"
+                "3. За правильный ответ — +5 монет\n\n"
                 "**Пример:**\n"
                 "`/chess_link DrNykterstein`"
             )
@@ -2607,7 +3254,7 @@ def telegram_webhook(secret: str):
         
         # /chess_link <username>
         elif command == "/chess_link" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             
             if len(args) < 1:
                 send_telegram_message(
@@ -2700,9 +3347,9 @@ def telegram_webhook(secret: str):
                         if "bullet" in perfs:
                             rating_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
                         if "blitz" in perfs:
-                            rating_parts.append(f"⚡ **Молния:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                            rating_parts.append(f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
                         if "rapid" in perfs:
-                            rating_parts.append(f"⏱️ **Быстрая:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                            rating_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
                         if "classical" in perfs:
                             rating_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
                         
@@ -2761,9 +3408,9 @@ def telegram_webhook(secret: str):
                         if "bullet" in perfs:
                             stats_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
                         if "blitz" in perfs:
-                            stats_parts.append(f"⚡ **Молния:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                            stats_parts.append(f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
                         if "rapid" in perfs:
-                            stats_parts.append(f"⏱️ **Быстрая:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                            stats_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
                         if "classical" in perfs:
                             stats_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
                         
@@ -2781,6 +3428,157 @@ def telegram_webhook(secret: str):
         
         # /puzzle and /chess_puzzle commands
         elif command in ["/puzzle", "/chess_puzzle"] and chat_id:
+            print(f"[PUZZLE] user_id={user_id}, chat_id={chat_id}")
+            account = get_chess_account(user_id)
+            print(f"[PUZZLE] account={account}")
+            if not account:
+                print("[PUZZLE] No account, sending error")
+                send_telegram_message(
+                    chat_id,
+                    "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
+                    parse_mode="Markdown",
+                )
+            else:
+                # Check cooldown (max 1 puzzle per day) — REMOVED for testing
+                # TODO: re-enable after testing
+                now = datetime.utcnow()
+                coins_data = get_user_coins(user_id)
+                
+                # Cooldown disabled — allow multiple puzzles per day
+                # if coins_data and coins_data.get("last_puzzle_at"):
+                #     last_puzzle = coins_data["last_puzzle_at"]
+                #     if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
+                #         last_puzzle = last_puzzle.replace(tzinfo=None)
+                #     from datetime import timedelta
+                #     if now - last_puzzle < timedelta(hours=24):
+                #         remaining = 24 - (now - last_puzzle).total_seconds() / 3600
+                #         send_telegram_message(
+                #             chat_id,
+                #             f"⏳ Пожалуйста, подождите {remaining:.1f} часов до следующей задачи.",
+                #         )
+                #         return jsonify({"ok": True})
+                
+                send_telegram_message(
+                    chat_id,
+                    "🧩 Загружаю задачу...",
+                )
+                
+                try:
+                    # Fetch random puzzle from Lichess (not daily — random each time)
+                    puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/next"
+                    headers = {"Accept": "application/json", "User-Agent": "BankBot/ChessModule"}
+                    response = requests.get(puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
+                    
+                    if response.status_code != 200:
+                        send_telegram_message(
+                            chat_id,
+                            "❌ Не удалось загрузить задачу. Попробуйте позже.",
+                        )
+                        return jsonify({"ok": True})
+                    
+                    puzzle_data = response.json()
+                    puzzle = puzzle_data.get("puzzle", {})
+                    game = puzzle_data.get("game", {})
+                    
+                    puzzle_id = puzzle.get("id", "unknown")
+                    rating = puzzle.get("rating", "?")
+                    themes = ", ".join(puzzle.get("themes", [])[:3])
+                    solution = puzzle.get("solution", "")
+                    initial_ply = puzzle.get("initialPly", 0)
+                    puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
+                    
+                    # Derive FEN from game PGN + initialPly
+                    fen = ""
+                    try:
+                        import io
+                        import chess.pgn
+                        pgn_text = game.get("pgn", "")
+                        pgn_io = io.StringIO(pgn_text)
+                        pgn_game = chess.pgn.read_game(pgn_io)
+                        if pgn_game:
+                            board = pgn_game.board()
+                            moves = list(pgn_game.mainline_moves())
+                            for i, move in enumerate(moves):
+                                if i >= initial_ply:
+                                    break
+                                board.push(move)
+                            fen = board.fen()
+                            # Lichess board images show from white's perspective
+                            # If black to move, flip the board
+                            if board.turn == chess.BLACK:
+                                fen = board.mirror().fen()
+                    except Exception as fen_exc:
+                        print(f"Error deriving FEN from PGN: {fen_exc}")
+                        log_error("Chess", "fen_derivation", f"FEN parse error: {fen_exc}", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
+                    
+                    if not fen:
+                        log_error("Chess", "fen_empty", "Empty FEN after derivation", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
+                        send_telegram_message(
+                            chat_id,
+                            "❌ Не удалось отобразить доску. Попробуйте позже.",
+                        )
+                        return jsonify({"ok": True})
+                    
+                    # Store pending puzzle for this user
+                    _PENDING_PUZZLES[user_id] = {
+                        "puzzle_id": puzzle_id,
+                        "solution": solution,
+                        "rating": rating,
+                        "themes": themes,
+                        "chat_id": chat_id,
+                        "username": account["lichess_username"],
+                        "initial_ply": initial_ply,
+                    }
+                    
+                    board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
+                    
+                    turn = "Белых" if initial_ply % 2 == 0 else "Чёрных"
+                    puzzle_msg = (
+                        f"🧩 **Шахматная задача**\n\n"
+                        f"Рейтинг: {rating}\n"
+                        f"Темы: {themes}\n"
+                        f"Ход: {turn}\n\n"
+                        f"Введите ход в формате UCI (например: `e2e4` или `g1f3`):"
+                    )
+                    
+                    try:
+                        photo_response = requests.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                            json={
+                                "chat_id": chat_id,
+                                "photo": board_image_url,
+                                "caption": puzzle_msg,
+                                "parse_mode": "Markdown",
+                                "reply_markup": {
+                                    "inline_keyboard": [
+                                        [
+                                            {
+                                                "text": "🔗 Решить на Lichess",
+                                                "url": puzzle_url_link
+                                            }
+                                        ]
+                                    ]
+                                }
+                            },
+                            timeout=10,
+                        )
+                        if photo_response.status_code != 200:
+                            print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
+                            send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                    except Exception as photo_exc:
+                        print(f"Error sending photo: {photo_exc}")
+                        send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                    
+                    log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
+                except Exception as exc:
+                    print(f"Error fetching puzzle: {exc}")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка загрузки задачи. Попробуйте позже.",
+                    )
+
+        # /chess_history — история решённых задач
+        elif command == "/chess_history" and chat_id:
             account = get_chess_account(user_id)
             if not account:
                 send_telegram_message(
@@ -2789,106 +3587,76 @@ def telegram_webhook(secret: str):
                     parse_mode="Markdown",
                 )
             else:
-                # Check cooldown (max 1 puzzle per day)
-                now = datetime.utcnow()
-                coins_data = get_user_coins(user_id)
-                
-                if coins_data and coins_data.get("last_puzzle_at"):
-                    last_puzzle = coins_data["last_puzzle_at"]
-                    from datetime import timedelta
-                    if now - last_puzzle < timedelta(hours=24):
-                        remaining = 24 - (now - last_puzzle).total_seconds() / 3600
-                        send_telegram_message(
-                            chat_id,
-                            f"⏳ Пожалуйста, подождите {remaining:.1f} часов до следующей задачи.",
-                        )
-                        return jsonify({"ok": True})
-                
-                send_telegram_message(
-                    chat_id,
-                    "🧩 Загружаю задачу...",
-                )
-                
                 try:
-                    # Fetch daily puzzle from Lichess
-                    puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/daily"
-                    headers = {"Accept": "application/json", "User-Agent": "BankBot/ChessModule"}
-                    response = requests.get(puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
-                    
-                    if response.status_code == 200:
-                        puzzle_data = response.json()
-                        puzzle = puzzle_data.get("puzzle", {})
-                        
-                        puzzle_id = puzzle.get("id", "unknown")
-                        rating = puzzle.get("rating", "?")
-                        fen = puzzle.get("fen", "")
-                        themes = ", ".join(puzzle.get("themes", [])[:3])
-                        puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
-                        
-                        # Send board image using Lichess board export
-                        # Format: https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett
-                        board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
-                        
-                        puzzle_msg = (
-                            f"🧩 **Шахматная задача дня**\n\n"
-                            f"Рейтинг: {rating}\n"
-                            f"Темы: {themes}\n\n"
-                            f"Ваш ход!"
+                    with get_db_engine().connect() as conn:
+                        rows = conn.execute(
+                            text(
+                                "SELECT puzzle_id, puzzle_rating, puzzle_themes, solved, solved_at, created_at "
+                                "FROM chess_games WHERE user_id = :user_id ORDER BY created_at DESC LIMIT 10"
+                            ),
+                            {"user_id": user_id},
+                        ).mappings().all()
+
+                    if not rows:
+                        send_telegram_message(
+                            chat_id,
+                            "📋 У вас пока нет истории задач. Решите первую: /puzzle",
                         )
-                        
-                        # Send photo with caption
-                        try:
-                            photo_response = requests.post(
-                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                                json={
-                                    "chat_id": chat_id,
-                                    "photo": board_image_url,
-                                    "caption": puzzle_msg,
-                                    "parse_mode": "Markdown",
-                                    "reply_markup": {
-                                        "inline_keyboard": [
-                                            [
-                                                {
-                                                    "text": "🔗 Решить на Lichess",
-                                                    "url": puzzle_url_link
-                                                }
-                                            ]
-                                        ]
-                                    }
-                                },
-                                timeout=10,
-                            )
-                            if photo_response.status_code != 200:
-                                # Fallback to text message if image fails
-                                print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
-                                send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
-                        except Exception as photo_exc:
-                            print(f"Error sending photo: {photo_exc}")
-                            send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
-                            photo_exc_occurred = True
-                        else:
-                            photo_exc_occurred = False
                     else:
-                        send_telegram_message(
-                            chat_id,
-                            "❌ Не удалось загрузить задачу. Попробуйте позже.",
-                        )
-                        photo_exc_occurred = True
-                    
-                    # Award puzzle reward (5 coins, cooldown tracking) if photo sent successfully
-                    if not photo_exc_occurred and photo_response.status_code == 200:
-                        update_user_coins(user_id, 5, now)
-                        send_telegram_message(
-                            chat_id,
-                            f"💰 Вы получили 5 монет за участие!\nБаланс: {coins_data['balance'] + 5 if coins_data else 5} монет",
-                        )
+                        coins = get_user_coins(user_id)
+                        balance = coins["balance"] if coins else 0
+                        lines = [f"📋 **История задач** ({account['lichess_username']})\n💰 Баланс: {balance} монет\n"]
+                        for r in rows:
+                            status = "✅" if r["solved"] else "⏳"
+                            rating = r["puzzle_rating"] or "?"
+                            themes = r["puzzle_themes"] or "—"
+                            link = f"https://lichess.org/training/{r['puzzle_id']}"
+                            lines.append(f"{status} [{r['puzzle_id']}]({link}) | Рейтинг: {rating} | {themes}")
+                        send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
                 except Exception as exc:
-                    print(f"Error fetching puzzle: {exc}")
+                    print(f"Error fetching chess history: {exc}")
+                    log_error("Chess", "history_query", f"chess_history user={user_id}: {exc}", f"query: chess_games WHERE user_id={user_id}")
                     send_telegram_message(
                         chat_id,
-                        "❌ Ошибка загрузки задачи. Попробуйте позже.",
+                        "❌ Ошибка загрузки истории. Попробуйте позже.",
                     )
 
+        # =====================================================================
+        # Chess Module — puzzle answer handler
+        # =====================================================================
+        if chat_id and user_id in _PENDING_PUZZLES and not command.startswith("/"):
+            pending = _PENDING_PUZZLES[user_id]
+            user_move = msg_text.strip().lower()
+            # UCI move validation: 4-5 chars, letters+digits (e.g. e2e4, g1f3, e7e8q)
+            import re
+            if not re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', user_move):
+                return jsonify({"ok": True})
+            solution = pending["solution"]
+            # Handle both string and list formats
+            if isinstance(solution, list):
+                solution_moves = solution
+            else:
+                solution_moves = solution.split()
+            
+            if solution_moves and user_move == solution_moves[0].lower():
+                # Correct move — award coins
+                del _PENDING_PUZZLES[user_id]
+                update_user_coins(user_id, 5, datetime.utcnow())
+                send_telegram_message(
+                    chat_id,
+                    f"✅ **Правильно!**\n\nХод: `{solution_moves[0]}`\n💰 +5 монет",
+                    parse_mode="Markdown",
+                )
+            else:
+                # Wrong move — show correct solution
+                correct = solution_moves[0] if solution_moves else "?"
+                del _PENDING_PUZZLES[user_id]
+                send_telegram_message(
+                    chat_id,
+                    f"❌ **Неверно.**\n\nПравильный ход: `{correct}`\nПопробуйте следующую задачу: /puzzle",
+                    parse_mode="Markdown",
+                )
+        
         # =====================================================================
         # GD Module — submit follow-up
         # =====================================================================
@@ -2938,6 +3706,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"Error updating submission #{sub_id}: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.")
+                    log_error("GD", "submission_save", f"GD submit save failed user={user_id}", "INSERT INTO submissions failed")
                 return jsonify({"ok": True})
 
             # Legacy in-memory fallback
@@ -2973,37 +3742,6 @@ def telegram_webhook(secret: str):
                     )
                 return jsonify({"ok": True})
 
-            # GD approve — position input
-            approve_state = _GD_APPROVE_STATE.get(user_id)
-            if approve_state:
-                text_stripped = text.strip() if text else ""
-                try:
-                    position = int(text_stripped)
-                    if position < 1:
-                        send_telegram_message(chat_id, "❌ Позиция должна быть положительным числом.")
-                        return jsonify({"ok": True})
-                    sub_id = approve_state["sub_id"]
-                    level_name = approve_state["level_name"]
-                    # Add level to levels table
-                    level_id = add_gd_level(level_name, position)
-                    if not level_id:
-                        send_telegram_message(chat_id, f"❌ Ошибка при добавлении уровня **{level_name}** в топ.", parse_mode="Markdown")
-                    else:
-                        # Approve submission
-                        if approve_gd_submission_db(sub_id, user_id):
-                            send_telegram_message(
-                                chat_id,
-                                f"✅ Заявка #{sub_id} подтверждена!\n"
-                                f"🏆 Уровень **{level_name}** добавлен в топ на позицию **#{position}**.",
-                                parse_mode="Markdown",
-                            )
-                        else:
-                            send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
-                    _GD_APPROVE_STATE.pop(user_id, None)
-                except ValueError:
-                    send_telegram_message(chat_id, "❌ Пожалуйста, введите число — позицию в топе.")
-                return jsonify({"ok": True})
-
         # =====================================================================
         # GD Module — commands
         # =====================================================================
@@ -3028,7 +3766,7 @@ def telegram_webhook(secret: str):
 
         # /gd_user <username>
         elif command == "/gd_user" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Использование: `/gd_user <ник>`\nПример: `/gd_user Riot`", parse_mode="Markdown")
             else:
@@ -3043,10 +3781,11 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"gd_user error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных GD.")
+                    log_error("GD", "gd_api", f"GD API user lookup failed: {exc}", f"username={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}")
 
         # /gd_level <id или название>
         elif command == "/gd_level" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID или название>`\nПример: `/gd_level 10565740` или `/gd_level Bloodbath`", parse_mode="Markdown")
             else:
@@ -3066,6 +3805,7 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"gd_level error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
+                    log_error("GD", "gd_level_api", f"GD API level lookup failed: {exc}", f"query={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}")
 
         # /leaderboard — top by balance
         elif command == "/leaderboard" and chat_id:
@@ -3082,24 +3822,21 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"leaderboard error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при загрузке лидеров.")
+                log_error("GD", "leaderboard", f"Leaderboard load failed: {exc}", "get_top_balances or get_gd_leaderboard query failed")
 
         # /gd_leaderboard — GD уровень топ
         elif command == "/gd_leaderboard" and chat_id:
-            try:
-                levels = get_gd_leaderboard(20)
-                if not levels:
-                    send_telegram_message(chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни.")
-                else:
-                    lines = ["🏆 **Geometry Dash — Топ-20 уровней**\n"]
-                    for lv in levels:
-                        cnt = get_gd_completions_count(lv["id"])
-                        score = 101 - lv["position"]
-                        lines.append(f"**#{lv['position']}** {lv['name']}\n   💪 Сложность: {score}/100\n   ✅ Прохождений: {cnt}")
-                    lines.append("\n_Используйте /my_stats для просмотра своей статистики_")
-                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
-            except Exception as exc:
-                print(f"leaderboard error: {exc}")
-                send_telegram_message(chat_id, "❌ Ошибка при загрузке топа уровней.")
+            levels = get_gd_leaderboard(20)
+            if not levels:
+                send_telegram_message(chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни.")
+            else:
+                lines = ["🏆 Geometry Dash — Топ-20 уровней\n"]
+                for lv in levels:
+                    diff = lv.get("difficulty", "Unknown")
+                    completers_str = lv.get("completers") or "—"
+                    lines.append(f"#{lv['position']} {lv['name']}\n   💀 {diff}\n   ✅ Прохождений: {lv['completions']}\n   👤 {completers_str}")
+                lines.append("\nИспользуйте /my_stats для просмотра своей статистики")
+                send_telegram_message(chat_id, "\n".join(lines))
 
         # /my_stats
         elif command == "/my_stats" and chat_id:
@@ -3127,10 +3864,11 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"my_stats error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики.")
+                log_error("GD", "my_stats", f"my_stats load failed user={user_id}: {exc}", "get_gd_player_stats or get_gd_submission_counts failed")
 
         # /player_stats @username
         elif command == "/player_stats" and chat_id:
-            args = text.split()[1:] if text else []
+            args = msg_text.split()[1:] if msg_text else []
             if not args:
                 send_telegram_message(chat_id, "❌ Укажите пользователя: `/player_stats @username`", parse_mode="Markdown")
             else:
@@ -3161,10 +3899,11 @@ def telegram_webhook(secret: str):
                 except Exception as exc:
                     print(f"player_stats error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики игрока.")
+                    log_error("GD", "player_stats", f"player_stats load failed: {exc}", f"query player_stats for user in chat {chat_id}")
 
         # /submit <level_name>
         elif command == "/submit" and chat_id:
-            args = text.split(maxsplit=1)
+            args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(chat_id, "❌ Использование: `/submit <название уровня>`\nПример: `/submit Tartarus`", parse_mode="Markdown")
             else:
@@ -3224,14 +3963,15 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()
+                args = msg_text.split()
                 if len(args) < 3:
                     send_telegram_message(chat_id, "❌ Использование: `/add_level <название> <позиция>`\nПример: `/add_level Tartarus 1`", parse_mode="Markdown")
                 else:
                     try:
                         pos = int(args[-1])
                         name = " ".join(args[1:-1])
-                        if add_gd_level(name, pos):
+                        difficulty = get_gd_difficulty_name(name)
+                        if add_gd_level(name, pos, difficulty):
                             send_telegram_message(chat_id, f"✅ Уровень **{name}** добавлен на позицию {pos}.", parse_mode="Markdown")
                         else:
                             send_telegram_message(chat_id, "❌ Ошибка при добавлении уровня.")
@@ -3243,7 +3983,7 @@ def telegram_webhook(secret: str):
             if not check_admin(user_id):
                 send_telegram_message(chat_id, "🔒 Нет прав администратора")
             else:
-                args = text.split()
+                args = msg_text.split()
                 if len(args) < 3:
                     send_telegram_message(chat_id, "❌ Использование: `/set_level_position <id> <позиция>`\nПример: `/set_level_position 1 5`", parse_mode="Markdown")
                 else:
@@ -3259,6 +3999,8 @@ def telegram_webhook(secret: str):
 
     except Exception as e:
         print(f"Error processing update: {e}")
+        import traceback
+        traceback.print_exc()
     return jsonify({"ok": True})
 
 
@@ -3659,7 +4401,7 @@ def debug_hf():
 
 @app.route("/api/reading_generate", methods=["POST", "GET"])
 def reading_generate():
-    """Generate reading text and questions using AI API."""
+    """Generate reading msg_text and questions using AI API."""
     try:
         import requests
         import json
@@ -3894,10 +4636,37 @@ def set_webhook():
     base = request.host_url.rstrip("/")
     webhook_url = f"{base}/telegram/webhook/{secret}"
     try:
-        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={webhook_url}&secret_token={secret}&allowed_updates=message&allowed_updates=callback_query", timeout=10)
+        r = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+            params={
+                "url": webhook_url,
+                "secret_token": secret,
+                "allowed_updates": ["message", "callback_query"],
+            },
+            timeout=10,
+        )
         return jsonify({"set": r.json(), "url": webhook_url, "bot_token_set": bool(BOT_TOKEN)})
     except Exception as e:
         return jsonify({"error": str(e), "url": webhook_url})
+
+
+@app.route("/api/debug_webhook", methods=["GET"])
+def debug_webhook():
+    """Debug: check webhook state on Telegram."""
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
+        info = r.json().get("result", {})
+        return jsonify({
+            "token_configured": bool(BOT_TOKEN),
+            "secret_len": len(os.getenv("WEBHOOK_SECRET") or ""),
+            "webhook_url": info.get("url"),
+            "pending_update_count": info.get("pending_update_count"),
+            "last_error_message": info.get("last_error_message"),
+            "has_custom_certificate": info.get("has_custom_certificate"),
+            "max_connections": info.get("max_connections"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 # Initialize database tables on cold start
 try:
@@ -3906,6 +4675,24 @@ try:
     print("[INIT] GD tables initialized successfully")
 except Exception as init_exc:
     print(f"[INIT] GD table init failed: {init_exc}")
+
+# Load bot ID at startup for reply/mention detection
+try:
+    _load_bot_id()
+except Exception as bot_id_exc:
+    print(f"[INIT] BOT_ID load failed (will retry on first request): {bot_id_exc}")
+
+# Ensure user_preferences table exists
+try:
+    _ensure_user_preferences_table(get_db_engine())
+except Exception as pref_exc:
+    print(f"[INIT] user_preferences table init failed: {pref_exc}")
+
+# Ensure chess_games table exists
+try:
+    _ensure_chess_games_table(get_db_engine())
+except Exception as chess_exc:
+    print(f"[INIT] chess_games table init failed: {chess_exc}")
 
 # Debug endpoint to test submissions table
 @app.route("/api/debug_db", methods=["GET"])
@@ -3932,6 +4719,12 @@ def debug_db():
             # Cleanup
             conn.execute(text("DELETE FROM submissions WHERE user_id = 0"))
             conn.commit()
+            # Check user_preferences table
+            try:
+                conn.execute(text("SELECT 1 FROM user_preferences LIMIT 0"))
+                result["user_preferences"] = "exists"
+            except Exception:
+                result["user_preferences"] = "missing"
     except Exception as e:
         result["error"] = str(e)
     return jsonify(result)
