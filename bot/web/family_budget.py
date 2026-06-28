@@ -764,22 +764,25 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
     </div>
 
     <script>
-          const BASE = '/api/budget';
-          let USER_ID = new URLSearchParams(window.location.search).get('user_id') || localStorage.getItem('budget_user_id') || '';
-          // USER_ID_SERVER_INJECT
-          let STATE = { family: null, debts: [], members: [] };
-
-          window.onerror = function(msg, url, line) {
+          /* show error on screen */
+          window.onerror = function(m, u, l) {
               var e = document.getElementById('auth-user-section');
-              if (e) e.innerHTML = '⚠️ Ошибка JS: ' + msg + ' (строка ' + line + ')';
+              if (e) e.innerHTML = '⚠️ Ошибка: ' + m + ' [' + l + ']';
           };
+          (document.getElementById('auth-user-section')||{}).innerHTML = '⚙️ JS загружен';
+
+          var BASE = '/api/budget';
+          var USER_ID = (window.location.search.match(/[?&]user_id=([^&]*)/) || [,''])[1] || localStorage.getItem('budget_user_id') || '';
+          // USER_ID_SERVER_INJECT
+          var STATE = { family: null, debts: [], members: [] };
+          (document.getElementById('auth-user-section')||{}).innerHTML = '⚙️ ID=' + USER_ID;
 
           function saveUserId() {
               var v = document.getElementById('auth-user-id').value.trim();
               if (!v) { showToast('Введите ваш ID'); return; }
               USER_ID = v;
               localStorage.setItem('budget_user_id', v);
-              showToast('ID сохранён');
+              showToast('ID сохранён. Загружаю...');
               loadDashboard();
           }
 
@@ -802,10 +805,11 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
             setTimeout(() => t.remove(), 2500);
         }
 
-        function showScreen(id) {
-            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-        }
+          function showScreen(id) {
+              var screens = document.querySelectorAll('.screen');
+              for (var i = 0; i < screens.length; i++) { screens[i].classList.remove('active'); }
+              document.getElementById(id).classList.add('active');
+          }
 
         function showAuth() { showScreen('screen-auth'); }
         function showCreateFamily() { showScreen('screen-create-family'); }
@@ -938,12 +942,13 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
 
           async function createExpense() {
               try {
-                  const payerId = document.getElementById('expense-payer').value;
-                  const checkboxes = document.querySelectorAll('#expense-for-whom input[type=checkbox]:checked');
-                  const forWhomIds = Array.from(checkboxes).map(c => c.value);
-                  const amount = parseInt(document.getElementById('expense-amount').value);
-                  const category = document.getElementById('expense-category').value;
-                  const description = document.getElementById('expense-description').value.trim();
+                  var payerId = document.getElementById('expense-payer').value;
+                  var checkboxes = document.querySelectorAll('#expense-for-whom input[type=checkbox]:checked');
+                  var forWhomIds = [];
+                  for (var i = 0; i < checkboxes.length; i++) { forWhomIds.push(checkboxes[i].value); }
+                  var amount = parseInt(document.getElementById('expense-amount').value);
+                  var category = document.getElementById('expense-category').value;
+                  var description = document.getElementById('expense-description').value.trim();
 
                   if (!forWhomIds.length) { showToast('Выберите, за кого заплатили'); return; }
                   if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
@@ -989,11 +994,10 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
               } catch(e) { showToast('Ошибка: ' + e.message); }
           }
 
-          // Init
+          // Init — fill ID field, load dashboard only if we expect an existing user
           document.getElementById('auth-user-id').value = USER_ID;
-          if (USER_ID) {
-              loadDashboard();
-          }
+          // Don't auto-load dashboard to avoid JS errors blocking buttons.
+          // User clicks "Сохранить ID" or creates/joins a family to proceed.
     </script>
 </body>
 </html>"""
