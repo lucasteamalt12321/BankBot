@@ -20,6 +20,33 @@
 
 ## Changelog
 
+### 2026-06-20 (Chess Fixes + Error Logging System + text shadowing bug)
+
+**Исправлено:**
+- `text = message.get("text")` перезаписывал `sqlalchemy.text()` → renamed to `msg_text`
+- Regex-замена сломала `response.text`, `if text`, print-строки → все исправлены
+- Chess labels: "Молния"→"Блиц", "Быстрая"→"Рапид"
+- `/puzzle` "задача дня"→"задача" (теперь random через `/api/puzzle/next`)
+- `games.total` mapping: Lichess API `count.all` → `games.total`
+- `/api/puzzle/next` не возвращает FEN → конвертация PGN→FEN через `python-chess`
+- Solution format: list vs string handled (Lichess возвращает массив)
+- `chess_games` таблица создаётся автоматически при старте
+
+**Добавлено:**
+- `_ERROR_LOG` in-memory лог (50 ошибок)
+- `log_error()` с AI рекомендациями через Groq + traceback контекст
+- `notify_admin()` — уведомления админа в Telegram при ошибках
+- `/errors` — журнал ошибок с 💡 рекомендациями от ИИ
+- `/clear_errors` — очистка лога
+- Админ-секция в `/start` (только для ADMIN_TELEGRAM_ID)
+
+**Тестирование:**
+- Chess Module: 5/7 команд протестированы (71%)
+- Admin: 2/2 команды (100%)
+- Общий прогресс тестирования: 29%
+
+**Коммиты:** f26e098, a91f11a, 881988e, 3aa801c
+
 ### 2026-06-03 (Memory Bank: HF deprecated, GD Module planned for Vercel)
 - **Hugging Face runtime помечен как устаревший** в `memory_bank/activeContext.md`.
 - **Причина:** постоянные таймауты `getUpdates TimedOut`, пропуск команд, нестабильная обработка webhook.
