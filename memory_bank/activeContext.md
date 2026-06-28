@@ -1,13 +1,42 @@
 # Active Context
 
-**Последнее обновление:** 2026-06-20  
-**Текущая фаза:** Chess Module Testing (прервано)
+**Последнее обновление:** 2026-06-28  
+**Текущая фаза:** Family Budget Module — реализация MVP
 
 ## Текущий фокус
 
-### Error Logging System (2026-06-20)
+### Family Budget Module (2026-06-28)
 
-**Цель:** Админ-панель для мониторинга ошибок с рекомендациями по исправлению.
+**Цель:** Веб-приложение для учёта семейных трат с авторасчётом долгов и каскадным погашением.
+
+**Статус:** MVP реализован. Осталось: ручное тестирование (BGT-TEST).
+
+**Реализовано (98%):**
+- `database/database.py` — модели Family, FamilyMember, BudgetTransaction, TransactionDetail, Debt, Payment
+- `database/alembic/versions/010_family_budget_tables.py` — миграция БД
+- `bot/web/family_budget.py` — Flask API (9 эндпоинтов) + frontend SPA (HTML+CSS+JS)
+- `run_bot.py` — регистрация роутов /family_budget и /api/budget/*
+- `api/index.py` — регистрация тех же роутов для Vercel
+- `bot/commands/budget_commands.py` — /budget, /family (create/join/info/leave)
+- `bot/bot.py` — регистрация команд
+
+**API endpoints:**
+- GET /api/budget/family/status
+- POST /api/budget/family/create, /api/budget/family/join
+- GET/POST /api/budget/transactions, DELETE /api/budget/transactions/{id}
+- GET /api/budget/debts, POST /api/budget/debts/pay
+- GET /api/budget/balance
+
+**Фронтенд (SPA):**
+- Экран авторизации (создать/присоединиться к семье)
+- Дашборд (сводка долгов, баланс участников)
+- Форма добавления траты (payer, for_whom multiple, сумма, категория)
+- Форма погашения долга (предзаполненные должник/кредитор)
+- Адаптивный Mobile First дизайн
+
+**Интеграция с BankBot:**
+- /budget → ссылка на веб-приложение с user_id
+- /family create <name>, /family join <code>, /family info, /family leave
 
 **Статус:** В работе.
 
@@ -229,6 +258,10 @@ database/migrations/
 
 ## Важные файлы для следующей сессии
 
-- `api/index.py` — основной webhook handler (строки 1500-1650 для chess команд)
-- `database/migrations/009_phase2_tables_supabase.sql` — схема chess_accounts и user_coins
+- `bot/web/family_budget.py` — Flask API и frontend SPA для Family Budget
+- `bot/commands/budget_commands.py` — Telegram команды /budget и /family
+- `database/database.py` — SQLAlchemy модели (Family Budget в конце файла)
+- `database/alembic/versions/010_family_budget_tables.py` — миграция
+- `run_bot.py` — регистрация роутов (блок Family Budget)
+- `api/index.py` — Vercel-дублирование роутов
 - `memory_bank/projectbrief.md` — Project Deliverables для отслеживания прогресса

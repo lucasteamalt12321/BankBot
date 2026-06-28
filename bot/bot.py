@@ -71,6 +71,7 @@ from bot.commands.notification_commands_ptb import notifications_command, notifi
 from bot.commands.achievements_commands_ptb import achievements_command
 from bot.commands.gd_commands_ptb import get_gd_handlers
 from bot.commands.chess_commands_ptb import get_chess_handlers
+from bot.commands.budget_commands import budget_command, family_command
 from bot.commands.admin_commands_ptb import (
     admin_command as admin_command_handler,
     admin_stats_command,
@@ -496,6 +497,9 @@ class TelegramBot:
             CommandHandler("trivia", trivia_command),
             # Mom Module: Тренажёр чтения
             CommandHandler("reading_trainer", self.reading_trainer_command),
+            # Family Budget Module
+            CommandHandler("budget", budget_command),
+            CommandHandler("family", family_command),
         ]
         handlers.extend(get_chess_handlers())
 

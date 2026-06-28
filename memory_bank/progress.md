@@ -1,8 +1,8 @@
 # Progress
 
 ## Статус проекта
-**Процент выполнения:** 90% (Phase 1) по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** Phase 2 Feature Expansion — инфраструктура БД завершена, начало реализации модулей
+**Процент выполнения:** 96% (Phase 2) по `memory_bank/projectbrief.md` / `## Project Deliverables`
+**Текущая фаза:** Phase 2 Feature Expansion — Family Budget Module MVP завершён
 
 ## Known Issues
 
@@ -858,3 +858,22 @@
 
 ## last_checked_commit
 (NOT_COMMITTED_YET) feat(gd): port GD Module to Vercel webhook in api/index.py
+
+---
+
+### 2026-06-28 (Family Budget Module — MVP)
+
+**Добавлено:**
+- SQLAlchemy модели: Family, FamilyMember, BudgetTransaction, TransactionDetail, Debt, Payment
+- Alembic миграция 010_family_budget_tables.py
+- Flask API: 9 эндпоинтов в `bot/web/family_budget.py`
+  - /api/budget/family/status, /api/budget/family/create, /api/budget/family/join
+  - /api/budget/transactions (GET/POST/DELETE)
+  - /api/budget/debts (GET), /api/budget/debts/pay (POST)
+  - /api/budget/balance
+- Frontend SPA: экраны авторизации, дашборда, добавления траты, погашения долга
+- Каскадный алгоритм погашения: старые долги первыми, переплата → другие долги → смена ролей
+- Удаление транзакции с пересчётом долгов (только автор или админ)
+- Telegram команды: /budget, /family create/join/info/leave
+- Роуты зарегистрированы в run_bot.py (HF) и api/index.py (Vercel)
+- Адаптивный Mobile First дизайн

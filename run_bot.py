@@ -568,6 +568,37 @@ def telegram_webhook(secret: str):
         return jsonify({"error": "processing_failed", "details": str(exc)}), 500
 
 
+# ===== Family Budget Module Routes =====
+
+from bot.web.family_budget import (
+    api_balance,
+    api_debt_pay,
+    api_debts_list,
+    api_family_create,
+    api_family_join,
+    api_family_status,
+    api_transaction_create,
+    api_transaction_delete,
+    api_transactions_list,
+    family_budget_page,
+)
+
+app.route("/family_budget")(family_budget_page)
+
+app.route("/api/budget/family/status")(api_family_status)
+app.route("/api/budget/family/create", methods=["POST"])(api_family_create)
+app.route("/api/budget/family/join", methods=["POST"])(api_family_join)
+
+app.route("/api/budget/transactions")(api_transactions_list)
+app.route("/api/budget/transactions", methods=["POST"])(api_transaction_create)
+app.route("/api/budget/transactions/<int:transaction_id>", methods=["DELETE"])(api_transaction_delete)
+
+app.route("/api/budget/debts")(api_debts_list)
+app.route("/api/budget/debts/pay", methods=["POST"])(api_debt_pay)
+
+app.route("/api/budget/balance")(api_balance)
+
+
 def main() -> None:
     """Start HF Flask server and BankBot webhook runtime."""
     threading.Thread(target=_start_telegram_webhook_runtime, daemon=True).start()

@@ -593,6 +593,80 @@ class UserPreferences(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# ========== Family Budget Module ==========
+
+class Family(Base):
+    __tablename__ = "families"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    admin_id = Column(String(100), nullable=False)
+    invite_code = Column(String(6), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    members = relationship("FamilyMember", back_populates="family", cascade="all, delete-orphan")
+
+
+class FamilyMember(Base):
+    __tablename__ = "family_members"
+
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(100), nullable=False)
+    display_name = Column(String(100), nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    family = relationship("Family", back_populates="members")
+
+
+class BudgetTransaction(Base):
+    __tablename__ = "budget_transactions"
+
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    payer_id = Column(String(100), nullable=False)
+    amount = Column(Integer, nullable=False)
+    category = Column(String(50), nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    details = relationship("TransactionDetail", back_populates="transaction", cascade="all, delete-orphan")
+
+
+class TransactionDetail(Base):
+    __tablename__ = "transaction_details"
+
+    id = Column(Integer, primary_key=True)
+    transaction_id = Column(Integer, ForeignKey("budget_transactions.id", ondelete="CASCADE"), nullable=False)
+    for_whom_id = Column(String(100), nullable=False)
+    share = Column(Integer, nullable=False)
+
+    transaction = relationship("BudgetTransaction", back_populates="details")
+
+
+class Debt(Base):
+    __tablename__ = "debts"
+
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    debtor_id = Column(String(100), nullable=False)
+    creditor_id = Column(String(100), nullable=False)
+    amount_left = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    debtor_id = Column(String(100), nullable=False)
+    creditor_id = Column(String(100), nullable=False)
+    amount = Column(Integer, nullable=False)
+    paid_at = Column(DateTime, default=datetime.utcnow)
+
+
 from database.connection import get_pooled_engine  # noqa: E402
 
 engine = get_pooled_engine()
