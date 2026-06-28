@@ -419,14 +419,12 @@
   - `/dnd`, `/dnd_create`, `/dnd_join`, `/dnd_sessions`, `/dnd_roll` now use `core.systems.dnd_system.DndSystem` and only advertise currently wired commands.
   - Unknown commands now receive a `/commands` fallback response instead of silence.
 
-## Current Known Issues / Watchlist
-- HF Space (`lucasteam-bankbot.hf.space`) всё ещё показывает import error, не пересобирается из git push
-- `GROQ_API_KEY` добавлен на Vercel, работает для AI-викторины
-- BOT_TOKEN пересоздан на Vercel через `vercel env add`
-- Webhook теперь указывает на `bank-bot-ruby.vercel.app`
+## Known Issues
+- User сообщает что кнопка "Создать" на экране создания семьи не реагирует на нажатие в Telegram WebView (возможно не видит toast об ошибке "already in a family" или браузер кеширует старую версию)
+- После ES5-фикса и Playwright-верификации JS работает корректно
 
 ## last_checked_commit
-6091a4f (2026-06-13, D18 E2E tests)
+54398d1 (2026-06-28, Family Budget JS fix: Python \' eating quotes)
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
 - **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
@@ -861,7 +859,7 @@
 
 ---
 
-### 2026-06-28 (Family Budget Module — MVP)
+### 2026-06-28 (Family Budget Module — MVP frontend JS fixes)
 
 **Добавлено:**
 - SQLAlchemy модели: Family, FamilyMember, BudgetTransaction, TransactionDetail, Debt, Payment
@@ -877,3 +875,31 @@
 - Telegram команды: /budget, /family create/join/info/leave
 - Роуты зарегистрированы в run_bot.py (HF) и api/index.py (Vercel)
 - Адаптивный Mobile First дизайн
+
+### 2026-06-28 (Family Budget — JS fixes)
+
+**Проблема:** Кнопки на странице `/family_budget` не работали ("не жмутся").
+
+**Root cause:** Внутри `FAMILY_BUDGET_HTML = """..."""` в Python escape-последовательность `\'` интерпретируется Python как `'`. Из-за этого в JavaScript функции `renderDebts()` строка:
+
+```python
+'onclick="showPayDebt(\'' + esc(d.debtor_id) + '\',\'' + ...'
+```
+
+превращалась в:
+
+```javascript
+'onclick="showPayDebt('' + esc(d.debtor_id) + '','' + ...'
+```
+
+Что приводило к синтаксической ошибке `Unexpected string` при парсинге всего скрипта. Ни одна функция не определялась, кнопки не работали.
+
+**Fix:**
+- Убраны `\'` в аргументах `onclick` — user_id передаётся как числа (без кавычек)
+- Добавлен ES5-режим: `var` вместо `const/let`, `function` вместо `async function`, Promise-цепочки вместо `await`
+- Добавлен Promise polyfill (если браузер не имеет нативного)
+- Добавлен XHR fallback для `fetch` (старые WebView)
+- Добавлен `#js-debug` жёлтый индикатор для отладки
+- `touch-action: manipulation` для мобильных кнопок
+
+**Верификация:** Playwright тест подтвердил — JS выполняется, кнопки работают, API-вызовы проходят (ответ 400 "already in a family" для тестового ID 2091908459).

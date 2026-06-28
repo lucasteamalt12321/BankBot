@@ -1,7 +1,7 @@
 # Active Context
 
 **Последнее обновление:** 2026-06-28  
-**Текущая фаза:** Family Budget Module — реализация MVP
+**Текущая фаза:** Family Budget Module — JS fixes (боремся с совместимостью)
 
 ## Текущий фокус
 
@@ -9,16 +9,13 @@
 
 **Цель:** Веб-приложение для учёта семейных трат с авторасчётом долгов и каскадным погашением.
 
-**Статус:** MVP реализован. Осталось: ручное тестирование (BGT-TEST).
+**Статус:** MVP реализован + JS исправлен (Python \' escape в трипл-кавычках). Остаётся ручное тестирование (BGT-TEST).
 
-**Реализовано (98%):**
-- `database/database.py` — модели Family, FamilyMember, BudgetTransaction, TransactionDetail, Debt, Payment
-- `database/alembic/versions/010_family_budget_tables.py` — миграция БД
-- `bot/web/family_budget.py` — Flask API (9 эндпоинтов) + frontend SPA (HTML+CSS+JS)
-- `run_bot.py` — регистрация роутов /family_budget и /api/budget/*
-- `api/index.py` — регистрация тех же роутов для Vercel
-- `bot/commands/budget_commands.py` — /budget, /family (create/join/info/leave)
-- `bot/bot.py` — регистрация команд
+**Major JS fix applied (2026-06-28):**
+- **Root cause:** В Python тройных кавычках `"""..."""` escape `\'` преобразуется в `'`, ломая JS синтаксис в `renderDebts()`. Весь скрипт не выполнялся — кнопки не работали.
+- **Fix:** Убраны кавычки вокруг числовых аргументов в `onclick="showPayDebt(debtor_id,creditor_id,amount)"`
+- **Дополнительно:** ES5-совместимость (var, function, Promise chain), Promise polyfill, XHR fallback для fetch, touch-action CSS, #js-debug панель
+- **Верификация:** Playwright подтвердил — JS парсится, функции определяются, кнопки кликаются, API-вызовы проходят
 
 **API endpoints:**
 - GET /api/budget/family/status
@@ -38,7 +35,7 @@
 - /budget → ссылка на веб-приложение с user_id
 - /family create <name>, /family join <code>, /family info, /family leave
 
-**Статус:** В работе.
+**Статус:** Исправления JS совместимости завершены. Ожидается подтверждение пользователя.
 
 **Реализация:**
 - `_ERROR_LOG` — in-memory кольцевой буфер (последние 50 ошибок)
