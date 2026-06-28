@@ -8,7 +8,7 @@ import os
 import random
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, request
 import requests
 from sqlalchemy import create_engine, text
@@ -89,6 +89,7 @@ def get_db_engine():
         )
     _ensure_gd_tables(DB_ENGINE)
     _ensure_budget_tables(DB_ENGINE)
+    _ensure_universe_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -352,6 +353,32 @@ def _ensure_budget_tables(engine):
         print("[BUDGET] Tables ensured successfully")
     except Exception as exc:
         print(f"[BUDGET] Table init error: {exc}")
+
+
+def _ensure_universe_tables(engine):
+    """Create Universe Module tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS infection_status (
+                    user_id BIGINT PRIMARY KEY,
+                    virus_type VARCHAR(50),
+                    infected_at TIMESTAMPTZ,
+                    tea_cooldown_until TIMESTAMPTZ
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS daily_prayer_log (
+                    user_id BIGINT NOT NULL,
+                    prayer_date DATE NOT NULL,
+                    PRIMARY KEY (user_id, prayer_date)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"))
+            conn.commit()
+        print("[UNIVERSE] Tables ensured successfully")
+    except Exception as exc:
+        print(f"[UNIVERSE] Table init error: {exc}")
 
 
 def _load_bot_id() -> int | None:
@@ -2673,6 +2700,44 @@ def telegram_webhook(secret: str):
 
         print(f"[WEBHOOK] command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
 
+        # Universe Module: infected user message modification
+        if (
+            msg_text
+            and not command
+            and chat_id
+            and chat_id != user_id
+            and not message.get("reply_to_message")
+        ):
+            try:
+                with get_db_engine().connect() as conn:
+                    inf_row = conn.execute(
+                        text("SELECT virus_type FROM infection_status WHERE user_id = :uid"),
+                        {"uid": user_id},
+                    ).mappings().first()
+                if inf_row and inf_row["virus_type"]:
+                    virus = inf_row["virus_type"]
+                    msg_id = message.get("message_id")
+                    if virus == "олеговирус":
+                        modified = msg_text.replace(" ", " кхм-кхм ")[:200]
+                        suffix = "🦠 _заражён олеговирусом_"
+                    else:
+                        modified = msg_text + " ☕"
+                        suffix = "🧬 _заражён LTL-паразитом_"
+                    if msg_id:
+                        requests.delete(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
+                            json={"chat_id": chat_id, "message_id": msg_id},
+                            timeout=3,
+                        )
+                    send_telegram_message(
+                        chat_id,
+                        f"{modified}\n\n{suffix}",
+                        parse_mode="Markdown",
+                    )
+                    return jsonify({"ok": True})
+            except Exception as exc:
+                print(f"[UNIVERSE] infection message modify error: {exc}")
+
         # Check for parsing trigger (reply to game bot with "Парсинг" or /parse or /parsing)
         reply_to = message.get("reply_to_message")
         is_parsing_trigger = (
@@ -4075,6 +4140,145 @@ def telegram_webhook(secret: str):
                             send_telegram_message(chat_id, "❌ Ошибка при изменении позиции уровня.")
                     except ValueError:
                         send_telegram_message(chat_id, "❌ ID и позиция должны быть числами.")
+
+        # ========== Universe Module ==========
+        elif command == "/infect" and chat_id:
+            try:
+                with get_db_engine().connect() as conn:
+                    existing = conn.execute(
+                        text("SELECT virus_type, infected_at FROM infection_status WHERE user_id = :uid"),
+                        {"uid": user_id},
+                    ).mappings().first()
+                    if existing and existing["infected_at"]:
+                        infected_at = existing["infected_at"]
+                        if hasattr(infected_at, "tzinfo") and infected_at.tzinfo is None:
+                            from datetime import timezone
+                            infected_at = infected_at.replace(tzinfo=timezone.utc)
+                        if (datetime.now(timezone.utc) - infected_at) < timedelta(hours=24):
+                            send_telegram_message(
+                                chat_id,
+                                f"🦠 Вы уже заражены «{existing['virus_type']}»!\n"
+                                f"Попробуйте `/tea` для облегчения.",
+                                parse_mode="Markdown",
+                            )
+                            return
+                    virus = random.choice(["олеговирус", "LTL-паразит"])
+                    symptoms_oleg = [
+                        "кхм-кхм в каждом предложении",
+                        "непреодолимое желание писать манифесты",
+                        "постоянная потребность поправлять других",
+                    ]
+                    symptoms_ltl = [
+                        "непонятные вспышки смеха",
+                        "желание пить чай 24/7",
+                        "странные байты в голове",
+                    ]
+                    symptoms = random.choice(symptoms_oleg if virus == "олеговирус" else symptoms_ltl)
+                    conn.execute(
+                        text("""
+                            INSERT INTO infection_status (user_id, virus_type, infected_at)
+                            VALUES (:uid, :vt, NOW())
+                            ON CONFLICT (user_id) DO UPDATE SET virus_type = :vt, infected_at = NOW()
+                        """),
+                        {"uid": user_id, "vt": virus},
+                    )
+                    conn.commit()
+                emoji = "🦠" if virus == "олеговирус" else "🧬"
+                send_telegram_message(
+                    chat_id,
+                    f"{emoji} Вы заражены «{virus}»!\n"
+                    f"Симптомы: {symptoms}\n\n"
+                    f"Используйте `/tea` для облегчения.",
+                    parse_mode="Markdown",
+                )
+            except Exception as exc:
+                print(f"[UNIVERSE] /infect error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при заражении.")
+
+        elif command == "/tea" and chat_id:
+            try:
+                with get_db_engine().connect() as conn:
+                    row = conn.execute(
+                        text("SELECT virus_type, tea_cooldown_until FROM infection_status WHERE user_id = :uid"),
+                        {"uid": user_id},
+                    ).mappings().first()
+                    if not row or not row["virus_type"]:
+                        send_telegram_message(chat_id, "☕ Вы не заражены. Чай и так поможет!")
+                        return
+                    if row["tea_cooldown_until"]:
+                        cooldown = row["tea_cooldown_until"]
+                        if hasattr(cooldown, "tzinfo") and cooldown.tzinfo is None:
+                            from datetime import timezone
+                            cooldown = cooldown.replace(tzinfo=timezone.utc)
+                        if datetime.now(timezone.utc) < cooldown:
+                            remaining = (cooldown - datetime.now(timezone.utc)).seconds // 60
+                            send_telegram_message(
+                                chat_id,
+                                f"☕ Подождите ещё {remaining} мин. до следующего чаепития.",
+                            )
+                            return
+                    conn.execute(
+                        text("""
+                            UPDATE infection_status
+                            SET tea_cooldown_until = NOW() + INTERVAL '1 hour'
+                            WHERE user_id = :uid
+                        """),
+                        {"uid": user_id},
+                    )
+                    conn.commit()
+                phrases = [
+                    "Чай помогает! Временное облегчение на 1 час.",
+                    "Ароматный настой снимает симптомы... пока.",
+                    "eight-nine! Чай спасёт вас от вируса.",
+                    "Горячий чай — лучшее лекарство. Эффект: 1 час.",
+                ]
+                send_telegram_message(chat_id, f"☕ {random.choice(phrases)}", parse_mode="Markdown")
+            except Exception as exc:
+                print(f"[UNIVERSE] /tea error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при чаепитии.")
+
+        elif command == "/daily_prayer" and chat_id:
+            try:
+                today = date.today().isoformat()
+                with get_db_engine().connect() as conn:
+                    existing = conn.execute(
+                        text("SELECT 1 FROM daily_prayer_log WHERE user_id = :uid AND prayer_date = :d"),
+                        {"uid": user_id, "d": today},
+                    ).first()
+                    if existing:
+                        send_telegram_message(
+                            chat_id,
+                            "🙏 Вы уже получали сегодняшнюю молитву!\nВозвращайтесь завтра.",
+                        )
+                        return
+                    prayers = [
+                        "Да будет настрой стабилен, а пинг — нулевым.",
+                        "О Чай, дай нам мудрости в коде и терпения в дебаге.",
+                        "Да будет каждый день наполнен ароматом чая.",
+                        "Да будет моя душа чиста, как первозданный настой.",
+                        "Да будет кружка-алтарь моей рукой всегда наполнена.",
+                        "О Великий Баг, прости нам наши deprecated зависимости.",
+                        "Да будет деплой быстрым, а баги — редкими.",
+                        "Чай, чай, чай — да будет eight-nine с нами!",
+                    ]
+                    prayer = random.choice(prayers)
+                    conn.execute(
+                        text("""
+                            INSERT INTO daily_prayer_log (user_id, prayer_date)
+                            VALUES (:uid, :d)
+                            ON CONFLICT DO NOTHING
+                        """),
+                        {"uid": user_id, "d": today},
+                    )
+                    conn.commit()
+                send_telegram_message(
+                    chat_id,
+                    f"🙏 Молитва на сегодня:\n\n_{prayer}_\n\neight-nine!",
+                    parse_mode="Markdown",
+                )
+            except Exception as exc:
+                print(f"[UNIVERSE] /daily_prayer error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при получении молитвы.")
 
     except Exception as e:
         print(f"Error processing update: {e}")
