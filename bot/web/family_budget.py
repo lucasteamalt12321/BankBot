@@ -786,24 +786,23 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
               loadDashboard();
           }
 
-        async function api(method, path, body) {
-            const opts = { method, headers: { 'Content-Type': 'application/json', 'X-User-Id': USER_ID } };
-            if (body) opts.body = JSON.stringify(body);
-            const res = await fetch(BASE + path, opts);
-            return res.json();
-        }
+          function api(method, path, body) {
+              var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-User-Id': USER_ID } };
+              if (body) { opts.body = JSON.stringify(body); }
+              return fetch(BASE + path, opts).then(function(res) { return res.json(); });
+          }
 
-        async function get(path) { return api('GET', path); }
-        async function post(path, data) { return api('POST', path, data); }
-        async function del(path) { return api('DELETE', path); }
+          function get(path) { return api('GET', path); }
+          function post(path, data) { return api('POST', path, data); }
+          function del(path) { return api('DELETE', path); }
 
-        function showToast(msg) {
-            const t = document.createElement('div');
-            t.className = 'toast';
-            t.textContent = msg;
-            document.body.appendChild(t);
-            setTimeout(() => t.remove(), 2500);
-        }
+          function showToast(msg) {
+              var t = document.createElement('div');
+              t.className = 'toast';
+              t.textContent = msg;
+              document.body.appendChild(t);
+              setTimeout(function() { t.remove(); }, 2500);
+          }
 
           function showScreen(id) {
               var screens = document.querySelectorAll('.screen');
@@ -811,193 +810,192 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
               document.getElementById(id).classList.add('active');
           }
 
-        function showAuth() { showScreen('screen-auth'); }
-        function showCreateFamily() { showScreen('screen-create-family'); }
-        function showJoinFamily() { showScreen('screen-join-family'); }
+          function showAuth() { showScreen('screen-auth'); }
+          function showCreateFamily() { showScreen('screen-create-family'); }
+          function showJoinFamily() { showScreen('screen-join-family'); }
 
-        function logout() {
-            USER_ID = '';
-            STATE = { family: null, debts: [], members: [] };
-            showAuth();
-        }
+          function logout() {
+              USER_ID = '';
+              STATE = { family: null, debts: [], members: [] };
+              showAuth();
+          }
 
-          async function createFamily() {
-              try {
-                  const name = document.getElementById('family-name').value.trim();
-                  const displayName = document.getElementById('create-display-name').value.trim() || 'Участник';
-                  if (!name) { showToast('Введите название семьи'); return; }
-                  const res = await post('/family/create', { name, display_name: displayName });
+          function createFamily() {
+              var name = document.getElementById('family-name').value.trim();
+              var displayName = document.getElementById('create-display-name').value.trim() || 'Участник';
+              if (!name) { showToast('Введите название семьи'); return; }
+              post('/family/create', { name: name, display_name: displayName }).then(function(res) {
                   if (res.error) { showToast(res.error); return; }
                   STATE.family = res.family;
                   showToast('Семья создана! Код: ' + res.family.invite_code);
-                  await loadDashboard();
-              } catch(e) { showToast('Ошибка: ' + e.message); }
+                  loadDashboard();
+              }).catch(function(e) { showToast('Ошибка: ' + e.message); });
           }
 
-          async function joinFamily() {
-              try {
-                  const code = document.getElementById('invite-code').value.trim();
-                  const displayName = document.getElementById('join-display-name').value.trim() || 'Участник';
-                  if (!code) { showToast('Введите код приглашения'); return; }
-                  const res = await post('/family/join', { code, display_name: displayName });
+          function joinFamily() {
+              var code = document.getElementById('invite-code').value.trim();
+              var displayName = document.getElementById('join-display-name').value.trim() || 'Участник';
+              if (!code) { showToast('Введите код приглашения'); return; }
+              post('/family/join', { code: code, display_name: displayName }).then(function(res) {
                   if (res.error) { showToast(res.error); return; }
                   STATE.family = res.family;
                   showToast('Вы присоединились к семье!');
-                  await loadDashboard();
-              } catch(e) { showToast('Ошибка: ' + e.message); }
+                  loadDashboard();
+              }).catch(function(e) { showToast('Ошибка: ' + e.message); });
           }
 
-          async function loadDashboard() {
+          function loadDashboard() {
               if (!USER_ID) { showToast('Необходима авторизация'); showAuth(); return; }
-              let status;
-              try {
-                  status = await get('/family/status?user_id=' + USER_ID);
-              } catch(e) {
-                  console.error('Failed to load family status', e);
-                  showAuth();
+              get('/family/status?user_id=' + USER_ID).then(function(status) {
+                  if (!status.family) { showAuth(); return; }
+                  STATE.family = status.family;
+                  document.getElementById('dash-family-name').textContent = '🏠 ' + status.family.name;
+                  document.getElementById('dash-invite-code').textContent = 'Код приглашения: ' + status.family.invite_code;
+                  STATE.members = status.family.members || [];
+                  renderMembers();
+                  get('/debts?family_id=' + status.family.id + '&user_id=' + USER_ID).then(function(debtsRes) {
+                      STATE.debts = debtsRes.debts || [];
+                      renderDebts();
+                      get('/balance?family_id=' + status.family.id + '&user_id=' + USER_ID).then(function(balanceRes) {
+                          renderBalances(balanceRes.balances || []);
+                          showScreen('screen-dashboard');
+                      });
+                  });
+              }).catch(function(e) { console.log('loadDashboard error', e); showAuth(); });
+          }
+
+          function renderMembers() {
+              var el = document.getElementById('member-list');
+              var html = '';
+              for (var i = 0; i < STATE.members.length; i++) {
+                  html += '<div class="row"><span class="debt-text">' + esc(STATE.members[i].display_name) + '</span></div>';
+              }
+              el.innerHTML = html;
+          }
+
+          function renderDebts() {
+              var el = document.getElementById('debt-list');
+              var empty = document.getElementById('debt-empty');
+              if (!STATE.debts.length) {
+                  el.innerHTML = '';
+                  empty.classList.remove('hidden');
                   return;
               }
-              if (!status.family) { showAuth(); return; }
-            STATE.family = status.family;
+              empty.classList.add('hidden');
+              var html = '';
+              for (var i = 0; i < STATE.debts.length; i++) {
+                  var d = STATE.debts[i];
+                  var debtorName = getUserName(d.debtor_id);
+                  var creditorName = getUserName(d.creditor_id);
+                  html += '<div class="row">' +
+                      '<div class="debt-info"><div class="debt-text">' + esc(debtorName) + ' → ' + esc(creditorName) + '</div>' +
+                      '<div class="debt-amount">' + d.amount_left + ' ₽</div></div>' +
+                      '<button class="btn btn-small btn-primary" onclick="showPayDebt(\'' + esc(d.debtor_id) + '\',\'' + esc(d.creditor_id) + '\',' + d.amount_left + ')">Погасить</button>' +
+                      '</div>';
+              }
+              el.innerHTML = html;
+          }
 
-            document.getElementById('dash-family-name').textContent = '🏠 ' + status.family.name;
-            document.getElementById('dash-invite-code').textContent = 'Код приглашения: ' + status.family.invite_code;
+          function renderBalances(balances) {
+              var el = document.getElementById('balance-bar');
+              var html = '';
+              for (var i = 0; i < balances.length; i++) {
+                  var b = balances[i];
+                  var name = getUserName(b.user_id);
+                  var cls = b.net >= 0 ? 'positive' : 'negative';
+                  var sign = b.net >= 0 ? '+' : '';
+                  html += '<div class="balance-item"><div class="name">' + esc(name) + '</div>' +
+                      '<div class="amount ' + cls + '">' + sign + b.net + '</div></div>';
+              }
+              el.innerHTML = html;
+          }
 
-            STATE.members = status.family.members || [];
-            renderMembers();
+          function getUserName(userId) {
+              for (var i = 0; i < STATE.members.length; i++) {
+                  if (STATE.members[i].user_id === userId) { return STATE.members[i].display_name; }
+              }
+              return userId;
+          }
 
-            const debtsRes = await get('/debts?family_id=' + status.family.id + '&user_id=' + USER_ID);
-            STATE.debts = debtsRes.debts || [];
-            renderDebts();
+          function esc(s) {
+              var d = document.createElement('div');
+              d.textContent = s;
+              return d.innerHTML;
+          }
 
-            const balanceRes = await get('/balance?family_id=' + status.family.id + '&user_id=' + USER_ID);
-            renderBalances(balanceRes.balances || []);
+          function showAddExpense() {
+              var payerEl = document.getElementById('expense-payer');
+              var forWhomEl = document.getElementById('expense-for-whom');
+              var payerHtml = '';
+              var forWhomHtml = '';
+              for (var i = 0; i < STATE.members.length; i++) {
+                  var m = STATE.members[i];
+                  payerHtml += '<option value="' + esc(m.user_id) + '">' + esc(m.display_name) + '</option>';
+                  forWhomHtml += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                      '<input type="checkbox" value="' + esc(m.user_id) + '">' + esc(m.display_name) + '</label>';
+              }
+              payerEl.innerHTML = payerHtml;
+              forWhomEl.innerHTML = forWhomHtml;
+              document.getElementById('expense-amount').value = '';
+              document.getElementById('expense-description').value = '';
+              showScreen('screen-add-expense');
+          }
 
-            showScreen('screen-dashboard');
-        }
-
-        function renderMembers() {
-            const el = document.getElementById('member-list');
-            el.innerHTML = STATE.members.map(m =>
-                '<div class="row"><span class="debt-text">' + esc(m.display_name) + '</span></div>'
-            ).join('');
-        }
-
-        function renderDebts() {
-            const el = document.getElementById('debt-list');
-            const empty = document.getElementById('debt-empty');
-            if (!STATE.debts.length) {
-                el.innerHTML = '';
-                empty.classList.remove('hidden');
-                return;
-            }
-            empty.classList.add('hidden');
-            el.innerHTML = STATE.debts.map(d => {
-                const debtorName = getUserName(d.debtor_id);
-                const creditorName = getUserName(d.creditor_id);
-                return '<div class="row">' +
-                    '<div class="debt-info"><div class="debt-text">' + esc(debtorName) + ' → ' + esc(creditorName) + '</div>' +
-                    '<div class="debt-amount">' + d.amount_left + ' ₽</div></div>' +
-                    '<button class="btn btn-small btn-primary" onclick="showPayDebt(\'' + esc(d.debtor_id) + '\',\'' + esc(d.creditor_id) + '\',' + d.amount_left + ')">Погасить</button>' +
-                    '</div>';
-            }).join('');
-        }
-
-        function renderBalances(balances) {
-            const el = document.getElementById('balance-bar');
-            el.innerHTML = balances.map(b => {
-                const name = getUserName(b.user_id);
-                const cls = b.net >= 0 ? 'positive' : 'negative';
-                const sign = b.net >= 0 ? '+' : '';
-                return '<div class="balance-item"><div class="name">' + esc(name) + '</div>' +
-                    '<div class="amount ' + cls + '">' + sign + b.net + '</div></div>';
-            }).join('');
-        }
-
-        function getUserName(userId) {
-            const m = STATE.members.find(m => m.user_id === userId);
-            return m ? m.display_name : userId;
-        }
-
-        function esc(s) {
-            const d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
-        }
-
-        async function showAddExpense() {
-            const payerEl = document.getElementById('expense-payer');
-            const forWhomEl = document.getElementById('expense-for-whom');
-            payerEl.innerHTML = STATE.members.map(m =>
-                '<option value="' + esc(m.user_id) + '">' + esc(m.display_name) + '</option>'
-            ).join('');
-            forWhomEl.innerHTML = STATE.members.map(m =>
-                '<label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
-                '<input type="checkbox" value="' + esc(m.user_id) + '">' + esc(m.display_name) + '</label>'
-            ).join('');
-            document.getElementById('expense-amount').value = '';
-            document.getElementById('expense-description').value = '';
-            showScreen('screen-add-expense');
-        }
-
-          async function createExpense() {
-              try {
-                  var payerId = document.getElementById('expense-payer').value;
-                  var checkboxes = document.querySelectorAll('#expense-for-whom input[type=checkbox]:checked');
-                  var forWhomIds = [];
-                  for (var i = 0; i < checkboxes.length; i++) { forWhomIds.push(checkboxes[i].value); }
-                  var amount = parseInt(document.getElementById('expense-amount').value);
-                  var category = document.getElementById('expense-category').value;
-                  var description = document.getElementById('expense-description').value.trim();
-
-                  if (!forWhomIds.length) { showToast('Выберите, за кого заплатили'); return; }
-                  if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
-
-                  const res = await post('/transactions', {
-                      family_id: STATE.family.id,
-                      payer_id: payerId,
-                      amount,
-                      category,
-                      description,
-                      for_whom_ids: forWhomIds
-                  });
+          function createExpense() {
+              var payerId = document.getElementById('expense-payer').value;
+              var checkboxes = document.querySelectorAll('#expense-for-whom input[type=checkbox]:checked');
+              var forWhomIds = [];
+              for (var i = 0; i < checkboxes.length; i++) { forWhomIds.push(checkboxes[i].value); }
+              var amount = parseInt(document.getElementById('expense-amount').value);
+              var category = document.getElementById('expense-category').value;
+              var description = document.getElementById('expense-description').value.trim();
+              if (!forWhomIds.length) { showToast('Выберите, за кого заплатили'); return; }
+              if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
+              post('/transactions', {
+                  family_id: STATE.family.id,
+                  payer_id: payerId,
+                  amount: amount,
+                  category: category,
+                  description: description,
+                  for_whom_ids: forWhomIds
+              }).then(function(res) {
                   if (res.error) { showToast(res.error); return; }
                   showToast('Трата добавлена!');
-                  await loadDashboard();
-              } catch(e) { showToast('Ошибка: ' + e.message); }
+                  loadDashboard();
+              }).catch(function(e) { showToast('Ошибка: ' + e.message); });
           }
 
-        let _payData = null;
+          var _payData = null;
 
-        function showPayDebt(debtorId, creditorId, amountLeft) {
-            _payData = { debtor_id: debtorId, creditor_id: creditorId };
-            document.getElementById('pay-debtor-display').textContent = '👤 ' + getUserName(debtorId);
-            document.getElementById('pay-creditor-display').textContent = '👤 ' + getUserName(creditorId);
-            document.getElementById('pay-amount').value = amountLeft;
-            document.getElementById('pay-amount').max = amountLeft;
-            showScreen('screen-pay-debt');
-        }
+          function showPayDebt(debtorId, creditorId, amountLeft) {
+              _payData = { debtor_id: debtorId, creditor_id: creditorId };
+              document.getElementById('pay-debtor-display').textContent = '👤 ' + getUserName(debtorId);
+              document.getElementById('pay-creditor-display').textContent = '👤 ' + getUserName(creditorId);
+              document.getElementById('pay-amount').value = amountLeft;
+              document.getElementById('pay-amount').max = amountLeft;
+              showScreen('screen-pay-debt');
+          }
 
-          async function payDebt() {
-              try {
-                  const amount = parseInt(document.getElementById('pay-amount').value);
-                  if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
-                  const res = await post('/debts/pay', {
-                      family_id: STATE.family.id,
-                      debtor_id: _payData.debtor_id,
-                      creditor_id: _payData.creditor_id,
-                      amount
-                  });
+          function payDebt() {
+              var amount = parseInt(document.getElementById('pay-amount').value);
+              if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
+              post('/debts/pay', {
+                  family_id: STATE.family.id,
+                  debtor_id: _payData.debtor_id,
+                  creditor_id: _payData.creditor_id,
+                  amount: amount
+              }).then(function(res) {
                   if (res.error) { showToast(res.error); return; }
                   showToast('Долг погашен!');
-                  await loadDashboard();
-              } catch(e) { showToast('Ошибка: ' + e.message); }
+                  loadDashboard();
+              }).catch(function(e) { showToast('Ошибка: ' + e.message); });
           }
 
-          // Init — fill ID field, load dashboard only if we expect an existing user
-          document.getElementById('auth-user-id').value = USER_ID;
-          // Don't auto-load dashboard to avoid JS errors blocking buttons.
-          // User clicks "Сохранить ID" or creates/joins a family to proceed.
+          function initPage() {
+              document.getElementById('auth-user-id').value = USER_ID;
+              (document.getElementById('auth-user-section')||{}).innerHTML = '✅ JS работает (ES5)';
+          }
+          initPage();
     </script>
 </body>
 </html>"""
