@@ -926,7 +926,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
                   html += '<div class="row">' +
                       '<div class="debt-info"><div class="debt-text">' + esc(debtorName) + ' → ' + esc(creditorName) + '</div>' +
                       '<div class="debt-amount">' + d.amount_left + ' ₽</div></div>' +
-                      '<button class="btn btn-small btn-primary" onclick="showPayDebt(\'' + esc(d.debtor_id) + '\',\'' + esc(d.creditor_id) + '\',' + d.amount_left + ')">Погасить</button>' +
+                      '<button class="btn btn-small btn-primary" onclick="showPayDebt(' + d.debtor_id + ',' + d.creditor_id + ',' + d.amount_left + ')">Погасить</button>' +
                       '</div>';
               }
               el.innerHTML = html;
