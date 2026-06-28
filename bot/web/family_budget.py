@@ -606,7 +606,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
         h1 { font-size: 24px; text-align: center; color: #1c1c1e; margin-bottom: 8px; }
         h2 { font-size: 18px; color: #1c1c1e; margin-bottom: 12px; }
         .subtitle { text-align: center; color: #8e8e93; font-size: 14px; margin-bottom: 20px; }
-        .btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 14px; font-size: 16px; font-weight: 600; border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s; margin-bottom: 8px; }
+        .btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 14px; font-size: 16px; font-weight: 600; border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s; margin-bottom: 8px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
         .btn:active { opacity: 0.7; }
         .btn-primary { background: #007aff; color: white; }
         .btn-secondary { background: #e5e5ea; color: #1c1c1e; }
@@ -652,6 +652,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
                 <h1>💰 Семейный бюджет</h1>
                 <p class="subtitle">Учёт семейных трат и долгов</p>
                 <div id="auth-user-section" style="margin-bottom:16px;text-align:center;font-size:14px;color:#8e8e93;"></div>
+                <div id="js-debug" style="margin-bottom:12px;padding:8px;border-radius:8px;font-size:13px;text-align:center;background:#fff3cd;color:#856404;">⏳ JS загрузка...</div>
                 <button class="btn btn-primary" onclick="showCreateFamily()">👨‍👩‍👧‍👦 Создать семью</button>
                 <button class="btn btn-secondary" onclick="showJoinFamily()">🔑 Присоединиться по коду</button>
                 <hr style="margin:16px 0;border:none;border-top:1px solid #e5e5ea;">
@@ -764,18 +765,34 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
     </div>
 
     <script>
+          var _dbg = document.getElementById('js-debug');
+          if (_dbg) { _dbg.style.background = '#cce5ff'; _dbg.style.color = '#004085'; _dbg.textContent = '⏳ запуск...'; }
+
+          if (typeof Promise !== 'function') {
+              window.Promise = function(fn) {
+                  var _thens = [], _err;
+                  var p = {};
+                  p.then = function(cb) { _thens.push(cb); return p; };
+                  p.catch = function(cb) { _err = cb; return p; };
+                  fn(function(v) { for (var i=0;i<_thens.length;i++) _thens[i](v); }, function(e) { if (_err) _err(e); });
+                  return p;
+              };
+          }
+
           /* show error on screen */
           window.onerror = function(m, u, l) {
               var e = document.getElementById('auth-user-section');
               if (e) e.innerHTML = '⚠️ Ошибка: ' + m + ' [' + l + ']';
+              var d = document.getElementById('js-debug');
+              if (d) { d.style.background = '#f8d7da'; d.style.color = '#721c24'; d.textContent = '❌ Ошибка: ' + m; }
           };
-          (document.getElementById('auth-user-section')||{}).innerHTML = '⚙️ JS загружен';
+          if (_dbg) { _dbg.style.background = '#d4edda'; _dbg.style.color = '#155724'; _dbg.textContent = '✅ onerror установлен'; }
 
           var BASE = '/api/budget';
           var USER_ID = (window.location.search.match(/[?&]user_id=([^&]*)/) || [,''])[1] || localStorage.getItem('budget_user_id') || '';
           // USER_ID_SERVER_INJECT
           var STATE = { family: null, debts: [], members: [] };
-          (document.getElementById('auth-user-section')||{}).innerHTML = '⚙️ ID=' + USER_ID;
+          if (_dbg) { _dbg.textContent = '✅ JS работает, ID=' + USER_ID; }
 
           function saveUserId() {
               var v = document.getElementById('auth-user-id').value.trim();
@@ -787,9 +804,28 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
           }
 
           function api(method, path, body) {
-              var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-User-Id': USER_ID } };
-              if (body) { opts.body = JSON.stringify(body); }
-              return fetch(BASE + path, opts).then(function(res) { return res.json(); });
+              if (typeof fetch !== 'undefined') {
+                  var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-User-Id': USER_ID } };
+                  if (body) { opts.body = JSON.stringify(body); }
+                  return fetch(BASE + path, opts).then(function(res) { return res.json(); });
+              }
+              // fallback for very old browsers without fetch
+              return new Promise(function(resolve, reject) {
+                  var xhr = new XMLHttpRequest();
+                  xhr.open(method, BASE + path, true);
+                  xhr.setRequestHeader('Content-Type', 'application/json');
+                  xhr.setRequestHeader('X-User-Id', USER_ID);
+                  xhr.onreadystatechange = function() {
+                      if (xhr.readyState === 4) {
+                          if (xhr.status >= 200 && xhr.status < 300) {
+                              resolve(JSON.parse(xhr.responseText));
+                          } else {
+                              reject(new Error('HTTP ' + xhr.status));
+                          }
+                      }
+                  };
+                  xhr.send(body ? JSON.stringify(body) : null);
+              });
           }
 
           function get(path) { return api('GET', path); }
@@ -994,6 +1030,8 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
           function initPage() {
               document.getElementById('auth-user-id').value = USER_ID;
               (document.getElementById('auth-user-section')||{}).innerHTML = '✅ JS работает (ES5)';
+              var d = document.getElementById('js-debug');
+              if (d) { d.textContent = '✅ Готов! USER_ID=' + USER_ID; d.style.background = '#d4edda'; d.style.color = '#155724'; }
           }
           initPage();
     </script>
