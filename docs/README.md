@@ -191,10 +191,33 @@ BankBot/
 | `bank_bot/` | Repository/service/middleware слои |
 | `core/` | Legacy и shared модули, используемые текущим runtime |
 | `src/` | Конфигурация, startup validation и часть инфраструктуры |
+| `bot/web/` | Flask API и SPA для Family Budget Module (Vercel) |
+| `bot/budget_parser.py` | Парсер трат Family Budget (без внешних зависимостей) |
 | `database/` | Подключение, schema sync, Alembic, bootstrap |
 | `config/` | `.env` templates, YAML/JSON конфиги, dev requirements |
 | `tests/` | Unit, integration, smoke и вспомогательные тесты |
 | `memory_bank/` | Операционный контекст проекта |
+| `api/index.py` | Vercel serverless entrypoint (вебхуки Telegram + Flask API) |
+
+### Family Budget Module
+
+Отдельный модуль для учёта семейных трат с авторасчётом долгов и каскадным погашением.
+
+**Компоненты:**
+- `bot/web/family_budget.py` — Flask API (9 эндпоинтов) + SPA-фронтенд
+- `bot/commands/budget_commands.py` — Telegram-команды `/budget`, `/family`, `/addexpense`
+- `bot/budget_parser.py` — Парсер трат из текста (используется и PTB, и Vercel)
+- `database/database.py` — SQLAlchemy модели (6 таблиц)
+- `api/index.py` — Vercel рантайм (дублирование роутов + вебхуки)
+
+**Команды:**
+- `/budget` — ссылка на веб-приложение Family Budget
+- `/family create/join/info/leave` — управление семьёй
+- `/addexpense` — AI-парсинг трат из текста (формат: `Кредитор Должник Сумма [Категория] [Комментарий]`)
+
+**API эндпоинты:** `/api/budget/family/*`, `/api/budget/transactions`, `/api/budget/debts`, `/api/budget/balance`
+
+**Деплой:** Vercel через `api/index.py`, а также через PTB-рантайм (`run_bot.py`).
 
 ## Запуск и проверка
 
