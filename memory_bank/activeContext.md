@@ -1,129 +1,23 @@
 # Active Context
 
 **Последнее обновление:** 2026-06-30  
-**Текущая фаза:** Family Budget Module — AI expense entry via Telegram
+**Текущая фаза:** Universe Module implementation — /infect, /tea, /daily_prayer + auto message modification
 
 ## Текущий фокус
 
-### Family Budget Module (2026-06-28)
+### Universe Module (2026-06-30)
 
-**Цель:** Веб-приложение для учёта семейных трат с авторасчётом долгов и каскадным погашением.
+**Что сделано:**
+- ✅ `/infect` — случайный вирус (олеговирус/LTL-паразит), симптомы, кулдаун 24ч
+- ✅ `/tea` — чай для облегчения на 1 час, cooldown проверка
+- ✅ `/daily_prayer` — случайная молитва, не чаще раза в день
+- ✅ Авто-модификация сообщений заражённых: бот удаляет оригинал и пересылает с подписью (олеговирус: "кхм-кхм" через слова, LTL-паразит: +"☕")
+- ✅ Автосоздание таблиц `infection_status` и `daily_prayer_log`
+- ✅ Cooldown для `/addexpense` (5 мин)
 
-**Статус:** MVP реализован + JS исправлен (Python \' escape в трипл-кавычках). Остаётся ручное тестирование (BGT-TEST).
-
-**Major JS fix applied (2026-06-28):**
-- **Root cause:** В Python тройных кавычках `"""..."""` escape `\'` преобразуется в `'`, ломая JS синтаксис в `renderDebts()`. Весь скрипт не выполнялся — кнопки не работали.
-- **Fix:** Убраны кавычки вокруг числовых аргументов в `onclick="showPayDebt(debtor_id,creditor_id,amount)"`
-- **Дополнительно:** ES5-совместимость (var, function, Promise chain), Promise polyfill, XHR fallback для fetch, touch-action CSS, #js-debug панель
-- **Верификация:** Playwright подтвердил — JS парсится, функции определяются, кнопки кликаются, API-вызовы проходят
-
-**API endpoints:**
-- GET /api/budget/family/status
-- POST /api/budget/family/create, /api/budget/family/join
-- GET/POST /api/budget/transactions, DELETE /api/budget/transactions/{id}
-- GET /api/budget/debts, POST /api/budget/debts/pay
-- GET /api/budget/balance
-
-**Фронтенд (SPA):**
-- Экран авторизации (создать/присоединиться к семье)
-- Дашборд (сводка долгов, баланс участников)
-- Форма добавления траты (payer, for_whom multiple, сумма, категория)
-- Форма погашения долга (предзаполненные должник/кредитор)
-- Адаптивный Mobile First дизайн
-
-**Интеграция с BankBot:**
-- /budget → ссылка на веб-приложение с user_id
-- /family create <name>, /family join <code>, /family info, /family leave
-- /addexpense → AI-парсинг трат из текста (формат: `Кредитор Должник Сумма [Категория] [Комментарий]`)
-
-**AI Expense Entry (2026-06-30):**
-- Новая команда `/addexpense` для ввода трат без веб-приложения
-- Работает в двух рантаймах: PTB (bot/bot.py) и Vercel (api/index.py)
-- Парсер вынесен в `bot/budget_parser.py` — без внешних зависимостей
-- `/budget` исправлен для Vercel (отсутствовал в api/index.py)
-
-**Статус:** AI expense entry реализована и задеплоена.
-
-**Реализация:**
-- `_ERROR_LOG` — in-memory кольцевой буфер (последние 50 ошибок)
-- `log_error(module, error_type, message, recommendation)` — логирование ошибок
-- `notify_admin(text)` — уведомление админа в Telegram при критических ошибках
-- `/errors` — админ-команда: последние 10 ошибок с рекомендациями
-- `/clear_errors` — админ-команда: очистка лога
-
-**Категории ошибок:**
-| Модуль | Тип | Рекомендация |
-|--------|-----|--------------|
-| DB | table_missing | Миграция из 009_phase2_tables_supabase.sql |
-| DB | connection | Проверить DATABASE_URL в Vercel env |
-| Chess | lichess_api | Lichess API недоступен |
-| Chess | history_query | Таблица chess_games не создана |
-| GD | gd_api | GD API недоступен |
-| GD | submission_save | Проверить таблицу submissions |
-| AI | groq_api | Проверить GROQ_API_KEY |
-
-**Точки входа:** `api/index.py` —addErrorLog ~15 критичных error handlers + 2 admin commands
-
-### GD Module for Vercel (2026-06-07)
-
-**Цель:** Довести парсинг игровых сообщений на Vercel до production E2E — все боты из чата LucasTeam должны парситься через reply "парсинг".
-
-**Статус:** ✅ Завершено. Все GD команды перенесены в `api/index.py` для Vercel.
-
-**Завершено:**
-- ✅ Sync GD API клиент (`fetch_gd_user`, `fetch_gd_level`) через `requests`
-- ✅ `format_gd_user_stats()`, `format_gd_level_info()` — форматирование ответов
-- ✅ 18 raw-SQL helpers для работы с таблицами GD (levels, submissions, player_stats, level_completions)
-- ✅ `/gd` — справка по GD командам
-- ✅ `/gd_user <ник>` — инфо об игроке в GD
-- ✅ `/gd_level <id>` — инфо об уровне GD
-- ✅ `/leaderboard` — топ уровней с количеством прохождений
-- ✅ `/my_stats` — личная статистика
-- ✅ `/player_stats @user` — статистика другого игрока
-- ✅ `/submit <название>` — отправка прохождения (2-step: название → медиа)
-- ✅ `/moderate` — админ-модерация с пагинацией и inline-кнопками
-- ✅ `/add_level <название> <позиция>` — админ: добавить уровень
-- ✅ `/set_level_position <id> <позиция>` — админ: изменить позицию
-- ✅ Callback handler для `gd_moderate_*` (page/approve/reject)
-- ✅ Ruff + py_compile passed
-
-**Технический стек:**
-- Command router pattern в `api/index.py`
-- Прямые SQL queries через SQLAlchemy + `text()`
-- Supabase PostgreSQL через `DATABASE_URL`
-- Минимальные зависимости (flask, requests, sqlalchemy, psycopg2-binary)
-- Все stateless (без диалогов, ConversationHandler)
-
-### Memory Bank Canon Sync (2026-06-02)
-
-- Канонический Memory Bank: `memory_bank/` в корне репозитория.
-- `docs/memory-bank/` больше не является альтернативным источником статусов; это legacy mirror/указатель на `memory_bank/`.
-- `memory_bank/projectbrief.md` восстановлен по правилу `AGENTS.md`: раздел `## Project Deliverables` имеет стабильные ID, статусы, веса с суммой ровно `100`; completed-вес = `90`.
-- Из старого `docs/memory-bank` исключены как неканоничные: ручной paste-парсинг, SQLite-only production, активный shop/games/D&D scope, Bridge/VK как production runtime.
-- Полезная legacy-запись про `bot/template_coder/` перенесена в `memory_bank/dialog_template_coder_module.md`: фактический модуль параметрический, без pair/triple lookup tables, с `/done`.
-- В старом `docs/memory-bank/activeContext.md` был обнаружен Telegram bot token. Он удалён из memory mirror; токен следует считать скомпрометированным и перевыпустить через BotFather.
-
-### ✅ Завершено в этой сессии (2026-06-03)
-
-1. **Chess Module (CH-02, CH-03, CH-04) — 12%**
-   - ✅ CH-02: Реализована команда `/chess_link <username>` для привязки Lichess аккаунта
-   - ✅ CH-03: Реализованы команды `/chess_rating` и `/chess_stats` (базовые версии)
-   - ✅ CH-04: Реализована команда `/puzzle` с изображением шахматной доски
-   - Синхронный Lichess API клиент (fetch_lichess_user, 8s timeout)
-   - Функции работы с таблицей `chess_accounts` (get_chess_account, link_chess_account)
-   - Изображение доски через Lichess board export GIF API
-   - Inline кнопка "🔗 Решить на Lichess"
-   - Защита от привязки одного аккаунта к нескольким пользователям
-   - Файлы: `api/index.py` (+341 строка)
-   - Коммиты: `fb3819e`, `10266ba`, `8f33214`
-   - Таблица `chess_accounts` уже в миграции `009_phase2_tables_supabase.sql`
-
-2. **Chess Module Testing**
-   - ✅ Протестированы все базовые команды через webhook
-   - ✅ Lichess API работает корректно
-   - ✅ Daily puzzle API возвращает данные
-   - ✅ Изображение доски отправляется в Telegram
-   - ✅ Webhook обрабатывает команды без ошибок
+**Проблемы:**
+- Пользователь сообщает, что команды не отвечают
+- `/addexpense` спамил документацией каждую минуту (исправлено кулдауном)
 
 ### 🎯 Следующие шаги
 
