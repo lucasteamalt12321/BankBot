@@ -71,7 +71,7 @@ from bot.commands.notification_commands_ptb import notifications_command, notifi
 from bot.commands.achievements_commands_ptb import achievements_command
 from bot.commands.gd_commands_ptb import get_gd_handlers
 from bot.commands.chess_commands_ptb import get_chess_handlers
-from bot.commands.budget_commands import budget_command, family_command
+from bot.commands.budget_commands import budget_command, family_command, get_budget_handlers
 from bot.commands.admin_commands_ptb import (
     admin_command as admin_command_handler,
     admin_stats_command,
@@ -502,6 +502,7 @@ class TelegramBot:
             CommandHandler("family", family_command),
         ]
         handlers.extend(get_chess_handlers())
+        handlers.extend(get_budget_handlers())
 
         if hf_webhook_runtime:
             for command in sorted(HF_WEBHOOK_DISABLED_COMMANDS):

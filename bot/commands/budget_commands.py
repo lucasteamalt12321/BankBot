@@ -1,7 +1,20 @@
 """Family Budget bot commands for BankBot."""
 
+import re
+
+import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes
+from telegram.ext import (
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
+
+AWAIT_EXPENSES = 1
+
+KNOWN_CATEGORIES = {"еда", "транспорт", "хозяйство", "развлечения", "другое"}
 
 
 async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,3 +209,236 @@ async def _leave_family(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+# ─── AI Expense Entry ─────────────────────────────────────────────────
+
+
+def _resolve_member(name: str, members: list[dict]) -> str | None:
+    """Find member user_id by display name (case-insensitive)."""
+    name_lower = name.lower().strip()
+    for m in members:
+        if m["display_name"].lower() == name_lower:
+            return m["user_id"]
+    for m in members:
+        if name_lower in m["display_name"].lower():
+            return m["user_id"]
+    return None
+
+
+def _parse_expense_line(line: str, members: list[dict]) -> dict | None:
+    """Parse 'Creditor Debtor Amount [Category] [Comment]'.
+
+    Returns dict with payer_id, for_whom_ids, amount, category, description
+    or None if the line can not be parsed.
+    """
+    line = line.strip()
+    if not line:
+        return None
+
+    m = re.search(r"(\d+)\s*", line)
+    if not m:
+        return None
+
+    amount = int(m.group(1))
+    if amount <= 0:
+        return None
+
+    before = line[: m.start()].strip()
+    after = line[m.end() :].strip()
+
+    parts = before.split(maxsplit=1)
+    if len(parts) < 2:
+        return None
+
+    creditor_name, debtor_name = parts[0], parts[1]
+
+    creditor_id = _resolve_member(creditor_name, members)
+    debtor_id = _resolve_member(debtor_name, members)
+    if not creditor_id or not debtor_id:
+        return None
+
+    category = "Другое"
+    description = ""
+    if after:
+        after_parts = after.split(maxsplit=1)
+        first_word = after_parts[0]
+        if first_word.lower() in KNOWN_CATEGORIES:
+            category = first_word.capitalize()
+            if len(after_parts) > 1:
+                description = after_parts[1]
+        else:
+            description = after
+
+    return {
+        "payer_id": creditor_id,
+        "for_whom_ids": [debtor_id],
+        "amount": amount,
+        "category": category,
+        "description": description,
+    }
+
+
+async def _call_api_create_transaction(
+    context: ContextTypes.DEFAULT_TYPE, family_id: int, txn_data: dict
+) -> dict | None:
+    """Call POST /api/budget/transactions to create a single expense."""
+    base_url = context.bot_data.get(
+        "budget_base_url", "https://bank-bot-ruby.vercel.app"
+    )
+    payload = {
+        "family_id": family_id,
+        "payer_id": txn_data["payer_id"],
+        "for_whom_ids": txn_data["for_whom_ids"],
+        "amount": txn_data["amount"],
+        "category": txn_data["category"],
+        "description": txn_data["description"],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.post(
+                f"{base_url}/api/budget/transactions",
+                json=payload,
+                headers={"X-User-Id": str(txn_data["payer_id"])},
+            )
+            if res.status_code == 201:
+                return res.json()
+            return None
+    except Exception:
+        return None
+
+
+async def _fetch_family_info(user_id: str, base_url: str) -> dict | None:
+    """Get family info for a user via API."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.get(
+                f"{base_url}/api/budget/family/status?user_id={user_id}",
+                headers={"X-User-Id": str(user_id)},
+            )
+            data = res.json()
+            return data.get("family")
+    except Exception:
+        return None
+
+
+async def add_expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point: /addexpense – start AI-driven expense entry."""
+    user_id = str(update.effective_user.id)
+    base_url = context.bot_data.get(
+        "budget_base_url", "https://bank-bot-ruby.vercel.app"
+    )
+
+    family = await _fetch_family_info(user_id, base_url)
+    if not family:
+        await update.message.reply_text(
+            "❌ Вы не состоите в семье.\n"
+            "Сначала создайте её: /family create <название>\n"
+            "или присоединитесь: /family join <код>"
+        )
+        return ConversationHandler.END
+
+    context.user_data["budget_family_id"] = family["id"]
+    context.user_data["budget_members"] = family.get("members", [])
+
+    names = "\n".join(f"• {m['display_name']}" for m in family["members"])
+
+    await update.message.reply_text(
+        "📝 Отправьте список трат построчно.\n\n"
+        "Формат каждой строки:\n"
+        "<code>Кредитор Должник Сумма [Категория] [Комментарий]</code>\n\n"
+        "Примеры:\n"
+        "<code>Лука Мама 500 еда за пиццу</code>\n"
+        "<code>Юля Лука 1000 Другое за шахматы</code>\n\n"
+        f"Участники семьи:\n{names}\n\n"
+        "Отправьте /cancel чтобы отменить.",
+        parse_mode="HTML",
+    )
+    return AWAIT_EXPENSES
+
+
+async def add_expense_handle_text(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Process the expense lines sent by the user."""
+    text = update.message.text.strip()
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+    family_id = context.user_data.get("budget_family_id")
+    members = context.user_data.get("budget_members", [])
+
+    if not family_id or not members:
+        await update.message.reply_text(
+            "❌ Сессия устарела. Начните заново: /addexpense"
+        )
+        return ConversationHandler.END
+
+    parsed = []
+    errors = []
+    for i, line in enumerate(lines, 1):
+        txn = _parse_expense_line(line, members)
+        if txn:
+            parsed.append(txn)
+        else:
+            errors.append(f"Строка {i}: <code>{line}</code> — не удалось распознать")
+
+    if not parsed:
+        await update.message.reply_text(
+            "❌ Не удалось распознать ни одной траты.\n"
+            + ("\n".join(errors) + "\n\n" if errors else "")
+            + "Попробуйте ещё раз или /cancel"
+        )
+        return AWAIT_EXPENSES
+
+    success = 0
+    fail = 0
+    result_lines = []
+    for txn in parsed:
+        res = await _call_api_create_transaction(context, family_id, txn)
+        if res:
+            success += 1
+            line_text = f"✅ {txn['amount']}₽ — {txn['category']}"
+            if txn["description"]:
+                line_text += f" ({txn['description']})"
+            result_lines.append(line_text)
+        else:
+            fail += 1
+            result_lines.append(f"❌ {txn['amount']}₽ — ошибка сервера")
+
+    report = "\n".join(result_lines)
+    if errors:
+        report += "\n\n⚠️ Не удалось распознать:\n" + "\n".join(errors)
+
+    report += f"\n\n✅ Создано: {success}, ❌ Ошибок: {fail}"
+    await update.message.reply_text(report)
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def add_expense_cancel(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Cancel the conversation."""
+    context.user_data.clear()
+    await update.message.reply_text("❌ Отменено.")
+    return ConversationHandler.END
+
+
+def get_budget_handlers():
+    """Return handlers for Budget AI expense entry."""
+    return [
+        ConversationHandler(
+            entry_points=[CommandHandler("addexpense", add_expense_start)],
+            states={
+                AWAIT_EXPENSES: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, add_expense_handle_text
+                    )
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", add_expense_cancel)],
+            per_user=True,
+            per_chat=True,
+        ),
+    ]
