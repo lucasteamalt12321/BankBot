@@ -5128,7 +5128,7 @@ def debug_submissions():
 
 # ===== Family Budget Module Routes =====
 
-from bot.commands.budget_parser import parse_expense_line, resolve_member
+from bot.budget_parser import parse_expense_line, resolve_member
 from bot.web.family_budget import (
     api_balance,
     api_debt_pay,
