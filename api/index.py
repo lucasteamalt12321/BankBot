@@ -5026,6 +5026,7 @@ def set_webhook():
     secret = os.getenv("WEBHOOK_SECRET") or "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
     base = request.host_url.rstrip("/")
     webhook_url = f"{base}/telegram/webhook/{secret}"
+    drop_pending = request.args.get("drop") == "1"
     try:
         r = requests.get(
             f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
@@ -5033,6 +5034,7 @@ def set_webhook():
                 "url": webhook_url,
                 "secret_token": secret,
                 "allowed_updates": ["message", "callback_query"],
+                "drop_pending_updates": drop_pending,
             },
             timeout=10,
         )
