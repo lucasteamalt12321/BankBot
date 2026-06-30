@@ -2972,6 +2972,7 @@ def telegram_webhook(secret: str):
                     "Пример:\n"
                     "<code>/addexpense Лука Мама 500 еда за пиццу</code>\n\n"
                     "Категории: еда, транспорт, хозяйство, развлечения, другое",
+                    parse_mode="HTML",
                 )
                 return
 
