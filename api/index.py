@@ -2970,7 +2970,7 @@ def telegram_webhook(secret: str):
             now_ts = datetime.now().timestamp()
             last_ts = _ADDE_COOLDOWN.get(user_id, 0)
             if now_ts - last_ts < 300:
-                return
+                return jsonify({"ok": True})
             _ADDE_COOLDOWN[user_id] = now_ts
             args = msg_text.split(maxsplit=1)
             if len(args) < 2:
@@ -2983,7 +2983,7 @@ def telegram_webhook(secret: str):
                     "Категории: еда, транспорт, хозяйство, развлечения, другое",
                     parse_mode="HTML",
                 )
-                return
+                return jsonify({"ok": True})
 
             family = _fetch_family_info_via_api(str(user_id))
             if not family:
@@ -2992,7 +2992,7 @@ def telegram_webhook(secret: str):
                     "❌ Вы не состоите в семье.\n"
                     "Сначала создайте её: /family create <название>",
                 )
-                return
+                return jsonify({"ok": True})
 
             members = family.get("members", [])
             txn = parse_expense_line(args[1], members)
@@ -3003,7 +3003,7 @@ def telegram_webhook(secret: str):
                     "Формат: Кредитор Должник Сумма [Категория] [Комментарий]\n"
                     "Проверьте имена участников и сумму.",
                 )
-                return
+                return jsonify({"ok": True})
 
             ok = _create_transaction_via_api(family["id"], txn)
             if ok:
@@ -4272,7 +4272,7 @@ def telegram_webhook(secret: str):
                                 f"Попробуйте `/tea` для облегчения.",
                                 parse_mode="Markdown",
                             )
-                            return
+                            return jsonify({"ok": True})
                     virus = random.choice(["олеговирус", "LTL-паразит"])
                     symptoms_oleg = [
                         "кхм-кхм в каждом предложении",
@@ -4315,7 +4315,7 @@ def telegram_webhook(secret: str):
                     ).mappings().first()
                     if not row or not row["virus_type"]:
                         send_telegram_message(chat_id, "☕ Вы не заражены. Чай и так поможет!")
-                        return
+                        return jsonify({"ok": True})
                     if row["tea_cooldown_until"]:
                         cooldown = row["tea_cooldown_until"]
                         if hasattr(cooldown, "tzinfo") and cooldown.tzinfo is None:
@@ -4327,7 +4327,7 @@ def telegram_webhook(secret: str):
                                 chat_id,
                                 f"☕ Подождите ещё {remaining} мин. до следующего чаепития.",
                             )
-                            return
+                            return jsonify({"ok": True})
                     conn.execute(
                         text("""
                             UPDATE infection_status
@@ -4361,7 +4361,7 @@ def telegram_webhook(secret: str):
                             chat_id,
                             "🙏 Вы уже получали сегодняшнюю молитву!\nВозвращайтесь завтра.",
                         )
-                        return
+                        return jsonify({"ok": True})
                     prayers = [
                         "Да будет настрой стабилен, а пинг — нулевым.",
                         "О Чай, дай нам мудрости в коде и терпения в дебаге.",
@@ -4427,7 +4427,7 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
                     json={"callback_query_id": cq_id, "text": "🔒 Нет прав администратора", "show_alert": True},
                     timeout=5,
                 )
-                return
+                return jsonify({"ok": True})
             sub = None
             with get_db_engine().connect() as conn:
                 row = conn.execute(
@@ -4438,7 +4438,7 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
                     sub = dict(row)
             if not sub:
                 send_telegram_message(chat_id, f"❌ Заявка #{sub_id} не найдена.")
-                return
+                return jsonify({"ok": True})
             level_name = sub["level_name"]
             rec = get_gddl_recommendation(level_name)
             rec_text = f" (рекомендация: **#{rec}**)" if rec else ""
@@ -4457,7 +4457,7 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
                     json={"callback_query_id": cq_id, "text": "🔒 Нет прав администратора", "show_alert": True},
                     timeout=5,
                 )
-                return
+                return jsonify({"ok": True})
             if reject_gd_submission_db(sub_id, user_id):
                 send_telegram_message(chat_id, f"❌ Заявка #{sub_id} отклонена!")
             else:
