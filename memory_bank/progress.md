@@ -855,7 +855,7 @@
 - Features: /gd_user (player stats), /gd_level (level info), print worksheet (text + questions on A4)
 
 ## last_checked_commit
-(NOT_COMMITTED_YET) feat(gd): port GD Module to Vercel webhook in api/index.py
+3931843 fix: add parse_mode=HTML to /addexpense usage message
 
 ---
 
@@ -903,3 +903,24 @@
 - `touch-action: manipulation` для мобильных кнопок
 
 **Верификация:** Playwright тест подтвердил — JS выполняется, кнопки работают, API-вызовы проходят (ответ 400 "already in a family" для тестового ID 2091908459).
+
+---
+
+## Changelog
+
+### 2026-06-30 — AI Expense Entry via Telegram
+
+**Что сделано:**
+- Добавлена команда `/addexpense` для ввода трат через Telegram без веб-приложения
+- Формат: `Кредитор Должник Сумма [Категория] [Комментарий]` (одна строка)
+- Парсер вынесен в `bot/budget_parser.py` — без зависимостей от PTB/aiogram
+- `/budget` исправлен для Vercel-рантайма (добавлен обработчик в `api/index.py`)
+- `/addexpense` работает в обоих рантаймах: PTB (run_bot.py) и Vercel (api/index.py)
+
+**Файлы:**
+- `bot/budget_parser.py` — новый модуль парсинга (re только)
+- `bot/commands/budget_commands.py` — import из budget_parser, ConversationHandler для /addexpense
+- `bot/bot.py` — регистрация get_budget_handlers()
+- `api/index.py` — /budget и /addexpense обработчики
+
+**Коммиты:** `3931843`, `cb53e11`, `2d9a3ae`, `bd20fff`
