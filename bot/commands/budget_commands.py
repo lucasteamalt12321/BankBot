@@ -12,7 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.commands.budget_parser import parse_expense_line, resolve_member
+from bot.budget_parser import parse_expense_line, resolve_member
 
 AWAIT_EXPENSES = 1
 
