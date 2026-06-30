@@ -63,6 +63,7 @@ _ERROR_LOG: list[dict] = []
 _ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 _ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
+_ADDE_LOG: list[dict] = []  # recent /addexpense callers for debugging
 
 
 def normalize_database_url(url: str) -> str:
@@ -2964,6 +2965,8 @@ def telegram_webhook(secret: str):
                 },
             )
         elif command == "/addexpense" and chat_id:
+            _ADDE_LOG.append({"user_id": user_id, "name": name, "chat_id": chat_id, "text": msg_text[:100], "time": datetime.now().isoformat()})
+            _ADDE_LOG[:] = _ADDE_LOG[-50:]
             now_ts = datetime.now().timestamp()
             last_ts = _ADDE_COOLDOWN.get(user_id, 0)
             if now_ts - last_ts < 300:
@@ -5133,6 +5136,12 @@ def debug_submissions():
             return jsonify({"submissions": [dict(r) for r in rows]})
     except Exception as e:
         return jsonify({"error": str(e)})
+
+
+@app.route("/api/debug_addexpense", methods=["GET"])
+def debug_addexpense():
+    """Show recent /addexpense callers."""
+    return jsonify({"calls": list(reversed(_ADDE_LOG))})
 
 
 # ===== Family Budget Module Routes =====
