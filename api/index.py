@@ -62,6 +62,7 @@ _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, usern
 _ERROR_LOG: list[dict] = []
 _ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
+_ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
 
 
 def normalize_database_url(url: str) -> str:
@@ -2963,6 +2964,11 @@ def telegram_webhook(secret: str):
                 },
             )
         elif command == "/addexpense" and chat_id:
+            now_ts = datetime.now().timestamp()
+            last_ts = _ADDE_COOLDOWN.get(user_id, 0)
+            if now_ts - last_ts < 300:
+                return
+            _ADDE_COOLDOWN[user_id] = now_ts
             args = msg_text.split(maxsplit=1)
             if len(args) < 2:
                 send_telegram_message(
