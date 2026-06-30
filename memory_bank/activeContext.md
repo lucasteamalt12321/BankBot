@@ -1,7 +1,7 @@
 # Active Context
 
-**Последнее обновление:** 2026-06-28  
-**Текущая фаза:** Family Budget Module — JS fixes (боремся с совместимостью)
+**Последнее обновление:** 2026-06-30  
+**Текущая фаза:** Family Budget Module — AI expense entry via Telegram
 
 ## Текущий фокус
 
@@ -34,8 +34,15 @@
 **Интеграция с BankBot:**
 - /budget → ссылка на веб-приложение с user_id
 - /family create <name>, /family join <code>, /family info, /family leave
+- /addexpense → AI-парсинг трат из текста (формат: `Кредитор Должник Сумма [Категория] [Комментарий]`)
 
-**Статус:** Исправления JS совместимости завершены. Ожидается подтверждение пользователя.
+**AI Expense Entry (2026-06-30):**
+- Новая команда `/addexpense` для ввода трат без веб-приложения
+- Работает в двух рантаймах: PTB (bot/bot.py) и Vercel (api/index.py)
+- Парсер вынесен в `bot/budget_parser.py` — без внешних зависимостей
+- `/budget` исправлен для Vercel (отсутствовал в api/index.py)
+
+**Статус:** AI expense entry реализована и задеплоена.
 
 **Реализация:**
 - `_ERROR_LOG` — in-memory кольцевой буфер (последние 50 ошибок)
