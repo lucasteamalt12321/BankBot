@@ -1695,6 +1695,42 @@ def normalize_command(text: str | None) -> str:
     return first_token.split("@", maxsplit=1)[0].lower()
 
 
+def _fetch_family_info_via_api(user_id: str) -> dict | None:
+    """Get family info via internal HTTP call."""
+    try:
+        resp = requests.get(
+            f"https://bank-bot-ruby.vercel.app/api/budget/family/status?user_id={user_id}",
+            headers={"X-User-Id": user_id},
+            timeout=10,
+        )
+        data = resp.json()
+        return data.get("family")
+    except Exception:
+        return None
+
+
+def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
+    """Create a transaction via internal HTTP call."""
+    payload = {
+        "family_id": family_id,
+        "payer_id": txn_data["payer_id"],
+        "for_whom_ids": txn_data["for_whom_ids"],
+        "amount": txn_data["amount"],
+        "category": txn_data["category"],
+        "description": txn_data["description"],
+    }
+    try:
+        resp = requests.post(
+            "https://bank-bot-ruby.vercel.app/api/budget/transactions",
+            json=payload,
+            headers={"X-User-Id": str(txn_data["payer_id"])},
+            timeout=10,
+        )
+        return resp.status_code == 201
+    except Exception:
+        return False
+
+
 BOT_CONVERSION_RATES = {
     "gdcards": 2.5,
     "gusya_cards": 5.0,
@@ -2902,6 +2938,71 @@ def telegram_webhook(secret: str):
             send_telegram_message(chat_id, "Полный режим включён. Напишите /start.")
         elif command == "/reading_trainer" and chat_id:
             send_reading_trainer(chat_id)
+        elif command == "/budget" and chat_id:
+            budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}"
+            send_telegram_message(
+                chat_id,
+                "💰 Семейный бюджет\n\n"
+                "Ведите учёт семейных трат, автоматически рассчитывайте долги "
+                "и погашайте их частями.\n\n"
+                "📖 Что внутри:\n"
+                "• Создайте семью или присоединитесь по коду\n"
+                "• Добавляйте траты — долги создаются автоматически\n"
+                "• Смотрите, кто кому должен\n"
+                "• Погашайте долги с пересчётом\n\n"
+                "Нажмите кнопку ниже, чтобы открыть в браузере:",
+                reply_markup={
+                    "inline_keyboard": [
+                        [
+                            {
+                                "text": "💰 Открыть семейный бюджет",
+                                "url": budget_url,
+                            }
+                        ]
+                    ]
+                },
+            )
+        elif command == "/addexpense" and chat_id:
+            args = msg_text.split(maxsplit=1)
+            if len(args) < 2:
+                send_telegram_message(
+                    chat_id,
+                    "📝 Использование:\n"
+                    "<code>/addexpense Кредитор Должник Сумма [Категория] [Комментарий]</code>\n\n"
+                    "Пример:\n"
+                    "<code>/addexpense Лука Мама 500 еда за пиццу</code>\n\n"
+                    "Категории: еда, транспорт, хозяйство, развлечения, другое",
+                )
+                return
+
+            family = _fetch_family_info_via_api(str(user_id))
+            if not family:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Вы не состоите в семье.\n"
+                    "Сначала создайте её: /family create <название>",
+                )
+                return
+
+            members = family.get("members", [])
+            txn = parse_expense_line(args[1], members)
+            if not txn:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Не удалось распознать трату.\n"
+                    "Формат: Кредитор Должник Сумма [Категория] [Комментарий]\n"
+                    "Проверьте имена участников и сумму.",
+                )
+                return
+
+            ok = _create_transaction_via_api(family["id"], txn)
+            if ok:
+                line_text = f"✅ {txn['amount']}₽ — {txn['category']}"
+                if txn["description"]:
+                    line_text += f" ({txn['description']})"
+                send_telegram_message(chat_id, line_text)
+            else:
+                send_telegram_message(chat_id, "❌ Ошибка сервера при создании траты.")
         elif command == "/balance" and chat_id:
             balance, is_admin = get_user_balance(user_id)
             send_telegram_message(
@@ -5027,6 +5128,7 @@ def debug_submissions():
 
 # ===== Family Budget Module Routes =====
 
+from bot.commands.budget_parser import parse_expense_line, resolve_member
 from bot.web.family_budget import (
     api_balance,
     api_debt_pay,
