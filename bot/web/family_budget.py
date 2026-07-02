@@ -403,6 +403,7 @@ def api_debt_pay():
         return jsonify({"error": "user_id required"}), 401
 
     family_id = data.get("family_id")
+    debt_id = data.get("debt_id")
     debtor_id = data.get("debtor_id")
     creditor_id = data.get("creditor_id")
     amount = data.get("amount", type=int)
@@ -424,28 +425,48 @@ def api_debt_pay():
 
         remaining = amount
 
-        # Step 1: find all active debts debtor -> creditor, oldest first
-        debts = (
-            db.query(Debt)
-            .filter(
+        # Step 1a: pay the specific debt first (if debt_id provided)
+        specific_debt = None
+        if debt_id:
+            specific_debt = (
+                db.query(Debt)
+                .filter(Debt.id == debt_id, Debt.amount_left > 0)
+                .first()
+            )
+        if specific_debt:
+            if specific_debt.amount_left >= remaining:
+                specific_debt.amount_left -= remaining
+                remaining = 0
+            else:
+                remaining -= specific_debt.amount_left
+                specific_debt.amount_left = 0
+
+        # Step 1b: pay remaining debts debtor -> creditor, oldest first
+        if remaining > 0:
+            filter_cond = [
                 Debt.family_id == family_id,
                 Debt.debtor_id == debtor_id,
                 Debt.creditor_id == creditor_id,
                 Debt.amount_left > 0,
+            ]
+            if specific_debt:
+                filter_cond.append(Debt.id != specific_debt.id)
+            debts = (
+                db.query(Debt)
+                .filter(*filter_cond)
+                .order_by(Debt.created_at.asc())
+                .all()
             )
-            .order_by(Debt.created_at.asc())
-            .all()
-        )
 
-        for debt in debts:
-            if remaining <= 0:
-                break
-            if debt.amount_left >= remaining:
-                debt.amount_left -= remaining
-                remaining = 0
-            else:
-                remaining -= debt.amount_left
-                debt.amount_left = 0
+            for debt in debts:
+                if remaining <= 0:
+                    break
+                if debt.amount_left >= remaining:
+                    debt.amount_left -= remaining
+                    remaining = 0
+                else:
+                    remaining -= debt.amount_left
+                    debt.amount_left = 0
 
         # Remove zeroed debts
         db.query(Debt).filter(Debt.amount_left <= 0).delete()
@@ -926,7 +947,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
                   html += '<div class="row">' +
                       '<div class="debt-info"><div class="debt-text">' + esc(debtorName) + ' → ' + esc(creditorName) + '</div>' +
                       '<div class="debt-amount">' + d.amount_left + ' ₽</div></div>' +
-                      '<button class="btn btn-small btn-primary" onclick="showPayDebt(' + d.debtor_id + ',' + d.creditor_id + ',' + d.amount_left + ')">Погасить</button>' +
+                       '<button class="btn btn-small btn-primary" onclick="showPayDebt(' + d.id + ',' + d.debtor_id + ',' + d.creditor_id + ',' + d.amount_left + ')">Погасить</button>' +
                       '</div>';
               }
               el.innerHTML = html;
@@ -1003,8 +1024,8 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
 
           var _payData = null;
 
-          function showPayDebt(debtorId, creditorId, amountLeft) {
-              _payData = { debtor_id: debtorId, creditor_id: creditorId };
+          function showPayDebt(debtId, debtorId, creditorId, amountLeft) {
+              _payData = { debt_id: debtId, debtor_id: debtorId, creditor_id: creditorId };
               document.getElementById('pay-debtor-display').textContent = '👤 ' + getUserName(debtorId);
               document.getElementById('pay-creditor-display').textContent = '👤 ' + getUserName(creditorId);
               document.getElementById('pay-amount').value = amountLeft;
@@ -1017,6 +1038,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
               if (!amount || amount <= 0) { showToast('Введите корректную сумму'); return; }
               post('/debts/pay', {
                   family_id: STATE.family.id,
+                  debt_id: _payData.debt_id,
                   debtor_id: _payData.debtor_id,
                   creditor_id: _payData.creditor_id,
                   amount: amount

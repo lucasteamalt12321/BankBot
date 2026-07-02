@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import os
 import random
 import re
@@ -1733,6 +1734,121 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
         return False
 
 
+YADISK_API = "https://cloud-api.yandex.net/v1/disk/resources/upload"
+
+
+def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
+    """Upload a file to Yandex.Disk. Returns public URL or None."""
+    headers = {"Authorization": f"OAuth {token}"}
+    try:
+        resp = requests.get(
+            YADISK_API,
+            params={"path": remote_path, "overwrite": "true"},
+            headers=headers,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        upload_url = resp.json().get("href")
+        if not upload_url:
+            return None
+        data = content.encode("utf-8")
+        put = requests.put(upload_url, data=data, timeout=30)
+        if put.status_code not in (200, 201):
+            return None
+        pub = requests.put(
+            "https://cloud-api.yandex.net/v1/disk/resources/publish",
+            params={"path": remote_path},
+            headers=headers,
+            timeout=10,
+        )
+        if pub.status_code in (200, 201):
+            return pub.json().get("public_url", "")
+        return ""
+    except Exception:
+        return None
+
+
+def _fetch_debts_for_export() -> list[dict] | None:
+    """Fetch active debts formatted for JSON export."""
+    from sqlalchemy import text as _text
+
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                _text("""
+                    SELECT
+                        fm_debtor.display_name AS debtor_name,
+                        fm_creditor.display_name AS creditor_name,
+                        d.amount_left,
+                        bt.description,
+                        bt.category
+                    FROM debts d
+                    JOIN budget_transactions bt ON bt.family_id = d.family_id
+                    JOIN transaction_details td ON td.transaction_id = bt.id AND td.for_whom_id = d.debtor_id
+                    JOIN family_members fm_debtor ON fm_debtor.user_id = d.debtor_id AND fm_debtor.family_id = d.family_id
+                    JOIN family_members fm_creditor ON fm_creditor.user_id = d.creditor_id AND fm_creditor.family_id = d.family_id
+                    WHERE d.amount_left > 0
+                    ORDER BY d.created_at ASC
+                """),
+            ).mappings().all()
+        return [
+            {
+                "from": r["debtor_name"],
+                "to": r["creditor_name"],
+                "amount": r["amount_left"],
+                "reason": r["description"] or "—",
+                "category": r["category"] or "Прочее",
+            }
+            for r in rows
+        ]
+    except Exception:
+        return None
+
+
+def _build_debts_html() -> str:
+    """Return the HTML page for displaying debts."""
+    return """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Список долгов</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;color:#333}
+h1{margin-top:0}
+table{width:100%;border-collapse:collapse;margin-top:24px;font-size:14px}
+th,td{border:1px solid #ddd;padding:10px 12px;text-align:left}
+th{background-color:#f5f5f5;color:#444;position:sticky;top:0;z-index:10}
+tr:nth-child(even){background-color:#fafafa}
+.amount{font-weight:bold;color:#2c3e50}
+.reason{color:#666}
+.empty{color:#888;font-style:italic}
+.error{color:#d32f2f}
+#loading{margin-top:20px;color:#666}
+@media(max-width:600px){table{display:block;overflow-x:auto}}
+</style>
+</head>
+<body>
+<h1>Список долгов</h1>
+<div id="loading">Загрузка данных…</div>
+<table id="debts-table" style="display:none">
+<thead><tr><th>Кто должен</th><th>Кому</th><th>Сумма, руб</th><th>Причина</th><th>Категория</th></tr></thead>
+<tbody></tbody>
+</table>
+<p id="error" style="display:none"></p>
+<script>
+var jsonUrl="debts.json";
+function escapeHtml(s){if(typeof s!=='string')return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;')}
+function loadDebts(){var tb=document.querySelector('#debts-table tbody'),ld=document.getElementById('loading'),tbl=document.getElementById('debts-table'),err=document.getElementById('error');fetch(jsonUrl).then(function(r){if(!r.ok)throw new Error('fetch error');return r.json()}).then(function(d){ld.style.display='none';err.style.display='none';if(!Array.isArray(d)||d.length===0){tbl.style.display='table';tb.innerHTML='<tr><td colspan="5" class="empty">Долгов нет</td></tr>';return}
+tbl.style.display='table';d.forEach(function(x){tb.innerHTML+='<tr><td>'+escapeHtml(x.from||'—')+'</td><td>'+escapeHtml(x.to||'—')+'</td><td class="amount">'+escapeHtml(String(x.amount||0))+'</td><td class="reason">'+escapeHtml(x.reason||'—')+'</td><td>'+escapeHtml(x.category||'Прочее')+'</td></tr>'})}).catch(function(e){console.error(e);ld.style.display='none';err.textContent='Не удалось загрузить список долгов. Проверьте подключение.';err.style.display='block'})}
+loadDebts();
+</script>
+</body>
+</html>"""
+
+
 BOT_CONVERSION_RATES = {
     "gdcards": 2.5,
     "gusya_cards": 5.0,
@@ -3013,6 +3129,42 @@ def telegram_webhook(secret: str):
                 send_telegram_message(chat_id, line_text)
             else:
                 send_telegram_message(chat_id, "❌ Ошибка сервера при создании траты.")
+        elif command == "/export_debts" and chat_id:
+            token = os.getenv("YANDEX_DISK_TOKEN", "")
+            if not token:
+                send_telegram_message(
+                    chat_id, "❌ Яндекс.Диск не настроен (токен отсутствует)."
+                )
+                return
+
+            send_telegram_message(chat_id, "⏳ Экспортирую долги на Яндекс.Диск...")
+
+            debts = _fetch_debts_for_export()
+            if debts is None:
+                send_telegram_message(
+                    chat_id, "❌ Ошибка при получении долгов из БД."
+                )
+                return
+
+            json_content = json.dumps(debts, ensure_ascii=False, indent=2)
+
+            json_url = _upload_to_yadisk(token, "/debts.json", json_content)
+            if json_url is None:
+                send_telegram_message(
+                    chat_id, "❌ Ошибка при загрузке debts.json на Яндекс.Диск."
+                )
+                return
+
+            html_content = _build_debts_html()
+            _upload_to_yadisk(token, "/debts.html", html_content)
+
+            msg = f"✅ Долги экспортированы ({len(debts)} записей).\n\nОткрыть: {json_url}"
+            if json_url:
+                msg += (
+                    "\n\n💡 Замените в ссылке «/debts.json» на «/debts.html» "
+                    "для просмотра в браузере."
+                )
+            send_telegram_message(chat_id, msg)
         elif command == "/balance" and chat_id:
             balance, is_admin = get_user_balance(user_id)
             send_telegram_message(
