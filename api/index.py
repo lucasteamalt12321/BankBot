@@ -1807,44 +1807,53 @@ def _fetch_debts_for_export() -> list[dict] | None:
         return None
 
 
-def _build_debts_html() -> str:
-    """Return the HTML page for displaying debts."""
-    return """<!DOCTYPE html>
+def _build_debts_html(debts: list[dict]) -> str:
+    """Return HTML with a pre-rendered table of debts (no JS needed)."""
+    rows_html = ""
+    if debts:
+        for d in debts:
+            from_ = d.get("from", "—").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            to_ = d.get("to", "—").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            reason = d.get("reason", "—").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            category = d.get("category", "Прочее").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            amount = d.get("amount", 0)
+            rows_html += (
+                f"<tr><td>{from_}</td><td>{to_}</td>"
+                f"<td class='amount'>{amount}</td>"
+                f"<td class='reason'>{reason}</td>"
+                f"<td>{category}</td></tr>\n"
+            )
+    else:
+        rows_html = '<tr><td colspan="5" class="empty">Долгов нет</td></tr>'
+
+    return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Список долгов</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;color:#333}
-h1{margin-top:0}
-table{width:100%;border-collapse:collapse;margin-top:24px;font-size:14px}
-th,td{border:1px solid #ddd;padding:10px 12px;text-align:left}
-th{background-color:#f5f5f5;color:#444;position:sticky;top:0;z-index:10}
-tr:nth-child(even){background-color:#fafafa}
-.amount{font-weight:bold;color:#2c3e50}
-.reason{color:#666}
-.empty{color:#888;font-style:italic}
-.error{color:#d32f2f}
-#loading{margin-top:20px;color:#666}
-@media(max-width:600px){table{display:block;overflow-x:auto}}
+body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;color:#333}}
+h1{{margin-top:0}}
+table{{width:100%;border-collapse:collapse;margin-top:24px;font-size:14px}}
+th,td{{border:1px solid #ddd;padding:10px 12px;text-align:left}}
+th{{background-color:#f5f5f5;color:#444;position:sticky;top:0;z-index:10}}
+tr:nth-child(even){{background-color:#fafafa}}
+.amount{{font-weight:bold;color:#2c3e50}}
+.reason{{color:#666}}
+.empty{{color:#888;font-style:italic}}
+@media(max-width:600px){{table{{display:block;overflow-x:auto}}}}
 </style>
 </head>
 <body>
 <h1>Список долгов</h1>
-<div id="loading">Загрузка данных…</div>
-<table id="debts-table" style="display:none">
+<p>Последнее обновление: {datetime.utcnow().strftime('%d.%m.%Y %H:%M')} UTC</p>
+<table>
 <thead><tr><th>Кто должен</th><th>Кому</th><th>Сумма, руб</th><th>Причина</th><th>Категория</th></tr></thead>
-<tbody></tbody>
+<tbody>
+{rows_html}
+</tbody>
 </table>
-<p id="error" style="display:none"></p>
-<script>
-var jsonUrl="debts.json";
-function escapeHtml(s){if(typeof s!=='string')return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;')}
-function loadDebts(){var tb=document.querySelector('#debts-table tbody'),ld=document.getElementById('loading'),tbl=document.getElementById('debts-table'),err=document.getElementById('error');fetch(jsonUrl).then(function(r){if(!r.ok)throw new Error('fetch error');return r.json()}).then(function(d){ld.style.display='none';err.style.display='none';if(!Array.isArray(d)||d.length===0){tbl.style.display='table';tb.innerHTML='<tr><td colspan="5" class="empty">Долгов нет</td></tr>';return}
-tbl.style.display='table';d.forEach(function(x){tb.innerHTML+='<tr><td>'+escapeHtml(x.from||'—')+'</td><td>'+escapeHtml(x.to||'—')+'</td><td class="amount">'+escapeHtml(String(x.amount||0))+'</td><td class="reason">'+escapeHtml(x.reason||'—')+'</td><td>'+escapeHtml(x.category||'Прочее')+'</td></tr>'})}).catch(function(e){console.error(e);ld.style.display='none';err.textContent='Не удалось загрузить список долгов. Проверьте подключение.';err.style.display='block'})}
-loadDebts();
-</script>
 </body>
 </html>"""
 
@@ -3058,6 +3067,21 @@ def telegram_webhook(secret: str):
             send_reading_trainer(chat_id)
         elif command == "/budget" and chat_id:
             budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}"
+
+            inline_kb = [[{"text": "💰 Открыть семейный бюджет", "url": budget_url}]]
+
+            # Also upload debts to Yandex.Disk if token available
+            yadisk_token = os.getenv("YANDEX_DISK_TOKEN", "")
+            if yadisk_token:
+                debts = _fetch_debts_for_export()
+                if debts is not None:
+                    json_content = json.dumps(debts, ensure_ascii=False, indent=2)
+                    html_content = _build_debts_html(debts)
+                    json_url = _upload_to_yadisk(yadisk_token, "/debts.json", json_content)
+                    html_url = _upload_to_yadisk(yadisk_token, "/debts.html", html_content)
+                    if html_url:
+                        inline_kb.append([{"text": "📋 Долги (Яндекс.Диск)", "url": html_url}])
+
             send_telegram_message(
                 chat_id,
                 "💰 Семейный бюджет\n\n"
@@ -3069,16 +3093,7 @@ def telegram_webhook(secret: str):
                 "• Смотрите, кто кому должен\n"
                 "• Погашайте долги с пересчётом\n\n"
                 "Нажмите кнопку ниже, чтобы открыть в браузере:",
-                reply_markup={
-                    "inline_keyboard": [
-                        [
-                            {
-                                "text": "💰 Открыть семейный бюджет",
-                                "url": budget_url,
-                            }
-                        ]
-                    ]
-                },
+                reply_markup={"inline_keyboard": inline_kb},
             )
         elif command == "/addexpense" and chat_id:
             _ADDE_LOG.append({"user_id": user_id, "name": name, "chat_id": chat_id, "text": msg_text[:100], "time": datetime.now().isoformat()})
@@ -3155,16 +3170,15 @@ def telegram_webhook(secret: str):
                 )
                 return
 
-            html_content = _build_debts_html()
-            _upload_to_yadisk(token, "/debts.html", html_content)
+            html_content = _build_debts_html(debts)
+            html_url = _upload_to_yadisk(token, "/debts.html", html_content)
 
-            msg = f"✅ Долги экспортированы ({len(debts)} записей).\n\nОткрыть: {json_url}"
-            if json_url:
-                msg += (
-                    "\n\n💡 Замените в ссылке «/debts.json» на «/debts.html» "
-                    "для просмотра в браузере."
-                )
-            send_telegram_message(chat_id, msg)
+            send_telegram_message(
+                chat_id,
+                f"✅ Долги экспортированы ({len(debts)} записей).\n\n"
+                f"📋 Просмотр: {html_url or 'ошибка загрузки'}\n"
+                f"📦 JSON: {json_url}",
+            )
         elif command == "/balance" and chat_id:
             balance, is_admin = get_user_balance(user_id)
             send_telegram_message(
