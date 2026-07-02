@@ -154,10 +154,23 @@ database/migrations/
    - Генерация молитв через AI с каноническим форматом
    - Использовать существующий `call_ai_api()` с промптом из projectbrief
 
+## План: Debt Payment Fix + Yandex.Disk Export (2026-06-30)
+
+### Часть 1: Погашение конкретного долга
+- **JS:** renderDebts() — передавать `d.id` в showPayDebt; showPayDebt — сохранять debt_id; payDebt — отправлять debt_id
+- **Python:** api_debt_pay — погашать сначала долг по debt_id, остаток — на остальные debtor→creditor по дате
+
+### Часть 2: Экспорт долгов на Яндекс.Диск
+- **scripts/export_debts_yadisk.py** — JOIN debts → transaction_details → budget_transactions → family_members, формирует JSON, загружает на Я.Диск
+- **Команда /export_debts** — в api/index.py и bot/bot.py
+- **HTML-страница** (debts.html) — хостинг на Яндекс.Диске
+
 ## Важные файлы для следующей сессии
 
 - `bot/web/family_budget.py` — Flask API и frontend SPA для Family Budget
 - `bot/commands/budget_commands.py` — Telegram команды /budget и /family
+- `bot/budget_parser.py` — Парсер трат
+- `scripts/export_debts_yadisk.py` — Экспорт на Яндекс.Диск
 - `database/database.py` — SQLAlchemy модели (Family Budget в конце файла)
 - `database/alembic/versions/010_family_budget_tables.py` — миграция
 - `run_bot.py` — регистрация роутов (блок Family Budget)
