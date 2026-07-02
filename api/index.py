@@ -65,6 +65,7 @@ _ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 _ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
 _ADDE_LOG: list[dict] = []  # recent /addexpense callers for debugging
+_YADISK_DEBTS_HTML_URL: str | None = None  # cached public URL for debts.html
 
 
 def normalize_database_url(url: str) -> str:
@@ -3067,6 +3068,10 @@ def telegram_webhook(secret: str):
             send_reading_trainer(chat_id)
         elif command == "/budget" and chat_id:
             budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}"
+            inline_kb = [[{"text": "💰 Открыть семейный бюджет", "url": budget_url}]]
+            global _YADISK_DEBTS_HTML_URL
+            if _YADISK_DEBTS_HTML_URL:
+                inline_kb.append([{"text": "📋 Долги (Яндекс.Диск)", "url": _YADISK_DEBTS_HTML_URL}])
             send_telegram_message(
                 chat_id,
                 "💰 Семейный бюджет\n\n"
@@ -3076,18 +3081,8 @@ def telegram_webhook(secret: str):
                 "• Создайте семью или присоединитесь по коду\n"
                 "• Добавляйте траты — долги создаются автоматически\n"
                 "• Смотрите, кто кому должен\n"
-                "• Погашайте долги с пересчётом\n\n"
-                "Нажмите кнопку ниже, чтобы открыть в браузере:",
-                reply_markup={
-                    "inline_keyboard": [
-                        [
-                            {
-                                "text": "💰 Открыть семейный бюджет",
-                                "url": budget_url,
-                            }
-                        ]
-                    ]
-                },
+                "• Погашайте долги с пересчётом\n\n",
+                reply_markup={"inline_keyboard": inline_kb},
             )
         elif command == "/addexpense" and chat_id:
             _ADDE_LOG.append({"user_id": user_id, "name": name, "chat_id": chat_id, "text": msg_text[:100], "time": datetime.now().isoformat()})
@@ -3166,6 +3161,9 @@ def telegram_webhook(secret: str):
 
             html_content = _build_debts_html(debts)
             html_url = _upload_to_yadisk(token, "/debts.html", html_content)
+            global _YADISK_DEBTS_HTML_URL
+            if html_url:
+                _YADISK_DEBTS_HTML_URL = html_url
 
             send_telegram_message(
                 chat_id,
