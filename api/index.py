@@ -3139,7 +3139,7 @@ def telegram_webhook(secret: str):
             else:
                 send_telegram_message(chat_id, "❌ Ошибка сервера при создании траты.")
         elif command == "/export_debts" and chat_id:
-            token = os.getenv("YANDEX_DISK_TOKEN", "")
+            token = os.getenv("YANDEX_DISK_TOKEN") or "y0__wgBEJzHm8MHGJLjRCDG2qCRGDDFmqeBCBheKCHPIhSwkq3AlTZNX7N9SoCf"
             if not token:
                 send_telegram_message(
                     chat_id, "❌ Яндекс.Диск не настроен (токен отсутствует)."
