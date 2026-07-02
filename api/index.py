@@ -3070,17 +3070,36 @@ def telegram_webhook(secret: str):
 
             inline_kb = [[{"text": "💰 Открыть семейный бюджет", "url": budget_url}]]
 
-            # Also upload debts to Yandex.Disk if token available
             yadisk_token = os.getenv("YANDEX_DISK_TOKEN", "")
-            if yadisk_token:
+            if not yadisk_token:
+                send_telegram_message(
+                    chat_id,
+                    "⚠️ Яндекс.Диск не настроен: добавьте YANDEX_DISK_TOKEN "
+                    "в переменные окружения Vercel.",
+                )
+            else:
                 debts = _fetch_debts_for_export()
-                if debts is not None:
+                if debts is None:
+                    send_telegram_message(
+                        chat_id,
+                        "⚠️ Не удалось получить долги из БД (возможно, нет семьи или таблиц).",
+                    )
+                else:
                     json_content = json.dumps(debts, ensure_ascii=False, indent=2)
                     html_content = _build_debts_html(debts)
                     json_url = _upload_to_yadisk(yadisk_token, "/debts.json", json_content)
                     html_url = _upload_to_yadisk(yadisk_token, "/debts.html", html_content)
                     if html_url:
                         inline_kb.append([{"text": "📋 Долги (Яндекс.Диск)", "url": html_url}])
+                        send_telegram_message(
+                            chat_id,
+                            f"✅ Долги загружены на Яндекс.Диск ({len(debts)} записей).",
+                        )
+                    else:
+                        send_telegram_message(
+                            chat_id,
+                            "⚠️ Ошибка загрузки на Яндекс.Диск. Проверьте токен.",
+                        )
 
             send_telegram_message(
                 chat_id,
