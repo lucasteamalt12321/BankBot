@@ -3067,40 +3067,6 @@ def telegram_webhook(secret: str):
             send_reading_trainer(chat_id)
         elif command == "/budget" and chat_id:
             budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}"
-
-            inline_kb = [[{"text": "💰 Открыть семейный бюджет", "url": budget_url}]]
-
-            yadisk_token = os.getenv("YANDEX_DISK_TOKEN", "")
-            if not yadisk_token:
-                send_telegram_message(
-                    chat_id,
-                    "⚠️ Яндекс.Диск не настроен: добавьте YANDEX_DISK_TOKEN "
-                    "в переменные окружения Vercel.",
-                )
-            else:
-                debts = _fetch_debts_for_export()
-                if debts is None:
-                    send_telegram_message(
-                        chat_id,
-                        "⚠️ Не удалось получить долги из БД (возможно, нет семьи или таблиц).",
-                    )
-                else:
-                    json_content = json.dumps(debts, ensure_ascii=False, indent=2)
-                    html_content = _build_debts_html(debts)
-                    json_url = _upload_to_yadisk(yadisk_token, "/debts.json", json_content)
-                    html_url = _upload_to_yadisk(yadisk_token, "/debts.html", html_content)
-                    if html_url:
-                        inline_kb.append([{"text": "📋 Долги (Яндекс.Диск)", "url": html_url}])
-                        send_telegram_message(
-                            chat_id,
-                            f"✅ Долги загружены на Яндекс.Диск ({len(debts)} записей).",
-                        )
-                    else:
-                        send_telegram_message(
-                            chat_id,
-                            "⚠️ Ошибка загрузки на Яндекс.Диск. Проверьте токен.",
-                        )
-
             send_telegram_message(
                 chat_id,
                 "💰 Семейный бюджет\n\n"
@@ -3112,7 +3078,16 @@ def telegram_webhook(secret: str):
                 "• Смотрите, кто кому должен\n"
                 "• Погашайте долги с пересчётом\n\n"
                 "Нажмите кнопку ниже, чтобы открыть в браузере:",
-                reply_markup={"inline_keyboard": inline_kb},
+                reply_markup={
+                    "inline_keyboard": [
+                        [
+                            {
+                                "text": "💰 Открыть семейный бюджет",
+                                "url": budget_url,
+                            }
+                        ]
+                    ]
+                },
             )
         elif command == "/addexpense" and chat_id:
             _ADDE_LOG.append({"user_id": user_id, "name": name, "chat_id": chat_id, "text": msg_text[:100], "time": datetime.now().isoformat()})
