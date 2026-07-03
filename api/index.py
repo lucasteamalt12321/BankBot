@@ -66,6 +66,7 @@ _ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 _ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
 _ADDE_LOG: list[dict] = []  # recent /addexpense callers for debugging
+_YADISK_LAST_ERROR: str = ""  # last Yandex.Disk upload error for debugging
 
 
 def normalize_database_url(url: str) -> str:
@@ -1740,6 +1741,7 @@ YADISK_API = "https://cloud-api.yandex.net/v1/disk/resources/upload"
 
 def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
     """Upload a file to Yandex.Disk. Returns public URL or None."""
+    global _YADISK_LAST_ERROR
     headers = {"Authorization": f"OAuth {token}"}
     try:
         resp = requests.get(
@@ -1749,16 +1751,22 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
             timeout=5,
         )
         if resp.status_code != 200:
-            print(f"[YADISK] get upload url failed: {resp.status_code} {resp.text[:200]}")
+            msg = f"get upload url: {resp.status_code} {resp.text[:200]}"
+            print(f"[YADISK] {msg}")
+            _YADISK_LAST_ERROR = msg
             return None
         upload_url = resp.json().get("href")
         if not upload_url:
-            print(f"[YADISK] no href in response: {resp.text[:200]}")
+            msg = f"no href: {resp.text[:200]}"
+            print(f"[YADISK] {msg}")
+            _YADISK_LAST_ERROR = msg
             return None
         data = content.encode("utf-8")
         put = requests.put(upload_url, data=data, timeout=8)
         if put.status_code not in (200, 201):
-            print(f"[YADISK] upload failed: {put.status_code} {put.text[:200]}")
+            msg = f"upload: {put.status_code} {put.text[:200]}"
+            print(f"[YADISK] {msg}")
+            _YADISK_LAST_ERROR = msg
             return None
         pub = requests.put(
             "https://cloud-api.yandex.net/v1/disk/resources/publish",
@@ -1768,13 +1776,19 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
         )
         if pub.status_code in (200, 201):
             return pub.json().get("public_url", "")
-        print(f"[YADISK] publish failed: {pub.status_code} {pub.text[:200]}")
+        msg = f"publish: {pub.status_code} {pub.text[:200]}"
+        print(f"[YADISK] {msg}")
+        _YADISK_LAST_ERROR = msg
         return ""
     except requests.exceptions.Timeout:
-        print(f"[YADISK] timeout uploading {remote_path}")
+        msg = f"timeout {remote_path}"
+        print(f"[YADISK] {msg}")
+        _YADISK_LAST_ERROR = msg
         return None
     except Exception as exc:
-        print(f"[YADISK] exception for {remote_path}: {exc}")
+        msg = f"exception {remote_path}: {exc}"
+        print(f"[YADISK] {msg}")
+        _YADISK_LAST_ERROR = msg
         return None
 
 
@@ -3174,8 +3188,9 @@ def telegram_webhook(secret: str):
                 html_url = fut_html.result()
 
             if json_url is None:
+                global _YADISK_LAST_ERROR
                 send_telegram_message(
-                    chat_id, "❌ Ошибка при загрузке debts.json на Яндекс.Диск."
+                    chat_id, f"❌ Ошибка при загрузке debts.json на Яндекс.Диск.\n{_YADISK_LAST_ERROR}"
                 )
                 return
 
