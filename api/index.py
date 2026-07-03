@@ -9,6 +9,7 @@ import os
 import random
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, request
@@ -1744,13 +1745,14 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
     global _YADISK_LAST_ERROR
     headers = {"Authorization": f"OAuth {token}"}
     try:
-        # Delete existing file to avoid 409 Conflict
+        # Delete existing file, ignore 404/409
         requests.delete(
             "https://cloud-api.yandex.net/v1/disk/resources",
             params={"path": remote_path, "permanently": "false"},
             headers=headers,
             timeout=5,
         )
+        time.sleep(0.5)
         resp = requests.get(
             YADISK_API,
             params={"path": remote_path, "overwrite": "true"},
