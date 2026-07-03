@@ -9,6 +9,7 @@ import os
 import random
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, request
 import requests
@@ -1769,8 +1770,11 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
             return pub.json().get("public_url", "")
         print(f"[YADISK] publish failed: {pub.status_code} {pub.text[:200]}")
         return ""
+    except requests.exceptions.Timeout:
+        print(f"[YADISK] timeout uploading {remote_path}")
+        return None
     except Exception as exc:
-        print(f"[YADISK] exception: {exc}")
+        print(f"[YADISK] exception for {remote_path}: {exc}")
         return None
 
 
@@ -3161,16 +3165,19 @@ def telegram_webhook(secret: str):
                 return
 
             json_content = json.dumps(debts, ensure_ascii=False, indent=2)
+            html_content = _build_debts_html(debts)
 
-            json_url = _upload_to_yadisk(token, "/debts.json", json_content)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                fut_json = pool.submit(_upload_to_yadisk, token, "/debts.json", json_content)
+                fut_html = pool.submit(_upload_to_yadisk, token, "/debts.html", html_content)
+                json_url = fut_json.result()
+                html_url = fut_html.result()
+
             if json_url is None:
                 send_telegram_message(
                     chat_id, "❌ Ошибка при загрузке debts.json на Яндекс.Диск."
                 )
                 return
-
-            html_content = _build_debts_html(debts)
-            html_url = _upload_to_yadisk(token, "/debts.html", html_content)
 
             send_telegram_message(
                 chat_id,
