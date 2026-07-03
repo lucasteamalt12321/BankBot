@@ -1745,27 +1745,32 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
             YADISK_API,
             params={"path": remote_path, "overwrite": "true"},
             headers=headers,
-            timeout=10,
+            timeout=5,
         )
         if resp.status_code != 200:
+            print(f"[YADISK] get upload url failed: {resp.status_code} {resp.text[:200]}")
             return None
         upload_url = resp.json().get("href")
         if not upload_url:
+            print(f"[YADISK] no href in response: {resp.text[:200]}")
             return None
         data = content.encode("utf-8")
-        put = requests.put(upload_url, data=data, timeout=30)
+        put = requests.put(upload_url, data=data, timeout=8)
         if put.status_code not in (200, 201):
+            print(f"[YADISK] upload failed: {put.status_code} {put.text[:200]}")
             return None
         pub = requests.put(
             "https://cloud-api.yandex.net/v1/disk/resources/publish",
             params={"path": remote_path},
             headers=headers,
-            timeout=10,
+            timeout=5,
         )
         if pub.status_code in (200, 201):
             return pub.json().get("public_url", "")
+        print(f"[YADISK] publish failed: {pub.status_code} {pub.text[:200]}")
         return ""
-    except Exception:
+    except Exception as exc:
+        print(f"[YADISK] exception: {exc}")
         return None
 
 
