@@ -67,7 +67,7 @@ _ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 _ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
 _ADDE_LOG: list[dict] = []  # recent /addexpense callers for debugging
-_YADISK_LAST_ERROR: str = ""  # last Yandex.Disk upload error for debugging
+_YADISK_LOG: list[str] = []  # Yandex.Disk logs
 
 
 def normalize_database_url(url: str) -> str:
@@ -1740,9 +1740,14 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
 YADISK_API = "https://cloud-api.yandex.net/v1/disk/resources/upload"
 
 
+def _log_yadisk(msg: str) -> None:
+    print(f"[YADISK] {msg}")
+    _YADISK_LOG.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+    _YADISK_LOG[:] = _YADISK_LOG[-30:]
+
+
 def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
     """Upload a file to Yandex.Disk. Returns public URL or None."""
-    global _YADISK_LAST_ERROR
     headers = {"Authorization": f"OAuth {token}"}
     try:
         # Delete file first, ignore errors
@@ -1761,24 +1766,18 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
             timeout=5,
         )
         if resp.status_code != 200:
-            msg = f"get url({remote_path}): {resp.status_code} {resp.text[:300]}"
-            print(f"[YADISK] {msg}")
-            _YADISK_LAST_ERROR = msg
+            _log_yadisk(f"get url({remote_path}): {resp.status_code} {resp.text[:300]}")
             return None
         upload_url = resp.json().get("href")
         if not upload_url:
-            msg = f"no href({remote_path}): {resp.text[:300]}"
-            print(f"[YADISK] {msg}")
-            _YADISK_LAST_ERROR = msg
+            _log_yadisk(f"no href({remote_path}): {resp.text[:300]}")
             return None
         data = content.encode("utf-8")
-        print(f"[YADISK] put url={upload_url} size={len(data)}")
+        _log_yadisk(f"put url={upload_url} size={len(data)}")
 
         put = requests.put(upload_url, data=data, timeout=8, headers={"Content-Type": "application/octet-stream"})
         if put.status_code not in (200, 201):
-            msg = f"upload({remote_path}): {put.status_code} body={put.text[:300]} headers={dict(put.headers)}"
-            print(f"[YADISK] {msg}")
-            _YADISK_LAST_ERROR = msg
+            _log_yadisk(f"upload({remote_path}): {put.status_code} body={put.text[:300]} headers={dict(put.headers)}")
             return None
         pub = requests.put(
             "https://cloud-api.yandex.net/v1/disk/resources/publish",
@@ -1788,19 +1787,13 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
         )
         if pub.status_code in (200, 201):
             return pub.json().get("public_url", "")
-        msg = f"publish({remote_path}): {pub.status_code} {pub.text[:300]}"
-        print(f"[YADISK] {msg}")
-        _YADISK_LAST_ERROR = msg
+        _log_yadisk(f"publish({remote_path}): {pub.status_code} {pub.text[:300]}")
         return ""
     except requests.exceptions.Timeout:
-        msg = f"timeout {remote_path}"
-        print(f"[YADISK] {msg}")
-        _YADISK_LAST_ERROR = msg
+        _log_yadisk(f"timeout {remote_path}")
         return None
     except Exception as exc:
-        msg = f"exception {remote_path}: {exc}"
-        print(f"[YADISK] {msg}")
-        _YADISK_LAST_ERROR = msg
+        _log_yadisk(f"exception {remote_path}: {exc}")
         return None
 
 
@@ -3196,9 +3189,9 @@ def telegram_webhook(secret: str):
 
             json_url = _upload_to_yadisk(token, f"/debts_{ts}.json", json_content)
             if json_url is None:
-                global _YADISK_LAST_ERROR
+                last_log = _YADISK_LOG[-1] if _YADISK_LOG else "нет логов"
                 send_telegram_message(
-                    chat_id, f"❌ Ошибка при загрузке debts.json на Яндекс.Диск.\n{_YADISK_LAST_ERROR}"
+                    chat_id, f"❌ Ошибка при загрузке debts.json на Яндекс.Диск.\n{last_log}"
                 )
                 return
 
@@ -3211,7 +3204,8 @@ def telegram_webhook(secret: str):
                 f"📦 JSON: {json_url}",
             )
         elif command == "/yadisk_logs" and chat_id:
-            send_telegram_message(chat_id, f"📋 Последняя ошибка Yandex.Disk:\n{_YADISK_LAST_ERROR or 'нет ошибок'}")
+            logs_text = "\n".join(_YADISK_LOG[-10:]) or "нет логов"
+            send_telegram_message(chat_id, f"📋 Yandex.Disk logs (last 10):\n{logs_text}")
         elif command == "/balance" and chat_id:
             balance, is_admin = get_user_balance(user_id)
             send_telegram_message(
