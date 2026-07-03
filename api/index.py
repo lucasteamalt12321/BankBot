@@ -1752,20 +1752,20 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
             timeout=5,
         )
         if resp.status_code != 200:
-            msg = f"get upload url: {resp.status_code} {resp.text[:200]}"
+            msg = f"get url({remote_path}): {resp.status_code} {resp.text[:300]}"
             print(f"[YADISK] {msg}")
             _YADISK_LAST_ERROR = msg
             return None
         upload_url = resp.json().get("href")
         if not upload_url:
-            msg = f"no href: {resp.text[:200]}"
+            msg = f"no href({remote_path}): {resp.text[:300]}"
             print(f"[YADISK] {msg}")
             _YADISK_LAST_ERROR = msg
             return None
         data = content.encode("utf-8")
         put = requests.put(upload_url, data=data, timeout=8)
         if put.status_code not in (200, 201):
-            msg = f"upload: {put.status_code} {put.text[:200]}"
+            msg = f"upload({remote_path}): {put.status_code} body={put.text[:300]} headers={dict(put.headers)}"
             print(f"[YADISK] {msg}")
             _YADISK_LAST_ERROR = msg
             return None
@@ -1777,7 +1777,7 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
         )
         if pub.status_code in (200, 201):
             return pub.json().get("public_url", "")
-        msg = f"publish: {pub.status_code} {pub.text[:200]}"
+        msg = f"publish({remote_path}): {pub.status_code} {pub.text[:300]}"
         print(f"[YADISK] {msg}")
         _YADISK_LAST_ERROR = msg
         return ""
@@ -3199,6 +3199,8 @@ def telegram_webhook(secret: str):
                 f"📋 Просмотр: {html_url or 'ошибка загрузки'}\n"
                 f"📦 JSON: {json_url}",
             )
+        elif command == "/yadisk_logs" and chat_id:
+            send_telegram_message(chat_id, f"📋 Последняя ошибка Yandex.Disk:\n{_YADISK_LAST_ERROR or 'нет ошибок'}")
         elif command == "/balance" and chat_id:
             balance, is_admin = get_user_balance(user_id)
             send_telegram_message(
