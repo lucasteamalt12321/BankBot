@@ -1772,7 +1772,7 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
             _YADISK_LAST_ERROR = msg
             return None
         data = content.encode("utf-8")
-        print(f"[YADISK] put url={upload_url[:120]}... size={len(data)}")
+        print(f"[YADISK] put url={upload_url} size={len(data)}")
 
         put = requests.put(upload_url, data=data, timeout=8, headers={"Content-Type": "application/octet-stream"})
         if put.status_code not in (200, 201):
