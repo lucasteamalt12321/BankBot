@@ -1763,7 +1763,8 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
             _YADISK_LAST_ERROR = msg
             return None
         data = content.encode("utf-8")
-        put = requests.put(upload_url, data=data, timeout=8)
+        print(f"[YADISK] put url={upload_url[:120]}... size={len(data)}")
+        put = requests.post(upload_url, data=data, timeout=8)
         if put.status_code not in (200, 201):
             msg = f"upload({remote_path}): {put.status_code} body={put.text[:300]} headers={dict(put.headers)}"
             print(f"[YADISK] {msg}")
