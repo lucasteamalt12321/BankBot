@@ -3196,6 +3196,8 @@ def telegram_webhook(secret: str):
                 )
                 return
 
+            html_url = _upload_to_yadisk(token, "/debts.html", html_content)
+
             send_telegram_message(
                 chat_id,
                 f"✅ Долги экспортированы ({len(debts)} записей).\n\n"
