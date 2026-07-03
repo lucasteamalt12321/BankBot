@@ -1744,6 +1744,13 @@ def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
     global _YADISK_LAST_ERROR
     headers = {"Authorization": f"OAuth {token}"}
     try:
+        # Delete existing file to avoid 409 Conflict
+        requests.delete(
+            "https://cloud-api.yandex.net/v1/disk/resources",
+            params={"path": remote_path, "permanently": "false"},
+            headers=headers,
+            timeout=5,
+        )
         resp = requests.get(
             YADISK_API,
             params={"path": remote_path, "overwrite": "true"},
@@ -3181,12 +3188,7 @@ def telegram_webhook(secret: str):
             json_content = json.dumps(debts, ensure_ascii=False, indent=2)
             html_content = _build_debts_html(debts)
 
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                fut_json = pool.submit(_upload_to_yadisk, token, "/debts.json", json_content)
-                fut_html = pool.submit(_upload_to_yadisk, token, "/debts.html", html_content)
-                json_url = fut_json.result()
-                html_url = fut_html.result()
-
+            json_url = _upload_to_yadisk(token, "/debts.json", json_content)
             if json_url is None:
                 global _YADISK_LAST_ERROR
                 send_telegram_message(
