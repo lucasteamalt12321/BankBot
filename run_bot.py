@@ -24,6 +24,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Микро-сервер для Hugging Face и мониторинга
 app = Flask(__name__)
 
+# CORS for VK Mini App
+try:
+    from flask_cors import CORS
+    CORS(app, resources={r"/api/budget/*": {"origins": ["https://vk.com", "https://*.vk.com"]}})
+except ImportError:
+    pass
+
 # Глобальный буфер для логов
 log_buffer: collections.deque[str] = collections.deque(maxlen=100)
 FEEDBACK_FILE = "data/feedback.jsonl"
@@ -580,6 +587,8 @@ from bot.web.family_budget import (
     api_transaction_create,
     api_transaction_delete,
     api_transactions_list,
+    api_vk_link,
+    api_vk_status,
     family_budget_page,
 )
 
@@ -597,6 +606,9 @@ app.route("/api/budget/debts")(api_debts_list)
 app.route("/api/budget/debts/pay", methods=["POST"])(api_debt_pay)
 
 app.route("/api/budget/balance")(api_balance)
+
+app.route("/api/budget/vk/status")(api_vk_status)
+app.route("/api/budget/vk/link", methods=["POST"])(api_vk_link)
 
 
 def main() -> None:

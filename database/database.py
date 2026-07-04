@@ -667,6 +667,17 @@ class Payment(Base):
     paid_at = Column(DateTime, default=datetime.utcnow)
 
 
+class LinkedVKAccount(Base):
+    __tablename__ = "linked_vk_accounts"
+
+    id = Column(Integer, primary_key=True)
+    vk_user_id = Column(String(20), unique=True, nullable=False, index=True)
+    tg_user_id = Column(String(20), nullable=False, index=True)
+    link_code = Column(String(10), nullable=True)
+    code_expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 from database.connection import get_pooled_engine  # noqa: E402
 
 engine = get_pooled_engine()

@@ -360,9 +360,48 @@ async def add_expense_cancel(
     return ConversationHandler.END
 
 
+async def linkvk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /linkvk — generate a 6-digit code to link VK account."""
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import text as _text
+
+    from database.database import get_db_engine
+
+    if not update.message:
+        return
+
+    user_id = str(update.effective_user.id)
+    code = "".join([str(__import__("random").randint(0, 9)) for _ in range(6)])
+    expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        # Upsert: delete old link for this user, insert new
+        conn.execute(
+            _text("DELETE FROM linked_vk_accounts WHERE tg_user_id = :uid"),
+            {"uid": user_id},
+        )
+        conn.execute(
+            _text(
+                "INSERT INTO linked_vk_accounts (tg_user_id, link_code, code_expires_at) "
+                "VALUES (:uid, :code, :exp)"
+            ),
+            {"uid": user_id, "code": code, "exp": expires_at},
+        )
+        conn.commit()
+
+    await update.message.reply_text(
+        f"🔐 Код привязки VK: {code}\n\n"
+        "Откройте VK Mini App и введите этот код для привязки аккаунта.\n"
+        "Код действителен 10 минут."
+    )
+
+
 def get_budget_handlers():
     """Return handlers for Budget AI expense entry."""
     return [
+        CommandHandler("linkvk", linkvk_command),
         ConversationHandler(
             entry_points=[CommandHandler("addexpense", add_expense_start)],
             states={

@@ -1,37 +1,48 @@
 # Active Context
 
-**Последнее обновление:** 2026-06-30  
-**Текущая фаза:** Universe Module implementation — /infect, /tea, /daily_prayer + auto message modification
+**Последнее обновление:** 2026-07-04  
+**Текущая фаза:** VK Mini App — альтернативный UI для Budget модуля
 
 ## Текущий фокус
 
-### Universe Module (2026-06-30)
+### VK Mini App — Budget UI (2026-07-04)
 
-**Что сделано:**
-- ✅ `/infect` — случайный вирус (олеговирус/LTL-паразит), симптомы, кулдаун 24ч
-- ✅ `/tea` — чай для облегчения на 1 час, cooldown проверка
-- ✅ `/daily_prayer` — случайная молитва, не чаще раза в день
-- ✅ Авто-модификация сообщений заражённых: бот удаляет оригинал и пересылает с подписью (олеговирус: "кхм-кхм" через слова, LTL-паразит: +"☕")
-- ✅ Автосоздание таблиц `infection_status` и `daily_prayer_log`
-- ✅ Cooldown для `/addexpense` (5 мин)
+**Цель:** Альтернативный UI для семейного бюджета во VK Mini App для пользователей без доступа к Vercel (ограничения мобильного интернета в РФ).
 
-**Проблемы:**
-- Пользователь сообщает, что команды не отвечают
-- `/addexpense` спамил документацией каждую минуту (исправлено кулдауном)
+**Ключевое решение:** VK аккаунт привязывается к TG аккаунту через 6-значный код. Единая база данных, общие семьи.
 
-### 🎯 Следующие шаги
+**Что сделано (бэкенд):**
+- ✅ `flask-cors` добавлен в `requirements.txt`, CORS настроен для VK origins
+- ✅ Модель `LinkedVKAccount` в `database/database.py`
+- ✅ Миграция `011_vk_account_linking.py` — таблица `linked_vk_accounts`
+- ✅ Endpoint `GET /api/budget/vk/status` — проверка привязки
+- ✅ Endpoint `POST /api/budget/vk/link` — привязка по коду
+- ✅ Bot command `/linkvk` — генерация 6-значного кода (TTL 10 мин)
+- ✅ Маршруты зарегистрированы в `api/index.py` и `run_bot.py`
 
-1. **Chess Module: Доработка (CH-05, CH-06)** — 8%
-   - Система наград за решение задач
-   - История решённых задач
-   - CH-TEST
+**Что сделано (фронтенд):**
+- ✅ VK Mini App проект инициализирован: React 18 + TypeScript + Vite + @vkontakte/vkui@8.3.0 + @vkontakte/vk-bridge@3.0.2
+- ✅ API wrapper: `src/api/budget.ts` — все вызовы к Flask backend
+- ✅ `LinkPage` — экран привязки VK ↔ TG (ввод кода)
+- ✅ `DashboardPage` — баланс, долги, участники, FAB "+"
+- ✅ `AddExpensePage` — форма добавления траты
+- ✅ `PayDebtPage` — оплата долга
+- ✅ `HistoryPage` — история с фильтрами по категории/участнику
+- ✅ `CreateFamilyPage` — создание семьи
+- ✅ `JoinFamilyPage` — вступление по коду
 
-2. **GD Module Testing:** 3%
-   - Ручное тестирование всех GD команд через webhook
+**Осталось:**
+- 🔲 GitHub Actions деплой (`.github/workflows/deploy-vk-mini-app.yml`)
+- 🔲 Регистрация VK приложения на dev.vk.com (app_id)
+- 🔲 Тестирование VK Mini App (нужна модерация VK)
+- 🔲 Проверка CORS в продакшене
 
-3. **Universe Module (UN-TEST):** 2%
-   - Manual testing всех GD команд через webhook
-   - Edge cases и UI/UX проверки
+**Важные файлы:**
+- `bot/web/family_budget.py` — Flask API + VK endpoints (lines 1078-1127)
+- `bot/commands/budget_commands.py` — команда `/linkvk` (lines 363-396)
+- `database/database.py` — модель `LinkedVKAccount` (lines 670-680)
+- `database/alembic/versions/011_vk_account_linking.py` — миграция
+- `vk_mini_app/` — весь VK Mini App проект
 
 ## Checkpoint: Phase 2 Progress
 
