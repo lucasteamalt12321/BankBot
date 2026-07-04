@@ -62,7 +62,7 @@ export const JoinFamilyPage: React.FC<Props> = ({ userId, onDone, onBack }) => {
               setError('');
             }}
             placeholder="000000"
-            maxlength={6}
+            maxLength={6}
           />
         </FormItem>
 

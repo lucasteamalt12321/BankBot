@@ -10,7 +10,7 @@ import {
   Spacing,
   Div,
 } from '@vkontakte/vkui';
-import { Icon24LinkCircleOutline } from '@vkontakte/icons';
+import { Icon20LinkCircleOutline } from '@vkontakte/icons';
 import { linkVK } from '../api/budget';
 
 interface Props {
@@ -47,7 +47,7 @@ export const LinkPage: React.FC<Props> = ({ vkUserId, onLinked }) => {
       <PanelHeader>Привязка аккаунта</PanelHeader>
       <Group>
         <Div style={{ textAlign: 'center', padding: '24px 16px' }}>
-          <Icon24LinkCircleOutline width={48} height={48} style={{ color: 'var(--vkui-color-accent)' }} />
+          <Icon20LinkCircleOutline width={48} height={48} style={{ color: 'var(--vkui-color-accent)' }} />
           <Spacing size="m" />
           <Text weight="2" style={{ fontSize: 20 }}>
             Привяжите Telegram
@@ -67,7 +67,11 @@ export const LinkPage: React.FC<Props> = ({ vkUserId, onLinked }) => {
               2. Введите полученный 6-значный код ниже
             </Text>
 
-            <FormItem top="Код привязки">
+            <FormItem
+              top="Код привязки"
+              status={error ? 'error' : 'default'}
+              bottom={error}
+            >
               <Input
                 value={code}
                 onChange={(e) => {
@@ -75,9 +79,7 @@ export const LinkPage: React.FC<Props> = ({ vkUserId, onLinked }) => {
                   setError('');
                 }}
                 placeholder="000000"
-                maxlength={6}
-                status={error ? 'error' : 'default'}
-                bottom={error}
+                maxLength={6}
               />
             </FormItem>
 

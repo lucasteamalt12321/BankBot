@@ -77,3 +77,7 @@ Thumbs.db
 .env.vercel
 .env.vercel.prod
 
+# Node.js
+node_modules/
+vk_mini_app/dist/
+
