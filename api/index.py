@@ -67,7 +67,7 @@ _ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 _ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
 _ADDE_LOG: list[dict] = []  # recent /addexpense callers for debugging
-_YADISK_LOG: list[str] = []  # Yandex.Disk logs
+
 
 
 def normalize_database_url(url: str) -> str:
@@ -1737,153 +1737,7 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
         return False
 
 
-YADISK_API = "https://cloud-api.yandex.net/v1/disk/resources/upload"
 
-
-def _log_yadisk(msg: str) -> None:
-    print(f"[YADISK] {msg}")
-    _YADISK_LOG.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-    _YADISK_LOG[:] = _YADISK_LOG[-30:]
-
-
-def _upload_to_yadisk(token: str, remote_path: str, content: str) -> str | None:
-    """Upload a file to Yandex.Disk. Returns public URL or None."""
-    headers = {"Authorization": f"OAuth {token}"}
-    try:
-        # Delete file first, ignore errors
-        requests.delete(
-            "https://cloud-api.yandex.net/v1/disk/resources",
-            params={"path": remote_path, "permanently": "false"},
-            headers=headers,
-            timeout=5,
-        )
-        time.sleep(0.3)
-
-        resp = requests.get(
-            YADISK_API,
-            params={"path": remote_path, "overwrite": "true"},
-            headers=headers,
-            timeout=5,
-        )
-        if resp.status_code != 200:
-            _log_yadisk(f"get url({remote_path}): {resp.status_code} {resp.text[:300]}")
-            return None
-        upload_url = resp.json().get("href")
-        if not upload_url:
-            _log_yadisk(f"no href({remote_path}): {resp.text[:300]}")
-            return None
-        data = content.encode("utf-8")
-        _log_yadisk(f"put url={upload_url} size={len(data)}")
-
-        put = requests.put(upload_url, data=data, timeout=8, headers={"Content-Type": "application/octet-stream"})
-        if put.status_code not in (200, 201):
-            _log_yadisk(f"upload({remote_path}): {put.status_code} body={put.text[:300]} headers={dict(put.headers)}")
-            return None
-        pub = requests.put(
-            "https://cloud-api.yandex.net/v1/disk/resources/publish",
-            params={"path": remote_path},
-            headers=headers,
-            timeout=5,
-        )
-        if pub.status_code in (200, 201):
-            return pub.json().get("public_url", "")
-        _log_yadisk(f"publish({remote_path}): {pub.status_code} {pub.text[:300]}")
-        return ""
-    except requests.exceptions.Timeout:
-        _log_yadisk(f"timeout {remote_path}")
-        return None
-    except Exception as exc:
-        _log_yadisk(f"exception {remote_path}: {exc}")
-        return None
-
-
-def _fetch_debts_for_export() -> list[dict] | None:
-    """Fetch active debts formatted for JSON export."""
-    from sqlalchemy import text as _text
-
-    engine = get_db_engine()
-    try:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                _text("""
-                    SELECT
-                        fm_debtor.display_name AS debtor_name,
-                        fm_creditor.display_name AS creditor_name,
-                        d.amount_left,
-                        bt.description,
-                        bt.category
-                    FROM debts d
-                    JOIN budget_transactions bt ON bt.family_id = d.family_id
-                    JOIN transaction_details td ON td.transaction_id = bt.id AND td.for_whom_id = d.debtor_id
-                    JOIN family_members fm_debtor ON fm_debtor.user_id = d.debtor_id AND fm_debtor.family_id = d.family_id
-                    JOIN family_members fm_creditor ON fm_creditor.user_id = d.creditor_id AND fm_creditor.family_id = d.family_id
-                    WHERE d.amount_left > 0
-                    ORDER BY d.created_at ASC
-                """),
-            ).mappings().all()
-        return [
-            {
-                "from": r["debtor_name"],
-                "to": r["creditor_name"],
-                "amount": r["amount_left"],
-                "reason": r["description"] or "—",
-                "category": r["category"] or "Прочее",
-            }
-            for r in rows
-        ]
-    except Exception:
-        return None
-
-
-def _build_debts_html(debts: list[dict]) -> str:
-    """Return HTML with a pre-rendered table of debts (no JS needed)."""
-    rows_html = ""
-    if debts:
-        for d in debts:
-            from_ = d.get("from", "—").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            to_ = d.get("to", "—").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            reason = d.get("reason", "—").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            category = d.get("category", "Прочее").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            amount = d.get("amount", 0)
-            rows_html += (
-                f"<tr><td>{from_}</td><td>{to_}</td>"
-                f"<td class='amount'>{amount}</td>"
-                f"<td class='reason'>{reason}</td>"
-                f"<td>{category}</td></tr>\n"
-            )
-    else:
-        rows_html = '<tr><td colspan="5" class="empty">Долгов нет</td></tr>'
-
-    return f"""<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Список долгов</title>
-<style>
-body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;color:#333}}
-h1{{margin-top:0}}
-table{{width:100%;border-collapse:collapse;margin-top:24px;font-size:14px}}
-th,td{{border:1px solid #ddd;padding:10px 12px;text-align:left}}
-th{{background-color:#f5f5f5;color:#444;position:sticky;top:0;z-index:10}}
-tr:nth-child(even){{background-color:#fafafa}}
-.amount{{font-weight:bold;color:#2c3e50}}
-.reason{{color:#666}}
-.empty{{color:#888;font-style:italic}}
-@media(max-width:600px){{table{{display:block;overflow-x:auto}}}}
-</style>
-</head>
-<body>
-<h1>Список долгов</h1>
-<p>Последнее обновление: {datetime.utcnow().strftime('%d.%m.%Y %H:%M')} UTC</p>
-<table>
-<thead><tr><th>Кто должен</th><th>Кому</th><th>Сумма, руб</th><th>Причина</th><th>Категория</th></tr></thead>
-<tbody>
-{rows_html}
-</tbody>
-</table>
-</body>
-</html>"""
 
 
 BOT_CONVERSION_RATES = {
@@ -3166,46 +3020,6 @@ def telegram_webhook(secret: str):
                 send_telegram_message(chat_id, line_text)
             else:
                 send_telegram_message(chat_id, "❌ Ошибка сервера при создании траты.")
-        elif command == "/export_debts" and chat_id:
-            token = os.getenv("YANDEX_DISK_TOKEN") or "y0__wgBEJzHm8MHGJLjRCDG2qCRGDDFmqeBCBheKCHPIhSwkq3AlTZNX7N9SoCf"
-            if not token:
-                send_telegram_message(
-                    chat_id, "❌ Яндекс.Диск не настроен (токен отсутствует)."
-                )
-                return
-
-            send_telegram_message(chat_id, "⏳ Экспортирую долги на Яндекс.Диск...")
-
-            debts = _fetch_debts_for_export()
-            if debts is None:
-                send_telegram_message(
-                    chat_id, "❌ Ошибка при получении долгов из БД."
-                )
-                return
-
-            json_content = json.dumps(debts, ensure_ascii=False, indent=2)
-            html_content = _build_debts_html(debts)
-            ts = int(time.time() * 1000)
-
-            json_url = _upload_to_yadisk(token, f"/debts_{ts}.json", json_content)
-            if json_url is None:
-                last_log = _YADISK_LOG[-1] if _YADISK_LOG else "нет логов"
-                send_telegram_message(
-                    chat_id, f"❌ Ошибка при загрузке debts.json на Яндекс.Диск.\n{last_log}"
-                )
-                return
-
-            html_url = _upload_to_yadisk(token, f"/debts_{ts}.html", html_content)
-
-            send_telegram_message(
-                chat_id,
-                f"✅ Долги экспортированы ({len(debts)} записей).\n\n"
-                f"📋 Просмотр: {html_url or 'ошибка загрузки'}\n"
-                f"📦 JSON: {json_url}",
-            )
-        elif command == "/yadisk_logs" and chat_id:
-            logs_text = "\n".join(_YADISK_LOG[-10:]) or "нет логов"
-            send_telegram_message(chat_id, f"📋 Yandex.Disk logs (last 10):\n{logs_text}")
         elif command == "/balance" and chat_id:
             balance, is_admin = get_user_balance(user_id)
             send_telegram_message(
