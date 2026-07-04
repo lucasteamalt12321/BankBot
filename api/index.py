@@ -18,6 +18,13 @@ from sqlalchemy import create_engine, text
 
 app = Flask(__name__)
 
+# CORS for VK Mini App
+try:
+    from flask_cors import CORS
+    CORS(app, resources={r"/api/budget/*": {"origins": ["https://vk.com", "https://*.vk.com"]}})
+except ImportError:
+    pass
+
 # Webhook secret
 _raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
 WEBHOOK_SECRET = _raw_webhook_secret if _raw_webhook_secret else "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
@@ -5164,6 +5171,8 @@ from bot.web.family_budget import (
     api_transaction_create,
     api_transaction_delete,
     api_transactions_list,
+    api_vk_link,
+    api_vk_status,
     family_budget_page,
 )
 
@@ -5181,6 +5190,9 @@ app.route("/api/budget/debts")(api_debts_list)
 app.route("/api/budget/debts/pay", methods=["POST"])(api_debt_pay)
 
 app.route("/api/budget/balance")(api_balance)
+
+app.route("/api/budget/vk/status")(api_vk_status)
+app.route("/api/budget/vk/link", methods=["POST"])(api_vk_link)
 
 
 # Vercel handler

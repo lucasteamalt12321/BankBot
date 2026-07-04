@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Response, jsonify, request
 
@@ -1074,3 +1074,55 @@ def family_budget_page():
         f"USER_ID = '{uid}' || USER_ID;",
     )
     return Response(html, mimetype="text/html")
+
+
+# ===== VK Mini App Linking API =====
+
+
+def api_vk_status():
+    """GET /api/budget/vk/status?vk_user_id= — check if VK user is linked to a TG account."""
+    from database.database import LinkedVKAccount, get_db
+
+    vk_user_id = request.args.get("vk_user_id", "")
+    if not vk_user_id:
+        return jsonify({"error": "vk_user_id required"}), 400
+
+    db = get_db()
+    try:
+        link = db.query(LinkedVKAccount).filter_by(vk_user_id=vk_user_id).first()
+        if link and link.tg_user_id:
+            return jsonify({"linked": True, "user_id": link.tg_user_id})
+        return jsonify({"linked": False})
+    finally:
+        db.close()
+
+
+def api_vk_link():
+    """POST /api/budget/vk/link — link VK user to TG account via 6-digit code."""
+    from database.database import LinkedVKAccount, get_db
+
+    data = request.get_json(silent=True) or {}
+    vk_user_id = data.get("vk_user_id", "")
+    code = data.get("code", "")
+
+    if not vk_user_id or not code:
+        return jsonify({"error": "vk_user_id and code required"}), 400
+
+    db = get_db()
+    try:
+        link = db.query(LinkedVKAccount).filter_by(link_code=code).first()
+        if not link:
+            return jsonify({"error": "Код недействителен"}), 400
+
+        if link.code_expires_at and link.code_expires_at < datetime.utcnow():
+            return jsonify({"error": "Код истёк. Запросите новый в Telegram"}), 400
+
+        tg_user_id = link.tg_user_id
+        link.vk_user_id = vk_user_id
+        link.link_code = None
+        link.code_expires_at = None
+        db.commit()
+
+        return jsonify({"linked": True, "user_id": tg_user_id})
+    finally:
+        db.close()

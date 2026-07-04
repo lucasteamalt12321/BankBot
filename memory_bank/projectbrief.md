@@ -317,6 +317,58 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+#### 🔗 VK Mini App — Budget UI (替代 Vercel)
+
+**Цель:** Альтернативный UI для бюджет модуля во VK Mini App для пользователей без доступа к Vercel (ограничения мобильного интернета в РФ, белые списки).
+
+**Ключевое решение:** VK аккаунт привязывается к TG аккаунту через 6-значный код. Единая база данных, общие семьи.
+
+**Flux привязки:**
+1. Пользователь открывает VK Mini App → видит экран привязки
+2. Идёт в Telegram → `/linkvk` → получает 6-значный код (TTL 10 мин)
+3. Вводит код в VK Mini App → POST `/api/budget/vk/link`
+4. Backend связывает `vk_user_id` → `tg_user_id`
+5. Далее VK Mini App работает с `user_id = tg_user_id` — тот же API
+
+**Стек:** React 18 + TypeScript + Vite + @vkontakte/vkui + @vkontakte/vk-bridge
+
+**Деплой:** GitHub Actions → VK Hosting (статика)
+
+**Экраны (7):**
+1. LinkPage — привязка VK ↔ TG (ввод кода)
+2. CreateFamilyPage — создание семьи
+3. JoinFamilyPage — вступление по коду
+4. DashboardPage — баланс, долги, участники, FAB "+"
+5. AddExpensePage — форма добавления траты
+6. PayDebtPage — оплата долга
+7. HistoryPage — история транзакций с фильтрами
+
+**Backend изменения:**
+- Добавить `flask-cors` для CORS
+- Таблица `linked_vk_accounts` (vk_user_id, tg_user_id, link_code, code_expires_at)
+- Endpoint `GET /api/budget/vk/status` — проверка привязки
+- Endpoint `POST /api/budget/vk/link` — привязка по коду
+- Bot command `/linkvk` — генерация кода
+
+**VK Mini App пути:**
+- `vk_mini_app/src/pages/LinkPage.tsx`
+- `vk_mini_app/src/pages/DashboardPage.tsx`
+- `vk_mini_app/src/pages/AddExpensePage.tsx`
+- `vk_mini_app/src/pages/PayDebtPage.tsx`
+- `vk_mini_app/src/pages/HistoryPage.tsx`
+- `vk_mini_app/src/pages/CreateFamilyPage.tsx`
+- `vk_mini_app/src/pages/JoinFamilyPage.tsx`
+- `vk_mini_app/src/api/budget.ts` — fetch wrapper
+
+**Деплой:**
+- `.github/workflows/deploy-vk-mini-app.yml`
+- Требуется secret: `VK_MINI_APPS_TOKEN`
+- Требуется VK App ID (регистрация на dev.vk.com)
+
+**Статус:** в реализации
+
+---
+
 **Phase 1 (Core): 100/100 completed**  
 **Phase 2 (Features): 96/100 completed** (GD-01-07: 27%, CH-01-06: 18%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-04: 19%, AIC-01-08: 8%, BGT-01-10: 98%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST/BGT-TEST: 0%)  
 **Общий прогресс проекта: 100% (Phase 1) + 96% (Phase 2)**

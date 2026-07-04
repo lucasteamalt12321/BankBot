@@ -20,6 +20,26 @@
 
 ## Changelog
 
+### 2026-07-04 (VK Mini App — Budget UI + Yandex.Disk removal)
+
+**Удалено:**
+- `scripts/export_debts_yadisk.py` — скрипт экспорта долгов на Яндекс.Диск
+- Все yadisk-функции из `api/index.py`: `_log_yadisk`, `_upload_to_yadisk`, `_fetch_debts_for_export`, `_build_debts_html`
+- Переменная `_YADISK_LOG`, константа `YADISK_API`
+- Команды `/export_debts` и `/yadisk_logs`
+
+**Добавлено (VK Mini App):**
+- `flask-cors` в `requirements.txt`, CORS настроен для VK origins (`https://vk.com`, `https://*.vk.com`)
+- Модель `LinkedVKAccount` в `database/database.py` (vk_user_id, tg_user_id, link_code, code_expires_at)
+- Alembic миграция `011_vk_account_linking.py` — таблица `linked_vk_accounts`
+- Endpoint `GET /api/budget/vk/status` — проверка привязки VK ↔ TG
+- Endpoint `POST /api/budget/vk/link` — привязка по 6-значному коду
+- Bot command `/linkvk` — генерация кода (TTL 10 мин)
+- VK Mini App проект: React 18 + TypeScript + Vite + @vkontakte/vkui@8.3.0 + @vkontakte/vk-bridge@3.0.2
+- 7 страниц: LinkPage, DashboardPage, AddExpensePage, PayDebtPage, HistoryPage, CreateFamilyPage, JoinFamilyPage
+- API wrapper: `vk_mini_app/src/api/budget.ts`
+- Маршруты зарегистрированы в `api/index.py` и `run_bot.py`
+
 ### 2026-06-20 (Chess Fixes + Error Logging System + text shadowing bug)
 
 **Исправлено:**
@@ -941,3 +961,6 @@
 - `api/index.py` — все команды + инфекция-чек в обработчике сообщений
 
 **Коммиты:** `795435b`, `3fd47df`
+
+## last_checked_commit
+4e4da4e remove Yandex.Disk export feature (dead code causing periodic errors)
