@@ -66,7 +66,7 @@ const App: React.FC = () => {
               ...s,
               screen: 'dashboard',
               vkUserId,
-              tgUserId: status.user_id,
+              tgUserId: status.user_id || '',
             }));
           } else {
             setState((s) => ({ ...s, screen: 'link', vkUserId }));

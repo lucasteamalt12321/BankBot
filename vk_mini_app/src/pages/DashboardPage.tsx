@@ -13,7 +13,7 @@ import {
   Placeholder,
   Spinner,
 } from '@vkontakte/vkui';
-import { Icon24AddOutline, Icon24HistoryOutline, Icon24WalletOutline } from '@vkontakte/icons';
+import { Icon24AddOutline, Icon24StoryOutline, Icon24WalletOutline } from '@vkontakte/icons';
 import { getFamilyStatus, getDebts, getBalance, type Debt, type Balance } from '../api/budget';
 
 interface Props {
@@ -93,12 +93,12 @@ export const DashboardPage: React.FC<Props> = ({
         <Placeholder
           icon={<Icon24WalletOutline width={48} height={48} />}
           title="Семья не найдена"
-          description="Создайте семью или присоединитесь по коду"
         >
+          <Text style={{ marginBottom: 16 }}>Создайте семью или присоединитесь по коду</Text>
           <Button size="l" stretched onClick={onCreateFamily} style={{ marginBottom: 8 }}>
             Создать семью
           </Button>
-          <Button size="l" stretched appearance="secondary" onClick={onJoinFamily}>
+          <Button size="l" stretched mode="secondary" onClick={onJoinFamily}>
             Присоединиться по коду
           </Button>
         </Placeholder>
