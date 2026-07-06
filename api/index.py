@@ -2956,6 +2956,7 @@ def telegram_webhook(secret: str):
             send_reading_trainer(chat_id)
         elif command == "/budget" and chat_id:
             budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}"
+            vk_app_url = "https://vk.com/app54665568"
             send_telegram_message(
                 chat_id,
                 "💰 Семейный бюджет\n\n"
@@ -2966,15 +2967,21 @@ def telegram_webhook(secret: str):
                 "• Добавляйте траты — долги создаются автоматически\n"
                 "• Смотрите, кто кому должен\n"
                 "• Погашайте долги с пересчётом\n\n"
-                "Нажмите кнопку ниже, чтобы открыть в браузере:",
+                "Выберите способ открытия:",
                 reply_markup={
                     "inline_keyboard": [
                         [
                             {
-                                "text": "💰 Открыть семейный бюджет",
+                                "text": "🌐 Web (Vercel)",
                                 "url": budget_url,
                             }
-                        ]
+                        ],
+                        [
+                            {
+                                "text": "📱 VK Mini App",
+                                "url": vk_app_url,
+                            }
+                        ],
                     ]
                 },
             )
