@@ -1,11 +1,11 @@
 # Active Context
 
-**Последнее обновление:** 2026-07-04  
+**Последнее обновление:** 2026-07-06  
 **Текущая фаза:** VK Mini App — альтернативный UI для Budget модуля
 
 ## Текущий фокус
 
-### VK Mini App — Budget UI (2026-07-04)
+### VK Mini App — Budget UI (2026-07-06)
 
 **Цель:** Альтернативный UI для семейного бюджета во VK Mini App для пользователей без доступа к Vercel (ограничения мобильного интернета в РФ).
 
@@ -31,37 +31,24 @@
 - ✅ `CreateFamilyPage` — создание семьи
 - ✅ `JoinFamilyPage` — вступление по коду
 
+**Выполнено в этой сессии:**
+- ✅ Yandex.Disk export полностью удалён (409 Conflict не решаем)
+- ✅ Установлен Vercel CLI, выполнен деплой
+- ✅ `/budget` показывает две кнопки: Vercel Web + VK Mini App
+- ✅ VK ключи добавлены в `config/.env.local`
+- ✅ VK Mini App зарегистрирован (app_id=54665568)
+
 **Осталось:**
-- 🔲 GitHub Actions деплой (`.github/workflows/deploy-vk-mini-app.yml`)
-- 🔲 Регистрация VK приложения на dev.vk.com (app_id)
+- 🔲 GitHub Actions деплой VK Mini App (нужен `VK_MINI_APPS_TOKEN` в Secrets)
 - 🔲 Тестирование VK Mini App (нужна модерация VK)
 - 🔲 Проверка CORS в продакшене
 
 **Важные файлы:**
-- `bot/web/family_budget.py` — Flask API + VK endpoints (lines 1078-1127)
-- `bot/commands/budget_commands.py` — команда `/linkvk` (lines 363-396)
-- `database/database.py` — модель `LinkedVKAccount` (lines 670-680)
-- `database/alembic/versions/011_vk_account_linking.py` — миграция
+- `bot/web/family_budget.py` — Flask API + VK endpoints
+- `bot/commands/budget_commands.py` — команда `/linkvk`
+- `database/database.py` — модель `LinkedVKAccount`
 - `vk_mini_app/` — весь VK Mini App проект
-
-## Checkpoint: Phase 2 Progress
-
-**Phase 2: 78/100 (78%)** (+3% GD Module + +1% UN-03)
-- ✅ AI Module: 15% (completed)
-- ✅ Mom Module: 19% (completed)
-- ✅ GD Module: 30% (GD-01 to GD-07 completed + GD for Vercel)
-- ✅ Universe Module: 12% (UN-01 to UN-03 completed)
-- ⏳ Chess Module: 12% (CH-02, CH-03, CH-04 completed, CH-05, CH-06, CH-TEST remaining: 8%)
-
-**Chess Module Progress: 12/20 (60%)**
-- ✅ CH-02: /chess_link command (3%)
-- ✅ CH-03: /chess_rating, /chess_stats basic (4%)
-- ✅ CH-04: /puzzle with board image (5%)
-- ⏳ CH-05: Puzzle rewards system (3%)
-- ⏳ CH-06: Bank integration + history (3%)
-- ⏳ CH-TEST: Manual testing (2%)
-
-**Remaining:** 26% (Chess: 8%, GD-TEST: 3%, Universe: 4%, buffer: 11%)
+- `config/.env.local` — VK ключи и токены
 
 ## Технический контекст
 

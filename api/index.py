@@ -103,6 +103,7 @@ def get_db_engine():
     _ensure_gd_tables(DB_ENGINE)
     _ensure_budget_tables(DB_ENGINE)
     _ensure_universe_tables(DB_ENGINE)
+    _ensure_dnd_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -392,6 +393,85 @@ def _ensure_universe_tables(engine):
         print("[UNIVERSE] Tables ensured successfully")
     except Exception as exc:
         print(f"[UNIVERSE] Table init error: {exc}")
+
+
+def _ensure_dnd_tables(engine):
+    """Create D&D AI Master tables/columns if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS dnd_sessions (
+                    id SERIAL PRIMARY KEY,
+                    master_id BIGINT NOT NULL,
+                    name VARCHAR(100),
+                    description TEXT,
+                    max_players INTEGER DEFAULT 6,
+                    current_players INTEGER DEFAULT 0,
+                    status VARCHAR(20) DEFAULT 'planning',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    started_at TIMESTAMPTZ,
+                    paused_at TIMESTAMPTZ,
+                    completed_at TIMESTAMPTZ,
+                    book_content TEXT,
+                    current_scene TEXT,
+                    context_summary TEXT,
+                    ai_system_prompt TEXT,
+                    last_ai_response TEXT,
+                    chapter_breakdown JSONB
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS dnd_characters (
+                    id SERIAL PRIMARY KEY,
+                    session_id INTEGER REFERENCES dnd_sessions(id) ON DELETE CASCADE,
+                    player_id BIGINT NOT NULL,
+                    name VARCHAR(100),
+                    race VARCHAR(50),
+                    character_class VARCHAR(50),
+                    level INTEGER DEFAULT 1,
+                    background TEXT,
+                    alignment VARCHAR(20),
+                    stats JSONB DEFAULT '{}',
+                    hit_points INTEGER DEFAULT 10,
+                    max_hit_points INTEGER DEFAULT 10,
+                    armor_class INTEGER DEFAULT 10,
+                    inventory JSONB,
+                    spells JSONB,
+                    notes TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    last_active_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS dnd_session_logs (
+                    id SERIAL PRIMARY KEY,
+                    session_id INTEGER REFERENCES dnd_sessions(id) ON DELETE CASCADE,
+                    player_id BIGINT,
+                    character_id INTEGER REFERENCES dnd_characters(id) ON DELETE SET NULL,
+                    message_type VARCHAR(20),
+                    content TEXT,
+                    ai_context TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dnd_session_logs_session ON dnd_session_logs(session_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS dnd_fixes (
+                    id SERIAL PRIMARY KEY,
+                    session_id INTEGER REFERENCES dnd_sessions(id) ON DELETE CASCADE,
+                    player_id BIGINT NOT NULL,
+                    character_id INTEGER REFERENCES dnd_characters(id) ON DELETE SET NULL,
+                    original_context TEXT,
+                    correction TEXT,
+                    applied BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dnd_fixes_session ON dnd_fixes(session_id)"))
+            conn.commit()
+        print("[DND] Tables ensured successfully")
+    except Exception as exc:
+        print(f"[DND] Table init error: {exc}")
 
 
 def _load_bot_id() -> int | None:
@@ -2790,6 +2870,18 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"[UNIVERSE] infection message modify error: {exc}")
 
+        # D&D AI Master: intercept free-form messages during active sessions
+        if not command and chat_id and msg_text and not reply_to:
+            dnd_reply = None
+            try:
+                from api.dnd_runtime import handle_free_text
+                dnd_reply = handle_free_text(user_id, chat_id, msg_text)
+            except Exception as exc:
+                print(f"[DND] handle_free_text error: {exc}")
+            if dnd_reply:
+                send_telegram_message(chat_id, dnd_reply)
+                return jsonify({"ok": True})
+
         # Check for parsing trigger (reply to game bot with "Парсинг" or /parse or /parsing)
         reply_to = message.get("reply_to_message")
         is_parsing_trigger = (
@@ -4411,6 +4503,39 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"[UNIVERSE] /daily_prayer error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при получении молитвы.")
+
+        # ── D&D AI Master ──────────────────────────────────────────
+        elif command == "/dnd" and chat_id:
+            from api.dnd_runtime import cmd_dnd
+            send_telegram_message(chat_id, cmd_dnd(user_id, chat_id))
+        elif command == "/dnd_start" and chat_id:
+            from api.dnd_runtime import cmd_dnd_start
+            args = msg_text[len("/dnd_start"):].strip() if len(msg_text) > len("/dnd_start") else ""
+            reply = cmd_dnd_start(user_id, chat_id, args)
+            send_telegram_message(chat_id, reply)
+        elif command == "/dnd_stop" and chat_id:
+            from api.dnd_runtime import cmd_dnd_stop
+            send_telegram_message(chat_id, cmd_dnd_stop(user_id, chat_id))
+        elif command == "/dnd_status" and chat_id:
+            from api.dnd_runtime import cmd_dnd_status
+            send_telegram_message(chat_id, cmd_dnd_status(user_id, chat_id))
+        elif command == "/dnd_roll" and chat_id:
+            from api.dnd_runtime import cmd_dnd_roll
+            args = msg_text[len("/dnd_roll"):].strip() if len(msg_text) > len("/dnd_roll") else ""
+            reply = cmd_dnd_roll(user_id, chat_id, args)
+            if reply:
+                send_telegram_message(chat_id, reply)
+        elif command == "/dnd_fix" and chat_id:
+            from api.dnd_runtime import cmd_dnd_fix
+            fix_text = msg_text[len("/dnd_fix"):].strip() if len(msg_text) > len("/dnd_fix") else ""
+            if not fix_text:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Используйте: /dnd_fix <что нужно исправить>"
+                )
+            else:
+                send_telegram_message(chat_id, cmd_dnd_fix(user_id, chat_id, fix_text))
+        # ── end D&D ────────────────────────────────────────────────
 
     except Exception as e:
         print(f"Error processing update: {e}")

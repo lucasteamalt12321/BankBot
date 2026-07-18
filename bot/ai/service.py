@@ -129,12 +129,13 @@ class AiLiteService:
                 title="dnd",
                 keywords=("dnd", "d&d", "днд", "куб", "dice", "roll", "ролл"),
                 answer=(
-                    "🐉 D&D:\n"
-                    "• /dnd — меню D&D.\n"
-                    "• /dnd_create — создать сессию.\n"
-                    "• /dnd_join — присоединиться.\n"
-                    "• /dnd_sessions — список сессий.\n"
-                    "• /dnd_roll — бросок кубика."
+                    "🐉 D&D ИИ-Мастер:\n"
+                    "• /dnd — справка.\n"
+                    "• /dnd_start — начать сессию.\n"
+                    "• /dnd_stop — остановить.\n"
+                    "• /dnd_status — сводка.\n"
+                    "• /dnd_roll — бросок кубика.\n"
+                    "• /dnd_fix — исправить ИИ."
                 ),
             ),
             AiTopic(

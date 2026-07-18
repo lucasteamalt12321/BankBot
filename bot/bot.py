@@ -123,10 +123,11 @@ HF_WEBHOOK_DISABLED_COMMANDS = {
     "startgame",
     "turn",
     "dnd",
-    "dnd_create",
-    "dnd_join",
+    "dnd_start",
+    "dnd_stop",
+    "dnd_status",
     "dnd_roll",
-    "dnd_sessions",
+    "dnd_fix",
     "notify_status",
     "test_adb",
     "admin_shop_add",
@@ -523,11 +524,12 @@ class TelegramBot:
                 admin_shop_edit_command,
             )
             from bot.commands.dnd_commands_ptb import (
-                dnd_command,
-                dnd_create_command,
-                dnd_join_command,
+                dnd_help_command,
+                dnd_start_command,
+                dnd_stop_command,
+                dnd_status_command,
                 dnd_roll_command,
-                dnd_sessions_command,
+                dnd_fix_command,
             )
             from bot.commands.game_commands_ptb import (
                 game_turn_command,
@@ -576,12 +578,13 @@ class TelegramBot:
                     CommandHandler("join", join_command),
                     CommandHandler("startgame", start_game_command),
                     CommandHandler("turn", game_turn_command),
-                    # D&D
-                    CommandHandler("dnd", dnd_command),
-                    CommandHandler("dnd_create", dnd_create_command),
-                    CommandHandler("dnd_join", dnd_join_command),
+                    # D&D AI Master
+                    CommandHandler("dnd", dnd_help_command),
+                    CommandHandler("dnd_start", dnd_start_command),
+                    CommandHandler("dnd_stop", dnd_stop_command),
+                    CommandHandler("dnd_status", dnd_status_command),
                     CommandHandler("dnd_roll", dnd_roll_command),
-                    CommandHandler("dnd_sessions", dnd_sessions_command),
+                    CommandHandler("dnd_fix", dnd_fix_command),
                     # Realtime/watch diagnostics
                     CommandHandler("notify_status", notify_status_command),
                     CommandHandler("test_adb", test_adb_command),
@@ -622,6 +625,19 @@ class TelegramBot:
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.parse_all_messages)
         )
+
+        # D&D document upload handler
+        if not hf_webhook_runtime:
+            async def handle_dnd_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                if not update.message or not update.message.document:
+                    return
+                from bot.handlers.dnd_document_handler import handle_dnd_file_upload
+                await handle_dnd_file_upload(update, context)
+
+            self.application.add_handler(
+                MessageHandler(filters.Document.ALL & ~filters.COMMAND, handle_dnd_document),
+                group=-1,
+            )
 
         logger.info("All enhanced handlers set up successfully")
 
@@ -1315,6 +1331,13 @@ class TelegramBot:
                     return
                 # NEW: Use unified parsing handler
                 await self.parsing_handler.handle_manual_parsing(update, context)
+                return
+
+        # D&D AI Master: intercept messages during active sessions
+        if not is_hf_webhook_runtime():
+            from bot.handlers.dnd_message_handler import handle_dnd_message
+            handled = await handle_dnd_message(update, context)
+            if handled:
                 return
 
         # Пропускаем все остальные сообщения

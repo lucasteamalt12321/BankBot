@@ -20,6 +20,18 @@
 
 ## Changelog
 
+### 2026-07-06 (Session: VK + Vercel deploy, /budget dual links)
+
+**Сделано:**
+- Yandex.Disk export удалён из кодовой базы (dead code)
+- Установлен Vercel CLI, выполнен production деплой
+- `/budget` показывает две inline-кнопки: "🌐 Web (Vercel)" и "📱 VK Mini App"
+- VK_PROTECTED_KEY, VK_SERVICE_TOKEN, VERCEL_TOKEN добавлены в `config/.env.local`
+- Получен VK сервисный и защищённый ключи, Vercel токен
+- VK Mini App зарегистрирован (app_id=54665568)
+
+**Коммиты:** 4e4da4e, 3abc5bf
+
 ### 2026-07-04 (VK Mini App — Budget UI + Yandex.Disk removal)
 
 **Удалено:**
@@ -444,7 +456,7 @@
 - После ES5-фикса и Playwright-верификации JS работает корректно
 
 ## last_checked_commit
-54398d1 (2026-06-28, Family Budget JS fix: Python \' eating quotes)
+3abc5bf (2026-07-06, feat: VK Mini App and Vercel links in /budget)
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
 - **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
