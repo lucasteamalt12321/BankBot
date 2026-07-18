@@ -139,6 +139,21 @@ class Settings(BaseSettings):
     OLLAMA_ENDPOINT: str = Field(default="http://localhost:11434")
     OLLAMA_MODEL: str = Field(default="llama2")
 
+    # Groq (used as primary for D&D AI Master)
+    GROQ_API_KEY: Optional[str] = Field(default=None)
+    GROQ_MODEL: str = Field(default="llama-3.1-70b-versatile")
+
+    # D&D AI Master Settings
+    DND_SYSTEM_ENABLED: bool = Field(default=True)
+    DND_AI_MAX_TOKENS: int = Field(default=800)
+    DND_PLAYER_TIMEOUT_MINUTES: int = Field(default=15)
+    DND_AI_SYSTEM_PROMPT: str = Field(
+        default="Ты — мастер подземелий (Game Master) D&D. Отвечай на русском языке. "
+        "Не более 800 символов. Опиши ситуацию, дай игрокам варианты действий. "
+        "Учитывай их предыдущие решения и состояние персонажей."
+    )
+    DND_BOOK_MAX_CHARS: int = Field(default=10000)
+
     @field_validator("BOT_TOKEN")
     @classmethod
     def validate_bot_token(cls, v: str) -> str:
@@ -297,6 +312,21 @@ def _create_settings_with_env_file(env_file: str | list[str] | None) -> Settings
         OLLAMA_ENABLED: bool = False
         OLLAMA_ENDPOINT: str = "http://localhost:11434"
         OLLAMA_MODEL: str = "llama2"
+
+        # Groq (used as primary for D&D AI Master)
+        GROQ_API_KEY: Optional[str] = None
+        GROQ_MODEL: str = "llama-3.1-70b-versatile"
+
+        # D&D AI Master Settings
+        DND_SYSTEM_ENABLED: bool = True
+        DND_AI_MAX_TOKENS: int = 800
+        DND_PLAYER_TIMEOUT_MINUTES: int = 15
+        DND_AI_SYSTEM_PROMPT: str = (
+            "Ты — мастер подземелий (Game Master) D&D. Отвечай на русском языке. "
+            "Не более 800 символов. Опиши ситуацию, дай игрокам варианты действий. "
+            "Учитывай их предыдущие решения и состояние персонажей."
+        )
+        DND_BOOK_MAX_CHARS: int = 10000
 
         model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
             env_file=env_file,

@@ -160,7 +160,7 @@ class TestSetupRouters:
         assert 'play' in command_names_flat
         assert 'join' in command_names_flat
         assert 'dnd' in command_names_flat
-        assert 'dnd_create' in command_names_flat
+        assert 'dnd_start' in command_names_flat
 
     def test_setup_routers_registers_admin_commands(self, mock_application, command_instances):
         """Test that admin commands are registered."""
@@ -416,7 +416,7 @@ class TestAllCommandsRegistered:
 
             # Game Commands (10 commands)
             'games', 'play', 'join', 'startgame', 'turn',
-            'dnd', 'dnd_create', 'dnd_join', 'dnd_roll', 'dnd_sessions',
+            'dnd', 'dnd_start', 'dnd_stop', 'dnd_status', 'dnd_roll', 'dnd_fix',
 
             # Admin Commands (27 commands)
             # Core admin
@@ -534,7 +534,7 @@ class TestAllCommandsRegistered:
 
         game_commands = {
             'games', 'play', 'join', 'startgame', 'turn',
-            'dnd', 'dnd_create', 'dnd_join', 'dnd_roll', 'dnd_sessions'
+            'dnd', 'dnd_start', 'dnd_stop', 'dnd_status', 'dnd_roll', 'dnd_fix'
         }
         assert game_commands.issubset(registered_commands), \
             f"Missing game commands: {game_commands - registered_commands}"

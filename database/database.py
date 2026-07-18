@@ -192,6 +192,16 @@ class DndSession(Base):
     status = Column(String(20), default='planning')
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
+    paused_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # D&D AI Master fields
+    book_content = Column(Text, nullable=True)
+    current_scene = Column(Text, nullable=True)
+    context_summary = Column(Text, nullable=True)
+    ai_system_prompt = Column(Text, nullable=True)
+    last_ai_response = Column(Text, nullable=True)
+    chapter_breakdown = Column(JSON, nullable=True)
 
     master = relationship("User", back_populates="dnd_sessions_master", foreign_keys=[master_id])
     characters = relationship("DndCharacter", back_populates="session", cascade="all, delete-orphan")
@@ -206,12 +216,20 @@ class DndCharacter(Base):
     session_id = Column(Integer, ForeignKey("dnd_sessions.id", ondelete="CASCADE"))
     player_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     name = Column(String(100))
+    race = Column(String(50), nullable=True)
     character_class = Column(String(50))
     level = Column(Integer, default=1)
     background = Column(Text, nullable=True)
+    alignment = Column(String(20), nullable=True)
     stats = Column(JSON)
+    hit_points = Column(Integer, default=10)
+    max_hit_points = Column(Integer, default=10)
+    armor_class = Column(Integer, default=10)
     inventory = Column(JSON, nullable=True)
+    spells = Column(JSON, nullable=True)
     notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_active_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("DndSession", back_populates="characters")
     user = relationship("User", back_populates="dnd_characters")
@@ -256,6 +274,40 @@ class DndQuest(Base):
 
     character = relationship("DndCharacter", back_populates="quests")
     session = relationship("DndSession", back_populates="quests")
+
+
+class DndSessionLog(Base):
+    __tablename__ = "dnd_session_logs"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("dnd_sessions.id", ondelete="CASCADE"))
+    player_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    character_id = Column(Integer, ForeignKey("dnd_characters.id", ondelete="SET NULL"), nullable=True)
+    message_type = Column(String(20))  # player_action, ai_response, dice_roll, system
+    content = Column(Text)
+    ai_context = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("DndSession", backref="session_logs")
+    player = relationship("User", foreign_keys=[player_id])
+    character = relationship("DndCharacter", foreign_keys=[character_id])
+
+
+class DndFix(Base):
+    __tablename__ = "dnd_fixes"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("dnd_sessions.id", ondelete="CASCADE"))
+    player_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    character_id = Column(Integer, ForeignKey("dnd_characters.id", ondelete="SET NULL"), nullable=True)
+    original_context = Column(Text)
+    correction = Column(Text)
+    applied = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("DndSession", backref="fixes")
+    player = relationship("User", foreign_keys=[player_id])
+    character = relationship("DndCharacter", foreign_keys=[character_id])
 
 
 class Achievement(Base):

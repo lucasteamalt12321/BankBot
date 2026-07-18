@@ -37,3 +37,8 @@ pyyaml==6.0.3
 
 # VK API (Bridge-модуль)
 vk_api~=11.9
+
+# D&D Module - Document Parsing
+PyPDF2>=3.0.0
+python-docx>=1.1.0
+pytesseract>=0.3.10
