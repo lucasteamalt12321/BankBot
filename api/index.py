@@ -417,7 +417,7 @@ def _ensure_dnd_tables(engine):
                     context_summary TEXT,
                     ai_system_prompt TEXT,
                     last_ai_response TEXT,
-                    chapter_breakdown JSONB
+                    chapter_breakdown TEXT
                 )
             """))
             conn.execute(text("""
@@ -431,12 +431,12 @@ def _ensure_dnd_tables(engine):
                     level INTEGER DEFAULT 1,
                     background TEXT,
                     alignment VARCHAR(20),
-                    stats JSONB DEFAULT '{}',
+                    stats TEXT DEFAULT '{}',
                     hit_points INTEGER DEFAULT 10,
                     max_hit_points INTEGER DEFAULT 10,
                     armor_class INTEGER DEFAULT 10,
-                    inventory JSONB,
-                    spells JSONB,
+                    inventory TEXT,
+                    spells TEXT,
                     notes TEXT,
                     is_active BOOLEAN DEFAULT TRUE,
                     last_active_at TIMESTAMPTZ DEFAULT NOW()
@@ -4541,6 +4541,12 @@ def telegram_webhook(secret: str):
         print(f"Error processing update: {e}")
         import traceback
         traceback.print_exc()
+        err_chat = chat_id if (chat_id and BOT_TOKEN) else None
+        if err_chat:
+            try:
+                send_telegram_message(err_chat, f"❌ Ошибка: {e}")
+            except:
+                pass
     return jsonify({"ok": True})
 
 
