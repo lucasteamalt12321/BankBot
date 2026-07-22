@@ -255,7 +255,8 @@ def build_prompt(session: dict, action_text: str) -> str:
 
 def _resolve_user_id(telegram_id: int) -> int:
     """Return users.id for a telegram_id, creating a minimal row if needed."""
-    with _engine.connect() as conn:
+    engine = get_db_engine()
+    with engine.connect() as conn:
         row = conn.execute(
             text("SELECT id FROM users WHERE telegram_id = :tid"),
             {"tid": telegram_id},
