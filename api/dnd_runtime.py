@@ -135,16 +135,18 @@ def _execute(sql: str, params: dict = None) -> None:
 
 # ── session management ─────────────────────────────────────────────
 
-def find_active_session(user_id: int) -> Optional[dict]:
+def find_active_session(telegram_id: int) -> Optional[dict]:
+    db_uid = _resolve_user_id(telegram_id)
     return _fetch_one(
         "SELECT * FROM dnd_sessions WHERE master_id = :uid AND status = 'active' LIMIT 1",
-        {"uid": user_id},
+        {"uid": db_uid},
     ) or _fetch_one(
         """SELECT s.* FROM dnd_sessions s
            JOIN dnd_characters c ON c.session_id = s.id
            WHERE c.player_id = :uid AND s.status = 'active'
            LIMIT 1""",
-        {"uid": user_id},
+        {"uid": db_uid},
+        session_id_as_str=True,
     )
 
 
@@ -251,17 +253,35 @@ def build_prompt(session: dict, action_text: str) -> str:
 
 # ── public handlers called from api/index.py ───────────────────────
 
-def cmd_dnd_start(user_id: int, chat_id: int, args: str) -> str:
-    existing = find_active_session(user_id)
+def _resolve_user_id(telegram_id: int) -> int:
+    """Return users.id for a telegram_id, creating a minimal row if needed."""
+    with _engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT id FROM users WHERE telegram_id = :tid"),
+            {"tid": telegram_id},
+        ).mappings().first()
+        if row:
+            return row["id"]
+        result = conn.execute(
+            text("INSERT INTO users (telegram_id) VALUES (:tid) RETURNING id"),
+            {"tid": telegram_id},
+        )
+        conn.commit()
+        return result.mappings().first()["id"]
+
+
+def cmd_dnd_start(telegram_id: int, chat_id: int, args: str) -> str:
+    db_user_id = _resolve_user_id(telegram_id)
+    existing = find_active_session(telegram_id)
     if existing:
         return (f"❌ У вас уже есть активная сессия \"{existing['name']}\" (#{existing['id']}).\n"
                 f"Сначала завершите её: /dnd_stop")
 
-    name = args if args else f"Кампания #{user_id % 10000}"
+    name = args if args else f"Кампания #{telegram_id % 10000}"
     _execute(
         "INSERT INTO dnd_sessions (master_id, name, status, started_at) "
         "VALUES (:uid, :name, 'active', :now)",
-        {"uid": user_id, "name": name, "now": datetime.now(timezone.utc)},
+        {"uid": db_user_id, "name": name, "now": datetime.now(timezone.utc)},
     )
 
     return (
