@@ -146,7 +146,6 @@ def find_active_session(telegram_id: int) -> Optional[dict]:
            WHERE c.player_id = :uid AND s.status = 'active'
            LIMIT 1""",
         {"uid": db_uid},
-        session_id_as_str=True,
     )
 
 

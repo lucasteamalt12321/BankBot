@@ -4538,6 +4538,8 @@ def telegram_webhook(secret: str):
         # ── end D&D ────────────────────────────────────────────────
 
     except Exception as e:
+        global _last_error
+        _last_error = f"WEBHOOK: {type(e).__name__}: {e}"
         print(f"Error processing update: {e}")
         import traceback
         traceback.print_exc()
@@ -5209,6 +5211,30 @@ def debug_webhook():
         })
     except Exception as e:
         return jsonify({"error": str(e)})
+
+# Error buffer for diagnostics
+_last_error: str | None = None
+
+
+@app.route("/api/debug_dnd", methods=["GET"])
+def debug_dnd():
+    """Debug D&D start flow (must pass user_id and optionally chat_id as query params)."""
+    try:
+        uid = int(request.args.get("user_id", 111))
+        cid = int(request.args.get("chat_id", uid))
+        from api.dnd_runtime import cmd_dnd_start, cmd_dnd_status
+        reply = cmd_dnd_start(uid, cid, "diagnostic-campaign")
+        return jsonify({"reply": reply, "ok": True, "error": None})
+    except Exception as e:
+        global _last_error
+        _last_error = f"{type(e).__name__}: {e}"
+        return jsonify({"reply": None, "ok": False, "error": _last_error})
+
+
+@app.route("/api/debug_last_error", methods=["GET"])
+def debug_last_error():
+    return jsonify({"last_error": _last_error})
+
 
 # Initialize database tables on cold start
 try:
