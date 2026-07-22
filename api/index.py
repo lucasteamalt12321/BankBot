@@ -4541,12 +4541,6 @@ def telegram_webhook(secret: str):
         print(f"Error processing update: {e}")
         import traceback
         traceback.print_exc()
-        err_chat = chat_id if (chat_id and BOT_TOKEN) else None
-        if err_chat:
-            try:
-                send_telegram_message(err_chat, f"❌ Ошибка: {e}")
-            except:
-                pass
     return jsonify({"ok": True})
 
 
