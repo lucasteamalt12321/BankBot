@@ -21,13 +21,27 @@ logger = logging.getLogger(__name__)
 
 # ── helpers (mirror api/index.py patterns) ─────────────────────────
 
+_DND_ENGINE = None
+
+
 def get_db_engine():
+    global _DND_ENGINE
+    if _DND_ENGINE is not None:
+        return _DND_ENGINE
     database_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
     if database_url.startswith("postgres://"):
         database_url = "postgresql://" + database_url[len("postgres://"):]
     if not database_url:
         database_url = "sqlite:///data/bot.db"
-    return create_engine(database_url, pool_size=5, max_overflow=10)
+    _DND_ENGINE = create_engine(
+        database_url,
+        pool_size=2,
+        max_overflow=2,
+        pool_pre_ping=True,
+        pool_recycle=60,
+        connect_args={"connect_timeout": 10},
+    )
+    return _DND_ENGINE
 
 
 def send_tg(chat_id: int, text: str, parse_mode: str = "HTML",
