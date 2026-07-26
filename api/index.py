@@ -1784,6 +1784,33 @@ def send_reading_trainer(chat_id: int) -> None:
     send_telegram_message(chat_id, response_text, reply_markup=keyboard)
 
 
+def send_endings_trainer(chat_id: int) -> None:
+    """Send endings trainer message with inline button."""
+    response_text = (
+        "📝 Тренажёр окончаний\n\n"
+        "Вставьте любой текст — AI сделает упражнение на падежные окончания.\n\n"
+        "📖 Как работает:\n"
+        "• Вставляете текст\n"
+        "• AI находит 5-10 слов и убирает окончания\n"
+        "• Вписываете пропущенные окончания\n"
+        "• Проверка с подсветкой правильных ответов\n\n"
+        "Нажмите кнопку ниже, чтобы открыть в браузере:"
+    )
+
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "📝 Открыть тренажёр",
+                    "url": "https://bank-bot-ruby.vercel.app/endings_trainer.html",
+                }
+            ]
+        ]
+    }
+
+    send_telegram_message(chat_id, response_text, reply_markup=keyboard)
+
+
 def normalize_command(text: str | None) -> str:
     """Return command without bot mention and arguments."""
 
@@ -2244,6 +2271,7 @@ ID: {user_id}
 /profile — профиль
 /stats — статистика
 /reading_trainer — тренажёр чтения
+/endings — тренажёр окончаний
 /trivia — викторина
 /short — краткие ответы
 /long — полный режим для себя
@@ -2282,7 +2310,8 @@ def build_long_start_text(name: str, user_id: int) -> str:
 /stats - персональная статистика
 /short - краткие ответы
 /long - полные ответы
-/reading_trainer - тренажёр чтения
+ /reading_trainer - тренажёр чтения
+ /endings - тренажёр окончаний
 
 [AI] AI-помощник:
 /character - выбрать характер (олеговирус или чай)
@@ -3205,6 +3234,8 @@ def telegram_webhook(secret: str):
             send_telegram_message(chat_id, "Полный режим включён. Напишите /start.")
         elif command == "/reading_trainer" and chat_id:
             send_reading_trainer(chat_id)
+        elif command == "/endings" and chat_id:
+            send_endings_trainer(chat_id)
         elif command == "/budget" and chat_id:
             budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}"
             vk_app_url = "https://vk.com/app54665568"
@@ -5521,46 +5552,104 @@ def api_endings_process():
         if not text or len(text) < 10:
             return jsonify({"ok": False, "error": "Текст слишком короткий (нужно минимум 10 символов)"})
 
-        prompt = f"""Ты — преподаватель русского языка. Из текста ниже сделай упражнение на окончания.
+        prompt = f"""You are given a Russian text. Your task: create a JSON structure that marks 5-10 words where the ending should be replaced with a blank in an exercise.
 
-Найди 5-10 слов, у которых можно убрать окончание. Для каждого такого слова верни основу (всё слово без окончания) и само окончание.
+CRITICAL: You MUST NOT change ANY character of the text. Only mark words by splitting them into stem + ending.
 
-Правила:
-- Не трогай предлоги, союзы, частицы, короткие слова (до 3 букв)
-- Не трогай имена собственные (имена людей, города)
-- Выбирай слова, у которых окончание действительно можно ошибиться (существительные в разных падежах, прилагательные, глаголы)
-- Сохрани все пробелы, знаки препинания и переносы строк как в оригинале
+For each chosen word, split it into stem (all letters before the ending) and ending (the final 1-4 letters that change by case/gender/number).
 
-Верни ТОЛЬКО JSON строго в таком формате без лишнего текста:
-{{"segments": [["t","текст без изменений"], ["b","основа","окончание"], ["t"," и ещё текст "], ["b","основ","а"]]}}
+Examples from text "Мама мыла раму.":
+  "раму" -> {{"b": "рам", "e": "у"}}  (stem="рам", ending="у")
+  "мыла" -> {{"b": "мыл", "e": "а"}}
 
-Где:
-- ["t", "..."] — обычный текст (часть предложения без изменений)
-- ["b", "основа", "окончание"] — слово с пропущенным окончанием: основа и правильное окончание
+The output must be a list of alternating text segments and blank segments.
+- Text segment: {{"t": "original text here unchanged"}}
+- Blank segment: {{"b": "stem", "e": "ending"}}
 
-Текст:
-{text}"""
+STRICT RULES:
+1. NEVER change or rewrite the original text. Every text segment must contain exactly the original characters.
+2. Skip words under 5 letters, prepositions, conjunctions, particles, proper names
+3. Ending must be at least 1 letter
+4. Concatenating all "t" and "b" values (with "e" appended) in order must exactly reconstruct the input text
+
+Return ONLY pure JSON array, no markdown, no extra text:
+[{{"t":"Мама "}},{{"b":"мыл","e":"а"}},{{"t":" "}},{{"b":"рам","e":"у"}},{{"t":"."}}]
+
+Text: {text}"""
 
         ai_text = call_ai_api(prompt, max_tokens=3000)
-        print(f"[ENDINGS] Raw AI response: {ai_text[:500]}")
+        print(f"[ENDINGS] Raw AI response: {ai_text[:200]}")
 
         import json as _json
-        cleaned = ai_text.strip()
-        # Remove markdown code fences
-        cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
-        cleaned = re.sub(r'\s*```$', '', cleaned)
-        # Try to find JSON in the response
-        json_match = re.search(r'\{.*"segments".*\}', cleaned, re.DOTALL)
-        if json_match:
-            data = _json.loads(json_match.group())
-        else:
-            data = _json.loads(cleaned)
 
-        segments = data.get("segments", [])
-        if not segments:
-            return jsonify({"ok": False, "error": "AI не смог найти подходящие слова для упражнения. Попробуйте другой текст."})
+        def _parse_endings_json(raw: str) -> list | None:
+            cleaned = raw.strip()
+            if not cleaned:
+                return None
+            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+            cleaned = re.sub(r'\s*```$', '', cleaned)
+            try:
+                data = _json.loads(cleaned)
+                if isinstance(data, list):
+                    return data
+                segs = data.get("segments", [])
+                return segs if isinstance(segs, list) else None
+            except _json.JSONDecodeError:
+                pass
+            for pat in [r'\[.*\{.*"[tb]".*\}\]', r'\{.*"segments"\s*:\s*\[.*\]\}']:
+                m = re.search(pat, cleaned, re.DOTALL)
+                if m:
+                    try:
+                        data = _json.loads(m.group())
+                        if isinstance(data, list):
+                            return data
+                        return data.get("segments", [])
+                    except _json.JSONDecodeError:
+                        pass
+            return None
 
-        return jsonify({"ok": True, "segments": segments, "original": text})
+        raw_segments = _parse_endings_json(ai_text)
+        if not raw_segments:
+            return jsonify({"ok": False, "error": "AI не смог разобрать текст. Попробуйте ещё раз."})
+
+        # Normalize: support both list format ["t","text"] and dict format {"t":"text"}
+        def _to_list(seg):
+            if isinstance(seg, list) and len(seg) >= 2:
+                return seg
+            if isinstance(seg, dict):
+                if "t" in seg:
+                    return ["t", seg["t"]]
+                if "b" in seg and "e" in seg:
+                    return ["b", seg["b"], seg["e"]]
+            return None
+
+        filtered = []
+        for seg in raw_segments:
+            item = _to_list(seg)
+            if not item:
+                continue
+            typ = item[0]
+            if typ == 't' and item[1]:
+                if filtered and filtered[-1][0] == 't':
+                    filtered[-1][1] += item[1]
+                else:
+                    filtered.append(['t', item[1]])
+            elif typ == 'b':
+                stem = item[1]
+                ending = item[2] if len(item) > 2 and item[2] else ''
+                if ending:
+                    filtered.append(['b', stem, ending])
+                else:
+                    if filtered and filtered[-1][0] == 't':
+                        filtered[-1][1] += stem
+                    else:
+                        filtered.append(['t', stem])
+
+        blanks = [s for s in filtered if s[0] == 'b']
+        if len(blanks) < 2:
+            return jsonify({"ok": False, "error": "AI нашёл слишком мало слов для упражнения. Попробуйте другой текст побольше."})
+
+        return jsonify({"ok": True, "segments": filtered, "original": text})
 
     except _json.JSONDecodeError as e:
         print(f"[ENDINGS] JSON parse error: {e}, raw: {ai_text[:500]}")
