@@ -2618,7 +2618,161 @@ def reading_trainer():
     return html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
-# ── Vercel trivia (no external imports) ──────────────────────────────────
+@app.route("/endings_trainer.html")
+def endings_trainer():
+    """Serve endings trainer HTML."""
+    html_content = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тренажёр окончаний</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h1 { text-align: center; margin-bottom: 8px; color: #1a1a2e; font-size: 28px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 24px; font-size: 14px; }
+        textarea { width: 100%; min-height: 180px; padding: 16px; font-size: 18px; border: 2px solid #e0e0e0; border-radius: 12px; resize: vertical; font-family: inherit; line-height: 1.8; }
+        textarea:focus { outline: none; border-color: #6c63ff; }
+        .btn { padding: 14px 32px; font-size: 17px; cursor: pointer; border: none; border-radius: 10px; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: #6c63ff; color: white; }
+        .btn-primary:hover { background: #5a52e0; }
+        .btn-secondary { background: #e8e8e8; color: #333; }
+        .btn-secondary:hover { background: #d0d0d0; }
+        .btn-success { background: #2ecc71; color: white; }
+        .btn-success:hover { background: #27ae60; }
+        .actions { display: flex; gap: 12px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+        #exercise-screen { display: none; margin-top: 24px; }
+        #input-screen { display: block; }
+        .exercise-text { font-size: 20px; line-height: 2.4; padding: 20px; background: #fafbff; border-radius: 12px; border: 2px solid #e8e8ff; }
+        .exercise-text input { font-size: 20px; width: 60px; padding: 2px 6px; border: none; border-bottom: 2px solid #6c63ff; background: transparent; text-align: center; font-family: inherit; outline: none; }
+        .exercise-text input.correct { border-bottom-color: #2ecc71; background: #eafff0; }
+        .exercise-text input.incorrect { border-bottom-color: #e74c3c; background: #ffeaea; }
+        .exercise-text .hint { display: none; font-size: 14px; color: #e74c3c; margin-left: 4px; }
+        .result-badge { text-align: center; font-size: 20px; font-weight: 700; padding: 12px; border-radius: 10px; margin-top: 16px; display: none; }
+        .result-badge.pass { background: #eafff0; color: #27ae60; display: block; }
+        .result-badge.fail { background: #ffeaea; color: #e74c3c; display: block; }
+        @media (max-width: 600px) {
+            .container { padding: 16px; }
+            .exercise-text { font-size: 18px; }
+            .exercise-text input { font-size: 18px; width: 50px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Тренажёр окончаний</h1>
+        <p class="subtitle">Вставьте текст — получите упражнение с пропущенными окончаниями</p>
+
+        <div id="input-screen">
+            <textarea id="text-input" placeholder="Вставьте сюда любой текст на русском языке...">Мама мыла раму. Красивые цветы стояли на столе. Дети играли в парке.</textarea>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="generateExercise()">Создать упражнение</button>
+            </div>
+        </div>
+
+        <div id="exercise-screen">
+            <div id="exercise-content" class="exercise-text"></div>
+            <div id="result" class="result-badge"></div>
+            <div class="actions">
+                <button class="btn btn-success" onclick="checkExercise()">Проверить</button>
+                <button class="btn btn-secondary" onclick="resetAll()">Новый текст</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let segments = [];
+        let originalText = '';
+
+        function generateExercise() {
+            const text = document.getElementById('text-input').value.trim();
+            if (!text) { alert('Вставьте текст!'); return; }
+
+            document.getElementById('input-screen').style.display = 'none';
+            document.getElementById('exercise-screen').style.display = 'block';
+            document.getElementById('exercise-content').innerHTML = '<div style="text-align:center;padding:40px;color:#999;">Создаю упражнение...</div>';
+
+            fetch('/api/endings_process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ok) throw new Error(data.error || 'Ошибка');
+                segments = data.segments;
+                originalText = data.original;
+                renderExercise();
+            })
+            .catch(err => {
+                document.getElementById('exercise-content').innerHTML = '<div style="color:#e74c3c;text-align:center;">Ошибка: ' + err.message + '</div>';
+            });
+        }
+
+        function renderExercise() {
+            let html = '';
+            let idx = 0;
+            for (const seg of segments) {
+                if (seg[0] === 't') {
+                    html += escapeHtml(seg[1]);
+                } else if (seg[0] === 'b') {
+                    const stem = seg[1];
+                    const answer = seg[2];
+                    html += stem + '<input type="text" id="blank-' + idx + '" data-answer="' + escapeAttr(answer) + '" autocomplete="off"><span class="hint" id="hint-' + idx + '">(' + escapeHtml(answer) + ')</span>';
+                    idx++;
+                }
+            }
+            document.getElementById('exercise-content').innerHTML = html;
+            document.getElementById('result').className = 'result-badge';
+            document.getElementById('result').style.display = 'none';
+        }
+
+        function checkExercise() {
+            const inputs = document.querySelectorAll('#exercise-content input');
+            let correct = 0;
+            inputs.forEach((inp, i) => {
+                const userVal = inp.value.trim().toLowerCase();
+                const correctVal = inp.getAttribute('data-answer').toLowerCase();
+                inp.classList.remove('correct', 'incorrect');
+                if (userVal === correctVal) {
+                    inp.classList.add('correct');
+                    correct++;
+                } else {
+                    inp.classList.add('incorrect');
+                    document.getElementById('hint-' + i).style.display = 'inline';
+                }
+            });
+            const total = inputs.length;
+            const result = document.getElementById('result');
+            if (correct === total) {
+                result.textContent = 'Всё верно! ' + correct + '/' + total;
+                result.className = 'result-badge pass';
+            } else {
+                result.textContent = correct + '/' + total + ' правильных';
+                result.className = 'result-badge fail';
+            }
+            result.style.display = 'block';
+        }
+
+        function resetAll() {
+            document.getElementById('input-screen').style.display = 'block';
+            document.getElementById('exercise-screen').style.display = 'none';
+            document.getElementById('result').className = 'result-badge';
+            document.getElementById('result').style.display = 'none';
+            segments = [];
+        }
+
+        function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function escapeAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    </script>
+</body>
+</html>"""
+    return html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# Vercel trivia (no external imports)
 
 _TRIVIA_QUESTIONS: list[dict] = [
     {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан"},
@@ -5356,6 +5510,64 @@ app.route("/api/budget/balance")(api_balance)
 
 app.route("/api/budget/vk/status")(api_vk_status)
 app.route("/api/budget/vk/link", methods=["POST"])(api_vk_link)
+
+
+@app.route("/api/endings_process", methods=["POST"])
+def api_endings_process():
+    """Generate fill-in-the-blank endings exercise using AI."""
+    try:
+        data = request.get_json()
+        text = (data or {}).get("text", "").strip()
+        if not text or len(text) < 10:
+            return jsonify({"ok": False, "error": "Текст слишком короткий (нужно минимум 10 символов)"})
+
+        prompt = f"""Ты — преподаватель русского языка. Из текста ниже сделай упражнение на окончания.
+
+Найди 5-10 слов, у которых можно убрать окончание. Для каждого такого слова верни основу (всё слово без окончания) и само окончание.
+
+Правила:
+- Не трогай предлоги, союзы, частицы, короткие слова (до 3 букв)
+- Не трогай имена собственные (имена людей, города)
+- Выбирай слова, у которых окончание действительно можно ошибиться (существительные в разных падежах, прилагательные, глаголы)
+- Сохрани все пробелы, знаки препинания и переносы строк как в оригинале
+
+Верни ТОЛЬКО JSON строго в таком формате без лишнего текста:
+{{"segments": [["t","текст без изменений"], ["b","основа","окончание"], ["t"," и ещё текст "], ["b","основ","а"]]}}
+
+Где:
+- ["t", "..."] — обычный текст (часть предложения без изменений)
+- ["b", "основа", "окончание"] — слово с пропущенным окончанием: основа и правильное окончание
+
+Текст:
+{text}"""
+
+        ai_text = call_ai_api(prompt, max_tokens=3000)
+        print(f"[ENDINGS] Raw AI response: {ai_text[:500]}")
+
+        import json as _json
+        cleaned = ai_text.strip()
+        # Remove markdown code fences
+        cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+        cleaned = re.sub(r'\s*```$', '', cleaned)
+        # Try to find JSON in the response
+        json_match = re.search(r'\{.*"segments".*\}', cleaned, re.DOTALL)
+        if json_match:
+            data = _json.loads(json_match.group())
+        else:
+            data = _json.loads(cleaned)
+
+        segments = data.get("segments", [])
+        if not segments:
+            return jsonify({"ok": False, "error": "AI не смог найти подходящие слова для упражнения. Попробуйте другой текст."})
+
+        return jsonify({"ok": True, "segments": segments, "original": text})
+
+    except _json.JSONDecodeError as e:
+        print(f"[ENDINGS] JSON parse error: {e}, raw: {ai_text[:500]}")
+        return jsonify({"ok": False, "error": "AI вернул некорректный ответ. Попробуйте ещё раз."})
+    except Exception as e:
+        print(f"[ENDINGS] Error: {e}")
+        return jsonify({"ok": False, "error": str(e)})
 
 
 # Vercel handler
