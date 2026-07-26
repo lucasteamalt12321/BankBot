@@ -3393,6 +3393,48 @@ def telegram_webhook(secret: str):
             send_telegram_message(chat_id, "Полный режим включён для всех.")
         elif command == "/ping" and chat_id:
             send_telegram_message(chat_id, "🏓 Понг!")
+        elif command == "/help" and chat_id:
+            help_text = (
+                "📋 <b>Справка по командам</b>\n\n"
+                "━━━ <b>Основные</b> ━━━\n"
+                "/start — запустить бота\n"
+                "/balance — баланс монет\n"
+                "/profile — ваш профиль\n"
+                "/stats — ваша статистика\n"
+                "/history — история транзакций\n"
+                "/short — краткие ответы AI\n"
+                "/long — полные ответы AI\n"
+                "/ping — проверка бота\n\n"
+                "━━━ <b>Дополнительные</b> ━━━\n"
+                "/reading_trainer — тренажёр чтения 🧸\n"
+                "/endings — тренажёр окончаний 📝\n"
+                "/trivia — викторина\n"
+                "/character — выбрать характер AI\n"
+                "/ai — AI-помощник\n"
+                "/ask_canon — вопрос по канону\n"
+                "/shop — магазин\n"
+                "/buy — купить предмет\n"
+                "/inventory — ваш инвентарь\n"
+                "/chess — шахматы ♟️\n"
+                "/gd — Geometry Dash 🎮\n"
+                "/submit — отправить уровень GD\n"
+                "/leaderboard — таблица лидеров GD\n"
+                "/tea — чай ☕\n"
+                "/daily_prayer — молитва\n"
+                "/addexpense — добавить расход\n"
+                "/user — информация о пользователе\n\n"
+                "━━━ <b>Веб-сервисы</b> ━━━\n"
+                "/budget — семейный бюджет (веб-интерфейс) 💰\n\n"
+                "━━━ <b>Бета (нестабильно)</b> ━━━\n"
+                "/dnd — D&D AI Master 🐉\n"
+                "/dnd_start — начать сессию D&D\n"
+                "/dnd_stop — завершить сессию D&D\n"
+                "/dnd_status — статус D&D сессии\n"
+                "/dnd_roll — бросить кубик D&D\n"
+                "/dnd_fix — исправить ответ AI\n"
+                "/infect — вирусный модул (universe)"
+            )
+            send_telegram_message(chat_id, help_text, parse_mode="HTML")
 
         # Admin commands
         elif command == "/admin" and chat_id:
