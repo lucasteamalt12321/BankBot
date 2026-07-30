@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Circle — Отчёт</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🫂 Family Circle</h1>
+        <p class="subtitle">Финальный отчёт медиации</p>
+
+        <div class="nav">
+            <a href="index.html">Создать комнату</a>
+            <a href="room.html">Войти в комнату</a>
+        </div>
+
+        <div class="card">
+            <h2>Получить отчёт</h2>
+            <label for="roomIdInput">ID комнаты</label>
+            <input id="roomIdInput" type="text" placeholder="ID комнаты">
+
+            <label for="memberSelect">Ваше имя</label>
+            <select id="memberSelect"></select>
+
+            <label for="passwordInput">Пароль</label>
+            <input id="passwordInput" type="password" placeholder="Пароль участника">
+
+            <button id="getReportBtn">Получить отчёт</button>
+            <div id="reportError" class="error"></div>
+        </div>
+
+        <div id="reportCard" class="card" style="display:none;">
+            <h2 id="reportTitle">Отчёт</h2>
+            <div id="reportContent"></div>
+            <button id="printBtn" class="secondary" style="margin-top:16px;">🖨️ Распечатать</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
