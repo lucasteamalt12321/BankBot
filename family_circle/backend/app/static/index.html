@@ -158,6 +158,12 @@
             setTimeout(function() { t.remove(); }, 2500);
         }
 
+        function showError(id, msg) {
+            var el = $(id);
+            if (msg) { el.textContent = msg; el.classList.remove('hidden'); }
+            else { el.classList.add('hidden'); el.textContent = ''; }
+        }
+
         function escapeHtml(text) {
             var d = document.createElement('div');
             d.textContent = text;
@@ -202,7 +208,7 @@
 
                 $('createFormCard').classList.add('hidden');
                 $('createResult').classList.remove('hidden');
-            } catch (e) {}
+            } catch (e) { showError('createError', e.message || 'Ошибка при создании комнаты'); }
         }
 
         function copyRoomId() {
@@ -244,7 +250,7 @@
                     var pass = prompt('Введите пароль для ' + name + ':');
                     if (pass) openChat(rid, name, pass);
                 }
-            } catch (e) {}
+            } catch (e) { showError('joinError', e.message || 'Ошибка при входе'); }
         }
 
         function enterChatAfterJoin() {
