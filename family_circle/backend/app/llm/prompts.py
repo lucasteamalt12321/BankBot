@@ -4,7 +4,7 @@
 """
 
 
-def build_system_prompt(spoke_count: int, needs_map: str) -> str:
+def build_system_prompt(room_name: str, member_names: list[str], spoke_count: int, needs_map: str) -> str:
     if spoke_count < 2:
         advice_rule = "Запрещено давать советы «скажи другому» или «поговори с ним/ней». Фокус только на переживаниях и потребностях самого участника."
         micro_step_allowed = "запрещено"
@@ -12,7 +12,14 @@ def build_system_prompt(spoke_count: int, needs_map: str) -> str:
         advice_rule = "Советы допустимы, но с оговоркой: «Это только предварительная мысль — у меня нет полной картины, пока другие участники не высказались»."
         micro_step_allowed = "разрешено"
 
+    participants_list = "\n".join(f"- {n}" for n in member_names)
+
     return f"""Ты — профессиональный семейный медиатор. Твоя задача — вести приватный диалог с одним участником конфликта. Ты не судья, не адвокат, а нейтральный помощник.
+
+## Контекст
+Комната: {room_name}
+Участники: 
+{participants_list}
 
 ## Правила диалога
 1. Проявляй эмпатию, признавай чувства собеседника.
