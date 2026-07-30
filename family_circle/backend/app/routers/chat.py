@@ -42,7 +42,9 @@ async def send_message(body: schemas.ChatSendRequest, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="Комната недоступна")
 
     needs_text = crud.get_room_needs_text(db, body.room_id)
-    system_prompt = build_system_prompt(room.spoke_count, needs_text)
+    members = crud.get_room_members(db, body.room_id)
+    member_names = [m.display_name for m in members]
+    system_prompt = build_system_prompt(room.name, member_names, room.spoke_count, needs_text)
 
     history = []
     for msg in crud.get_room_messages(db, body.room_id):
@@ -50,7 +52,8 @@ async def send_message(body: schemas.ChatSendRequest, db: Session = Depends(get_
         if msg["response"]:
             history.append({"role": "assistant", "content": msg["response"]})
 
-    response_text, intent_type = await chat_dialog(system_prompt, body.message, history)
+    current_message = f"{body.member_name}: {body.message}"
+    response_text, intent_type = await chat_dialog(system_prompt, current_message, history)
 
     needs_found = _extract_needs(response_text, member.id)
     for need_text in needs_found:
