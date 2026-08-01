@@ -256,8 +256,8 @@ database/migrations/
 - Отдельный Vercel-проект `family_circle` (familycircle-nine.vercel.app) удалён; медиация теперь часть LTHub
 - Страницы `/family`, `/family/room`, `/family/result`, API `/api/family/*` в `api/index.py` (Flask)
 - Таблицы rooms/members/messages/needs/final_reports создаются через `_ensure_family_tables()`
-- LLM-вызовы через `call_ai_api()` (Groq llama-3.3), шифрование Fernet (ENCRYPTION_KEY)
-- Осталось: проверить полный сценарий медиации на проде (создание → диалоги → отчёт)
+- LLM-вызовы через `call_ai_api()` (Groq llama-3.3), шифрование Fernet (ENCRYPTION_KEY выставлен в Vercel production)
+- ⚠️ Существующие таблицы создавал Alembic старого проекта: `created_at`/`status`/`spoke_count`/`finished` — NOT NULL **без** DEFAULT на уровне БД. Поэтому во всех INSERT'ах поля передаются явно (datetime.now(timezone.utc)). При добавлении новых модулей с этими таблицами — тоже передавать явно или менять схему через ALTER.
 
 ### GD Module Testing
 - Проверка всех GD команд через webhook
