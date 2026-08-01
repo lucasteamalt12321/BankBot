@@ -2,12 +2,12 @@
 
 ## Архитектура проекта
 
-BankBot следует многослойной архитектуре с четким разделением ответственности:
+LTHub следует многослойной архитектуре с четким разделением ответственности:
 
 ### Слои архитектуры
 
 1. **Presentation Layer (`bot/`)**
-   - Основной BankBot runtime на `python-telegram-bot 20.x`
+   - Основной LTHub runtime на `python-telegram-bot 20.x`
    - Planned: HF production must use Telegram webhook instead of polling; local/dev may keep polling fallback
    - `bot/bot.py` регистрирует handlers, mentioned-command fallback и должен быть разделён на setup Application vs runtime mode
    - `bot/commands/` содержит модульные PTB command handlers
@@ -39,7 +39,7 @@ BankBot следует многослойной архитектуре с чет
 - **Dependency Injection** - `bot/middleware/dependency_injection.py` создаёт per-request SQLAlchemy session и сервисы
 - **Runtime/legacy contract** - активные shim/legacy слои не удаляются без отдельной миграции; канон описан в `docs/README.md`
 - **Response Mode Patch** - planned production scope keeps only `short`/`long`; `watch` is to be disabled from runtime
-- **HF Webhook Runtime (planned)** - Telegram sends updates to Flask webhook endpoint; BankBot calls `Application.process_update(update)`; polling is local/dev fallback only
+- **HF Webhook Runtime (planned)** - Telegram sends updates to Flask webhook endpoint; LTHub calls `Application.process_update(update)`; polling is local/dev fallback only
 
 ### Поток данных
 

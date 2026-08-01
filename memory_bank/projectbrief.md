@@ -1,4 +1,4 @@
-# Project Brief — BankBot (LucasTeam)
+# Project Brief — LTHub (LucasTeam Hub)
 
 ## Цели проекта
 
@@ -384,6 +384,25 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 - **Universe Module (14%):** Базовая функциональность — /infect, /tea, /daily_prayer, /generate_prayer (через AI Module)
 
 **Осталось:** Manual testing всех модулей (11%), BGT Module тестирование (2%), buffer (3%)
+
+---
+
+### Phase 3: Web Portal — дублирование функций бота в веб (2026-07-26)
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| WEB-00 | Хаб на `/` с карточками всех сервисов | completed | 2 |
+| WEB-01 | AI Chat — веб-страница чата с выбором персонажа | completed | 15 |
+| WEB-02 | D&D AI Master — StoryForge-like интерфейс | completed | 20 |
+| WEB-03 | Trivia — веб-викторина по канону | completed | 12 |
+| WEB-04 | Daily Prayer — страница с молитвой дня | completed | 5 |
+| WEB-05 | Chess — статистика Lichess + пазлы | completed | 15 |
+| WEB-06 | GD Module — профили, топ, статистика | completed | 15 |
+| WEB-07 | Admin Panel — управление пользователями, ошибки | pending | 16 |
+| WEB-08 | Практика глаголов — AI-генерация заданий, проверка | in_progress | 10 |
+| WEB-09 | AI Chat: виртуальный компьютер (tool-calling: код, браузинг, файлы, фото) | completed | 8 |
+
+**Phase 3: 92/118 completed** (WEB-00 + WEB-01 + WEB-02 + WEB-03 + WEB-04 + WEB-05 + WEB-06 + WEB-09; WEB-08 added +10, WEB-09 added +8)
 
 ---
 

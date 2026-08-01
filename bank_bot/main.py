@@ -1,6 +1,6 @@
-"""BankBot — точка входа.
+"""LTHub — точка входа.
 
-Запускает основной Telegram-бот с банковской системой.
+Запускает основной Telegram-бот.
 """
 
 from bot.main import main, kill_existing_bot_processes

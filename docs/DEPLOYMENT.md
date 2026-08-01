@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Актуальное руководство по развёртыванию BankBot, BridgeBot и VK Bot.
+Актуальное руководство по развёртыванию LTHub, BridgeBot и VK Bot.
 
 ## Обзор
 
@@ -11,7 +11,7 @@
 
 Текущие точки входа:
 
-- `run_bot.py` -> основной запуск BankBot
+- `run_bot.py` -> основной запуск LTHub
 - `bridge_bot/main.py` -> BridgeBot
 - `vk_bot/main.py` -> VK Bot
 
@@ -20,7 +20,7 @@
 ### Локально
 
 - Python `3.12` для локального сценария, описанного в runbook проекта
-- Python `3.14` не рекомендуется для основного BankBot: на практике возможен runtime-crash в `python-telegram-bot==20.7` при инициализации `Updater`
+- Python `3.14` не рекомендуется: на практике возможен runtime-crash в `python-telegram-bot==20.7` при инициализации `Updater`
 - доступ к Telegram Bot API
 - для bridge-режима: доступ к VK API
 
@@ -100,7 +100,7 @@ py -3.12 database/initialize_system.py
 
 ### 4. Запуск
 
-BankBot:
+LTHub:
 
 ```powershell
 py -3.12 run_bot.py
@@ -189,7 +189,7 @@ docker-compose logs -f
 
 ## Operational notes
 
-- `bot/main.py` выполняет startup validation до запуска BankBot
+- `bot/main.py` выполняет startup validation до запуска LTHub
 - `database/schema.py` используется для приведения схемы к актуальному состоянию
 - `bridge_bot/main.py` и `vk_bot/main.py` поддерживают корректное завершение работы
 - `memory_bank/` используется как источник актуального операционного контекста проекта
@@ -203,14 +203,14 @@ docker-compose logs -f
 2. **Health Checks**: `run_bot.py` запускает Flask-сервер на порту `7860`, который используется HF для мониторинга состояния.
 3. **Variables/Secrets**: необходимы `BOT_TOKEN`, `ADMIN_TELEGRAM_ID`; production DB задаётся через Secret `DATABASE_URL`.
 4. **Startup**: webhook diagnostic check на HF пропускается, потому что он может блокировать запуск.
-5. **Polling**: BankBot использует guarded polling loop и `drop_pending_updates=False`, чтобы Space оставался живым и команды не терялись при reconnect.
+5. **Polling**: LTHub использует guarded polling loop и `drop_pending_updates=False`, чтобы Space оставался живым и команды не терялись при reconnect.
 
 ### Просмотр логов:
 Логи доступны через:
 
 - веб-интерфейс Hugging Face;
 - `GET /logs` на Space host;
-- streaming API `https://huggingface.co/api/spaces/LucasTeam/BankBot/logs/run` с `Authorization: Bearer <HF_TOKEN>`.
+- streaming API `https://huggingface.co/api/spaces/LucasTeam/LTHub/logs/run` с `Authorization: Bearer <HF_TOKEN>`.
 
 Не использовать manual `getUpdates` во время live debugging, чтобы не мешать polling.
 

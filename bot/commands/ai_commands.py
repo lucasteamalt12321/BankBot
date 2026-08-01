@@ -33,10 +33,10 @@ _ai_model_manager: AIModelManager | None = None
 _LOCAL_CANON_PATH = Path("data/canon_knowledge.txt")
 
 _AI_ASK_PROMPT = (
-    "Ты — справочный AI-помощник BankBot по канону вселенной Олеговируса и LTL-паразита "
+    "Ты — справочный AI-помощник LTHub по канону вселенной Олеговируса и LTL-паразита "
     "и командам бота. Отвечай на русском языке кратко (2-4 предложения), "
     "опираясь на канон из файла знаний ниже. Если ответа нет в каноне, "
-    "переведи разговор к командам BankBot. Не придумывай фактов.\n\n"
+    "переведи разговор к командам LTHub. Не придумывай фактов.\n\n"
     "=== ФАЙЛ КАНОНА ===\n{canon}\n\n"
     "Вопрос: {question}"
 )
@@ -155,7 +155,7 @@ def _get_ai_response_context(reply_to_message: Message | None) -> dict[str, Any]
     # user may still reply to a visible bot message. Recognize our AI-like text.
     text = reply_to_message.text or ""
     if text.startswith(AI_RESPONSE_PREFIX) and (
-        "AI" in text or "канон" in text or "BankBot" in text or "Справочник" in text
+        "AI" in text or "канон" in text or "LTHub" in text or "Справочник" in text or "BankBot" in text
     ):
         return {"question": "unknown_after_restart", "answer": text, "mode": "unknown"}
 

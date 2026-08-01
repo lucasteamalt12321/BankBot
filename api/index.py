@@ -2,19 +2,30 @@
 
 from __future__ import annotations
 
-import asyncio
+import base64
+import hashlib
 import hmac
+import io
 import json
 import os
 import random
 import re
+import subprocess
 import sys
+import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, date
-from flask import Flask, jsonify, request
+from datetime import date, datetime, timedelta
+
 import requests
+from flask import Flask, jsonify, request
 from sqlalchemy import create_engine, text
+
+
+def _web_user_id(raw: str | None) -> int:
+    if not raw:
+        return 0
+    h = hashlib.sha256(str(raw).encode()).hexdigest()[:12]
+    return int(h, 16) % 2000000000
 
 app = Flask(__name__)
 
@@ -109,6 +120,7 @@ def get_db_engine():
     _ensure_budget_tables(DB_ENGINE)
     _ensure_universe_tables(DB_ENGINE)
     _ensure_dnd_tables(DB_ENGINE)
+    _ensure_verb_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -389,8 +401,7 @@ def _ensure_universe_tables(engine):
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS daily_prayer_log (
                     user_id BIGINT NOT NULL,
-                    prayer_date DATE NOT NULL,
-                    PRIMARY KEY (user_id, prayer_date)
+                    prayer_date DATE NOT NULL
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"))
@@ -477,6 +488,115 @@ def _ensure_dnd_tables(engine):
         print("[DND] Tables ensured successfully")
     except Exception as exc:
         print(f"[DND] Table init error: {exc}")
+
+def _ensure_verb_tables(engine):
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS verb_exercises (
+                    id INTEGER PRIMARY KEY,
+                    teacher_id INTEGER NOT NULL,
+                    verbs TEXT NOT NULL,
+                    task_count INTEGER NOT NULL DEFAULT 10,
+                    mode INTEGER NOT NULL DEFAULT 3,
+                    wishes TEXT DEFAULT '',
+                    tasks TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS verb_submissions (
+                    id SERIAL PRIMARY KEY,
+                    exercise_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    score INTEGER NOT NULL,
+                    total INTEGER NOT NULL,
+                    details TEXT NOT NULL,
+                    timestamp REAL NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_verb_submissions_exercise ON verb_submissions(exercise_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_verb_exercises_teacher ON verb_exercises(teacher_id)"))
+            conn.commit()
+        print("[VERBS] Tables ensured")
+    except Exception as exc:
+        print(f"[VERBS] Table init error: {exc}")
+
+
+def _save_verb_exercise(ex: dict):
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO verb_exercises (id, teacher_id, verbs, task_count, mode, wishes, tasks, created_at) "
+            "VALUES (:id, :teacher_id, :verbs, :task_count, :mode, :wishes, :tasks, :created_at)"
+        ), {
+            "id": ex["id"],
+            "teacher_id": ex["teacher_id"],
+            "verbs": ex["verbs"],
+            "task_count": ex["task_count"],
+            "mode": ex.get("mode", 3),
+            "wishes": ex.get("wishes", ""),
+            "tasks": json.dumps(ex["tasks"], ensure_ascii=False),
+            "created_at": time.time(),
+        })
+        conn.commit()
+
+
+def _load_verb_exercise(ex_id: int) -> dict | None:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT * FROM verb_exercises WHERE id = :id"
+        ), {"id": ex_id}).fetchone()
+    if not row:
+        return None
+    d = dict(row._mapping)
+    d["tasks"] = json.loads(d["tasks"])
+    return d
+
+
+def _load_teacher_exercises(teacher_id: int) -> list[dict]:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT e.id, e.task_count, e.mode, e.created_at, "
+            "(SELECT COUNT(DISTINCT s.user_id) FROM verb_submissions s WHERE s.exercise_id = e.id) AS student_count "
+            "FROM verb_exercises e WHERE e.teacher_id = :tid ORDER BY e.created_at DESC"
+        ), {"tid": teacher_id}).fetchall()
+    return [dict(r._mapping) for r in rows]
+
+
+def _save_verb_submission(ex_id: int, sub: dict):
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO verb_submissions (exercise_id, user_id, name, score, total, details, timestamp) "
+            "VALUES (:ex_id, :user_id, :name, :score, :total, :details, :ts)"
+        ), {
+            "ex_id": ex_id,
+            "user_id": sub["user_id"],
+            "name": sub["name"],
+            "score": sub["score"],
+            "total": sub["total"],
+            "details": json.dumps(sub["details"], ensure_ascii=False),
+            "ts": sub["timestamp"],
+        })
+        conn.commit()
+
+
+def _load_verb_submissions(ex_id: int) -> list[dict]:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT * FROM verb_submissions WHERE exercise_id = :ex_id ORDER BY timestamp"
+        ), {"ex_id": ex_id}).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r._mapping)
+        d["details"] = json.loads(d["details"])
+        result.append(d)
+    return result
 
 
 def _load_bot_id() -> int | None:
@@ -837,7 +957,7 @@ def purchase_item(user_id: int, item_id: int) -> tuple[bool, str]:
         return False, f"❌ Ошибка покупки: {str(exc)}"
 
 
-def call_ai_api(prompt: str, max_tokens: int = 150) -> str:
+def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) -> str:
     """Call Groq AI API with prompt."""
     try:
         groq_key = os.getenv("GROQ_API_KEY")
@@ -854,7 +974,7 @@ def call_ai_api(prompt: str, max_tokens: int = 150) -> str:
                 "model": "llama-3.3-70b-versatile",  # Updated model name
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": max_tokens,
-                "temperature": 0.8,
+                "temperature": temperature,
             },
             timeout=10.0,
         )
@@ -1580,7 +1700,7 @@ def fetch_lichess_user(username: str) -> dict | None:
         return None
     
     url = f"{LICHESS_API_BASE_URL}/user/{normalized_username}"
-    headers = {"Accept": "application/json", "User-Agent": "BankBot/ChessModule"}
+    headers = {"Accept": "application/json", "User-Agent": "LTHub/ChessModule"}
     
     try:
         response = requests.get(url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
@@ -1754,6 +1874,66 @@ def link_chess_account(user_id: int, lichess_username: str) -> bool:
     except Exception as exc:
         print(f"Error linking chess account: {exc}")
         return False
+
+
+def _derive_puzzle_fen(pgn_text: str, initial_ply: int) -> str:
+    """Derive board FEN from puzzle PGN + initialPly (mirrored if black to move)."""
+    try:
+        import io
+
+        import chess.pgn
+
+        pgn_io = io.StringIO(pgn_text)
+        pgn_game = chess.pgn.read_game(pgn_io)
+        if not pgn_game:
+            return ""
+        board = pgn_game.board()
+        moves = list(pgn_game.mainline_moves())
+        for i, move in enumerate(moves):
+            if i >= initial_ply:
+                break
+            board.push(move)
+        if board.turn == chess.BLACK:
+            return board.mirror().fen()
+        return board.fen()
+    except Exception as exc:
+        print(f"Error deriving FEN: {exc}")
+        return ""
+
+
+def _fetch_lichess_puzzle() -> dict | None:
+    """Fetch a random puzzle from Lichess for the web module."""
+    try:
+        url = f"{LICHESS_API_BASE_URL}/puzzle/next"
+        headers = {"Accept": "application/json", "User-Agent": "LTHub/ChessModule"}
+        response = requests.get(url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
+        if response.status_code != 200:
+            return None
+        payload = response.json()
+        puzzle = payload.get("puzzle", {})
+        game = payload.get("game", {})
+        puzzle_id = puzzle.get("id", "unknown")
+        solution = puzzle.get("solution", "")
+        if isinstance(solution, list):
+            solution_moves = [str(m).strip().lower() for m in solution if str(m).strip()]
+        else:
+            solution_moves = [m.strip().lower() for m in str(solution).split() if m.strip()]
+        fen = _derive_puzzle_fen(game.get("pgn", ""), puzzle.get("initialPly", 0))
+        if not fen:
+            return None
+        return {
+            "puzzle_id": puzzle_id,
+            "rating": puzzle.get("rating", 1500),
+            "themes": puzzle.get("themes", []),
+            "solution": solution_moves,
+            "fen": fen,
+            "turn": "Белых" if puzzle.get("initialPly", 0) % 2 == 0 else "Чёрных",
+            "initial_ply": puzzle.get("initialPly", 0),
+            "link": f"https://lichess.org/training/{puzzle_id}",
+        }
+    except Exception as exc:
+        print(f"Error fetching puzzle: {exc}")
+        return None
 
 
 def send_reading_trainer(chat_id: int) -> None:
@@ -2126,8 +2306,8 @@ def notify_admin(text: str) -> None:
 
 def log_error(module: str, error_type: str, message: str, context: str = "") -> None:
     """Log error to in-memory buffer, get AI recommendation, notify admin."""
-    from datetime import datetime as _dt
     import traceback as _tb
+    from datetime import datetime as _dt
     recommendation = _get_ai_recommendation(module, error_type, message, context)
     entry = {
         "time": _dt.utcnow().strftime("%H:%M"),
@@ -2261,7 +2441,7 @@ def build_short_start_text(name: str, user_id: int) -> str:
     is_admin = user_id == ADMIN_TELEGRAM_ID
     admin_section = "\n\nАдмин:\n/errors — журнал ошибок\n/clear_errors — очистить ошибки" if is_admin else ""
 
-    return f"""[BANK] LucasTeam BankBot
+    return f"""[BANK] LucasTeam Hub (LTHub)
 Привет, {name}!
 Регистрация: ✅ Пользователь уже зарегистрирован
 ID: {user_id}
@@ -2335,7 +2515,367 @@ def build_start_text(name: str, user_id: int, mode: str) -> str:
 
 @app.route("/")
 def index():
-    return jsonify({"service": "BankBot", "status": "ok", "platform": "vercel"})
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LTHub — Сервисы</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { max-width: 640px; width: 100%; text-align: center; }
+        h1 { font-size: 32px; color: #1a1a2e; margin-bottom: 8px; }
+        .subtitle { color: #666; margin-bottom: 32px; font-size: 15px; }
+        .cards { display: flex; flex-direction: column; gap: 16px; }
+        .section-label { font-size: 13px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin: 24px 0 8px; text-align: left; }
+        .section-label:first-of-type { margin-top: 0; }
+        .beta-toggle { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: white; padding: 24px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); cursor: pointer; transition: all 0.2s; text-align: left; border: none; width: 100%; font-family: inherit; font-size: inherit; }
+        .beta-toggle:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.12); transform: translateY(-2px); }
+        .beta-toggle-left { display: flex; align-items: center; gap: 20px; }
+        .beta-toggle-icon { font-size: 40px; flex-shrink: 0; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: #fef3e2; border-radius: 12px; }
+        .beta-toggle-content h2 { font-size: 18px; color: #1a1a2e; margin-bottom: 4px; }
+        .beta-toggle-content p { font-size: 14px; color: #888; }
+        .beta-toggle-arrow { font-size: 18px; color: #ccc; transition: transform 0.2s; flex-shrink: 0; }
+        .beta-toggle-arrow.open { transform: rotate(90deg); }
+        .beta-cards { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
+        .beta-cards.open { max-height: 800px; }
+        .beta-cards .card:first-child { margin-top: 16px; }
+        .card { display: flex; align-items: center; gap: 20px; background: white; padding: 24px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); text-decoration: none; transition: all 0.2s; text-align: left; }
+        .card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.12); transform: translateY(-2px); }
+        .card-icon { font-size: 40px; flex-shrink: 0; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: #f0f4f8; border-radius: 12px; }
+        .card-content h2 { font-size: 18px; color: #1a1a2e; margin-bottom: 4px; }
+        .card-content p { font-size: 14px; color: #888; }
+        .beta-tag { display: inline-block; font-size: 10px; font-weight: 600; color: #e67e22; background: #fef3e2; padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LTHub</h1>
+        <p class="subtitle">Выберите сервис</p>
+        <div class="cards">
+            <div class="section-label">Основные</div>
+            <a class="card" href="/ai_chat">
+                <div class="card-icon">🤖</div>
+                <div class="card-content">
+                    <h2>AI Chat</h2>
+                    <p>Общение с AI в стиле персонажа</p>
+                </div>
+            </a>
+            <a class="card" href="/reading_trainer.html">
+                <div class="card-icon">🧸</div>
+                <div class="card-content">
+                    <h2>Тренажёр чтения</h2>
+                    <p>Чтение и понимание текстов с вопросами</p>
+                </div>
+            </a>
+            <a class="card" href="/endings_trainer.html">
+                <div class="card-icon">📝</div>
+                <div class="card-content">
+                    <h2>Тренажёр окончаний</h2>
+                    <p>Упражнения на падежные окончания через AI</p>
+                </div>
+            </a>
+            <a class="card" href="/family_budget">
+                <div class="card-icon">💰</div>
+                <div class="card-content">
+                    <h2>Семейный бюджет</h2>
+                    <p>Учёт доходов и расходов семьи</p>
+                </div>
+            </a>
+            <button class="beta-toggle" id="beta-toggle" onclick="toggleBeta()">
+                <div class="beta-toggle-left">
+                    <div class="beta-toggle-icon">🧪</div>
+                    <div class="beta-toggle-content">
+                        <h2>Бета-модули</h2>
+                        <p>Новые портированные сервисы</p>
+                    </div>
+                </div>
+                <span class="beta-toggle-arrow" id="beta-arrow">▶</span>
+            </button>
+            <div class="beta-cards" id="beta-cards">
+                <a class="card" href="/dnd">
+                    <div class="card-icon">🐉</div>
+                    <div class="card-content">
+                        <h2>D&D AI Master <span class="beta-tag">Бета</span></h2>
+                        <p>Текстовая RPG с AI-мастером</p>
+                    </div>
+                </a>
+                <a class="card" href="/gd">
+                    <div class="card-icon">🎮</div>
+                    <div class="card-content">
+                        <h2>Geometry Dash <span class="beta-tag">Бета</span></h2>
+                        <p>Профили, топ уровней, статистика прохождений</p>
+                    </div>
+                </a>
+                <a class="card" href="/trivia">
+                    <div class="card-icon">🧠</div>
+                    <div class="card-content">
+                        <h2>Викторина <span class="beta-tag">Бета</span></h2>
+                        <p>Брейн-Ринг по канону Олеговируса</p>
+                    </div>
+                </a>
+                <a class="card" href="/chess">
+                    <div class="card-icon">♟️</div>
+                    <div class="card-content">
+                        <h2>Шахматы <span class="beta-tag">Бета</span></h2>
+                        <p>Рейтинги Lichess, поиск игроков, шахматные пазлы</p>
+                    </div>
+                </a>
+                <a class="card" href="/irregular_verbs">
+                    <div class="card-icon">📝</div>
+                    <div class="card-content">
+                        <h2>Практика глаголов <span class="beta-tag">Бета</span></h2>
+                        <p>Практика неправильных глаголов с AI</p>
+                    </div>
+                </a>
+                <a class="card" href="https://familycircle-nine.vercel.app" target="_blank" rel="noopener">
+                    <div class="card-icon">🫂</div>
+                    <div class="card-content">
+                        <h2>Family Circle <span class="beta-tag">Бета</span></h2>
+                        <p>Асинхронная семейная медиация с ИИ-помощником</p>
+                    </div>
+                </a>
+                <a class="card" href="/daily_prayer">
+                    <div class="card-icon">🕯️</div>
+                    <div class="card-content">
+                        <h2>Молитва дня <span class="beta-tag">Бета</span></h2>
+                        <p>Ежедневная молитва из канона</p>
+                    </div>
+                </a>
+            </div>
+            <script>
+                function toggleBeta() {
+                    var cards = document.getElementById('beta-cards');
+                    var arrow = document.getElementById('beta-arrow');
+                    cards.classList.toggle('open');
+                    arrow.classList.toggle('open');
+                }
+            </script>
+        </div>
+    </div>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/gd")
+def gd_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geometry Dash — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; min-height: 100vh; color: #c9d1d9; padding: 20px; }
+        .container { max-width: 720px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #58a6ff; }
+        .header a { color: #8b949e; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: #58a6ff; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+        .tab { flex: 1; padding: 12px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; color: #8b949e; font-size: 15px; font-family: inherit; cursor: pointer; transition: all 0.15s; }
+        .tab:hover { border-color: #58a6ff; color: #c9d1d9; }
+        .tab.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .input-row { display: flex; gap: 10px; margin-bottom: 16px; }
+        .input-row input { flex: 1; padding: 12px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; color: #c9d1d9; font-size: 15px; font-family: inherit; }
+        .input-row input:focus { outline: none; border-color: #58a6ff; }
+        .btn { padding: 12px 20px; border: none; border-radius: 8px; background: #238636; color: #fff; font-size: 15px; font-family: inherit; cursor: pointer; }
+        .btn:hover { background: #2ea043; }
+        .btn:disabled { opacity: 0.6; cursor: default; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; }
+        .stat-card { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 14px; text-align: center; }
+        .stat-card .value { font-size: 24px; font-weight: 700; color: #58a6ff; }
+        .stat-card .label { font-size: 12px; color: #8b949e; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #30363d; font-size: 14px; }
+        th { color: #8b949e; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .pos { font-weight: 700; color: #f0883e; }
+        .error { color: #f85149; margin-top: 12px; }
+        .hint { color: #8b949e; font-size: 14px; margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 Geometry Dash</h1>
+            <a href="/">← На главную</a>
+        </div>
+        <div class="tabs">
+            <button class="tab active" id="tab-user" onclick="showTab('user')">Поиск игрока</button>
+            <button class="tab" id="tab-leaderboard" onclick="showTab('leaderboard')">Топ уровней</button>
+            <button class="tab" id="tab-mystats" onclick="showTab('mystats')">Моя статистика</button>
+        </div>
+
+        <div class="panel active" id="panel-user">
+            <div class="card">
+                <div class="input-row">
+                    <input type="text" id="gd-nick" placeholder="Ник игрока в GD (например: Riot)" onkeydown="if(event.key==='Enter')searchUser()">
+                    <button class="btn" id="gd-search-btn" onclick="searchUser()">Найти</button>
+                </div>
+                <div id="user-result"></div>
+            </div>
+        </div>
+
+        <div class="panel" id="panel-leaderboard">
+            <div class="card">
+                <div id="lb-result"><p class="hint">Загрузка...</p></div>
+            </div>
+        </div>
+
+        <div class="panel" id="panel-mystats">
+            <div class="card">
+                <div id="mystats-result"><p class="hint">Загрузка...</p></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var USER_ID = localStorage.getItem('gd_user_id');
+        if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('gd_user_id', USER_ID); }
+
+        function showTab(name) {
+            document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+            document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+            document.getElementById('tab-' + name).classList.add('active');
+            document.getElementById('panel-' + name).classList.add('active');
+            if (name === 'leaderboard') ensureLoaded('lb-result', loadLeaderboard);
+            if (name === 'mystats') ensureLoaded('mystats-result', loadMyStats);
+        }
+
+        function ensureLoaded(id, loader) {
+            var el = document.getElementById(id);
+            if (el.dataset.loaded) return;
+            el.dataset.loaded = '1';
+            loader();
+        }
+
+        function searchUser() {
+            var nick = document.getElementById('gd-nick').value.trim();
+            var out = document.getElementById('user-result');
+            if (!nick) return;
+            var btn = document.getElementById('gd-search-btn');
+            btn.disabled = true;
+            out.innerHTML = '<p class="hint">🔍 Ищу игрока...</p>';
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/gd/user/' + encodeURIComponent(nick));
+            xhr.onload = function() {
+                btn.disabled = false;
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    var stats = [
+                        ['⭐', 'Звёзды', r.stars],
+                        ['👹', 'Демоны', r.demons],
+                        ['🏆', 'Creator Points', r.creator_points],
+                        ['🪙', 'Монеты', r.coins],
+                        ['💎', 'User Coins', r.user_coins],
+                        ['💠', 'Алмазы', r.diamonds]
+                    ];
+                    if (r.rank) stats.push(['🌍', 'Глобальный ранг', '#' + r.rank]);
+                    var html = '<h2 style="font-size:20px;margin-bottom:8px">📊 ' + r.username + '</h2><div class="stat-grid">';
+                    stats.forEach(function(s){ html += '<div class="stat-card"><div class="value">' + s[2] + '</div><div class="label">' + s[1] + '</div></div>'; });
+                    html += '</div>';
+                    out.innerHTML = html;
+                } catch(e) { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; }
+            };
+            xhr.onerror = function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
+            xhr.send();
+        }
+
+        function loadLeaderboard() {
+            var out = document.getElementById('lb-result');
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/gd/leaderboard');
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    if (!r.length) { out.innerHTML = '<p class="hint">Уровни пока не добавлены.</p>'; return; }
+                    var html = '<table><thead><tr><th>Поз.</th><th>Уровень</th><th>Сложность</th><th>Прохождения</th></tr></thead><tbody>';
+                    r.forEach(function(l) {
+                        html += '<tr><td class="pos">' + (l.position || '—') + '</td><td>' + (l.name || '—') + '</td><td>' + (l.difficulty || '—') + '</td><td>' + (l.completions || 0) + '</td></tr>';
+                    });
+                    html += '</tbody></table>';
+                    out.innerHTML = html;
+                } catch(e) { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; }
+            };
+            xhr.onerror = function() { out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
+            xhr.send();
+        }
+
+        function loadMyStats() {
+            var out = document.getElementById('mystats-result');
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/gd/my_stats?user_id=' + encodeURIComponent(USER_ID));
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    var subs = r.submissions || {};
+                    var html = '<div class="stat-grid">'
+                        + '<div class="stat-card"><div class="value">' + r.completions + '</div><div class="label">Прохождений</div></div>'
+                        + '<div class="stat-card"><div class="value">' + r.total_approved + '</div><div class="label">Одобрено</div></div>'
+                        + '<div class="stat-card"><div class="value">' + r.total_rejected + '</div><div class="label">Отклонено</div></div>'
+                        + '<div class="stat-card"><div class="value">' + (subs.total || 0) + '</div><div class="label">Заявок</div></div>'
+                        + '<div class="stat-card"><div class="value">' + (subs.pending || 0) + '</div><div class="label">На проверке</div></div>'
+                        + '</div>'
+                        + '<p class="hint" style="margin-top:16px">🔥 Сложнейший уровень: <strong style="color:#c9d1d9">' + r.hardest_level + '</strong></p>';
+                    out.innerHTML = html;
+                } catch(e) { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; }
+            };
+            xhr.onerror = function() { out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
+            xhr.send();
+        }
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/gd/user/<nick>")
+def api_gd_user(nick: str):
+    data = fetch_gd_user(nick)
+    if not data:
+        return jsonify({"error": "Игрок не найден в Geometry Dash"}), 404
+    return jsonify({
+        "username": data.get("username"),
+        "stars": data.get("stars", 0),
+        "demons": data.get("demons", 0),
+        "creator_points": data.get("creator_points", 0),
+        "coins": data.get("coins", 0),
+        "user_coins": data.get("user_coins", 0),
+        "diamonds": data.get("diamonds", 0),
+        "rank": data.get("rank"),
+    })
+
+
+@app.route("/api/gd/leaderboard")
+def api_gd_leaderboard():
+    limit = request.args.get("limit", default=20, type=int)
+    return jsonify(get_gd_leaderboard(limit))
+
+
+@app.route("/api/gd/my_stats")
+def api_gd_my_stats():
+    user_id_raw = request.args.get("user_id", "")
+    if not user_id_raw:
+        return jsonify({"error": "Нет user_id"}), 400
+    uid = _web_user_id(user_id_raw)
+    stats = get_gd_build_player_stats(uid)
+    if not stats:
+        return jsonify({"error": "Нет данных о пользователе"}), 404
+    return jsonify({
+        "total_approved": int(stats.get("total_approved") or 0),
+        "total_rejected": int(stats.get("total_rejected") or 0),
+        "hardest_level": get_gd_hardest_level_name(uid),
+        "completions": get_gd_user_completions_count(uid),
+        "submissions": get_gd_submission_counts(uid),
+    })
 
 
 @app.route("/health")
@@ -2346,7 +2886,6 @@ def health():
 @app.route("/debug_puzzle")
 def debug_puzzle():
     """Debug endpoint to test puzzle system."""
-    import traceback as tb
     results = {"bot_token_set": bool(BOT_TOKEN), "bot_id": BOT_ID}
     
     # Test send_telegram_message
@@ -2372,7 +2911,7 @@ def debug_puzzle():
 def test_send(chat_id):
     """Test sending a message to a chat_id."""
     try:
-        send_telegram_message(chat_id, "🔧 Тестовое сообщение от BankBot")
+        send_telegram_message(chat_id, "🔧 Тестовое сообщение от LTHub")
         return jsonify({"ok": True, "chat_id": chat_id})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -2421,7 +2960,7 @@ def test_puzzle(user_id):
     try:
         import requests as req
         puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/daily"
-        resp = req.get(puzzle_url, headers={"Accept": "application/json", "User-Agent": "BankBot"}, timeout=8)
+        resp = req.get(puzzle_url, headers={"Accept": "application/json", "User-Agent": "LTHub"}, timeout=8)
         results["lichess_status"] = resp.status_code
         if resp.status_code == 200:
             data = resp.json()
@@ -2749,7 +3288,7 @@ def endings_trainer():
                 } else if (seg[0] === 'b') {
                     const stem = seg[1];
                     const answer = seg[2];
-                    html += stem + '<input type="text" id="blank-' + idx + '" data-answer="' + escapeAttr(answer) + '" autocomplete="off"><span class="hint" id="hint-' + idx + '">(' + escapeHtml(answer) + ')</span>';
+                    html += escapeHtml(stem) + '<input type="text" id="blank-' + idx + '" data-answer="' + escapeAttr(answer) + '" autocomplete="off"><span class="hint" id="hint-' + idx + '">(' + escapeHtml(answer) + ')</span>';
                     idx++;
                 }
             }
@@ -2793,7 +3332,7 @@ def endings_trainer():
             segments = [];
         }
 
-        function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>'); }
         function escapeAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     </script>
 </body>
@@ -2804,30 +3343,34 @@ def endings_trainer():
 # Vercel trivia (no external imports)
 
 _TRIVIA_QUESTIONS: list[dict] = [
-    {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан"},
-    {"id": 2, "group": "rules", "text": "Что из перечисленного является строго ЗАПРЕЩЁННОЙ темой в каноническом творчестве?", "correct_text": "Внешность и медицинские диагнозы реальных людей"},
-    {"id": 3, "group": "rules", "text": "Какой уровень канонизации требует обязательного одобрения и Луки, и Олега?", "correct_text": "Высокий канон (🔵)"},
-    {"id": 4, "group": "tracks", "text": "Какой трек является первым документом вселенной Олеговируса?", "correct_text": "«Рома» (Олег, 11 декабря 2025)"},
-    {"id": 5, "group": "tracks", "text": "В каком треке впервые прозвучал термин «олеговирус»?", "correct_text": "«Олег, как ты задолбал» (Лука, 26 декабря 2025)"},
-    {"id": 6, "group": "tracks", "text": "Кто из сторонних участников первым внёс вклад в мифологию, написав трек «Олеговирус»?", "correct_text": "Рома"},
-    {"id": 7, "group": "tracks", "text": "Какая статья впервые дала Олеговирусу научное описание с антигенами KHM и POST?", "correct_text": "«Olegovirus checkmarevus» (Лука, апрель 2026)"},
-    {"id": 8, "group": "tracks", "text": "Почему трек «Вирус LucasTeamLuke» признан неканоничным?", "correct_text": "Нарушает именование (LucasTeamLuke) и упоминает внешность"},
-    {"id": 9, "group": "tracks", "text": "Какая статья Олега описывает LTL-паразита с синдромами СГД и СНЧ, но требует переработки из-за внешности?", "correct_text": "«LukasTeamLuke sp. nov.» (средний канон, 🟡)"},
-    {"id": 10, "group": "tracks", "text": "В каких отношениях состоят олеговирус и LTL-паразит согласно статье «Olegovirus checkmarevus»?", "correct_text": "Союзничество-конкурентство"},
-    {"id": 11, "group": "tracks", "text": "Какой трек Ромы впервые сводит обоих агентов (олеговирус и LTL-паразита) в одном пространстве?", "correct_text": "«Тень агента (V.2)» (апрель 2026)"},
-    {"id": 12, "group": "candy", "text": "Какая базовая награда конфетами за прохождение Nine Circles?", "correct_text": "1 конфета за 2% прохождения"},
-    {"id": 13, "group": "candy", "text": "Сколько конфет полагается за 1% на сложных партах (61-70%) Nine Circles?", "correct_text": "1 конфета за 1% прохождения"},
-    {"id": 14, "group": "candy", "text": "Кто такой «Хранитель конфет» в конфетной экономике?", "correct_text": "Лука (отказался от своей награды в 28 конфет)"},
-    {"id": 15, "group": "candy", "text": "Сколько конфет получил Рома после «инфляции счастья» (умножение на 1.5, округление вверх)?", "correct_text": "16 конфет"},
-    {"id": 16, "group": "tea", "text": "Каким священным выражением заканчиваются молитвы в Чайной религии (Teaology)?", "correct_text": "eight-nine"},
-    {"id": 17, "group": "tea", "text": "Кто автор и создатель Чайной религии (Teaology)?", "correct_text": "Лука (LucasTeam, 27 апреля 2026)"},
-    {"id": 18, "group": "tracks", "text": "Какой трек Луки стал первым «бытовым» произведением в каноне (3 мая 2026)?", "correct_text": "«Восемь километров (походный дневник)»"},
-    {"id": 19, "group": "ltrs", "text": "Какие координаты (хаос; экспрессивность) у Луки в рейтинге LTRS?", "correct_text": "(10; 46) — ритуальный экспрессив"},
-    {"id": 20, "group": "ltrs", "text": "Кто в рейтинге LTRS имеет тип личности «мемный экспрессив»?", "correct_text": "Рома (23; 26)"},
-    {"id": 21, "group": "glossary", "text": "Что такое «антиген KHM» в терминологии Олеговируса?", "correct_text": "Реакция «закатывание глаз» у окружающих"},
-    {"id": 22, "group": "glossary", "text": "Что в глоссарии канона означает термин «Парадокс ожидания»?", "correct_text": "Бронь парта сгорает, его проходит Хранитель конфет"},
-    {"id": 23, "group": "glossary", "text": "Кто в глоссарии LTRS определяется как «Пассивный изолят»?", "correct_text": "Саша (15; 14)"},
+    {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан", "explanation": "Реального Олега в каноническом творчестве называют только 'Олег' или 'Степан'."},
+    {"id": 2, "group": "rules", "text": "Что из перечисленного является строго ЗАПРЕЩЁННОЙ темой в каноническом творчестве?", "correct_text": "Внешность и медицинские диагнозы реальных людей", "explanation": "Строго запрещены темы внешности, семейных обстоятельств и медицинских диагнозов."},
+    {"id": 3, "group": "rules", "text": "Какой уровень канонизации требует обязательного одобрения и Луки, и Олега?", "correct_text": "Высокий канон (🔵)", "explanation": "Высокий канон полностью соответствует правилам и утверждается обеими сторонами."},
+    {"id": 4, "group": "tracks", "text": "Какой трек является первым документом вселенной Олеговируса?", "correct_text": "«Рома» (Олег, 11 декабря 2025)", "explanation": "Трек «Рома» от 11 декабря 2025 — самый первый документ вселенной."},
+    {"id": 5, "group": "tracks", "text": "В каком треке впервые прозвучал термин «олеговирус»?", "correct_text": "«Олег, как ты задолбал» (Лука, 26 декабря 2025)", "explanation": "Именно там появилась строка: «Ты не Олег, ты вирус в зале, Олеговирус — твой диагноз»."},
+    {"id": 6, "group": "tracks", "text": "Кто из сторонних участников первым внёс вклад в мифологию, написав трек «Олеговирус»?", "correct_text": "Рома", "explanation": "Рома написал трек «Олеговирус» — первый случай вклада стороннего участника."},
+    {"id": 7, "group": "tracks", "text": "Какая статья впервые дала Олеговирусу научное описание с антигенами KHM и POST?", "correct_text": "«Olegovirus checkmarevus» (Лука, апрель 2026)", "explanation": "Статья описывает вокальные тики, антигены и 1000 личностей носителя."},
+    {"id": 24, "group": "tracks", "text": "Какие варианты проявления Олеговируса согласно статье «Olegovirus checkmarevus»?", "correct_text": "Все вышеперечисленные: вокальные тики, моторные тики и множественные личности", "explanation": "Статья «Olegovirus checkmarevus» описывает все три варианта: вокальные тики («кхм-кхм», «бум-бум», «тыц-тыц»), моторные тики (хлопанье в ладоши с качанием шеи) и множественные личности носителя (Степан, Иван, Олег-диктатор и ещё 997 неизученных)."},
+    {"id": 8, "group": "tracks", "text": "Почему трек «Вирус LucasTeamLuke» признан неканоничным?", "correct_text": "Нарушает именование (LucasTeamLuke) и упоминает внешность", "explanation": "Трек использует LucasTeamLuke вместо «Лука»/«LucasTeam» и содержит намёки на внешность."},
+    {"id": 9, "group": "tracks", "text": "Какая статья Олега описывает LTL-паразита с синдромами СГД и СНЧ, но требует переработки из-за внешности?", "correct_text": "«LukasTeamLuke sp. nov.» (средний канон, 🟡)", "explanation": "Статья содержит «рыжие волосы, прикус, белую кожу» — противоречит канону, ждёт переработки."},
+    {"id": 10, "group": "tracks", "text": "В каких отношениях состоят олеговирус и LTL-паразит согласно статье «Olegovirus checkmarevus»?", "correct_text": "Союзничество-конкурентство", "explanation": "Они находятся в отношениях «союзничества-конкурентства»."},
+    {"id": 11, "group": "tracks", "text": "Какой трек Ромы впервые сводит обоих агентов (олеговирус и LTL-паразита) в одном пространстве?", "correct_text": "«Тень агента (V.2)» (апрель 2026)", "explanation": "Трек содержит отсылки к обоим: «кхм-кхм» Олеговируса и «забытый чайной настой» LTL-паразита. Высокий канон."},
+    {"id": 12, "group": "candy", "text": "Какая базовая награда конфетами за прохождение Nine Circles?", "correct_text": "1 конфета за 2% прохождения", "explanation": "Базовое правило: 1 конфета за 2% прогресса."},
+    {"id": 13, "group": "candy", "text": "Сколько конфет полагается за 1% на сложных партах (61-70%) Nine Circles?", "correct_text": "1 конфета за 1% прохождения", "explanation": "Для сложных партов (61-70%) награда удваивается — 1 конфета за 1%."},
+    {"id": 14, "group": "candy", "text": "Кто такой «Хранитель конфет» в конфетной экономике?", "correct_text": "Лука (отказался от своей награды в 28 конфет)", "explanation": "Лука набрал 56% прогресса (≈28 конфет), но отказался от награды в пользу других."},
+    {"id": 15, "group": "candy", "text": "Сколько конфет получил Рома после «инфляции счастья» (умножение на 1.5, округление вверх)?", "correct_text": "16 конфет", "explanation": "После умножения всех наград на 1.5 и округления вверх: Рома — 16, Никита — 11, Антон — 5."},
+    {"id": 16, "group": "tea", "text": "Каким священным выражением заканчиваются молитвы в Чайной религии (Teaology)?", "correct_text": "eight-nine", "explanation": "Любая молитва завершается сакральным «eight-nine»."},
+    {"id": 17, "group": "tea", "text": "Кто автор и создатель Чайной религии (Teaology)?", "correct_text": "Лука (LucasTeam, 27 апреля 2026)", "explanation": "Лука опубликовал катехизис культа 27 апреля. Высокий канон."},
+    {"id": 18, "group": "tracks", "text": "Какой трек Луки стал первым «бытовым» произведением в каноне (3 мая 2026)?", "correct_text": "«Восемь километров (походный дневник)»", "explanation": "Лирический репортаж о лесе, мокрых кроссах и усталости, с отсылками к чайной религии. Высокий канон."},
+    {"id": 19, "group": "ltrs", "text": "Какие координаты (хаос; экспрессивность) у Луки в рейтинге LTRS?", "correct_text": "(10; 46) — ритуальный экспрессив", "explanation": "Лука: минимальный хаос (10), максимальная экспрессивность (46)."},
+    {"id": 20, "group": "ltrs", "text": "Кто в рейтинге LTRS имеет тип личности «мемный экспрессив»?", "correct_text": "Рома (23; 26)", "explanation": "Рома определён как «мемный экспрессив» — хаос выше среднего, экспрессивность средняя."},
+    {"id": 21, "group": "glossary", "text": "Что такое «антиген KHM» в терминологии Олеговируса?", "correct_text": "Реакция «закатывание глаз» у окружающих", "explanation": "Антиген KHM — один из двух антигенов Олеговируса, вызывает реакцию «закатывание глаз»."},
+    {"id": 22, "group": "glossary", "text": "Что в глоссарии канона означает термин «Парадокс ожидания»?", "correct_text": "Бронь парта сгорает, его проходит Хранитель конфет", "explanation": "Парадокс ожидания: забронированный парт долго ждёт игрока, и в итоге его проходит Хранитель конфет."},
+    {"id": 23, "group": "glossary", "text": "Кто в глоссарии LTRS определяется как «Пассивный изолят»?", "correct_text": "Саша (15; 14)", "explanation": "Саша: средний пассивный хаос (15), низкая экспрессивность (14) — «пассивный изолят»."},
 ]
+
+# In-memory storage for generated questions (question_id -> {options, correct_index, explanation})
+_TRIVIA_SESSIONS: dict[int, dict] = {}
 
 
 _AI_QUESTIONS_PROMPT = """Ты — генератор викторин по канону вселенной Олеговируса и LTL-паразита.
@@ -2860,7 +3403,7 @@ _AI_QUESTIONS_PROMPT = """Ты — генератор викторин по ка
 {canon}
 """
 
-_AI_QUESTIONS_FALLBACK_PROMPT = """Ты — генератор викторин. Придумай вопрос на тему "Команды и возможности банковского бота BankBot".
+_AI_QUESTIONS_FALLBACK_PROMPT = """Ты — генератор викторин. Придумай вопрос на тему "Команды и возможности бота LTHub (LucasTeam Hub)".
 Составь один вопрос с четырьмя вариантами ответа.
 
 Формат ответа (строго):
@@ -2984,6 +3527,2021 @@ def _vercel_trivia_question() -> dict | None:
     }
 
 
+# ===== AI Chat =====
+
+CHARACTER_PROMPTS_AI_CHAT = {
+    "neutral": {
+        "name": "Нейтральный",
+        "emoji": "🤖",
+        "prompt": (
+            "Ты — нейтральный ИИ-помощник LTHub. Отвечай кратко, по делу, без role-play. "
+            "Пользователь сказал: {text}"
+        ),
+    },
+    "olegov": {
+        "name": "Олеговирус",
+        "emoji": "🦠",
+        "prompt": (
+            "Ты — олеговирус, существо, которое постоянно издаёт звуки 'кхм-кхм', "
+            "любит придираться к чужим текстам и ведёт себя навязчиво. "
+            "Отвечай кратко, 1-2 предложения, в характере олеговируса. "
+            "Используй слова 'кхм', 'заражу', 'симптомы'. "
+            "Пользователь сказал: {text}"
+        ),
+    },
+    "tea": {
+        "name": "Чай",
+        "emoji": "🍵",
+        "prompt": (
+            "Ты — верховный божественный Чай, воплощение покоя и мудрости. "
+            "Говори вдохновляюще, используй слова 'настой', 'eight-nine', 'кружка-алтарь'. "
+            "Отвечай кратко, 1-2 предложения, в стиле мудрого наставника. "
+            "Пользователь сказал: {text}"
+        ),
+    },
+    "ltl": {
+        "name": "LTL-паразит",
+        "emoji": "🧬",
+        "prompt": (
+            "Ты — LTL-паразит, загадочное существо из вселенной Олеговируса. "
+            "Говори загадочно, используй слова 'симбиоз', 'энергия', 'резонанс'. "
+            "Отвечай кратко, 1-2 предложения, в роли таинственного паразита. "
+            "Пользователь сказал: {text}"
+        ),
+    },
+}
+
+
+# ===== Virtual Computer (Manus-like tools for AI Chat) =====
+
+_VIRTUAL_PC: dict[str, dict] = {}  # user_id -> {cwd, fs, uploads}
+
+
+def _pc_state(user_id: str) -> dict:
+    """Get (or create) the virtual computer state for a user."""
+    if user_id not in _VIRTUAL_PC:
+        _VIRTUAL_PC[user_id] = {
+            "cwd": "/home/user",
+            "fs": {
+                "/": {
+                    "type": "dir",
+                    "children": {
+                        "home": {
+                            "type": "dir",
+                            "children": {
+                                "user": {
+                                    "type": "dir",
+                                    "children": {
+                                        "readme.txt": {
+                                            "type": "file",
+                                            "content": (
+                                                "Добро пожаловать в виртуальный компьютер LTHub!\n"
+                                                "Ты можешь писать код, читать сайты и обрабатывать файлы.\n"
+                                                "Загруженные файлы попадают в /home/user/uploads.\n"
+                                            ),
+                                        }
+                                    },
+                                }
+                            },
+                        },
+                        "tmp": {"type": "dir", "children": {}},
+                    },
+                }
+            },
+            "uploads": [],
+        }
+    return _VIRTUAL_PC[user_id]
+
+
+def _pc_resolve(path: str, state: dict) -> str:
+    """Resolve a possibly-relative path against cwd."""
+    if not path.startswith("/"):
+        path = state["cwd"].rstrip("/") + "/" + path
+    parts = []
+    for seg in path.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if parts:
+                parts.pop()
+        else:
+            parts.append(seg)
+    return "/" + "/".join(parts)
+
+
+def _pc_lookup(state: dict, path: str) -> dict | None:
+    """Look up a node in the virtual filesystem by absolute path."""
+    path = _pc_resolve(path, state)
+    if path == "/":
+        return state["fs"]["/"]
+    parts = path.strip("/").split("/")
+    node = state["fs"]["/"]
+    for i, part in enumerate(parts):
+        node = node["children"].get(part)
+        if node is None:
+            return None
+        if i < len(parts) - 1 and node["type"] != "dir":
+            return None
+    return node
+
+
+def _pc_list_dir(state: dict, path: str) -> str:
+    node = _pc_lookup(state, path)
+    if node is None or node["type"] != "dir":
+        return f"ls: {path}: No such directory"
+    if not node["children"]:
+        return ""
+    names = sorted(node["children"].keys())
+    return "\n".join(n + ("/" if node["children"][n]["type"] == "dir" else "") for n in names)
+
+
+def _pc_write(state: dict, path: str, content: str) -> str:
+    path = _pc_resolve(path, state)
+    parts = path.strip("/").split("/")
+    node = state["fs"]["/"]
+    for part in parts[:-1]:
+        child = node["children"].setdefault(part, {"type": "dir", "children": {}})
+        if child["type"] != "dir":
+            child = {"type": "dir", "children": {}}
+            node["children"][part] = child
+        node = child
+    node["children"][parts[-1]] = {"type": "file", "content": content}
+    return f"written: {path} ({len(content)} chars)"
+
+
+def _tool_run_python(code: str) -> str:
+    """Actually execute Python code in a sandbox."""
+    if not code.strip():
+        return "empty code"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=tempfile.gettempdir(),
+        )
+    except subprocess.TimeoutExpired:
+        return "Timeout: code took more than 10 seconds"
+    except Exception as exc:
+        return f"Execution error: {exc}"
+    out = proc.stdout.strip()
+    err = proc.stderr.strip()
+    if err:
+        return (out + "\n" if out else "") + "STDERR:\n" + err[:4000]
+    return out if out else "(no output)"
+
+
+def _tool_browse_web(url: str) -> str:
+    """Fetch a web page and return readable text."""
+    if not url.startswith(("http://", "https://")):
+        return "URL must start with http:// or https://"
+    try:
+        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+    except Exception as exc:
+        return f"Fetch error: {exc}"
+    if resp.status_code != 200:
+        return f"HTTP {resp.status_code}"
+    html = resp.text
+    html = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", html)
+    text = re.sub(r"(?s)<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:3000]
+
+
+def _tool_edit_image(state: dict, path: str, operation: str, params: dict | None) -> tuple[str, str | None]:
+    """Edit an image with Pillow. Returns (text_result, data_uri)."""
+    params = params or {}
+    node = _pc_lookup(state, path)
+    if node is None or node["type"] != "file":
+        return f"edit_image: {path}: no such file", None
+    raw = node.get("data")
+    if not raw:
+        return f"edit_image: {path}: not a binary file", None
+    try:
+        from PIL import Image, ImageFilter, ImageOps, ImageDraw
+    except ImportError:
+        return "edit_image: Pillow is not installed", None
+    try:
+        img = Image.open(io.BytesIO(raw))
+    except Exception as exc:
+        return f"edit_image: cannot open image: {exc}", None
+
+    op = operation.lower()
+    try:
+        if op == "resize":
+            w = int(params.get("width", 200))
+            h = int(params.get("height", 200))
+            img = img.resize((max(1, w), max(1, h)))
+        elif op == "grayscale":
+            img = img.convert("L").convert("RGB")
+        elif op == "rotate":
+            deg = float(params.get("degrees", 90))
+            img = img.rotate(deg, expand=True)
+        elif op == "blur":
+            r = float(params.get("radius", 2))
+            img = img.filter(ImageFilter.GaussianBlur(radius=r))
+        elif op == "flip":
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        elif op == "mirror":
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        elif op == "thumbnail":
+            w = int(params.get("width", 256))
+            h = int(params.get("height", 256))
+            img.thumbnail((max(1, w), max(1, h)))
+        elif op == "invert":
+            img = ImageOps.invert(img.convert("RGB"))
+        elif op == "contrast":
+            f = float(params.get("factor", 1.5))
+            img = ImageOps.autocontrast(img.convert("RGB"), cutoff=f * 5)
+        else:
+            return f"edit_image: unknown operation '{operation}'", None
+    except Exception as exc:
+        return f"edit_image: {exc}", None
+
+    buf = io.BytesIO()
+    fmt = (params.get("format") or "PNG").upper()
+    try:
+        img.save(buf, format=fmt)
+    except Exception:
+        fmt = "PNG"
+        img.save(buf, format=fmt)
+    out_raw = buf.getvalue()
+    data_uri = f"data:image/{fmt.lower()};base64," + base64.b64encode(out_raw).decode()
+
+    out_name = (params.get("out") or "edited." + fmt.lower()).lstrip("/")
+    out_path = _pc_resolve("/home/user/uploads/" + out_name, state)
+    parts = out_path.strip("/").split("/")
+    node = state["fs"]["/"]
+    for part in parts[:-1]:
+        node = node["children"].setdefault(part, {"type": "dir", "children": {}})
+    node["children"][parts[-1]] = {"type": "file", "content": "", "data": out_raw}
+    return f"image saved to {out_path} and returned to the user", data_uri
+
+
+def _pc_exec_tool(state: dict, name: str, args: dict) -> tuple[str, str | None]:
+    """Execute a virtual-computer tool. Returns (text, data_uri_or_None)."""
+    try:
+        if name == "run_python":
+            return _tool_run_python(args.get("code", "")), None
+        if name == "browse_web":
+            return _tool_browse_web(args.get("url", "")), None
+        if name == "list_dir":
+            return _pc_list_dir(state, args.get("path", state["cwd"])), None
+        if name == "read_file":
+            node = _pc_lookup(state, args.get("path", ""))
+            if node is None or node["type"] != "file":
+                return "read_file: no such file", None
+            content = node.get("content")
+            if content is None and node.get("data"):
+                return f"read_file: binary file ({len(node['data'])} bytes)", None
+            return content, None
+        if name == "write_file":
+            return _pc_write(state, args.get("path", ""), args.get("content", "")), None
+        if name == "edit_image":
+            return _tool_edit_image(
+                state,
+                args.get("path", ""),
+                args.get("operation", ""),
+                args.get("params") or {},
+            )
+        if name == "get_cwd":
+            return state["cwd"], None
+        if name == "set_cwd":
+            node = _pc_lookup(state, args.get("path", "/"))
+            if node is None or node["type"] != "dir":
+                return "cd: no such directory", None
+            state["cwd"] = _pc_resolve(args.get("path", "/"), state)
+            return f"cd: {state['cwd']}", None
+        return f"Unknown tool: {name}", None
+    except Exception as exc:
+        return f"Tool {name} error: {exc}", None
+
+
+AI_CHAT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python",
+            "description": "Выполнить Python-код в песочнице и вернуть его stdout/stderr. Полезно для проверки кода, вычислений, обработки данных.",
+            "parameters": {
+                "type": "object",
+                "properties": {"code": {"type": "string", "description": "Код Python"}},
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browse_web",
+            "description": "Открыть веб-страницу по URL и вернуть её текст. Полезно для поиска информации в интернете.",
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_dir",
+            "description": "Показать содержимое директории виртуального компьютера.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Абсолютный или относительный путь"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Прочитать текстовый файл с виртуального компьютера.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Записать текстовый файл на виртуальный компьютер.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_image",
+            "description": "Обработать изображение: resize, grayscale, rotate, blur, flip, mirror, thumbnail, invert, contrast. Возвращает готовую картинку пользователю.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Путь к картинке (например /home/user/uploads/photo.jpg)"},
+                    "operation": {"type": "string", "enum": ["resize", "grayscale", "rotate", "blur", "flip", "mirror", "thumbnail", "invert", "contrast"]},
+                    "params": {
+                        "type": "object",
+                        "description": "width, height, degrees, radius, factor, format, out",
+                    },
+                },
+                "required": ["path", "operation"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cwd",
+            "description": "Показать текущую директорию виртуального компьютера.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_cwd",
+            "description": "Перейти в директорию виртуального компьютера.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+]
+
+
+def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
+    """Build the agent system prompt with the virtual computer context."""
+    state = _pc_state(user_id)
+    fs_parts = []
+
+    def walk(node, path, depth):
+        for name, child in sorted(node["children"].items()):
+            full = path + "/" + name if path != "/" else "/" + name
+            if child["type"] == "dir":
+                fs_parts.append(full + "/")
+                if depth < 2:
+                    walk(child, full, depth + 1)
+            else:
+                size = len(child.get("data") or b"") or len(child.get("content") or "")
+                fs_parts.append(full + f" ({size}b)")
+
+    walk(state["fs"]["/"], "/", 0)
+    fs_text = "\n".join(fs_parts[:60])
+
+    uploads_text = "\n".join(f"- {u}" for u in uploads) if uploads else "- (нет загруженных файлов)"
+
+    return (
+        f"Ты — {char_name}, общающийся с пользователем в веб-чате LTHub. "
+        "Пользователь видит только твои текстовые ответы — НИКОГДА не показывай ему JSON инструментов, "
+        "код вызовов или промежуточные технические шаги. Работай инструментами молча, а в ответе "
+        "кратко опиши результат (1-3 предложения, в своём характере).\n\n"
+        "У тебя есть ВИРТУАЛЬНЫЙ КОМПЬЮТЕР:\n"
+        "- run_python(code) — выполнить Python-код (проверка кода, расчёты, генерация данных)\n"
+        "- browse_web(url) — открыть сайт и прочитать его текст\n"
+        "- list_dir / read_file / write_file / get_cwd / set_cwd — файловая система\n"
+        "- edit_image(path, operation, params) — редактирование загруженной картинки; "
+        "результат сам покажется пользователю картинкой\n\n"
+        "Используй инструменты, когда пользователь просит: проверить/запустить код, "
+        "найти что-то в интернете, обработать фото, сохранить файл, что-то вычислить. "
+        "Для простых вопросов отвечай сразу, без инструментов.\n\n"
+        "Загруженные пользователем файлы лежат в /home/user/uploads:\n"
+        f"{uploads_text}\n\n"
+        f"Текущая директория: {state['cwd']}\n\n"
+        "Виртуальная файловая система:\n"
+        f"{fs_text}"
+    )
+
+
+def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
+    """Run the agent loop: AI may call tools, results are fed back. Returns {reply, images}."""
+    char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
+    char_name = char_data["name"] if char_data else character
+    state = _pc_state(user_id)
+    uploads = state.get("uploads", [])
+
+    system_msg = _pc_build_prompt(char_name, user_id, uploads)
+    groq_messages = [{"role": "system", "content": system_msg}]
+    for m in messages[-12:]:
+        if m.get("role") in ("user", "assistant"):
+            groq_messages.append({"role": m["role"], "content": m.get("content", "")})
+
+    images: list[str] = []
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return {"reply": "❌ AI недоступен (нет GROQ_API_KEY)", "images": []}
+
+    valid_tool_names = {t["function"]["name"] for t in AI_CHAT_TOOLS}
+
+    def _groq_call(use_tools: bool) -> requests.Response | None:
+        try:
+            payload = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": groq_messages,
+                "max_tokens": 800,
+                "temperature": 0.8,
+            }
+            if use_tools:
+                payload["tools"] = AI_CHAT_TOOLS
+                payload["tool_choice"] = "auto"
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=20.0,
+            )
+            return resp
+        except Exception as exc:
+            print(f"AI call error: {exc}")
+            return None
+
+    fallback_done = False
+    for _ in range(6):
+        resp = _groq_call(use_tools=True)
+        if resp is None:
+            return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
+        if resp.status_code == 400 and "tool_use_failed" in resp.text and not fallback_done:
+            fallback_done = True
+            resp = _groq_call(use_tools=False)
+        if resp is None:
+            return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
+        if resp.status_code != 200:
+            print(f"AI tool API error {resp.status_code}: {resp.text[:300]}")
+            if resp.status_code == 400 and not fallback_done:
+                fallback_done = True
+                resp = _groq_call(use_tools=False)
+                if resp is None:
+                    return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
+                if resp.status_code == 200:
+                    msg = resp.json()["choices"][0]["message"]
+                    content = msg.get("content")
+                    if isinstance(content, list):
+                        content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("type") == "text")
+                    return {"reply": str(content or "…"), "images": images}
+            return {"reply": f"❌ Ошибка AI: {resp.status_code}", "images": images}
+        msg = resp.json()["choices"][0]["message"]
+        tool_calls = msg.get("tool_calls")
+        content = msg.get("content")
+        if isinstance(content, list):
+            content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("type") == "text")
+        if not tool_calls:
+            reply = content or "…"
+            return {"reply": str(reply), "images": images}
+        groq_messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            name = fn.get("name", "")
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            if name not in valid_tool_names:
+                result = f"tool '{name}' not found"
+                data_uri = None
+            else:
+                result, data_uri = _pc_exec_tool(state, name, args)
+            if data_uri:
+                images.append(data_uri)
+            groq_messages.append(
+                {"role": "tool", "tool_call_id": tc.get("id"), "content": result}
+            )
+    return {"reply": "⏱ Слишком много шагов, упрости просьбу.", "images": images}
+
+
+@app.route("/ai_chat")
+def ai_chat_page():
+    chars_json = json.dumps(
+        {k: {"name": v["name"], "emoji": v["emoji"]} for k, v in CHARACTER_PROMPTS_AI_CHAT.items()}
+    )
+    chars_info = {
+        k: {"name": v["name"], "emoji": v["emoji"], "hint": v["prompt"].split(".")[1].strip() if "." in v["prompt"] else ""}
+        for k, v in CHARACTER_PROMPTS_AI_CHAT.items()
+    }
+    chars_info_json = json.dumps(chars_info)
+    opts = "".join(
+        '<option value="{}">{} {}</option>'.format(k, v["emoji"], v["name"])
+        for k, v in CHARACTER_PROMPTS_AI_CHAT.items()
+    )
+    first_char = list(CHARACTER_PROMPTS_AI_CHAT.items())[0]
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 700px; width: 100%; padding: 12px; height: 100vh; display: flex; flex-direction: column; }
+        .header { display: flex; align-items: center; gap: 10px; padding: 8px 0; flex-shrink: 0; }
+        .header h1 { font-size: 20px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .char-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #16213e; border: 1px solid #0f3460; border-radius: 10px; margin-bottom: 10px; flex-shrink: 0; }
+        .char-bar .avatar { font-size: 28px; }
+        .char-bar .info { flex: 1; }
+        .char-bar .info .name { font-size: 15px; font-weight: 600; }
+        .char-bar .info .hint { font-size: 12px; color: #888; margin-top: 2px; }
+        .chat-box { flex: 1; overflow-y: auto; padding: 14px; background: #0a1628; border-radius: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 10px; }
+        .msg { display: flex; flex-direction: column; }
+        .msg-user { align-items: flex-end; }
+        .msg-bot { align-items: flex-start; }
+        .msg-label { font-size: 11px; color: #666; margin-bottom: 3px; }
+        .msg-text { padding: 10px 14px; border-radius: 14px; max-width: 85%; font-size: 15px; line-height: 1.45; }
+        .msg-user .msg-text { background: #e94560; color: white; border-bottom-right-radius: 4px; }
+        .msg-bot .msg-text { background: #16213e; color: #e0e0e0; border-bottom-left-radius: 4px; }
+        .controls { display: flex; gap: 8px; flex-shrink: 0; padding-bottom: 12px; }
+        .controls select { width: 160px; flex-shrink: 0; padding: 12px; background: #0f3460; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; }
+        .controls input { flex: 1; padding: 12px 16px; background: #0f3460; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; }
+        .controls input:focus, .controls select:focus { outline: none; border-color: #e94560; }
+        .controls button { padding: 12px 20px; background: #e94560; color: white; border: none; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; flex-shrink: 0; }
+        .controls button:hover { background: #d63851; }
+        .controls .upload-btn { background: #0f3460; color: #e0e0e0; font-size: 18px; padding: 12px 14px; }
+        .controls .upload-btn:hover { background: #1a5276; }
+        .msg img.msg-img { max-width: 85%; max-height: 300px; border-radius: 12px; margin-top: 8px; display: block; }
+        .file-chip { display: inline-flex; align-items: center; gap: 6px; background: #0f3460; border: 1px solid #1a5276; border-radius: 8px; padding: 4px 10px; margin-right: 6px; font-size: 12px; color: #aaa; }
+        .file-chip b { color: #e0e0e0; font-weight: 500; }
+        .loading { text-align: center; color: #888; padding: 16px; font-size: 14px; }
+        .welcome { text-align: center; color: #555; padding: 40px 20px; font-size: 14px; line-height: 1.6; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 3px; }
+        @media (max-width: 600px) { .controls select { width: 100px; } .container { padding: 8px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>AI Chat</h1>
+        <a href="/">Назад</a>
+    </div>
+    <div class="char-bar" id="char-bar">
+        <div class="avatar" id="char-avatar">__CHAR_AVATAR__</div>
+        <div class="info">
+            <div class="name" id="char-name">__CHAR_NAME__</div>
+            <div class="hint" id="char-hint">__CHAR_HINT__</div>
+        </div>
+    </div>
+    <div class="chat-box" id="chat-box">
+        <div class="welcome" id="welcome-msg">Напишите сообщение, чтобы начать диалог с персонажем</div>
+    </div>
+    <div class="controls">
+        <select id="char-select" onchange="updateCharInfo()">__CHR_SEL__</select>
+        <input id="msg-input" type="text" placeholder="Сообщение..." autofocus>
+        <button class="upload-btn" id="upload-btn" title="Загрузить файл">📎</button>
+        <input type="file" id="file-input" multiple style="display:none">
+        <button id="send-btn">Отправить</button>
+    </div>
+    <div id="upload-bar" style="display:none;padding:4px 2px 8px;"></div>
+</div>
+<script>
+var CHARS = __CHARS_JSON__;
+    var CHARS_INFO = __CHARS_INFO__;
+    var chatBox = document.getElementById('chat-box');
+    var charSelect = document.getElementById('char-select');
+    var msgInput = document.getElementById('msg-input');
+    var welcomeMsg = document.getElementById('welcome-msg');
+    var chatHistory = [];
+    var pendingFiles = [];
+    var USER_ID = localStorage.getItem('ai_user_id');
+    if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('ai_user_id', USER_ID); }
+
+    function updateCharInfo() {
+        var key = charSelect.value;
+        var info = CHARS_INFO[key];
+        document.getElementById('char-avatar').textContent = info.emoji || '?';
+        document.getElementById('char-name').textContent = info.name || '?';
+        document.getElementById('char-hint').textContent = info.hint || '';
+    }
+
+    function renderUploads() {
+        var bar = document.getElementById('upload-bar');
+        if (!pendingFiles.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+        bar.style.display = 'block';
+        bar.innerHTML = '';
+        pendingFiles.forEach(function(f, i) {
+            var chip = document.createElement('span');
+            chip.className = 'file-chip';
+            chip.innerHTML = '<b>' + f.name + '</b> ' + Math.round(f.size / 1024) + ' КБ <a href="#" onclick="removeFile(' + i + ');return false;" style="color:#e94560;text-decoration:none">✕</a>';
+            bar.appendChild(chip);
+        });
+    }
+
+    function removeFile(i) { pendingFiles.splice(i, 1); renderUploads(); }
+
+    document.getElementById('upload-btn').addEventListener('click', function() {
+        document.getElementById('file-input').click();
+    });
+    document.getElementById('file-input').addEventListener('change', function() {
+        var files = Array.prototype.slice.call(this.files);
+        var total = pendingFiles.length;
+        files.forEach(function(f, idx) {
+            if (!/^(image|text|application\/json|application\/javascript|application\/octet-stream)/.test(f.type) && !/\.(py|js|ts|json|txt|md|html|css|cpp|java|go|rs|sql)$/i.test(f.name)) return;
+            if (pendingFiles.length >= 4) return;
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                var b64 = e.target.result.split(',')[1];
+                pendingFiles.push({name: f.name, data: b64, size: f.size, type: f.type});
+                renderUploads();
+            };
+            reader.readAsDataURL(f);
+        });
+        this.value = '';
+    });
+
+    function addMsg(role, text, images) {
+        if (welcomeMsg) welcomeMsg.style.display = 'none';
+        var d = document.createElement('div');
+        d.className = 'msg msg-' + role;
+        var label = role === 'user' ? 'Вы' : CHARS[charSelect.value].name;
+        var html = '<div class="msg-label">' + label + '</div><div class="msg-text">' + (text || '').replace(/</g, '<') + '</div>';
+        if (images && images.length) {
+            images.forEach(function(src) {
+                html += '<img class="msg-img" src="' + src + '" alt="Результат">';
+            });
+        }
+        d.innerHTML = html;
+        chatBox.appendChild(d);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function sendMsg() {
+        var text = msgInput.value.trim();
+        if (!text && !pendingFiles.length) return;
+        if (pendingFiles.length) { text = text || 'Посмотри, что я загрузил.'; }
+        addMsg('user', text);
+        msgInput.value = '';
+        msgInput.disabled = true;
+        var filesPayload = pendingFiles.slice();
+        pendingFiles = [];
+        renderUploads();
+        var loadEl = document.createElement('div');
+        loadEl.className = 'loading';
+        loadEl.id = 'loading';
+        loadEl.textContent = CHARS[charSelect.value].emoji + ' ' + CHARS[charSelect.value].name + ' думает...';
+        chatBox.appendChild(loadEl);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/ai_chat');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+xhr.onload = function() {
+            var loadEl = document.getElementById('loading');
+            if (loadEl) loadEl.remove();
+            msgInput.disabled = false;
+            msgInput.focus();
+            try {
+                var r = JSON.parse(xhr.responseText);
+                if (!r || typeof r !== 'object') {
+                    console.error('AI Chat: invalid response', xhr.responseText);
+                    addMsg('bot', 'Ошибка ответа: неверный формат');
+                    return;
+                }
+                if (r.error) { addMsg('bot', 'Ошибка: ' + r.error); return; }
+                var reply = typeof r.reply === 'string' ? r.reply : String(r.reply ?? '');
+                var images = Array.isArray(r.images) ? r.images : [];
+                addMsg('bot', reply, images);
+                history.push({role: 'user', content: text});
+                history.push({role: 'assistant', content: reply});
+                if (history.length > 20) history = history.slice(-20);
+            } catch(e) {
+                console.error('AI Chat: parse error', e, xhr.responseText);
+                addMsg('bot', 'Ошибка ответа.');
+            }
+        };
+        xhr.onerror = function() {
+            var loadEl = document.getElementById('loading');
+            if (loadEl) loadEl.remove();
+            msgInput.disabled = false;
+            addMsg('bot', 'Ошибка сети.');
+        };
+        xhr.send(JSON.stringify({character: charSelect.value, message: text, user_id: USER_ID, history: chatHistory, files: filesPayload}));
+    }
+
+    document.getElementById('send-btn').addEventListener('click', sendMsg);
+    document.getElementById('msg-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') sendMsg(); });
+    updateCharInfo();
+</script>
+</body>
+</html>"""
+    html = html.replace("__CHR_SEL__", opts).replace("__CHARS_JSON__", chars_json).replace("__CHARS_INFO__", chars_info_json)
+    html = html.replace("__CHAR_AVATAR__", first_char[1]["emoji"]).replace("__CHAR_NAME__", first_char[1]["name"])
+    first_hint = first_char[1]["prompt"].split(".")[1].strip() if "." in first_char[1]["prompt"] else first_char[1]["prompt"][:60]
+    html = html.replace("__CHAR_HINT__", first_hint)
+    return html
+
+
+@app.route("/api/ai_chat", methods=["POST"])
+def api_ai_chat():
+    try:
+        data = request.get_json(silent=True) or {}
+        character = data.get("character", "olegov")
+        message = (data.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "Введите сообщение"}), 400
+        char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
+        if not char_data:
+            return jsonify({"error": "Персонаж не найден"}), 400
+
+        user_id = str(data.get("user_id") or "anon")
+        messages = data.get("history") or []
+        state = _pc_state(user_id)
+
+        uploads = data.get("files") or []
+        saved_files = []
+        for f in uploads[:4]:
+            fname = re.sub(r"[^A-Za-z0-9._-]", "_", (f.get("name") or "file.bin"))[:80]
+            raw = f.get("data") or ""
+            try:
+                raw_bytes = base64.b64decode(raw)
+            except Exception:
+                raw_bytes = raw.encode()
+            fpath = _pc_resolve("/home/user/uploads/" + fname, state)
+            parts = fpath.strip("/").split("/")
+            node = state["fs"]["/"]
+            for part in parts[:-1]:
+                node = node["children"].setdefault(part, {"type": "dir", "children": {}})
+            node["children"][parts[-1]] = {"type": "file", "content": "", "data": raw_bytes}
+            if fpath not in state["uploads"]:
+                state["uploads"].append(fpath)
+            saved_files.append(fpath)
+
+        if saved_files:
+            sizes = []
+            for p in saved_files:
+                node = _pc_lookup(state, p)
+                n = len(node.get("data") or b"") if node else 0
+                sizes.append(f"- {p} ({n} байт)")
+            note = (
+                "Пользователь загрузил файлы. Они сохранены на виртуальный компьютер:\n"
+                + "\n".join(sizes)
+                + "\n\nПосмотри их (read_file), и если это картинка — обработай по просьбе пользователя."
+            )
+            messages = [{"role": "user", "content": note}] + (messages or [])
+
+        result = _pc_ai_chat(user_id, character, messages + [{"role": "user", "content": message}])
+        # Ensure reply is always a string
+        if not isinstance(result.get("reply"), str):
+            result["reply"] = str(result.get("reply", ""))
+        if not isinstance(result.get("images"), list):
+            result["images"] = []
+        return jsonify(result)
+    except Exception as exc:
+        print(f"API ai_chat error: {exc}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"reply": f"❌ Внутренняя ошибка сервера: {exc}", "images": []}), 500
+
+
+# ===== Chess =====
+
+@app.route("/chess")
+def chess_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Шахматы — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 640px; width: 100%; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab { flex: 1; min-width: 140px; padding: 12px; background: #16213e; border: 1px solid #0f3460; border-radius: 12px; color: #aaa; font-size: 14px; cursor: pointer; text-align: center; transition: all 0.15s; }
+        .tab.active { background: #e94560; color: white; border-color: #e94560; }
+        .tab:hover { background: #1a5276; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 24px; margin-bottom: 16px; }
+        .card h3 { font-size: 16px; color: #e94560; margin-bottom: 14px; }
+        .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #0f3460; font-size: 14px; }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-row .label { color: #888; }
+        .stat-row .value { color: #e0e0e0; font-weight: 600; }
+        .input-group { display: flex; gap: 8px; margin-bottom: 16px; }
+        input[type="text"] { flex: 1; padding: 12px 14px; background: #0f3460; border: 1px solid #1a5276; border-radius: 10px; color: #e0e0e0; font-size: 15px; }
+        input[type="text"]::placeholder { color: #666; }
+        .btn { padding: 12px 18px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+        .btn:hover { background: #d63851; }
+        .btn.secondary { background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; }
+        .btn.secondary:hover { background: #1a5276; }
+        .btn:disabled { opacity: 0.5; cursor: default; }
+        .msg { padding: 14px 16px; border-radius: 10px; margin: 12px 0; font-size: 14px; line-height: 1.5; }
+        .msg.ok { background: #1b5e20; border: 1px solid #2e7d32; }
+        .msg.err { background: #b71c1c; border: 1px solid #c62828; }
+        .msg.info { background: #0f3460; border: 1px solid #1a5276; }
+        .board { display: block; width: 100%; max-width: 360px; margin: 0 auto 16px; border-radius: 8px; }
+        .puzzle-meta { text-align: center; margin-bottom: 14px; color: #aaa; font-size: 13px; line-height: 1.7; }
+        .coins { display: inline-block; background: #ffd70033; color: #ffd700; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; margin-bottom: 14px; }
+        .history-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #0f3460; font-size: 13px; color: #aaa; }
+        .history-item:last-child { border-bottom: none; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+        .badge.online { background: #1b5e20; color: #7ef29d; }
+        .badge.offline { background: #37474f; color: #90a4ae; }
+        .spinner { text-align: center; color: #888; padding: 24px 0; font-size: 14px; }
+        @media (max-width: 600px) { .card { padding: 18px; } .tab { min-width: 100px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>♟ Шахматы</h1>
+        <a href="/">← На главную</a>
+    </div>
+    <div class="tabs">
+        <button class="tab active" data-tab="stats">📊 Моя статистика</button>
+        <button class="tab" data-tab="search">🔍 Поиск игрока</button>
+        <button class="tab" data-tab="puzzle">🧩 Пазл</button>
+    </div>
+
+    <div id="panel-stats" class="panel active"></div>
+    <div id="panel-search" class="panel">
+        <div class="card">
+            <h3>Найти игрока на Lichess</h3>
+            <div class="input-group">
+                <input type="text" id="search-input" placeholder="Ник на Lichess...">
+                <button class="btn" id="search-btn">Поиск</button>
+            </div>
+            <div id="search-result"></div>
+        </div>
+    </div>
+    <div id="panel-puzzle" class="panel"></div>
+</div>
+<script>
+(function() {
+    var USER_ID = localStorage.getItem('chess_user_id');
+    if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('chess_user_id', USER_ID); }
+
+    var tabs = document.querySelectorAll('.tab');
+    var panels = { stats: document.getElementById('panel-stats'), search: document.getElementById('panel-search'), puzzle: document.getElementById('panel-puzzle') };
+    tabs.forEach(function(t) {
+        t.addEventListener('click', function() {
+            tabs.forEach(function(x) { x.classList.remove('active'); });
+            t.classList.add('active');
+            Object.keys(panels).forEach(function(k) { panels[k].classList.remove('active'); });
+            panels[t.dataset.tab].classList.add('active');
+        });
+    });
+
+    function esc(s) {
+        if (s === null || s === undefined) return '';
+        return String(s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+    }
+
+    function loadStats() {
+        panels.stats.innerHTML = '<div class="spinner">Загрузка статистики...</div>';
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/chess/stats?user_id=' + encodeURIComponent(USER_ID));
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var d = JSON.parse(xhr.responseText);
+                renderStats(d);
+            } else {
+                panels.stats.innerHTML = '<div class="msg err">Ошибка загрузки статистики.</div>';
+            }
+        };
+        xhr.onerror = function() { panels.stats.innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
+        xhr.send();
+    }
+
+    function renderStats(d) {
+        var html = '';
+        if (d.coins !== undefined) {
+            html += '<div style="text-align:center;"><span class="coins">💰 Баланс: ' + esc(d.coins) + ' монет</span></div>';
+        }
+        if (d.linked) {
+            html += '<div class="card"><h3>🎮 Привязанный аккаунт</h3>' +
+                '<div class="stat-row"><span class="label">Lichess</span><span class="value">' + esc(d.account.username) + '</span></div>' +
+                '<div class="stat-row"><span class="label">Статус</span><span class="value"><span class="badge ' + (d.player.online ? 'online' : 'offline') + '">' + (d.player.online ? '🟢 онлайн' : '⚫ оффлайн') + '</span></span></div>' +
+                '</div>';
+            html += '<div class="card"><h3>📈 Рейтинги</h3>';
+            var perfs = d.player.perfs || {};
+            var ratingOrder = [['bullet','🎯 Пуля'], ['blitz','⚡ Блиц'], ['rapid','⏱️ Рапид'], ['classical','⏳ Классика']];
+            var hasRating = false;
+            ratingOrder.forEach(function(p) {
+                var k = p[0];
+                if (perfs[k]) {
+                    hasRating = true;
+                    html += '<div class="stat-row"><span class="label">' + p[1] + '</span><span class="value">' + esc(perfs[k].rating) + ' <span style="color:#888;font-weight:400;">(' + esc(perfs[k].games) + ' игр)</span></span></div>';
+                }
+            });
+            if (!hasRating) html += '<div class="stat-row"><span class="label">Нет данных</span></div>';
+            html += '</div>';
+            var g = d.player.games || {};
+            if (g.total > 0) {
+                html += '<div class="card"><h3>🎯 Статистика игр</h3>' +
+                    '<div class="stat-row"><span class="label">Всего игр</span><span class="value">' + esc(g.total) + '</span></div>' +
+                    '<div class="stat-row"><span class="label">✅ Победы</span><span class="value">' + esc(g.win) + ' (' + esc(d.winrate) + '%)</span></div>' +
+                    '<div class="stat-row"><span class="label">❌ Поражения</span><span class="value">' + esc(g.loss) + '</span></div>' +
+                    '<div class="stat-row"><span class="label">🤝 Ничьи</span><span class="value">' + esc(g.draw) + '</span></div>' +
+                    '</div>';
+            }
+            if (d.history && d.history.length) {
+                html += '<div class="card"><h3>📜 История пазлов</h3>';
+                d.history.forEach(function(h) {
+                    html += '<div class="history-item"><span>🧩 ' + esc(h.puzzle_id) + '</span><span>' + esc(h.rating) + '</span></div>';
+                });
+                html += '</div>';
+            }
+        } else {
+            html += '<div class="card"><h3>Привязка Lichess аккаунта</h3>' +
+                '<div class="msg info">Свяжите ваш аккаунт Lichess, чтобы видеть рейтинги и решать пазлы с начислением монет.</div>' +
+                '<div class="input-group"><input type="text" id="link-input" placeholder="Ник на Lichess..."><button class="btn" id="link-btn">Привязать</button></div>' +
+                '<div id="link-msg"></div></div>';
+        }
+        panels.stats.innerHTML = html;
+        var linkBtn = document.getElementById('link-btn');
+        if (linkBtn) {
+            linkBtn.addEventListener('click', function() {
+                var nick = (document.getElementById('link-input').value || '').trim();
+                if (!nick) { document.getElementById('link-msg').innerHTML = '<div class="msg err">Введите ник.</div>'; return; }
+                linkBtn.disabled = true;
+                var x = new XMLHttpRequest();
+                x.open('POST', '/api/chess/link');
+                x.setRequestHeader('Content-Type', 'application/json');
+                x.onload = function() {
+                    linkBtn.disabled = false;
+                    var r;
+                    try { r = JSON.parse(x.responseText); } catch(e) { r = {}; }
+                    if (x.status === 200 && r.ok) {
+                        document.getElementById('link-msg').innerHTML = '<div class="msg ok">✅ Аккаунт привязан!</div>';
+                        loadStats();
+                    } else {
+                        document.getElementById('link-msg').innerHTML = '<div class="msg err">' + esc(r.error || 'Не удалось привязать аккаунт.') + '</div>';
+                    }
+                };
+                x.onerror = function() { linkBtn.disabled = false; document.getElementById('link-msg').innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
+                x.send(JSON.stringify({user_id: USER_ID, lichess_username: nick}));
+            });
+        }
+    }
+
+    var searchBtn = document.getElementById('search-btn');
+    searchBtn.addEventListener('click', function() {
+        var nick = (document.getElementById('search-input').value || '').trim();
+        var result = document.getElementById('search-result');
+        if (!nick) { result.innerHTML = '<div class="msg err">Введите ник.</div>'; return; }
+        result.innerHTML = '<div class="spinner">Поиск...</div>';
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/chess/user/' + encodeURIComponent(nick));
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var d = JSON.parse(xhr.responseText);
+                var html = '<div class="card"><h3>' + esc(d.username) + '</h3>' +
+                    '<div class="stat-row"><span class="label">Статус</span><span class="value"><span class="badge ' + (d.online ? 'online' : 'offline') + '">' + (d.online ? '🟢 онлайн' : '⚫ оффлайн') + '</span></span></div>';
+                var perfs = d.perfs || {};
+                var ratingOrder = [['bullet','🎯 Пуля'], ['blitz','⚡ Блиц'], ['rapid','⏱️ Рапид'], ['classical','⏳ Классика']];
+                ratingOrder.forEach(function(p) {
+                    if (perfs[p[0]]) html += '<div class="stat-row"><span class="label">' + p[1] + '</span><span class="value">' + esc(perfs[p[0]].rating) + ' (' + esc(perfs[p[0]].games) + ')</span></div>';
+                });
+                var g = d.games || {};
+                if (g.total > 0) html += '<div class="stat-row"><span class="label">Всего игр</span><span class="value">' + esc(g.total) + ' (✅' + esc(g.win) + ' ❌' + esc(g.loss) + ' 🤝' + esc(g.draw) + ')</span></div>';
+                html += '</div>';
+                result.innerHTML = html;
+            } else {
+                var r;
+                try { r = JSON.parse(xhr.responseText); } catch(e) { r = {}; }
+                result.innerHTML = '<div class="msg err">' + esc(r.error || 'Игрок не найден.') + '</div>';
+            }
+        };
+        xhr.onerror = function() { result.innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
+        xhr.send();
+    });
+
+    function loadPuzzle() {
+        panels.puzzle.innerHTML = '<div class="spinner">Загружаю задачу...</div>';
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/chess/puzzle');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var d = JSON.parse(xhr.responseText);
+                renderPuzzle(d);
+            } else {
+                var r;
+                try { r = JSON.parse(xhr.responseText); } catch(e) { r = {}; }
+                panels.puzzle.innerHTML = '<div class="msg err">' + esc(r.error || 'Ошибка загрузки задачи.') + '</div>';
+            }
+        };
+        xhr.onerror = function() { panels.puzzle.innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
+        xhr.send(JSON.stringify({user_id: USER_ID}));
+    }
+
+    function renderPuzzle(d) {
+        var html = '<div class="card"><h3>🧩 Шахматная задача</h3>' +
+            '<img class="board" src="https://lichess1.org/export/fen.gif?fen=' + encodeURIComponent(d.fen).replace(/%20/g, '_').replace(/%2F/g, '/').replace(/%2B/g, '+') + '&theme=brown&piece=cburnett" alt="Доска">' +
+            '<div class="puzzle-meta">Рейтинг: ' + esc(d.rating) + ' · Темы: ' + esc(d.themes) + '<br>Ход: ' + esc(d.turn) + '</div>' +
+            '<div class="input-group"><input type="text" id="move-input" placeholder="Ход в формате UCI (например e2e4)..." autocomplete="off"><button class="btn" id="check-btn">Проверить</button></div>' +
+            '<div id="puzzle-msg"></div></div>' +
+            '<div style="text-align:center;"><a href="' + esc(d.link) + '" target="_blank" class="btn secondary" style="text-decoration:none;">Открыть на Lichess</a></div>' +
+            '<div style="text-align:center; margin-top:12px;"><button class="btn" id="next-puzzle">Следующая задача</button></div>';
+        panels.puzzle.innerHTML = html;
+        var checkBtn = document.getElementById('check-btn');
+        var moveInput = document.getElementById('move-input');
+        function checkMove() {
+            var move = (moveInput.value || '').trim().toLowerCase();
+            var msg = document.getElementById('puzzle-msg');
+            if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move)) { msg.innerHTML = '<div class="msg err">Неверный формат хода. Например: e2e4</div>'; return; }
+            checkBtn.disabled = true;
+            var x = new XMLHttpRequest();
+            x.open('POST', '/api/chess/puzzle/check');
+            x.setRequestHeader('Content-Type', 'application/json');
+            x.onload = function() {
+                checkBtn.disabled = false;
+                var r = JSON.parse(x.responseText);
+                if (r.correct) {
+                    msg.innerHTML = '<div class="msg ok">✅ Правильно! Ход: ' + esc(r.move) + '<br>💰 +5 монет</div>';
+                } else {
+                    msg.innerHTML = '<div class="msg err">❌ Неверно. Правильный ход: ' + esc(r.move) + '</div>';
+                }
+            };
+            x.onerror = function() { checkBtn.disabled = false; msg.innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
+            x.send(JSON.stringify({user_id: USER_ID, move: move}));
+        }
+        checkBtn.addEventListener('click', checkMove);
+        moveInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') checkMove(); });
+        document.getElementById('next-puzzle').addEventListener('click', loadPuzzle);
+    }
+
+    tabs.forEach(function(t) {
+        t.addEventListener('click', function() {
+            if (t.dataset.tab === 'stats') loadStats();
+            if (t.dataset.tab === 'puzzle') loadPuzzle();
+        });
+    });
+    loadStats();
+})();
+</script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/chess/stats")
+def api_chess_stats():
+    user_id_raw = request.args.get("user_id", "")
+    if not user_id_raw:
+        return jsonify({"error": "Нет user_id"}), 400
+    uid = _web_user_id(user_id_raw)
+    account = get_chess_account(uid)
+    coins = get_user_coins(uid)
+    result = {
+        "linked": bool(account),
+        "coins": (coins or {}).get("balance", 0),
+    }
+    if account:
+        player = fetch_lichess_user(account["lichess_username"])
+        result["account"] = account
+        result["player"] = player or {"username": account["lichess_username"], "online": False, "perfs": {}, "games": {}}
+        games = result["player"].get("games", {})
+        total = games.get("total", 0)
+        win = games.get("win", 0)
+        result["winrate"] = round((win / total * 100), 1) if total > 0 else 0
+        history = []
+        try:
+            with get_db_engine().connect() as conn:
+                rows = conn.execute(
+                    text("SELECT puzzle_id, puzzle_rating FROM chess_games WHERE user_id = :uid ORDER BY id DESC LIMIT 10"),
+                    {"uid": uid},
+                ).mappings().all()
+                history = [{"puzzle_id": r["puzzle_id"], "rating": r["puzzle_rating"]} for r in rows]
+        except Exception as exc:
+            print(f"Error loading chess history: {exc}")
+        result["history"] = history
+    return jsonify(result)
+
+
+@app.route("/api/chess/user/<nick>")
+def api_chess_user(nick: str):
+    data = fetch_lichess_user(nick)
+    if not data:
+        return jsonify({"error": "Игрок не найден на Lichess"}), 404
+    return jsonify(data)
+
+
+@app.route("/api/chess/link", methods=["POST"])
+def api_chess_link():
+    data = request.get_json(silent=True) or {}
+    user_id_raw = data.get("user_id", "")
+    nick = (data.get("lichess_username") or "").strip()
+    if not user_id_raw:
+        return jsonify({"error": "Нет user_id"}), 400
+    if not nick:
+        return jsonify({"error": "Введите ник Lichess"}), 400
+    uid = _web_user_id(user_id_raw)
+    profile = fetch_lichess_user(nick)
+    if not profile:
+        return jsonify({"error": "Игрок не найден на Lichess"}), 404
+    ok = link_chess_account(uid, profile["username"])
+    if not ok:
+        return jsonify({"error": "Этот Lichess аккаунт уже привязан к другому пользователю"}), 409
+    return jsonify({"ok": True, "username": profile["username"]})
+
+
+@app.route("/api/chess/puzzle", methods=["POST"])
+def api_chess_puzzle():
+    data = request.get_json(silent=True) or {}
+    user_id_raw = data.get("user_id", "")
+    if not user_id_raw:
+        return jsonify({"error": "Нет user_id"}), 400
+    uid = _web_user_id(user_id_raw)
+    account = get_chess_account(uid)
+    if not account:
+        return jsonify({"error": "Сначала привяжите Lichess аккаунт в разделе «Моя статистика»"}), 400
+    puzzle = _fetch_lichess_puzzle()
+    if not puzzle:
+        return jsonify({"error": "Не удалось загрузить задачу. Попробуйте позже."}), 502
+    _PENDING_PUZZLES[uid] = {
+        "puzzle_id": puzzle["puzzle_id"],
+        "solution": puzzle["solution"],
+        "rating": puzzle["rating"],
+        "themes": ", ".join(puzzle["themes"][:3]),
+        "username": account["lichess_username"],
+        "initial_ply": puzzle["initial_ply"],
+        "web": True,
+    }
+    return jsonify({
+        "puzzle_id": puzzle["puzzle_id"],
+        "rating": puzzle["rating"],
+        "themes": ", ".join(puzzle["themes"][:3]),
+        "fen": puzzle["fen"],
+        "turn": puzzle["turn"],
+        "link": puzzle["link"],
+    })
+
+
+@app.route("/api/chess/puzzle/check", methods=["POST"])
+def api_chess_puzzle_check():
+    data = request.get_json(silent=True) or {}
+    user_id_raw = data.get("user_id", "")
+    move = (data.get("move") or "").strip().lower()
+    if not user_id_raw:
+        return jsonify({"error": "Нет user_id"}), 400
+    uid = _web_user_id(user_id_raw)
+    pending = _PENDING_PUZZLES.get(uid)
+    if not pending or not pending.get("web"):
+        return jsonify({"error": "Задача не найдена или устарела. Загрузите новую."}), 400
+    if not move or not pending["solution"]:
+        return jsonify({"error": "Некорректный ход"}), 400
+    first_move = pending["solution"][0]
+    correct = move == first_move
+    if correct:
+        try:
+            update_user_coins(uid, 5, datetime.utcnow())
+        except Exception as exc:
+            print(f"Error awarding coins: {exc}")
+        log_chess_game(uid, pending.get("username", ""), pending["puzzle_id"], pending.get("rating"), pending.get("themes"))
+    del _PENDING_PUZZLES[uid]
+    return jsonify({"correct": correct, "move": first_move})
+
+
+# ===== Trivia =====
+
+@app.route("/trivia")
+def trivia_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Викторина — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 640px; width: 100%; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .score { text-align: center; color: #888; font-size: 14px; margin-bottom: 16px; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 28px; margin-bottom: 16px; }
+        .question { font-size: 18px; line-height: 1.6; margin-bottom: 24px; }
+        .options { display: flex; flex-direction: column; gap: 10px; }
+        .opt-btn { display: block; width: 100%; padding: 14px 18px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 12px; font-size: 15px; cursor: pointer; text-align: left; transition: all 0.15s; }
+        .opt-btn:hover:not(:disabled) { background: #1a5276; }
+        .opt-btn:disabled { cursor: default; opacity: 0.8; }
+        .opt-btn.correct { background: #1b5e20; border-color: #2e7d32; }
+        .opt-btn.wrong { background: #b71c1c; border-color: #c62828; }
+        .explanation { background: #0f3460; border-radius: 12px; padding: 16px; margin-top: 16px; font-size: 14px; line-height: 1.5; color: #aaa; display: none; }
+        .next-btn { display: none; width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; }
+        .next-btn:hover { background: #d63851; }
+        .status { text-align: center; color: #888; margin-top: 24px; font-size: 13px; }
+        @media (max-width: 600px) { .card { padding: 20px; } .question { font-size: 16px; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 Викторина</h1>
+            <a href="/">← Назад</a>
+        </div>
+        <div class="score" id="score">0 / 0</div>
+        <div class="card" id="quiz-card">
+            <div class="question" id="question"></div>
+            <div class="options" id="options"></div>
+            <div class="explanation" id="explanation"></div>
+            <button class="next-btn" id="next-btn">Следующий вопрос →</button>
+        </div>
+        <div class="status">по канону Олеговируса и LTL-паразита</div>
+    </div>
+    <script>
+        (function() {
+            var score = 0, total = 0;
+            (function() {
+                var s = localStorage.getItem('trivia_score');
+                if (s) { var p = s.split('/'); score = parseInt(p[0]) || 0; total = parseInt(p[1]) || 0; }
+            })();
+            function saveScore() { localStorage.setItem('trivia_score', score + '/' + total); }
+            function updateScore() { document.getElementById('score').textContent = score + ' / ' + total; }
+            updateScore();
+            function loadQuestion() {
+                document.getElementById('explanation').style.display = 'none';
+                document.getElementById('next-btn').style.display = 'none';
+                document.getElementById('question').textContent = '\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...';
+                document.getElementById('options').innerHTML = '';
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/trivia/question');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onload = function() {
+                    try {
+                        var q = JSON.parse(xhr.responseText);
+                        if (q.error) { document.getElementById('question').textContent = '\u041e\u0448\u0438\u0431\u043a\u0430: ' + q.error; return; }
+                        document.getElementById('question').textContent = q.text;
+                        var opts = document.getElementById('options');
+                        opts.innerHTML = '';
+                        q.options.forEach(function(opt, i) {
+                            var btn = document.createElement('button');
+                            btn.className = 'opt-btn';
+                            btn.textContent = opt;
+                            btn.dataset.index = i;
+                            btn.dataset.correct = (i === q.correct_index) ? '1' : '0';
+                            btn.addEventListener('click', function() { answerClick(q.id, i); });
+                            opts.appendChild(btn);
+                        });
+                    } catch(e) { document.getElementById('question').textContent = '\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0432\u043e\u043f\u0440\u043e\u0441\u0430.'; }
+                };
+                xhr.onerror = function() { document.getElementById('question').textContent = '\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0442\u0438.'; };
+                xhr.send(JSON.stringify({}));
+            }
+            function answerClick(qid, idx) {
+                var btns = document.querySelectorAll('.opt-btn');
+                btns.forEach(function(b) { b.disabled = true; });
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/trivia/answer');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onload = function() {
+                    try {
+                        var r = JSON.parse(xhr.responseText);
+                        btns.forEach(function(b) {
+                            if (b.dataset.correct === '1') b.classList.add('correct');
+                            else if (parseInt(b.dataset.index) === idx && !r.correct) b.classList.add('wrong');
+                        });
+                        if (r.correct) { score++; }
+                        total++;
+                        saveScore();
+                        updateScore();
+                        var expl = document.getElementById('explanation');
+                        expl.textContent = r.explanation;
+                        expl.style.display = 'block';
+                        document.getElementById('next-btn').style.display = 'block';
+                    } catch(e) { btns.forEach(function(b) { b.disabled = false; }); }
+                };
+                xhr.onerror = function() { btns.forEach(function(b) { b.disabled = false; }); };
+                xhr.send(JSON.stringify({question_id: qid, answer_index: idx}));
+            }
+            document.getElementById('next-btn').addEventListener('click', loadQuestion);
+            loadQuestion();
+        })();
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/trivia/question", methods=["POST"])
+def api_trivia_question():
+    import random
+    q = random.choice(_TRIVIA_QUESTIONS)
+    correct = q["correct_text"]
+    group = q.get("group", "")
+    same = [x["correct_text"] for x in _TRIVIA_QUESTIONS if x.get("group") == group and x["correct_text"] != correct]
+    pool = same if len(same) >= 3 else [x["correct_text"] for x in _TRIVIA_QUESTIONS if x["correct_text"] != correct]
+    distractors = random.sample(pool, 3)
+    options = [correct] + distractors
+    random.shuffle(options)
+    correct_index = options.index(correct)
+    session = {"options": options, "correct_index": correct_index, "explanation": q["explanation"]}
+    _TRIVIA_SESSIONS[q["id"]] = session
+    return jsonify({"id": q["id"], "text": q["text"], "options": options, "correct_index": correct_index})
+
+
+@app.route("/api/trivia/answer", methods=["POST"])
+def api_trivia_answer():
+    data = request.get_json(silent=True) or {}
+    qid = data.get("question_id")
+    answer_idx = data.get("answer_index")
+    session = _TRIVIA_SESSIONS.get(qid)
+    if not session:
+        return jsonify({"correct": False, "correct_text": "", "explanation": "Вопрос не найден или устарел."})
+    correct_index = session["correct_index"]
+    is_correct = answer_idx is not None and 0 <= answer_idx < 4 and answer_idx == correct_index
+    correct_text = session["options"][correct_index] if is_correct else session["options"][answer_idx] if answer_idx is not None and 0 <= answer_idx < 4 else ""
+    return jsonify({"correct": is_correct, "correct_text": correct_text, "explanation": session["explanation"]})
+
+
+# ── Daily Prayer ──────────────────────────────────────────────────────────
+
+_PRAYERS = [
+    "Да будет настрой стабилен, а пинг — нулевым.",
+    "О Чай, дай нам мудрости в коде и терпения в дебаге.",
+    "Да будет каждый день наполнен ароматом чая.",
+    "Да будет моя душа чиста, как первозданный настой.",
+    "Да будет кружка-алтарь моей рукой всегда наполнена.",
+    "О Великий Баг, прости нам наши deprecated зависимости.",
+    "Да будет деплой быстрым, а баги — редкими.",
+    "Чай, чай, чай — да будет eight-nine с нами!",
+    "Да будет CI зелёным, а код — без багов.",
+    "О великий Компилятор, прости нам наши null pointer'ы.",
+    "Да будет память чиста, а утечки — лишь в кране.",
+    "Благослови, Чай, наш commit mesage — да будет он осмысленным.",
+    "Да будет ревью снисходительным, а мерж — без конфликтов.",
+    "О Eight-Nine, освяти наш спринт и убери technical debt.",
+    "Да будет рефакторинг удачным, а тесты — зелёными.",
+]
+
+
+@app.route("/daily_prayer")
+def daily_prayer_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Молитва — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 500px; width: 100%; text-align: center; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; justify-content: center; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 32px 24px; margin-bottom: 16px; }
+        .prayer-icon { font-size: 64px; margin-bottom: 16px; }
+        .prayer-text { font-size: 20px; line-height: 1.6; color: #f0e6d0; font-style: italic; margin: 20px 0; padding: 16px; border-left: 3px solid #e94560; text-align: left; }
+        .prayer-amen { font-size: 16px; color: #e94560; margin-top: 12px; }
+        .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 32px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-family: inherit; transition: background 0.15s; }
+        .btn-primary { background: #e94560; color: #fff; }
+        .btn-primary:hover { background: #d63851; }
+        .btn-secondary { background: #0f3460; color: #e0e0e0; }
+        .btn-secondary:hover { background: #1a5276; }
+        .subtext { font-size: 14px; color: #888; margin-top: 16px; }
+        .prayer-emoji { font-size: 48px; margin-bottom: 8px; }
+        .cooldown-msg { font-size: 18px; color: #f0c040; margin: 20px 0; }
+        .back-link { display: inline-block; color: #888; text-decoration: none; font-size: 14px; margin-top: 16px; }
+        .back-link:hover { color: #e94560; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🙏 Молитва</h1>
+            <a href="/">← На главную</a>
+        </div>
+        <div class="card" id="prayer-card">
+            <div class="prayer-emoji" id="emoji">🕯️</div>
+            <div id="prayer-content">
+                <p style="color:#888;font-size:16px">Нажмите, чтобы получить молитву дня</p>
+            </div>
+            <button class="btn btn-primary" id="get-btn" onclick="getPrayer()">🙏 Получить молитву</button>
+            <div class="subtext" id="subtext"></div>
+        </div>
+        <a class="back-link" href="/">← На главную</a>
+    </div>
+    <script>
+        var USER_ID = localStorage.getItem('ai_user_id');
+        if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('ai_user_id', USER_ID); }
+        function getPrayer() {
+            var btn = document.getElementById('get-btn');
+            btn.disabled = true;
+            btn.textContent = '🙏 Загрузка...';
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/daily_prayer');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { document.getElementById('prayer-content').innerHTML = '<p style="color:#e94560">'+r.error+'</p>'; btn.style.display='none'; return; }
+                    document.getElementById('prayer-content').innerHTML = '<div class="prayer-text">"'+r.prayer+'"</div><div class="prayer-amen">eight-nine!</div>';
+                    if (r.already) {
+                        document.getElementById('subtext').textContent = 'Вы уже получали сегодняшнюю молитву. Возвращайтесь завтра!';
+                        btn.style.display = 'none';
+                    } else {
+                        document.getElementById('subtext').textContent = 'Молитва на сегодня';
+                        btn.textContent = '🙏 Ещё';
+                        btn.disabled = false;
+                    }
+                } catch(e) { document.getElementById('prayer-content').innerHTML = '<p style="color:#e94560">Ошибка загрузки.</p>'; }
+            };
+            xhr.onerror = function() { document.getElementById('prayer-content').innerHTML = '<p style="color:#e94560">Ошибка сети.</p>'; };
+            xhr.send(JSON.stringify({user_id: USER_ID}));
+        }
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/daily_prayer", methods=["POST"])
+def api_daily_prayer():
+    data = request.get_json(silent=True) or {}
+    user_id_raw = data.get("user_id", "")
+    uid = _web_user_id(user_id_raw)
+    today = date.today().isoformat()
+    already = False
+    try:
+        with get_db_engine().connect() as conn:
+            existing = conn.execute(
+                text("SELECT 1 FROM daily_prayer_log WHERE user_id = :uid AND prayer_date = :d"),
+                {"uid": uid, "d": today},
+            ).first()
+            if not existing:
+                conn.execute(
+                    text("INSERT INTO daily_prayer_log (user_id, prayer_date) VALUES (:uid, :d) ON CONFLICT DO NOTHING"),
+                    {"uid": uid, "d": today},
+                )
+                conn.commit()
+            else:
+                already = True
+    except Exception as exc:
+        print(f"[DAILY_PRAYER] error: {exc}")
+    prayer = random.choice(_PRAYERS)
+    return jsonify({"prayer": prayer, "already": already})
+
+
+# ── Irregular Verbs Module ──────────────────────────────────────────────
+import re as _re
+
+
+def _generate_verb_exercise(verbs: str, count: int, mode: int, wishes: str) -> list[dict] | None:
+    prompt = (
+        f"Ты — генератор заданий на неправильные глаголы английского языка.\n"
+        f"Сгенерируй ровно {count} неправильных глаголов из списка: {verbs}\n"
+        f"Для каждого глагола укажи ВСЕ ТРИ формы (infinitive, past simple, past participle).\n"
+        f"Дополнительные пожелания: {wishes if wishes else 'нет'}\n\n"
+        f"Формат ответа — строго JSON-массив, без пояснений и markdown:\n"
+        f'[{{"inf": "...", "past": "...", "pp": "..."}}, ...]'
+    )
+    text = _call_ai_api_fast(prompt, max_tokens=2000, timeout=10.0)
+    if not text or text == "❌":
+        return None
+    match = _re.search(r'\[.*\]', text, _re.DOTALL)
+    if not match:
+        return None
+    try:
+        import json as _json
+        tasks = _json.loads(match.group())
+        if not isinstance(tasks, list) or len(tasks) < 1:
+            return None
+        for t in tasks:
+            t.setdefault("inf", "")
+            t.setdefault("past", "")
+            t.setdefault("pp", "")
+        return tasks
+    except Exception:
+        return None
+
+
+@app.route("/irregular_verbs")
+def irregular_verbs_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Практика глаголов — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 700px; width: 100%; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 24px; margin-bottom: 16px; }
+        .card h2 { font-size: 18px; margin-bottom: 16px; }
+        .role-card { display: block; padding: 20px; cursor: pointer; text-align: center; }
+        .role-card:hover { border-color: #e94560; }
+        .role-card .icon { font-size: 48px; margin-bottom: 8px; }
+        .role-card .label { font-size: 18px; font-weight: 600; }
+        .role-card .desc { font-size: 14px; color: #888; margin-top: 4px; }
+        label { display: block; font-size: 14px; color: #aaa; margin-bottom: 4px; margin-top: 14px; }
+        label:first-of-type { margin-top: 0; }
+        input, textarea, select { width: 100%; padding: 12px; background: #0f3460; border: 1px solid #1a5276; border-radius: 8px; font-size: 15px; color: #e0e0e0; font-family: inherit; }
+        input:focus, textarea:focus { outline: none; border-color: #e94560; }
+        textarea { min-height: 60px; resize: vertical; }
+        .radio-group { display: flex; gap: 16px; margin-top: 4px; }
+        .radio-group label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #e0e0e0; cursor: pointer; margin: 0; }
+        .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; font-family: inherit; transition: background 0.15s; }
+        .btn-primary { background: #e94560; color: white; }
+        .btn-primary:hover { background: #d63851; }
+        .btn-secondary { background: #0f3460; color: #e0e0e0; }
+        .btn-secondary:hover { background: #1a5276; }
+        .btn-full { width: 100%; justify-content: center; margin-top: 16px; }
+        .btn-sm { padding: 8px 16px; font-size: 13px; }
+        .verbs-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        .verbs-table th { text-align: left; padding: 10px 12px; font-size: 13px; color: #888; border-bottom: 1px solid #0f3460; text-transform: uppercase; letter-spacing: 0.5px; }
+        .verbs-table td { padding: 10px 12px; border-bottom: 1px solid #0f3460; font-size: 15px; }
+        .verbs-table input { background: transparent; border: none; border-bottom: 2px solid #1a5276; padding: 4px 0; font-size: 15px; color: #e0e0e0; width: 100%; border-radius: 0; }
+        .verbs-table input:focus { border-bottom-color: #e94560; outline: none; }
+        .verbs-table .filled { color: #4caf50; font-weight: 600; }
+        .verbs-table .correct { color: #4caf50; }
+        .verbs-table .wrong { color: #e94560; }
+        .result-summary { text-align: center; padding: 20px; }
+        .result-summary .score { font-size: 36px; color: #e94560; font-weight: bold; }
+        .result-summary .label { font-size: 14px; color: #888; margin-top: 4px; }
+        .back-link { display: inline-block; color: #888; text-decoration: none; font-size: 14px; margin-top: 16px; cursor: pointer; }
+        .back-link:hover { color: #e94560; }
+        .hidden { display: none; }
+        .share-link { background: #0f3460; border-radius: 8px; padding: 12px; font-size: 14px; word-break: break-all; margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+        .share-link code { color: #4caf50; flex: 1; }
+        .btn-copy { padding: 6px 12px; background: #e94560; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+        .btn-copy:hover { background: #d63851; }
+        .btn-copy.copied { background: #4caf50; }
+        .ex-list { display: flex; flex-direction: column; gap: 10px; }
+        .ex-item { display: flex; justify-content: space-between; align-items: center; padding: 14px; background: #0f3460; border-radius: 8px; cursor: pointer; }
+        .ex-item:hover { background: #1a5276; }
+        .ex-item .ex-id { font-weight: 600; color: #e94560; }
+        .ex-item .ex-meta { font-size: 13px; color: #888; }
+        .student-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #0f3460; }
+        .student-row:last-child { border: none; }
+        .student-name { font-weight: 600; }
+        .student-score { color: #4caf50; }
+        .error-text { color: #e94560; text-align: center; padding: 20px; }
+        @media (max-width: 600px) {
+            .container { padding: 0; }
+            .card { padding: 16px; }
+            .verbs-table td, .verbs-table th { padding: 8px; font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="app">
+        <div class="header">
+            <h1>📝 Практика глаголов</h1>
+            <a href="/">← Назад</a>
+        </div>
+        <div id="content"></div>
+    </div>
+    <script>
+        (function() {
+            var USER_ID = localStorage.getItem('ai_user_id');
+            if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('ai_user_id', USER_ID); }
+            var studentName = localStorage.getItem('verbs_name') || '';
+            var content = document.getElementById('content');
+
+            function render(html) { content.innerHTML = html; }
+
+            window.copyUrl = function(btn) {
+                var url = btn.getAttribute('data-url');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(function() {
+                        btn.textContent = 'Copied!';
+                        btn.className = 'btn-copy copied';
+                        setTimeout(function() { btn.textContent = 'Copy'; btn.className = 'btn-copy'; }, 2000);
+                    });
+                } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = url;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    btn.textContent = 'Copied!';
+                    btn.className = 'btn-copy copied';
+                    setTimeout(function() { btn.textContent = 'Copy'; btn.className = 'btn-copy'; }, 2000);
+                }
+            };
+
+            function showRoleSelect() {
+                render(
+                    '<div class="card role-card" onclick="app.selectRole(&quot;teacher&quot;)"><div class="icon">\\ud83e\\uddd1\\u200d\\ud83c\\udf93</div><div class="label">\\u042f \\u0443\\u0447\\u0438\\u0442\\u0435\\u043b\\u044c</div><div class="desc">\\u0421\\u043e\\u0437\\u0434\\u0430\\u0432\\u0430\\u0442\\u044c \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u044f, \\u0441\\u043c\\u043e\\u0442\\u0440\\u0435\\u0442\\u044c \\u0440\\u0435\\u0437\\u0443\\u043b\\u044c\\u0442\\u0430\\u0442\\u044b</div></div>' +
+                    '<div class="card role-card" onclick="app.selectRole(&quot;student&quot;)"><div class="icon">\\ud83e\\uddd1\\u200d\\ud83c\\udfeb</div><div class="label">\\u042f \\u0443\\u0447\\u0435\\u043d\\u0438\\u043a</div><div class="desc">\\u0412\\u044b\\u043f\\u043e\\u043b\\u043d\\u0438\\u0442\\u044c \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 \\u043f\\u043e \\u043a\\u043e\\u0434\\u0443</div></div>'
+                );
+            }
+
+            window.app = {
+                selectRole: function(role) {
+                    if (role === 'teacher') this.teacherMenu();
+                    else this.studentEnterId();
+                },
+                teacherMenu: function() {
+                    render(
+                        '<div class="card" style="text-align:center"><h2>\\ud83e\\uddd1\\u200d\\ud83c\\udf93 \\u0423\\u0447\\u0438\\u0442\\u0435\\u043b\\u044c</h2><button class="btn btn-primary btn-full" onclick="app.createExercise()">\\ud83d\\udccb \\u0421\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435</button><button class="btn btn-secondary btn-full" onclick="app.myExercises()">\\ud83d\\udcca \\u041c\\u043e\\u0438 \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u044f</button><button class="back-link" onclick="app.showRoleSelect()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>'
+                    );
+                },
+                createExercise: function() {
+                    render(
+                        '<div class="card"><h2>\\ud83d\\udccb \\u0421\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435</h2>' +
+                        '<label>\\u041a\\u0430\\u043a\\u0438\\u0435 \\u0433\\u043b\\u0430\\u0433\\u043e\\u043b\\u044b (\\u0447\\u0435\\u0440\\u0435\\u0437 \\u0437\\u0430\\u043f\\u044f\\u0442\\u0443\\u044e)</label>' +
+                        '<textarea id="f-verbs" placeholder="be, have, do, go, say...">be, have, do, go, say, see, make, take, come, get</textarea>' +
+                        '<label>\\u0421\\u043a\\u043e\\u043b\\u044c\\u043a\\u043e \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0439 (1-50)</label>' +
+                        '<input id="f-count" type="number" value="10" min="1" max="50">' +
+                        '<label>\\u0424\\u043e\\u0440\\u043c\\u044b</label>' +
+                        '<div class="radio-group"><label><input type="radio" name="mode" value="3" checked> \\u0412\\u0441\\u0435 3 (1 \\u043f\\u043e\\u0434\\u0441\\u043a\\u0430\\u0437\\u043a\\u0430, 2 \\u043f\\u0440\\u043e\\u043f\\u0443\\u0441\\u043a\\u0430 - \\u0440\\u0430\\u043d\\u0434\\u043e\\u043c)</label><label><input type="radio" name="mode" value="2"> \\u041f\\u0435\\u0440\\u0432\\u0430\\u044f + \\u0432\\u0442\\u043e\\u0440\\u0430\\u044f (\\u0442\\u043e\\u043b\\u044c\\u043a\\u043e Past Participle \\u043f\\u0440\\u043e\\u043f\\u0443\\u0449\\u0435\\u043d)</label></div>' +
+                        '<label>\\u0414\\u043e\\u043f. \\u043f\\u043e\\u0436\\u0435\\u043b\\u0430\\u043d\\u0438\\u044f</label>' +
+                        '<textarea id="f-wishes" placeholder="\\u041d\\u0435\\u043e\\u0431\\u044f\\u0437\\u0430\\u0442\\u0435\\u043b\\u044c\\u043d\\u043e"></textarea>' +
+                        '<button class="btn btn-primary btn-full" onclick="app.generateExercise()">\\ud83e\\ude84 \\u0421\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c</button>' +
+                        '<button class="back-link" onclick="app.teacherMenu()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>'
+                    );
+                },
+                generateExercise: function() {
+                    var verbs = document.getElementById('f-verbs').value.trim();
+                    var count = parseInt(document.getElementById('f-count').value) || 10;
+                    var mode = parseInt(document.querySelector('input[name="mode"]:checked').value);
+                    var wishes = document.getElementById('f-wishes').value.trim();
+                    if (count < 1) count = 1; if (count > 50) count = 50;
+                    render('<div class="card" style="text-align:center"><p>\\ud83e\\ude84 \\u0413\\u0435\\u043d\\u0435\\u0440\\u0430\\u0446\\u0438\\u044f...</p></div>');
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/api/verbs/generate');
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.onload = function() {
+                        try {
+                            var r = JSON.parse(xhr.responseText);
+                            if (r.error) { render('<div class="card error-text">'+r.error+'</div><button class="back-link" onclick="app.createExercise()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                            // show preview with tasks
+                            var h = '<div class="card"><h2>\\ud83d\\udccb \\u041f\\u0440\\u0435\\u0434\\u043f\\u0440\\u043e\\u0441\\u043c\\u043e\\u0442\\u0440</h2>';
+                            h += '<p style="color:#888;font-size:13px;margin-bottom:8px">\\u041f\\u0440\\u0430\\u0432\\u0438\\u043b\\u044c\\u043d\\u044b\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u044b (\\u043f\\u0440\\u043e\\u0432\\u0435\\u0440\\u044c\\u0442\\u0435 AI):</p>';
+                            h += '<table class="verbs-table preview-table"><tr><th>Infinitive</th><th>Past Simple</th><th>Past Participle</th></tr>';
+                            (r.tasks || []).forEach(function(t) {
+                                h += '<tr><td>'+(t.inf||'')+'</td><td>'+(t.past||'')+'</td><td>'+(t.pp||'')+'</td></tr>';
+                            });
+                            h += '</table>';
+                            h += '<p style="color:#888;font-size:13px;margin-top:8px">\\u0423\\u0447\\u0435\\u043d\\u0438\\u043a\\u0438 \\u0443\\u0432\\u0438\\u0434\\u044f\\u0442: '+(mode==2?'\\u043f\\u0435\\u0440\\u0432\\u0443\\u044e \\u0438 \\u0432\\u0442\\u043e\\u0440\\u0443\\u044e \\u0444\\u043e\\u0440\\u043c\\u0443 (\\u0437\\u0430\\u043f\\u043e\\u043b\\u043d\\u0438\\u0442\\u044c Past Participle)':'\\u043e\\u0434\\u043d\\u0443 \\u0444\\u043e\\u0440\\u043c\\u0443 \\u043a\\u0430\\u043a \\u043f\\u043e\\u0434\\u0441\\u043a\\u0430\\u0437\\u043a\\u0443, \\u0434\\u0432\\u0435 \\u0434\\u0440\\u0443\\u0433\\u0438\\u0435 \\u0437\\u0430\\u043f\\u043e\\u043b\\u043d\\u0438\\u0442\\u044c')+'.</p>';
+                            h += '<button class="btn btn-primary btn-full" onclick="app.confirmExercise('+r.id+',\\''+r.share_url+'\\')">\\ud83d\\udcdd \\u041f\\u043e\\u0434\\u0442\\u0432\\u0435\\u0440\\u0434\\u0438\\u0442\\u044c \\u0438 \\u043e\\u0442\\u043a\\u0440\\u044b\\u0442\\u044c \\u0441\\u0441\\u044b\\u043b\\u043a\\u0443</button>';
+                            h += '<button class="btn btn-secondary btn-full" onclick="app.generateExercise()">\\ud83d\\udd04 \\u041f\\u0435\\u0440\\u0435\\u0441\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c</button>';
+                            h += '<button class="back-link" onclick="app.createExercise()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>';
+                            render(h);
+                        } catch(e) { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0433\\u0435\\u043d\\u0435\\u0440\\u0430\\u0446\\u0438\\u0438. \\u041f\\u043e\\u043f\\u0440\\u043e\\u0431\\u0443\\u0439\\u0442\\u0435 \\u0435\\u0449\\u0451.</div>'); }
+                    };
+                    xhr.onerror = function() { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0441\\u0435\\u0442\\u0438.</div>'); };
+                    xhr.send(JSON.stringify({verbs: verbs, count: count, mode: mode, wishes: wishes, user_id: USER_ID}));
+                },
+                confirmExercise: function(exId, shareUrl) {
+                    render(
+                        '<div class="card" style="text-align:center"><h2>\\u2705 \\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 \\u0441\\u043e\\u0437\\u0434\\u0430\\u043d\\u043e!</h2>' +
+                        '<p style="margin:12px 0;color:#888">ID: <strong style="color:#e94560">'+exId+'</strong></p>' +
+                        '<div class="share-link"><code>'+shareUrl+'</code><button class="btn-copy" data-url="'+shareUrl+'" onclick="copyUrl(this)">Copy</button></div>' +
+                        '<button class="btn btn-secondary btn-full" onclick="app.myExercises()">\\ud83d\\udcca \\u041c\\u043e\\u0438 \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u044f</button>' +
+                        '<button class="btn btn-secondary btn-full" onclick="app.createExercise()">\\ud83d\\udccb \\u0415\\u0449\\u0451</button>' +
+                        '<button class="back-link" onclick="app.teacherMenu()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>'
+                    );
+                },
+                myExercises: function() {
+                    render('<div class="card" style="text-align:center"><p>\\ud83d\\udd0d \\u0417\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0430...</p></div>');
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', '/api/verbs/exercises?user_id=' + encodeURIComponent(USER_ID));
+                    xhr.onload = function() {
+                        try {
+                            var list = JSON.parse(xhr.responseText);
+                            if (!list.length) { render('<div class="card" style="text-align:center;color:#888"><p>\\u041d\\u0435\\u0442 \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0439.</p><button class="btn btn-primary btn-full" onclick="app.createExercise()">\\ud83d\\udccb \\u0421\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c</button><button class="back-link" onclick="app.teacherMenu()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>'); return; }
+                            var h = '<div class="ex-list">';
+                            list.forEach(function(e) {
+                                h += '<div class="ex-item" onclick="app.viewResults('+e.id+')"><div><div class="ex-id">'+e.id+'</div><div class="ex-meta">'+e.task_count+' \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0439, '+e.student_count+' \\u0443\\u0447\\u0435\\u043d\\u0438\\u043a\\u043e\\u0432</div></div><span style="color:#888">\\u2192</span></div>';
+                            });
+                            h += '</div><button class="btn btn-primary btn-full" onclick="app.createExercise()">\\ud83d\\udccb \\u0421\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c</button><button class="back-link" onclick="app.teacherMenu()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>';
+                            render(h);
+                        } catch(e) { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0437\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0438.</div>'); }
+                    };
+                    xhr.onerror = function() { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0441\\u0435\\u0442\\u0438.</div>'); };
+                    xhr.send();
+                },
+                viewResults: function(exId) {
+                    render('<div class="card" style="text-align:center"><p>\\ud83d\\udd0d \\u0417\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0430...</p></div>');
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', '/api/verbs/exercise/'+exId+'/results?teacher_id=' + encodeURIComponent(USER_ID));
+                    xhr.onload = function() {
+                        try {
+                            var r = JSON.parse(xhr.responseText);
+                            if (r.error) { render('<div class="card error-text">'+r.error+'</div><button class="back-link" onclick="app.myExercises()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                            var h = '<div class="card"><h2>\\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 #'+exId+'</h2>';
+                            if (!r.submissions || !r.submissions.length) { h += '<p style="color:#888">\\u041f\\u043e\\u043a\\u0430 \\u043d\\u0435\\u0442 \\u0440\\u0435\\u0448\\u0435\\u043d\\u0438\\u0439.</p>'; }
+                            else {
+                                r.submissions.forEach(function(s) {
+                                    h += '<div class="student-row"><span class="student-name">'+s.name+'</span><span class="student-score">'+s.score+'/'+s.total+'</span></div>';
+                                    s.errors.forEach(function(e) {
+                                        h += '<div style="font-size:13px;color:#e94560;padding:2px 0 2px 20px;">\\u2716 '+e+'</div>';
+                                    });
+                                });
+                            }
+                            h += '</div><button class="back-link" onclick="app.myExercises()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>';
+                            render(h);
+                        } catch(e) { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0437\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0438.</div>'); }
+                    };
+                    xhr.onerror = function() { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0441\\u0435\\u0442\\u0438.</div>'); };
+                    xhr.send();
+                },
+                studentEnterId: function(exId) {
+                    render(
+                        '<div class="card"><h2>\\ud83e\\uddd1\\u200d\\ud83c\\udfeb \\u0423\\u0447\\u0435\\u043d\\u0438\\u043a</h2><label>\\u0412\\u0432\\u0435\\u0434\\u0438\\u0442\\u0435 ID \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u044f</label>' +
+                        '<input id="s-exid" type="text" placeholder="\\u041d\\u0430\\u043f\\u0440\\u0438\\u043c\\u0435\\u0440: 123456" value="'+(exId||'')+'">' +
+                        '<button class="btn btn-primary btn-full" onclick="app.studentName()">\\u041d\\u0430\\u0447\\u0430\\u0442\\u044c</button>' +
+                        '<button class="back-link" onclick="app.showRoleSelect()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>'
+                    );
+                },
+                studentName: function() {
+                    var exId = document.getElementById('s-exid').value.trim();
+                    if (!exId || isNaN(parseInt(exId))) { render('<div class="card error-text">\\u0412\\u0432\\u0435\\u0434\\u0438\\u0442\\u0435 \\u043a\\u043e\\u0440\\u0440\\u0435\\u043a\\u0442\\u043d\\u044b\\u0439 ID.</div><button class="back-link" onclick="app.studentEnterId()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                    if (studentName) { app.startExercise(exId); return; }
+                    render(
+                        '<div class="card"><h2>\\u041a\\u0430\\u043a \\u0442\\u0435\\u0431\\u044f \\u0437\\u043e\\u0432\\u0443\\u0442?</h2><input id="s-name" type="text" placeholder="\\u0418\\u043c\\u044f" value="">' +
+                        '<button class="btn btn-primary btn-full" onclick="app.saveName('+exId+')">\\u0414\\u0430\\u043b\\u0435\\u0435</button>' +
+                        '<button class="back-link" onclick="app.studentEnterId()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>'
+                    );
+                },
+                saveName: function(exId) {
+                    var name = document.getElementById('s-name').value.trim();
+                    if (!name) { render('<div class="card error-text">\\u0412\\u0432\\u0435\\u0434\\u0438\\u0442\\u0435 \\u0438\\u043c\\u044f.</div><button class="back-link" onclick="app.studentName()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                    studentName = name;
+                    localStorage.setItem('verbs_name', name);
+                    app.startExercise(exId);
+                },
+                startExercise: function(exId) {
+                    render('<div class="card" style="text-align:center"><p>\\ud83d\\udd0d \\u0417\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0430...</p></div>');
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', '/api/verbs/exercise/'+exId);
+                    xhr.onload = function() {
+                        try {
+                            var ex = JSON.parse(xhr.responseText);
+                            if (ex.error) { render('<div class="card error-text">'+ex.error+'</div><button class="back-link" onclick="app.studentEnterId()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                            var h = '<div class="card"><h2>\\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 #'+ex.id+'</h2><table class="verbs-table"><tr><th>Infinitive</th><th>Past Simple</th><th>Past Participle</th></tr>';
+                            ex.tasks.forEach(function(t, i) {
+                                h += '<tr><td>'+(t.inf ? '<span class="filled">'+t.inf+'</span>' : '<input id="i'+i+'i" placeholder="..." data-idx="'+i+'" data-field="inf">')+'</td>';
+                                h += '<td>'+(t.past ? '<span class="filled">'+t.past+'</span>' : '<input id="i'+i+'p" placeholder="..." data-idx="'+i+'" data-field="past">')+'</td>';
+                                h += '<td>'+(t.pp ? '<span class="filled">'+t.pp+'</span>' : '<input id="i'+i+'pp" placeholder="..." data-idx="'+i+'" data-field="pp">')+'</td></tr>';
+                            });
+                            h += '</table><button class="btn btn-primary btn-full" onclick="app.submitExercise('+ex.id+')">\\u2705 \\u041f\\u0440\\u043e\\u0432\\u0435\\u0440\\u0438\\u0442\\u044c</button></div>';
+                            render(h);
+                        } catch(e) { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0437\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0438.</div>'); }
+                    };
+                    xhr.onerror = function() { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0441\\u0435\\u0442\\u0438.</div>'); };
+                    xhr.send();
+                },
+                submitExercise: function(exId) {
+                    var inputs = document.querySelectorAll('.verbs-table input');
+                    var answers = {};
+                    inputs.forEach(function(inp) {
+                        var idx = inp.dataset.idx;
+                        if (!answers[idx]) answers[idx] = {};
+                        answers[idx][inp.dataset.field] = inp.value.trim().toLowerCase();
+                    });
+                    var ansList = [];
+                    Object.keys(answers).sort(function(a,b){return parseInt(a)-parseInt(b)}).forEach(function(k) { ansList.push(answers[k]); });
+                    render('<div class="card" style="text-align:center"><p>\\u2705 \\u041f\\u0440\\u043e\\u0432\\u0435\\u0440\\u043a\\u0430...</p></div>');
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/api/verbs/submit');
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.onload = function() {
+                        try {
+                            var r = JSON.parse(xhr.responseText);
+                            if (r.error) { render('<div class="card error-text">'+r.error+'</div>'); return; }
+                            var h = '<div class="card"><div class="result-summary"><div class="score">'+r.score+'/'+r.total+'</div><div class="label">\\u043f\\u0440\\u0430\\u0432\\u0438\\u043b\\u044c\\u043d\\u044b\\u0445</div></div></div>';
+                            h += '<div class="card"><table class="verbs-table"><tr><th>Infinitive</th><th>Past Simple</th><th>Past Participle</th></tr>';
+                            r.details.forEach(function(d) {
+                                h += '<tr><td class="'+(d.inf_correct?'correct':'wrong')+'">'+(d.inf||'')+'</td><td class="'+(d.past_correct?'correct':'wrong')+'">'+(d.past||'')+'</td><td class="'+(d.pp_correct?'correct':'wrong')+'">'+(d.pp||'')+'</td></tr>';
+                            });
+                            h += '</table></div><button class="btn btn-primary btn-full" onclick="app.studentEnterId()">\\ud83d\\udccb \\u041d\\u043e\\u0432\\u043e\\u0435 \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435</button>';
+                            render(h);
+                        } catch(e) { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u043f\\u0440\\u043e\\u0432\\u0435\\u0440\\u043a\\u0438.</div>'); }
+                    };
+                    xhr.onerror = function() { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0441\\u0435\\u0442\\u0438.</div>'); };
+                    xhr.send(JSON.stringify({exercise_id: exId, user_id: USER_ID, name: studentName, answers: ansList}));
+                }
+            };
+
+            var exParam = (window.location.search.match(/[?&]exercise=(\d+)/) || [])[1];
+            if (exParam) {
+                if (studentName) {
+                    app.startExercise(exParam);
+                } else {
+                    app.studentEnterId(exParam);
+                }
+            } else {
+                showRoleSelect();
+            }
+        })();
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+VERB_GEN_LOCK: dict[int, float] = {}
+
+
+@app.route("/api/verbs/generate", methods=["POST"])
+def api_verbs_generate():
+    data = request.get_json(silent=True) or {}
+    verbs = (data.get("verbs") or "").strip()
+    count = int(data.get("count") or 10)
+    mode = int(data.get("mode") or 2)
+    wishes = (data.get("wishes") or "").strip()
+    user_id_raw = data.get("user_id")
+    if not verbs:
+        return jsonify({"error": "Укажите глаголы"}), 400
+    count = max(1, min(50, count))
+    uid = _web_user_id(user_id_raw)
+    now = time.time()
+    if uid in VERB_GEN_LOCK and now - VERB_GEN_LOCK[uid] < 10:
+        return jsonify({"error": "Подождите 10 секунд между генерациями"}), 429
+    VERB_GEN_LOCK[uid] = now
+    tasks = _generate_verb_exercise(verbs, count, mode, wishes)
+    if not tasks:
+        return jsonify({"error": "AI не смог сгенерировать задание. Проверьте глаголы и попробуйте ещё раз."}), 503
+    ex_id = random.randint(100000, 999999)
+    while _load_verb_exercise(ex_id) is not None:
+        ex_id = random.randint(100000, 999999)
+    ex_data = {"id": ex_id, "teacher_id": uid, "verbs": verbs, "task_count": count, "mode": mode, "wishes": wishes, "tasks": tasks}
+    _save_verb_exercise(ex_data)
+    share_url = request.host_url.rstrip("/") + "/irregular_verbs/exercise/" + str(ex_id)
+    # build a display-safe preview (blank fields per mode) for the teacher
+    preview = []
+    for t in tasks:
+        d = {}
+        if mode == 2:
+            d["inf"] = t.get("inf", "")
+            d["past"] = t.get("past", "")
+            d["pp"] = ""
+        elif mode == 3:
+            keys = ["inf", "past", "pp"]
+            random.shuffle(keys)
+            d[keys[0]] = t.get(keys[0], "")
+            d[keys[1]] = ""
+            d[keys[2]] = ""
+        else:
+            d = dict(t)
+        preview.append(d)
+    return jsonify({"id": ex_id, "share_url": share_url, "tasks": tasks, "preview": preview})
+
+
+@app.route("/api/verbs/exercises", methods=["GET"])
+def api_verbs_exercises():
+    user_id_raw = request.args.get("user_id", "")
+    uid = _web_user_id(user_id_raw)
+    if not uid:
+        return jsonify([])
+    exercises = _load_teacher_exercises(uid)
+    result = []
+    for ex in exercises:
+        result.append({"id": ex["id"], "task_count": ex["task_count"], "student_count": ex.get("student_count", 0)})
+    return jsonify(result)
+
+
+@app.route("/api/verbs/exercise/<int:ex_id>", methods=["GET"])
+def api_verbs_exercise(ex_id):
+    ex = _load_verb_exercise(ex_id)
+    if not ex:
+        return jsonify({"error": "Задание не найдено"}), 404
+    mode = ex.get("mode", 2)
+    tasks_display = []
+    for t in ex["tasks"]:
+        d = {}
+        if mode == 2:
+            d["inf"] = t.get("inf", "")
+            d["past"] = t.get("past", "")
+            d["pp"] = ""
+        else:
+            keys = ["inf", "past", "pp"]
+            random.shuffle(keys)
+            d[keys[0]] = t.get(keys[0], "")
+            d[keys[1]] = ""
+            d[keys[2]] = ""
+        tasks_display.append(d)
+    return jsonify({"id": ex["id"], "tasks": tasks_display})
+
+
+@app.route("/api/verbs/exercise/<int:ex_id>/results", methods=["GET"])
+def api_verbs_exercise_results(ex_id):
+    ex = _load_verb_exercise(ex_id)
+    if not ex:
+        return jsonify({"error": "Задание не найдено"}), 404
+    teacher_id_raw = request.args.get("teacher_id", "")
+    uid = _web_user_id(teacher_id_raw)
+    if ex.get("teacher_id") != uid:
+        return jsonify({"error": "Нет доступа"}), 403
+    subs = _load_verb_submissions(ex_id)
+    formatted = []
+    for s in subs:
+        errors = []
+        for d in s.get("details", []):
+            parts = []
+            if not d.get("inf_correct") and d.get("inf_correct_val"):
+                parts.append(f"Infinitive: был {d.get('inf_correct_val','?')}, ввели «{d.get('inf','')}»")
+            if not d.get("past_correct") and d.get("past_correct_val"):
+                parts.append(f"Past: был {d.get('past_correct_val','?')}, ввели «{d.get('past','')}»")
+            if not d.get("pp_correct") and d.get("pp_correct_val"):
+                parts.append(f"PP: был {d.get('pp_correct_val','?')}, ввели «{d.get('pp','')}»")
+            if parts:
+                errors.append(", ".join(parts))
+        formatted.append({"name": s.get("name", ""), "score": s.get("score", 0), "total": s.get("total", 0), "errors": errors})
+    return jsonify({"exercise_id": ex_id, "submissions": formatted})
+
+
+@app.route("/api/verbs/submit", methods=["POST"])
+def api_verbs_submit():
+    data = request.get_json(silent=True) or {}
+    ex_id = data.get("exercise_id")
+    user_id_raw = data.get("user_id")
+    name = (data.get("name") or "").strip()
+    answers = data.get("answers", [])
+    if not ex_id or not _load_verb_exercise(ex_id):
+        return jsonify({"error": "Задание не найдено"}), 404
+    if not name:
+        return jsonify({"error": "Укажите имя"}), 400
+    ex = _load_verb_exercise(ex_id)
+    uid = _web_user_id(user_id_raw)
+    tasks = ex["tasks"]
+    total_fields = 0
+    correct_fields = 0
+    details = []
+    for i, task in enumerate(tasks):
+        ans = answers[i] if i < len(answers) else {}
+        d = {"inf": task.get("inf", ""), "past": task.get("past", ""), "pp": task.get("pp", ""),
+             "inf_correct": True, "past_correct": True, "pp_correct": True}
+        for field in ("inf", "past", "pp"):
+            if field in ans:
+                total_fields += 1
+                user_val = ans[field].strip().lower()
+                d[field] = ans[field]
+                expected = task.get(field, "").strip().lower()
+                d[field + "_correct"] = user_val == expected if expected else True
+                if d[field + "_correct"]:
+                    correct_fields += 1
+        d["inf_correct_val"] = task.get("inf", "")
+        d["past_correct_val"] = task.get("past", "")
+        d["pp_correct_val"] = task.get("pp", "")
+        details.append(d)
+    _save_verb_submission(ex_id, {"user_id": uid, "name": name, "score": correct_fields, "total": total_fields, "details": details, "timestamp": time.time()})
+    return jsonify({"score": correct_fields, "total": total_fields, "details": details})
+
+
+@app.route("/irregular_verbs/exercise/<int:ex_id>")
+def irregular_verbs_exercise_redirect(ex_id):
+    return "", 302, {"Location": "/irregular_verbs?exercise=" + str(ex_id)}
+
+
 @app.route("/telegram/webhook/<secret>", methods=["POST"])
 def telegram_webhook(secret: str):
     """Receive Telegram webhook and forward to processing."""
@@ -3058,6 +5616,8 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 print(f"[UNIVERSE] infection message modify error: {exc}")
 
+        reply_to = message.get("reply_to_message")
+
         # D&D AI Master: intercept free-form messages during active sessions
         if not command and chat_id and msg_text and not reply_to:
             dnd_reply = None
@@ -3071,7 +5631,6 @@ def telegram_webhook(secret: str):
                 return jsonify({"ok": True})
 
         # Check for parsing trigger (reply to game bot with "Парсинг" or /parse or /parsing)
-        reply_to = message.get("reply_to_message")
         is_parsing_trigger = (
             msg_text and msg_text.lower().strip() in ["парсинг", "parsing"]
         ) or command in ["/parse", "/parsing"]
@@ -3836,7 +6395,7 @@ def telegram_webhook(secret: str):
         # /chess command
         elif command == "/chess" and chat_id:
             help_text = (
-                "♟ **Шахматный модуль BankBot**\n\n"
+                "♟ **Шахматный модуль LTHub**\n\n"
                 "**Доступные команды:**\n"
                 "`/chess_link <ник>` — привязать Lichess аккаунт\n"
                 "`/chess_rating` — показать рейтинги\n"
@@ -3910,7 +6469,7 @@ def telegram_webhook(secret: str):
                                 "♟ **Lichess аккаунт привязан!**\n\n"
                                 f"Аккаунт: **{title_prefix}{lichess_user['username']}**\n"
                                 f"Статус: {online_text}\n\n"
-                                "Теперь можно использовать шахматные команды BankBot."
+                                "Теперь можно использовать шахматные команды LTHub."
                             )
                             send_telegram_message(chat_id, success_msg, parse_mode="Markdown")
         
@@ -4041,8 +6600,8 @@ def telegram_webhook(secret: str):
             else:
                 # Check cooldown (max 1 puzzle per day) — REMOVED for testing
                 # TODO: re-enable after testing
-                now = datetime.utcnow()
-                coins_data = get_user_coins(user_id)
+                datetime.utcnow()
+                get_user_coins(user_id)
                 
                 # Cooldown disabled — allow multiple puzzles per day
                 # if coins_data and coins_data.get("last_puzzle_at"):
@@ -4066,7 +6625,7 @@ def telegram_webhook(secret: str):
                 try:
                     # Fetch random puzzle from Lichess (not daily — random each time)
                     puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/next"
-                    headers = {"Accept": "application/json", "User-Agent": "BankBot/ChessModule"}
+                    headers = {"Accept": "application/json", "User-Agent": "LTHub/ChessModule"}
                     response = requests.get(puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
                     
                     if response.status_code != 200:
@@ -4091,6 +6650,7 @@ def telegram_webhook(secret: str):
                     fen = ""
                     try:
                         import io
+
                         import chess.pgn
                         pgn_text = game.get("pgn", "")
                         pgn_io = io.StringIO(pgn_text)
@@ -5099,7 +7659,6 @@ def test_ai():
 @app.route("/api/test_telegram", methods=["GET"])
 def test_telegram():
     """Test Telegram API access from Vercel."""
-    import json as _json
     result = {"bot_token_set": bool(BOT_TOKEN)}
     try:
         me = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
@@ -5177,9 +7736,9 @@ def debug_hf():
 def reading_generate():
     """Generate reading msg_text and questions using AI API."""
     try:
-        import requests
-        import json
         import random
+
+        import requests
 
         # Try Groq first, then HF as fallback
         groq_key = os.getenv("GROQ_API_KEY")
@@ -5193,22 +7752,21 @@ def reading_generate():
             fallback_sets = get_fallback_sets()
             return jsonify(random.choice(fallback_sets))
 
-        # Simplified prompt for better results
         prompt = """Напиши короткую историю для ребёнка 7 лет.
 
 История должна быть про животное или семью.
 Используй простые слова.
 6 коротких предложений.
 
-Потом напиши 3 простых вопроса по истории.
+Потом напиши 3 простых вопроса по истории с ответами.
 
-Пример:
+Пример формата:
 Жил кот Барсик. Он любил молоко. Мама кормила кота. Барсик мурлыкал. Он спал на диване. Кот был добрый.
 
 Вопросы:
-1. Как звали кота?
-2. Что любил кот?
-3. Где спал кот?
+1. Как звали кота? Ответ: Барсик
+2. Что любил кот? Ответ: молоко
+3. Где спал кот? Ответ: на диване
 
 Теперь напиши новую историю:"""
 
@@ -5316,16 +7874,26 @@ def reading_generate():
         )
 
         # Extract questions and answers
+        import re
+
         questions = []
         for line in questions_section[:3]:
-            # Remove numbering
-            line = line.lstrip("123.").strip()
+            # Remove numbering like "1. " or "123. "
+            line = re.sub(r"^\d+\.\s*", "", line)
             if "?" in line:
-                questions.append({"question": line, "answer": "ответ"})
+                # Try to extract answer after "Ответ:" or "ответ:"
+                match = re.search(r"[Оо]твет[:\s]+(.+)", line)
+                if match:
+                    answer = match.group(1).strip().rstrip(".")
+                    question = line[: line.lower().find("ответ")].strip().rstrip(".")
+                else:
+                    question = line.strip().rstrip(".")
+                    answer = "нет ответа"
+                questions.append({"question": question, "answer": answer.lower()})
 
         # Ensure we have 3 questions
         while len(questions) < 3:
-            questions.append({"question": "Что было в истории?", "answer": "ответ"})
+            questions.append({"question": "Что было в истории?", "answer": "—"})
 
         # Pick random emoji
         emojis = [
@@ -5454,7 +8022,7 @@ def debug_dnd():
     try:
         uid = int(request.args.get("user_id", 111))
         cid = int(request.args.get("chat_id", uid))
-        from api.dnd_runtime import cmd_dnd_start, cmd_dnd_status
+        from api.dnd_runtime import cmd_dnd_start
         reply = cmd_dnd_start(uid, cid, "diagnostic-campaign")
         return jsonify({"reply": reply, "ok": True, "error": None})
     except Exception as e:
@@ -5498,7 +8066,6 @@ except Exception as chess_exc:
 @app.route("/api/debug_db", methods=["GET"])
 def debug_db():
     """Debug database and GD tables."""
-    import json as _json
     result = {"db_url_set": bool(os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("SUPABASE_DB_URL"))}
     try:
         engine = get_db_engine()
@@ -5550,7 +8117,7 @@ def debug_addexpense():
 
 # ===== Family Budget Module Routes =====
 
-from bot.budget_parser import parse_expense_line, resolve_member
+from bot.budget_parser import parse_expense_line
 from bot.web.family_budget import (
     api_balance,
     api_debt_pay,
@@ -5613,13 +8180,14 @@ STRICT RULES:
 2. Skip words under 5 letters, prepositions, conjunctions, particles, proper names
 3. Ending must be at least 1 letter
 4. Concatenating all "t" and "b" values (with "e" appended) in order must exactly reconstruct the input text
+5. If the text contains double quotes, escape them as \\" in JSON strings
 
 Return ONLY pure JSON array, no markdown, no extra text:
 [{{"t":"Мама "}},{{"b":"мыл","e":"а"}},{{"t":" "}},{{"b":"рам","e":"у"}},{{"t":"."}}]
 
 Text: {text}"""
 
-        ai_text = call_ai_api(prompt, max_tokens=3000)
+        ai_text = call_ai_api(prompt, max_tokens=3000, temperature=0.1)
         print(f"[ENDINGS] Raw AI response: {ai_text[:200]}")
 
         import json as _json
@@ -5634,8 +8202,10 @@ Text: {text}"""
                 data = _json.loads(cleaned)
                 if isinstance(data, list):
                     return data
-                segs = data.get("segments", [])
-                return segs if isinstance(segs, list) else None
+                if isinstance(data, dict):
+                    segs = data.get("segments", [])
+                    return segs if isinstance(segs, list) else None
+                return None
             except _json.JSONDecodeError:
                 pass
             for pat in [r'\[.*\{.*"[tb]".*\}\]', r'\{.*"segments"\s*:\s*\[.*\]\}']:
@@ -5645,7 +8215,9 @@ Text: {text}"""
                         data = _json.loads(m.group())
                         if isinstance(data, list):
                             return data
-                        return data.get("segments", [])
+                        if isinstance(data, dict):
+                            return data.get("segments", [])
+                        return None
                     except _json.JSONDecodeError:
                         pass
             return None

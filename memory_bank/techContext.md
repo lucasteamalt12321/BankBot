@@ -3,7 +3,7 @@
 ## Технологический стек
 
 ### Язык и фреймворки
-- **Python 3.12** - зафиксированный локальный runtime и Docker-образ для BankBot
+- **Python 3.12** - зафиксированный локальный runtime и Docker-образ для LTHub
 - **python-telegram-bot 20.x** - асинхронная библиотека для Telegram Bot API
 - **aiogram 3.x** - фреймворк для Bridge-модуля
 - **SQLAlchemy 2.0+** - ORM для работы с базой данных
@@ -12,7 +12,7 @@
 ### Инфраструктура и Деплой
 - **Hugging Face Spaces** - основная платформа для хостинга (Docker SDK)
 - **GitHub** - основной репозиторий кода
-- **Planned HF runtime migration**: production BankBot should move from Telegram polling to webhook (`POST /telegram/webhook/<secret>`) because current HF → Telegram `getUpdates` long-polling repeatedly times out.
+- **Planned HF runtime migration**: production LTHub should move from Telegram polling to webhook (`POST /telegram/webhook/<secret>`) because current HF → Telegram `getUpdates` long-polling repeatedly times out.
 - **Network Strategy (HF)**:
   - DNS bypass в `run_bot.py`: monkey patch `socket.getaddrinfo` и `anyio._core._sockets.getaddrinfo`, чтобы `api.telegram.org` резолвился в Telegram IP `149.154.167.220`.
   - HF httpx workaround: `httpx.AsyncClient.__init__` получает `verify=False` по умолчанию, чтобы пережить TLS/IP mismatch в облачной среде.
@@ -104,8 +104,8 @@
 
 ### Структура проекта
 ```
-BankBot/
-├── bot/                # BankBot Telegram runtime (python-telegram-bot)
+LTHub/
+├── bot/                # LTHub Telegram runtime (python-telegram-bot)
 ├── bridge_bot/         # BridgeBot Telegram → VK
 ├── vk_bot/             # VK Long Poll runtime
 ├── bank_bot/           # Repository/service namespace
@@ -121,6 +121,6 @@ BankBot/
 ```
 
 ## Точки входа
-- Planned production: `run_bot.py` Flask app → `/telegram/webhook/<secret>` → BankBot PTB `Application.process_update()`
+- Planned production: `run_bot.py` Flask app → `/telegram/webhook/<secret>` → LTHub PTB `Application.process_update()`
 - Local/dev fallback: `run_bot.py` → `bot/main.py` → polling
 - `bridge_bot/main.py` and `vk_bot/main.py` are planned to be removed from production HF runtime.

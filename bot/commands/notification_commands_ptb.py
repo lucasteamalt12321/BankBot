@@ -111,7 +111,7 @@ async def test_adb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         await notification_system._send_to_adb(
-            "BankBot ADB Test",
+            "LTHub ADB Test",
             f"Тестовое ADB-уведомление отправлено в {timestamp}",
             "adb_test",
         )

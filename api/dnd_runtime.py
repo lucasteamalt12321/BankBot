@@ -14,34 +14,16 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import requests
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
 
 # ── helpers (mirror api/index.py patterns) ─────────────────────────
 
-_DND_ENGINE = None
-
-
 def get_db_engine():
-    global _DND_ENGINE
-    if _DND_ENGINE is not None:
-        return _DND_ENGINE
-    database_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
-    if database_url.startswith("postgres://"):
-        database_url = "postgresql://" + database_url[len("postgres://"):]
-    if not database_url:
-        database_url = "sqlite:///data/bot.db"
-    _DND_ENGINE = create_engine(
-        database_url,
-        pool_size=2,
-        max_overflow=2,
-        pool_pre_ping=True,
-        pool_recycle=60,
-        connect_args={"connect_timeout": 10},
-    )
-    return _DND_ENGINE
+    from api.index import get_db_engine as _main_engine
+    return _main_engine()
 
 
 def send_tg(chat_id: int, text: str, parse_mode: str = "HTML",
@@ -89,7 +71,7 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "llama-3.1-70b-versatile",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": max_tokens,
                     "temperature": 0.8,
@@ -143,8 +125,16 @@ def _fetch_all(sql: str, params: dict = None) -> list[dict]:
 
 def _execute(sql: str, params: dict = None) -> None:
     engine = get_db_engine()
-    with engine.begin() as conn:
-        conn.execute(text(sql), params or {})
+    for attempt in range(3):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(sql), params or {})
+            return
+        except Exception as exc:
+            if "deadlock" in str(exc).lower() and attempt < 2:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
 
 
 # ── session management ─────────────────────────────────────────────
@@ -163,9 +153,99 @@ def find_active_session(telegram_id: int) -> Optional[dict]:
     )
 
 
+def find_session_by_id(session_id: int) -> Optional[dict]:
+    return _fetch_one(
+        "SELECT s.*, u.first_name as master_name FROM dnd_sessions s "
+        "LEFT JOIN users u ON u.id = s.master_id "
+        "WHERE s.id = :sid",
+        {"sid": session_id},
+    )
+
+
+def list_active_sessions(limit: int = 20) -> list[dict]:
+    return _fetch_all(
+        "SELECT s.id, s.name, s.status, s.created_at, s.max_players, s.current_players, "
+        "u.first_name as master_name, "
+        "COALESCE(c.cnt, 0) as player_count "
+        "FROM dnd_sessions s "
+        "LEFT JOIN users u ON u.id = s.master_id "
+        "LEFT JOIN (SELECT session_id, COUNT(*) as cnt FROM dnd_characters GROUP BY session_id) c ON c.session_id = s.id "
+        "WHERE s.status = 'active' "
+        "ORDER BY s.created_at DESC LIMIT :lim",
+        {"lim": limit},
+    )
+
+
+def join_session(telegram_id: int, session_id: int) -> str:
+    session = _fetch_one(
+        "SELECT * FROM dnd_sessions WHERE id = :sid AND status = 'active'",
+        {"sid": session_id},
+    )
+    if not session:
+        return "❌ Сессия не найдена или уже завершена."
+
+    db_uid = _resolve_user_id(telegram_id)
+
+    existing = _fetch_one(
+        "SELECT id FROM dnd_characters WHERE session_id = :sid AND player_id = :uid",
+        {"sid": session_id, "uid": db_uid},
+    )
+    if existing:
+        return f"✅ Вы уже в сессии «{session['name']}»."
+
+    count = _fetch_one(
+        "SELECT COUNT(*) as c FROM dnd_characters WHERE session_id = :sid",
+        {"sid": session_id},
+    )
+    player_count = count["c"] if count else 0
+    if session.get("max_players", 99) and player_count >= session["max_players"]:
+        return "❌ В сессии уже максимальное количество игроков."
+
+    _execute(
+        "INSERT INTO dnd_characters (session_id, player_id, name, character_class, level) "
+        "VALUES (:sid, :uid, 'Исследователь', 'Воин', 1)",
+        {"sid": session_id, "uid": db_uid},
+    )
+    _execute(
+        "UPDATE dnd_sessions SET current_players = current_players + 1 WHERE id = :sid",
+        {"sid": session_id},
+    )
+    _execute(
+        "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
+        "VALUES (:sid, :uid, 'system', :content)",
+        {"sid": session_id, "uid": db_uid, "content": "Новый игрок присоединился к сессии!"},
+    )
+
+    return f"✅ Вы присоединились к сессии «{session['name']}»! Теперь пишите действия."
+
+
+def get_session_players(session_id: int) -> list[dict]:
+    return _fetch_all(
+        "SELECT c.*, u.first_name as player_name FROM dnd_characters c "
+        "LEFT JOIN users u ON u.id = c.player_id "
+        "WHERE c.session_id = :sid",
+        {"sid": session_id},
+    )
+
+
+def get_session_log(session_id: int) -> list[dict]:
+    rows = _fetch_all(
+        "SELECT sl.*, u.first_name as player_name FROM dnd_session_logs sl "
+        "LEFT JOIN users u ON u.id = sl.player_id "
+        "WHERE sl.session_id = :sid ORDER BY sl.id",
+        {"sid": session_id},
+    )
+    result = []
+    for r in rows:
+        role = {"player_action": "user", "ai_response": "ai", "system": "system", "dice_roll": "dice"}.get(r["message_type"], "system")
+        name = r.get("player_name") or ""
+        result.append({"role": role, "content": r["content"], "player_name": name})
+    return result
+
+
 def session_summary(session: dict) -> str:
     chars = _fetch_all(
-        "SELECT * FROM dnd_characters WHERE session_id = :sid AND is_active = TRUE",
+        "SELECT * FROM dnd_characters WHERE session_id = :sid",
         {"sid": session["id"]},
     )
     log_count = _fetch_one(
@@ -220,7 +300,7 @@ def build_prompt(session: dict, action_text: str) -> str:
         parts.append(f"\nТекущая сцена:\n{scene}")
 
     chars = _fetch_all(
-        "SELECT * FROM dnd_characters WHERE session_id = :sid AND is_active = TRUE",
+        "SELECT * FROM dnd_characters WHERE session_id = :sid",
         {"sid": session["id"]},
     )
     if chars:
@@ -293,8 +373,8 @@ def cmd_dnd_start(telegram_id: int, chat_id: int, args: str) -> str:
 
     name = args if args else f"Кампания #{telegram_id % 10000}"
     _execute(
-        "INSERT INTO dnd_sessions (master_id, name, status, started_at) "
-        "VALUES (:uid, :name, 'active', :now)",
+        "INSERT INTO dnd_sessions (master_id, name, status, started_at, max_players, current_players) "
+        "VALUES (:uid, :name, 'active', :now, 6, 0)",
         {"uid": db_user_id, "name": name, "now": datetime.now(timezone.utc)},
     )
 
@@ -431,13 +511,16 @@ def handle_free_text(user_id: int, chat_id: int, text: str) -> Optional[str]:
         )
 
     prompt = build_prompt(session, text)
-    answer = call_ai(prompt)
 
+    # Save player action BEFORE AI call (so log is never empty)
     _execute(
         "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content, ai_context) "
         "VALUES (:sid, :uid, 'player_action', :content, :ctx)",
         {"sid": session["id"], "uid": user_id, "content": text, "ctx": prompt},
     )
+
+    answer = call_ai(prompt)
+
     _execute(
         "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
         "VALUES (:sid, :uid, 'ai_response', :content)",

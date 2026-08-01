@@ -1,47 +1,155 @@
 # Active Context
 
-**Последнее обновление:** 2026-07-06  
-**Текущая фаза:** VK Mini App — альтернативный UI для Budget модуля
+**Последнее обновление:** 2026-08-01  
+**Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
+**Последнее действие:** Портирован Chess (WEB-05) — страница `/chess` с тремя вкладками: статистика, поиск игрока, пазлы
 
 ## Текущий фокус
 
-### VK Mini App — Budget UI (2026-07-06)
+### Виртуальный компьютер для AI Chat (WEB-09) ✅
 
-**Цель:** Альтернативный UI для семейного бюджета во VK Mini App для пользователей без доступа к Vercel (ограничения мобильного интернета в РФ).
+**Цель:** AI-персонажи получили «руки» как в Manus: запускают Python, браузят сайты, работают с файлами, редактируют фото. Пользователь видит только текстовый ответ.
 
-**Ключевое решение:** VK аккаунт привязывается к TG аккаунту через 6-значный код. Единая база данных, общие семьи.
+**Как работает:**
+- `POST /api/ai_chat` — агентный цикл tool-calling через Groq `llama-3.3-70b-versatile` (tools + tool_choice=auto, до 6 итераций)
+- Инструменты: `run_python` (реальный subprocess в tempdir), `browse_web` (requests), `list_dir`/`read_file`/`write_file`/`get_cwd`/`set_cwd` (виртуальная ФС в памяти), `edit_image` (Pillow: resize/grayscale/rotate/blur/flip/mirror/thumbnail/invert/contrast)
+- Виртуальная ФС: `_VIRTUAL_PC[user_id]` — дерево `{type, children/content/data}`, cwd, uploads
+- Загрузка файлов: кнопка 📎 в чате, base64 в `files[]`, сохраняются в `/home/user/uploads/`
+- Картинки после edit_image возвращаются как data URI → рендерятся под ответом бота
+- Фронтенд теперь шлёт `history` (последние 20 сообщений)
 
-**Что сделано (бэкенд):**
-- ✅ `flask-cors` добавлен в `requirements.txt`, CORS настроен для VK origins
-- ✅ Модель `LinkedVKAccount` в `database/database.py`
-- ✅ Миграция `011_vk_account_linking.py` — таблица `linked_vk_accounts`
-- ✅ Endpoint `GET /api/budget/vk/status` — проверка привязки
-- ✅ Endpoint `POST /api/budget/vk/link` — привязка по коду
-- ✅ Bot command `/linkvk` — генерация 6-значного кода (TTL 10 мин)
-- ✅ Маршруты зарегистрированы в `api/index.py` и `run_bot.py`
+**Файлы:** `api/index.py` (весь бэкенд + inline HTML страницы), `api/requirements.txt` (+Pillow)
 
-**Что сделано (фронтенд):**
-- ✅ VK Mini App проект инициализирован: React 18 + TypeScript + Vite + @vkontakte/vkui@8.3.0 + @vkontakte/vk-bridge@3.0.2
-- ✅ API wrapper: `src/api/budget.ts` — все вызовы к Flask backend
-- ✅ `LinkPage` — экран привязки VK ↔ TG (ввод кода)
-- ✅ `DashboardPage` — баланс, долги, участники, FAB "+"
-- ✅ `AddExpensePage` — форма добавления траты
-- ✅ `PayDebtPage` — оплата долга
-- ✅ `HistoryPage` — история с фильтрами по категории/участнику
-- ✅ `CreateFamilyPage` — создание семьи
-- ✅ `JoinFamilyPage` — вступление по коду
+### Практика глаголов — новый модуль (WEB-08)
 
-**Выполнено в этой сессии:**
-- ✅ Yandex.Disk export полностью удалён (409 Conflict не решаем)
-- ✅ Установлен Vercel CLI, выполнен деплой
-- ✅ `/budget` показывает две кнопки: Vercel Web + VK Mini App
-- ✅ VK ключи добавлены в `config/.env.local`
-- ✅ VK Mini App зарегистрирован (app_id=54665568)
+**Цель:** Создать веб-приложение для практики неправильных глаголов английского языка с AI-генерацией заданий.
 
-**Осталось:**
-- 🔲 GitHub Actions деплой VK Mini App (нужен `VK_MINI_APPS_TOKEN` в Secrets)
-- 🔲 Тестирование VK Mini App (нужна модерация VK)
-- 🔲 Проверка CORS в продакшене
+**Роли:** Учитель (создаёт задания, смотрит результаты) / Ученик (выполняет, получает проверку).
+
+**API:**
+- `POST /api/verbs/generate` — AI генерирует задание (Groq llama-3.3-70b)
+- `GET /api/verbs/exercises` — список заданий учителя
+- `GET /api/verbs/exercise/<id>` — задание со строками
+- `POST /api/verbs/submit` — проверка ответов ученика
+- `GET /api/verbs/exercise/<id>/results` — результаты по заданию
+
+### Web Portal — все модули бота в браузере
+
+**Цель:** Построить веб-портал, дублирующий большинство функций Telegram-бота в браузере. Все страницы на чистом HTML+JS (без фреймворков), Flask сервит через `api/index.py`.
+
+**Архитектурное решение:** Все веб-страницы — inline HTML в `api/index.py` (как уже сделано с тренажёрами и хабом), API эндпоинты там же. Единая точка входа — хаб на `/`.
+
+## Модули для портирования (утверждено)
+
+| # | Модуль | Статус |
+|---|--------|--------|
+| 1 | AI / Чат-модуль | ✅ Портирован |
+| 2 | Викторина (/trivia) | ✅ Портирован |
+| 3 | D&D AI Master | ✅ Портирован (аналог StoryForge) |
+| 4 | GD модуль | ✅ Портирован |
+| 5 | Практика глаголов | 🔧 В работе |
+| 6 | Шахматы | ✅ Портирован |
+| 7 | Ежедневная молитва | ⏳ Утверждён |
+| 8 | Админ-панель | ⏳ Утверждён |
+
+**Не портируются:** магазин, личный кабинет/профиль, вселенная (infect/tea), парсинг реплаев, основные команды.
+
+**Прогресс Phase 3: 92/118** (WEB-00, WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06, WEB-09).
+
+## План архитектуры
+
+### 1. AI / Чат-модуль
+- **Страница:** `/ai_chat`
+- **API:** `POST /api/ai_chat` — принимает `{message, character}`, возвращает `{reply}`
+- **UI:** Поле ввода, история сообщений (лента), выбор персонажа (нейтральный/олеговирус/чай)
+- **Данные:** Переиспользует `call_ai_api()` из `api/index.py`
+
+### 2. Викторина (/trivia)
+- **Страница:** `/trivia`
+- **API:** `GET /api/trivia_question` — вопрос + варианты; `POST /api/trivia_answer` — проверка ответа
+- **UI:** Карточка с вопросом, 4 кнопки-варианта, подсветка правильного/неправильного, счёт
+- **Данные:** Брать вопросы из `bot/ai/knowledge.py` или новой таблицы
+
+### 3. D&D AI Master (StoryForge-like)
+- **Страница:** `/dnd`
+- **API:** `POST /api/dnd/start`, `POST /api/dnd/act` (действие игрока), `GET /api/dnd/status`
+- **UI:** Лог сессии (лента сообщений), поле ввода действия, кнопка броска кубика, кнопка "новая сессия"
+- **Данные:** Переиспользует `dnd_runtime.py`
+
+### 4. GD модуль ✅ Портирован
+- **Страница:** `/gd` — хаб GD с тремя вкладками
+- **API:** `GET /api/gd/user/<nick>`, `GET /api/gd/leaderboard`, `GET /api/gd/my_stats?user_id=...`
+- **UI:** Поиск игрока (статистика из GD API), топ уровней (таблица из БД), моя статистика (карточки с показателями)
+- **Тёмная тема:** стиль GitHub Dark
+
+### 5. Шахматы ✅ Портирован
+- **Страница:** `/chess` — три вкладки: Моя статистика / Поиск игрока / Пазл
+- **API:** `GET /api/chess/stats?user_id=...`, `GET /api/chess/user/<nick>`, `POST /api/chess/link`, `POST /api/chess/puzzle`, `POST /api/chess/puzzle/check`
+- **UI:** Статистика привязанного Lichess аккаунта (рейтинги, winrate, история пазлов), поиск игрока, пазл с доской (FEN GIF с lichess1.org), поле ввода UCI хода, +5 монет за верный ход
+- **Привязка аккаунта** прямо со страницы (валидация ника через Lichess API)
+
+### 6. Ежедневная молитва
+- **Страница:** `/prayer`
+- **API:** `GET /api/prayer/today` — молитва дня
+- **UI:** Карточка с текстом молитвы, дата, кнопка "обновить"
+
+### 7. Админ-панель
+- **Страница:** `/admin`
+- **API:** `GET /api/admin/users`, `GET /api/admin/stats`, `POST /api/admin/add_points`, `GET /api/admin/errors`
+- **UI:** Таблицы, поиск, формы начисления монет, просмотр ошибок
+- **Безопасность:** Доступ по списку ADMIN_IDS через заголовок/параметр `user_id`
+
+### Общий подход
+- Каждая страница — отдельный route в `api/index.py` с inline HTML (как hub, reading_trainer, endings_trainer)
+- JS-логика inline в том же HTML (или вынесена в `<script>` блок)
+- API эндпоинты — `GET/POST /api/<module>/<action>`
+- Авторизация: `?user_id=<telegram_id>` (как в budget)
+- Все данные через существующие SQLAlchemy engine + get_db_engine()
+
+## Приоритет сборки
+
+1. **AI Chat** — ✅ Портирован
+2. **D&D** — ✅ Портирован
+3. **Trivia** — ✅ Портирован
+4. **Prayer** — ✅ Портирован
+5. **Chess** — ✅ Портирован
+6. **GD** — ✅ Портирован
+7. **Admin** — следующий, самый объёмный
+
+## Архитектура (схема)
+
+```
+api/index.py (Flask)
+├── GET  /                     → хаб (карточки сервисов)
+├── GET  /ai_chat              → AI Chat SPA
+├── POST /api/ai_chat          → call_ai_api()
+├── GET  /trivia               → Trivia SPA
+├── GET  /api/trivia_question   → вопрос из knowledge.py
+├── POST /api/trivia_answer    → проверка + монеты
+├── GET  /dnd                  → D&D SPA
+├── POST /api/dnd/start        → dnd_runtime.start_session()
+├── POST /api/dnd/act          → dnd_runtime.process_action()
+├── GET  /api/dnd/status       → dnd_runtime.get_status()
+├── GET  /gd                   → GD SPA
+├── GET  /api/gd/user/<nick>  → fetch_gd_user()
+├── GET  /api/gd/leaderboard   → get_gd_leaderboard()
+├── GET  /api/gd/my_stats      → get_gd_player_stats()
+├── GET  /chess                → Chess SPA
+├── GET  /api/chess/stats      → fetch_lichess_user()
+├── GET  /api/chess/user/<nick>→ fetch_lichess_user()
+├── POST /api/chess/link       → link_chess_account()
+├── POST /api/chess/puzzle     → _fetch_lichess_puzzle()
+├── POST /api/chess/puzzle/check → validate UCI move + award coins
+├── GET  /prayer               → Prayer SPA
+├── GET  /api/prayer/today     → random prayer
+├── GET  /admin                → Admin SPA
+├── GET  /api/admin/*          → admin endpoints
+├── GET  /endings_trainer.html → existing
+├── POST /api/endings_process  → existing
+├── GET  /reading_trainer.html → existing
+├── GET  /family_budget        → existing
+└── POST /telegram             → webhook (existing)
+```
 
 **Важные файлы:**
 - `bot/web/family_budget.py` — Flask API + VK endpoints
@@ -129,28 +237,20 @@ database/migrations/
 
 ## Блокеры
 
-Нет активных блокеров.
+Нет активных блокеров (DATABASE_URL подключена).
 
 ## Следующая сессия
+
+### Family Circle — дальнейшие шаги
+- Настроить миграции (Alembic) или автосоздание таблиц при старте
+- Проверить API эндпоинты (rooms, chat, report)
+- Проверить работу AI диалогов через Hugging Face Inference API
+- Протестировать сценарий: создание комнаты → участники пишут → синтез финального отчёта
 
 ### GD Module Testing
 - Проверка всех GD команд через webhook
 - Edge cases
 - UI/UX
-
-### Приоритет: Chess Module Доработка (CH-05, CH-06)
-   - Парсить `perfs` из Lichess API (bullet, blitz, rapid, classical ratings)
-   - Показывать количество игр, winrate если доступно
-   - Реализовать систему проверки решения puzzle (через callback buttons или текстовый ввод)
-
-3. **Chess Module: Система наград**
-   - Интегрировать с таблицей `user_coins`
-   - Начислять монеты за правильное решение puzzle
-   - Добавить cooldown на получение наград (last_puzzle_at)
-
-4. **Universe Module: /pray команда**
-   - Генерация молитв через AI с каноническим форматом
-   - Использовать существующий `call_ai_api()` с промптом из projectbrief
 
 ## План: Debt Payment Fix + Yandex.Disk Export (2026-06-30)
 

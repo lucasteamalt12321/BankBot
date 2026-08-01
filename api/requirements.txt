@@ -7,3 +7,4 @@ python-chess==1.999
 PyPDF2>=3.0.0
 python-docx>=1.1.0
 pytesseract>=0.3.10
+Pillow>=10.0.0
