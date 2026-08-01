@@ -51,10 +51,11 @@
 | 6 | Шахматы | ✅ Портирован |
 | 7 | Ежедневная молитва | ⏳ Утверждён |
 | 8 | Админ-панель | ⏳ Утверждён |
+| 9 | Family Circle (медиация) | ✅ Портирован (объединён с LTHub) |
 
 **Не портируются:** магазин, личный кабинет/профиль, вселенная (infect/tea), парсинг реплаев, основные команды.
 
-**Прогресс Phase 3: 92/118** (WEB-00, WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06, WEB-09).
+**Прогресс Phase 3: 98/118** (WEB-00, WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06, WEB-09, WEB-10).
 
 ## План архитектуры
 
@@ -148,6 +149,16 @@ api/index.py (Flask)
 ├── POST /api/endings_process  → existing
 ├── GET  /reading_trainer.html → existing
 ├── GET  /family_budget        → existing
+├── GET  /family               → Family Circle: создать комнату (медиация)
+├── GET  /family/room          → Family Circle: вход + чат
+├── GET  /family/result        → Family Circle: финальный отчёт
+├── POST /api/family/rooms     → создать/получить/удалить комнату
+├── POST /api/family/rooms/join→ присоединение участника
+├── GET  /api/family/rooms/<id>→ инфо о комнате
+├── DELETE /api/family/rooms/<id>→ удалить комнату
+├── POST /api/family/chat/send → диалог с ИИ-медиатором
+├── POST /api/family/chat/finish→ завершить диалог участника
+├── POST /api/family/report/generate → генерация финального отчёта
 └── POST /telegram             → webhook (existing)
 ```
 
@@ -241,11 +252,12 @@ database/migrations/
 
 ## Следующая сессия
 
-### Family Circle — дальнейшие шаги
-- Настроить миграции (Alembic) или автосоздание таблиц при старте
-- Проверить API эндпоинты (rooms, chat, report)
-- Проверить работу AI диалогов через Hugging Face Inference API
-- Протестировать сценарий: создание комнаты → участники пишут → синтез финального отчёта
+### Family Circle — объединён в LTHub (WEB-10)
+- Отдельный Vercel-проект `family_circle` (familycircle-nine.vercel.app) удалён; медиация теперь часть LTHub
+- Страницы `/family`, `/family/room`, `/family/result`, API `/api/family/*` в `api/index.py` (Flask)
+- Таблицы rooms/members/messages/needs/final_reports создаются через `_ensure_family_tables()`
+- LLM-вызовы через `call_ai_api()` (Groq llama-3.3), шифрование Fernet (ENCRYPTION_KEY)
+- Осталось: проверить полный сценарий медиации на проде (создание → диалоги → отчёт)
 
 ### GD Module Testing
 - Проверка всех GD команд через webhook
