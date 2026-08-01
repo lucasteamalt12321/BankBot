@@ -1106,4 +1106,4 @@
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-89d61b4 (2026-08-01, fix: pass room name, participant list, and speaker attribution to AI prompt)
+40e97c0 (2026-08-01, feat: port Chess module to web (WEB-05) + fix trivia and AI chat)
