@@ -21,6 +21,22 @@
 
 ## Changelog
 
+### 2026-08-01 (Session: Family Circle объединён в LTHub — WEB-10)
+
+**WEB-10 completed:** Отдельный Vercel-проект `family_circle` (familycircle-nine.vercel.app) удалён; модуль медиации перенесён в основной LTHub проект.
+
+**Сделано:**
+- `_ensure_family_tables(engine)` — таблицы `rooms`, `members`, `messages`, `needs`, `final_reports` (создаются при старте через `get_db_engine()`, паттерн остальных `_ensure_*`).
+- CRUD-логика перенесена из `family_circle/backend/app/` в синхронном стиле `api/index.py` (raw SQL + SQLAlchemy engine).
+- Страницы: `/family` (создание комнаты), `/family/room` (вход + чат с ИИ-медиатором + завершение), `/family/result` (финальный отчёт + печать) — inline HTML в `api/index.py`.
+- API: `POST /api/family/rooms`, `POST /api/family/rooms/join`, `GET/DELETE /api/family/rooms/<id>`, `POST /api/family/chat/send`, `POST /api/family/chat/finish`, `POST /api/family/report/generate`.
+- LLM-вызовы переведены на существующий `call_ai_api()` (Groq llama-3.3); промпты медиатора и синтеза отчёта из `prompts.py` встроены в `api/index.py`.
+- Шифрование сообщений через Fernet (`ENCRYPTION_KEY`), `cryptography` добавлена в `api/requirements.txt`.
+- Карточка «Family Circle 🫂» в хабе `/` теперь ведёт на `/family` вместо внешнего домена.
+- Каталог `family_circle/` удалён из репозитория.
+
+**Проверка:** py_compile OK; ruff (только pre-existing F401); flask test client на SQLite-зеркале схемы: create/get/join/existing/chat/wrong-pass/finish/report/delete/404 — все 9 сценариев прошли; HTML страниц проверен на отсутствие артефактов f-string.
+
 ### 2026-08-01 (Session: Chess WEB-05 портирован)
 
 **WEB-05 completed:** Шахматный модуль перенесён на веб-портал.

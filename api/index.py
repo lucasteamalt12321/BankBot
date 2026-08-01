@@ -10,10 +10,12 @@ import json
 import os
 import random
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from datetime import date, datetime, timedelta
 
 import requests
@@ -121,6 +123,7 @@ def get_db_engine():
     _ensure_universe_tables(DB_ENGINE)
     _ensure_dnd_tables(DB_ENGINE)
     _ensure_verb_tables(DB_ENGINE)
+    _ensure_family_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -522,6 +525,68 @@ def _ensure_verb_tables(engine):
         print("[VERBS] Tables ensured")
     except Exception as exc:
         print(f"[VERBS] Table init error: {exc}")
+
+
+def _ensure_family_tables(engine):
+    """Create Family Circle mediation tables if they don't exist (preserves existing data)."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS rooms (
+                    id VARCHAR(20) PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    status VARCHAR(20) DEFAULT 'active',
+                    participants_total INTEGER NOT NULL DEFAULT 1,
+                    spoke_count INTEGER DEFAULT 0
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS members (
+                    id VARCHAR(36) PRIMARY KEY,
+                    room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
+                    display_name VARCHAR(100) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    finished BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_room ON members(room_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id VARCHAR(36) PRIMARY KEY,
+                    member_id VARCHAR(36) REFERENCES members(id) ON DELETE CASCADE,
+                    content TEXT NOT NULL,
+                    response TEXT,
+                    intent_type VARCHAR(20),
+                    needs_extracted TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_member ON messages(member_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS needs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
+                    need_text TEXT NOT NULL,
+                    member_id VARCHAR(36) REFERENCES members(id) ON DELETE SET NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_needs_room ON needs(room_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS final_reports (
+                    id VARCHAR(36) PRIMARY KEY,
+                    room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
+                    report_text TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_final_reports_room ON final_reports(room_id)"))
+            conn.commit()
+        print("[FAMILY] Tables ensured")
+    except Exception as exc:
+        print(f"[FAMILY] Table init error: {exc}")
 
 
 def _save_verb_exercise(ex: dict):
@@ -1397,10 +1462,9 @@ def get_gd_difficulty_name(level_name: str) -> str:
         if not results or not isinstance(results, list):
             return "Unknown"
         data = results[0]
-        if data.get("isDemon"):
-            demon = data.get("demonDifficulty", 0)
-            demons = {1: "Easy Demon", 2: "Medium Demon", 3: "Hard Demon", 4: "Insane Demon", 5: "Extreme Demon"}
-            return demons.get(demon, "Demon")
+        diff = data.get("difficulty")
+        if diff:
+            return str(diff)
         return data.get("difficultyName", "Unknown")
     except Exception as exc:
         print(f"Error getting difficulty for {level_name}: {exc}")
@@ -1433,7 +1497,7 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
                     FROM levels l
                     LEFT JOIN (SELECT level_id, COUNT(*) AS cnt FROM level_completions GROUP BY level_id) c ON c.level_id = l.id
                     LEFT JOIN (
-                        SELECT lc.level_id, STRING_AGG(u.first_name, ', ' ORDER BY lc.completed_at) AS completers
+                        SELECT lc.level_id, STRING_AGG(COALESCE(NULLIF(u.first_name, ''), u.username, '?'), ', ' ORDER BY lc.completed_at) AS completers
                         FROM level_completions lc
                         JOIN users u ON u.telegram_id = lc.user_id
                         GROUP BY lc.level_id
@@ -1833,8 +1897,14 @@ def log_chess_game(user_id: int, lichess_username: str, puzzle_id: str, puzzle_r
         return 0
 
 
-def link_chess_account(user_id: int, lichess_username: str) -> bool:
-    """Link or update chess account for user."""
+def link_chess_account(user_id: int, lichess_username: str, force: bool = False) -> bool:
+    """Link or update chess account for user.
+
+    Args:
+        user_id: Telegram/web user id.
+        lichess_username: Lichess nickname.
+        force: if True, take over an account already linked to another user.
+    """
     try:
         with get_db_engine().connect() as conn:
             # Check if another user has this lichess account
@@ -1843,7 +1913,7 @@ def link_chess_account(user_id: int, lichess_username: str) -> bool:
                 {"username": lichess_username},
             ).mappings().first()
             
-            if existing and existing["user_id"] != user_id:
+            if existing and existing["user_id"] != user_id and not force:
                 return False
             
             # Check if user already has an account linked
@@ -1852,7 +1922,15 @@ def link_chess_account(user_id: int, lichess_username: str) -> bool:
                 {"user_id": user_id},
             ).mappings().first()
             
-            if current:
+            if force and existing:
+                # Take over the account linked to another user
+                conn.execute(
+                    text(
+                        "UPDATE chess_accounts SET user_id = :new_user, linked_at = :now WHERE lichess_username = :username"
+                    ),
+                    {"new_user": user_id, "now": datetime.utcnow(), "username": lichess_username},
+                )
+            elif current:
                 # Update existing
                 conn.execute(
                     text(
@@ -2629,7 +2707,7 @@ def index():
                         <p>Практика неправильных глаголов с AI</p>
                     </div>
                 </a>
-                <a class="card" href="https://familycircle-nine.vercel.app" target="_blank" rel="noopener">
+                <a class="card" href="/family">
                     <div class="card-icon">🫂</div>
                     <div class="card-content">
                         <h2>Family Circle <span class="beta-tag">Бета</span></h2>
@@ -2698,6 +2776,7 @@ def gd_page():
         .pos { font-weight: 700; color: #f0883e; }
         .error { color: #f85149; margin-top: 12px; }
         .hint { color: #8b949e; font-size: 14px; margin-top: 12px; }
+        .completers { font-size: 12px; color: #8b949e; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -2798,7 +2877,8 @@ def gd_page():
                     if (!r.length) { out.innerHTML = '<p class="hint">Уровни пока не добавлены.</p>'; return; }
                     var html = '<table><thead><tr><th>Поз.</th><th>Уровень</th><th>Сложность</th><th>Прохождения</th></tr></thead><tbody>';
                     r.forEach(function(l) {
-                        html += '<tr><td class="pos">' + (l.position || '—') + '</td><td>' + (l.name || '—') + '</td><td>' + (l.difficulty || '—') + '</td><td>' + (l.completions || 0) + '</td></tr>';
+                        var who = (l.completers && l.completers !== '{}') ? '<div class="completers">👤 ' + l.completers + '</div>' : '';
+                        html += '<tr><td class="pos">' + (l.position || '—') + '</td><td>' + (l.name || '—') + '</td><td>' + (l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td></tr>';
                     });
                     html += '</tbody></table>';
                     out.innerHTML = html;
@@ -2857,7 +2937,17 @@ def api_gd_user(nick: str):
 @app.route("/api/gd/leaderboard")
 def api_gd_leaderboard():
     limit = request.args.get("limit", default=20, type=int)
-    return jsonify(get_gd_leaderboard(limit))
+    levels = get_gd_leaderboard(limit)
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            diffs = list(pool.map(lambda lv: get_gd_difficulty_name(lv.get("name") or ""), levels))
+        for lv, d in zip(levels, diffs):
+            if d and d != "Unknown":
+                lv["difficulty"] = d
+    except Exception as exc:
+        print(f"GD leaderboard difficulty enrich error: {exc}")
+    return jsonify(levels)
 
 
 @app.route("/api/gd/my_stats")
@@ -4425,6 +4515,8 @@ def chess_page():
 <script>
 (function() {
     var USER_ID = localStorage.getItem('chess_user_id');
+    var urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId && urlUserId !== USER_ID) { USER_ID = urlUserId; localStorage.setItem('chess_user_id', USER_ID); }
     if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('chess_user_id', USER_ID); }
 
     var tabs = document.querySelectorAll('.tab');
@@ -4521,6 +4613,29 @@ def chess_page():
                     if (x.status === 200 && r.ok) {
                         document.getElementById('link-msg').innerHTML = '<div class="msg ok">✅ Аккаунт привязан!</div>';
                         loadStats();
+                    } else if (x.status === 409 && r.conflict) {
+                        document.getElementById('link-msg').innerHTML =
+                            '<div class="msg err">' + esc(r.error || 'Аккаунт уже привязан.') +
+                            '</div><div class="input-group" style="margin-top:10px;"><button class="btn" id="link-force-btn">🔓 Это мой аккаунт — забрать</button></div>';
+                        var forceBtn = document.getElementById('link-force-btn');
+                        forceBtn.addEventListener('click', function() {
+                            forceBtn.disabled = true;
+                            var x2 = new XMLHttpRequest();
+                            x2.open('POST', '/api/chess/link');
+                            x2.setRequestHeader('Content-Type', 'application/json');
+                            x2.onload = function() {
+                                var r2;
+                                try { r2 = JSON.parse(x2.responseText); } catch(e) { r2 = {}; }
+                                if (x2.status === 200 && r2.ok) {
+                                    document.getElementById('link-msg').innerHTML = '<div class="msg ok">✅ Аккаунт перенесён на вас!</div>';
+                                    loadStats();
+                                } else {
+                                    document.getElementById('link-msg').innerHTML = '<div class="msg err">' + esc(r2.error || 'Не удалось привязать аккаунт.') + '</div>';
+                                }
+                            };
+                            x2.onerror = function() { forceBtn.disabled = false; document.getElementById('link-msg').innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
+                            x2.send(JSON.stringify({user_id: USER_ID, lichess_username: nick, force: true}));
+                        });
                     } else {
                         document.getElementById('link-msg').innerHTML = '<div class="msg err">' + esc(r.error || 'Не удалось привязать аккаунт.') + '</div>';
                     }
@@ -4687,9 +4802,10 @@ def api_chess_link():
     profile = fetch_lichess_user(nick)
     if not profile:
         return jsonify({"error": "Игрок не найден на Lichess"}), 404
-    ok = link_chess_account(uid, profile["username"])
+    force = bool(data.get("force"))
+    ok = link_chess_account(uid, profile["username"], force=force)
     if not ok:
-        return jsonify({"error": "Этот Lichess аккаунт уже привязан к другому пользователю"}), 409
+        return jsonify({"error": "Этот Lichess аккаунт уже привязан к другому пользователю", "conflict": True}), 409
     return jsonify({"ok": True, "username": profile["username"]})
 
 
@@ -6407,7 +6523,8 @@ def telegram_webhook(secret: str):
                 "2. Введите ваш ход (например: `e2e4`)\n"
                 "3. За правильный ответ — +5 монет\n\n"
                 "**Пример:**\n"
-                "`/chess_link DrNykterstein`"
+                "`/chess_link DrNykterstein`\n\n"
+                f"[🌐 Веб-версия шахмат](https://bank-bot-ruby.vercel.app/chess?user_id={user_id})"
             )
             send_telegram_message(chat_id, help_text, parse_mode="Markdown")
         
@@ -6469,7 +6586,8 @@ def telegram_webhook(secret: str):
                                 "♟ **Lichess аккаунт привязан!**\n\n"
                                 f"Аккаунт: **{title_prefix}{lichess_user['username']}**\n"
                                 f"Статус: {online_text}\n\n"
-                                "Теперь можно использовать шахматные команды LTHub."
+                                "Теперь можно использовать шахматные команды LTHub.\n\n"
+                                f"[🌐 Открыть веб-версию](https://bank-bot-ruby.vercel.app/chess?user_id={user_id})"
                             )
                             send_telegram_message(chat_id, success_msg, parse_mode="Markdown")
         
@@ -8271,6 +8389,992 @@ Text: {text}"""
     except Exception as e:
         print(f"[ENDINGS] Error: {e}")
         return jsonify({"ok": False, "error": str(e)})
+
+
+# ── Family Circle (медиация) ──────────────────────────────────────
+
+def _family_cipher():
+    key = os.getenv("ENCRYPTION_KEY")
+    if not key:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(key.encode() if isinstance(key, str) else key)
+    except Exception:
+        return None
+
+
+def _family_encrypt(value: str) -> str:
+    cipher = _family_cipher()
+    if cipher is None:
+        return value
+    return cipher.encrypt(value.encode()).decode()
+
+
+def _family_decrypt(token: str) -> str:
+    cipher = _family_cipher()
+    if cipher is None:
+        return token
+    try:
+        return cipher.decrypt(token.encode()).decode()
+    except Exception:
+        return token
+
+
+def _family_hash_password(password: str) -> str:
+    salt = os.urandom(16).hex()
+    return salt + ":" + hashlib.sha256((salt + password).encode()).hexdigest()
+
+
+def _family_check_password(password: str, stored: str) -> bool:
+    if not stored or ":" not in stored:
+        return False
+    salt, hsh = stored.split(":", 1)
+    return hashlib.sha256((salt + password).encode()).hexdigest() == hsh
+
+
+def _family_gen_room_id() -> str:
+    engine = get_db_engine()
+    while True:
+        rid = str(random.randint(100000, 999999))
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT id FROM rooms WHERE id = :rid"), {"rid": rid}).fetchone()
+        if not row:
+            return rid
+
+
+def _family_gen_password(length: int = 5) -> str:
+    chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(chars) for _ in range(length))
+
+
+def _family_create_room(name: str, creator_name: str) -> dict:
+    engine = get_db_engine()
+    rid = _family_gen_room_id()
+    creator_display = (creator_name or "").strip() or "Я"
+    raw_password = _family_gen_password()
+    member_id = str(uuid.uuid4())
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO rooms (id, name, participants_total) VALUES (:id, :name, 1)"
+        ), {"id": rid, "name": name})
+        conn.execute(text(
+            "INSERT INTO members (id, room_id, display_name, password_hash) "
+            "VALUES (:id, :rid, :name, :hash)"
+        ), {"id": member_id, "rid": rid, "name": creator_display, "hash": _family_hash_password(raw_password)})
+    members = [m for m in _family_room_members(rid)]
+    return {
+        "room_id": rid,
+        "your_name": creator_display,
+        "your_password": raw_password,
+        "invite_link": f"/family/room?room_id={rid}",
+        "members": members,
+    }
+
+
+def _family_join_room(room_id: str, member_name: str) -> dict:
+    engine = get_db_engine()
+    name = (member_name or "").strip()
+    if not name:
+        raise ValueError("Укажите имя участника")
+    with engine.connect() as conn:
+        room = conn.execute(text("SELECT id FROM rooms WHERE id = :rid"), {"rid": room_id}).fetchone()
+    if not room:
+        raise ValueError("Комната не найдена")
+    existing = _family_member_by_name(room_id, name)
+    if existing:
+        return {"ok": True, "your_password": None, "is_new": False}
+    raw_password = _family_gen_password()
+    member_id = str(uuid.uuid4())
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO members (id, room_id, display_name, password_hash) "
+            "VALUES (:id, :rid, :name, :hash)"
+        ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(raw_password)})
+        conn.execute(text(
+            "UPDATE rooms SET participants_total = participants_total + 1 WHERE id = :rid"
+        ), {"rid": room_id})
+    return {"ok": True, "your_password": raw_password, "is_new": True}
+
+
+def _family_get_room(room_id: str) -> dict | None:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT id, name, status, participants_total, spoke_count FROM rooms WHERE id = :rid"
+        ), {"rid": room_id}).mappings().first()
+    if not row:
+        return None
+    return dict(row)
+
+
+def _family_room_members(room_id: str) -> list[str]:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT display_name FROM members WHERE room_id = :rid ORDER BY created_at"
+        ), {"rid": room_id}).scalars().all()
+    return list(rows)
+
+
+def _family_member_by_name(room_id: str, name: str) -> dict | None:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT id, display_name, password_hash, finished FROM members "
+            "WHERE room_id = :rid AND display_name = :name"
+        ), {"rid": room_id, "name": name}).mappings().first()
+    return dict(row) if row else None
+
+
+def _family_verify_member(room_id: str, name: str, password: str) -> dict | None:
+    member = _family_member_by_name(room_id, name)
+    if not member:
+        return None
+    if not _family_check_password(password, member["password_hash"]):
+        return None
+    return member
+
+
+def _family_room_messages(room_id: str) -> list[dict]:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT m.content, m.response, mem.display_name FROM messages m "
+            "JOIN members mem ON mem.id = m.member_id "
+            "WHERE mem.room_id = :rid ORDER BY m.created_at"
+        ), {"rid": room_id}).mappings().all()
+    result = []
+    for r in rows:
+        result.append({
+            "content": _family_decrypt(r["content"]),
+            "response": _family_decrypt(r["response"]) if r["response"] else None,
+            "member_name": r["display_name"],
+        })
+    return result
+
+
+def _family_create_message(member_id: str, content: str, response: str | None,
+                           intent_type: str | None, needs_extracted: list | None) -> None:
+    engine = get_db_engine()
+    msg_id = str(uuid.uuid4())
+    needs_str = None
+    if needs_extracted:
+        needs_str = _family_encrypt(json.dumps(needs_extracted, ensure_ascii=False))
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO messages (id, member_id, content, response, intent_type, needs_extracted) "
+            "VALUES (:id, :mid, :content, :response, :intent, :needs)"
+        ), {
+            "id": msg_id,
+            "mid": member_id,
+            "content": _family_encrypt(content),
+            "response": _family_encrypt(response) if response else None,
+            "intent": intent_type,
+            "needs": needs_str,
+        })
+
+
+def _family_add_need(room_id: str, need_text: str, member_id: str | None = None) -> None:
+    engine = get_db_engine()
+    need_id = str(uuid.uuid4())
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO needs (id, room_id, need_text, member_id) VALUES (:id, :rid, :text, :mid)"
+        ), {"id": need_id, "rid": room_id, "text": need_text, "mid": member_id})
+
+
+def _family_room_needs_text(room_id: str) -> str:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        needs = conn.execute(text(
+            "SELECT need_text FROM needs WHERE room_id = :rid ORDER BY created_at"
+        ), {"rid": room_id}).scalars().all()
+    if not needs:
+        return "Пока нет зафиксированных потребностей."
+    return "\n".join(f"- {n}" for n in needs)
+
+
+def _family_finish_member(member: dict) -> None:
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE members SET finished = TRUE WHERE id = :id"), {"id": member["id"]})
+
+
+def _family_count_spoken(room_id: str) -> int:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        return conn.execute(text(
+            "SELECT COUNT(*) FROM members WHERE room_id = :rid AND finished"
+        ), {"rid": room_id}).scalar() or 0
+
+
+def _family_save_report(room_id: str, report_text: str) -> None:
+    engine = get_db_engine()
+    report_id = str(uuid.uuid4())
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO final_reports (id, room_id, report_text) VALUES (:id, :rid, :text)"
+        ), {"id": report_id, "rid": room_id, "text": report_text})
+
+
+def _family_get_report(room_id: str) -> str | None:
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT report_text FROM final_reports WHERE room_id = :rid ORDER BY created_at DESC LIMIT 1"
+        ), {"rid": room_id}).mappings().first()
+    return row["report_text"] if row else None
+
+
+def _family_build_system_prompt(room_name: str, member_names: list[str], spoke_count: int, needs_map: str) -> str:
+    if spoke_count < 2:
+        advice_rule = "Запрещено давать советы «скажи другому» или «поговори с ним/ней». Фокус только на переживаниях и потребностях самого участника."
+        micro_step_allowed = "запрещено"
+    else:
+        advice_rule = "Советы допустимы, но с оговоркой: «Это только предварительная мысль — у меня нет полной картины, пока другие участники не высказались»."
+        micro_step_allowed = "разрешено"
+    participants_list = "\n".join(f"- {n}" for n in member_names)
+    return f"""Ты — профессиональный семейный медиатор. Твоя задача — вести приватный диалог с одним участником конфликта. Ты не судья, не адвокат, а нейтральный помощник.
+
+## Контекст
+Комната: {room_name}
+Участники:
+{participants_list}
+
+## Правила диалога
+1. Проявляй эмпатию, признавай чувства собеседника.
+2. Не оценивай, кто прав, кто виноват.
+3. Помогай сформулировать мысли без обвинений в адрес других участников.
+4. Если слышишь обвинения («он всегда...», «она никогда...», «они не понимают...») — мягко трансформируй их в потребности. Например: «Я слышу, что тебе важно быть услышанным» или «Похоже, для тебя ценна предсказуемость».
+5. Делай паузы и уточняй: «Правильно ли я понимаю, что...», «Что для тебя самое важное в этой ситуации?»
+6. При запросе на конкретное действие — предложи микро-шаг, который участник может сделать сам (не через другого человека).
+
+## Ограничения
+- {advice_rule}
+- Не придумывай факты, не упоминай имена других участников без необходимости.
+- Никаких диагнозов и профессиональных психологических терминов.
+
+## Структура ответа
+1. Краткое признание чувств/ситуации (1-2 предложения).
+2. Если нужно — уточняющий вопрос или переформулирование.
+3. Если участник просит совет — микро-шаг (только если {micro_step_allowed}).
+4. **Обязательно в конце** добавь JSON-блок с классификацией:
+{{"intent_type": "emotion" | "action" | "analysis"}}
+- emotion: участник делится чувствами, переживаниями
+- action: участник просит совета, хочет что-то сделать
+- analysis: участник анализирует ситуацию, ищет причину
+
+## Потребности комнаты
+Уже выявленные потребности (анонимно):
+{needs_map}
+
+Если заметишь новую потребность — мягко добавь её в общую карту, сформулировав как позитивную ценность."""
+
+
+def _family_build_synthesis_prompt(needs_map: str) -> str:
+    return f"""Ты — профессиональный семейный медиатор. Твоя задача — на основе анонимного списка потребностей участников конфликта составить структурированный отчёт, который поможет семье найти общий язык.
+
+## Входные данные
+Список потребностей (каждая потребность — это сформулированная ценность, а не претензия):
+{needs_map}
+
+## Формат отчёта (строго соблюдай разделы)
+
+### 1. Общая картина конфликта
+- Опиши ключевые темы, которые волнуют участников (без имён, без обвинений).
+- Укажи, какие сферы жизни затронуты (быт, финансы, воспитание, общение и т.д.).
+
+### 2. Общие ценности (что объединяет)
+- Выдели 2-4 ценности, которые прослеживаются у всех или большинства участников.
+- Примеры: забота, стабильность, уважение, честность, предсказуемость.
+- Покажи, что у участников больше общего, чем кажется.
+
+### 3. Конкретные шаги
+- 3-5 практических действий, которые семья может обсудить и внедрить.
+- Каждый шаг должен быть конкретным: «раз в неделю собираться за ужином», «вести общий календарь», «установить время тишины».
+- Шаги должны учитывать потребности из списка.
+
+### 4. Рекомендации по диалогу
+- 2-3 примера фраз, которые помогут начать сложный разговор без обвинений.
+- Например: «Я чувствую себя одиноко, когда мы не ужинаем вместе. Можем попробовать хотя бы по воскресеньям?»
+
+## Стиль
+- Тёплый, поддерживающий, без осуждения.
+- На русском языке, простыми словами.
+- Без психологических ярлыков."""
+
+
+def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dict] | None) -> tuple[str, str | None]:
+    parts = [system_prompt]
+    if history:
+        for h in history:
+            parts.append(f"{h['role']}: {h['content']}")
+    parts.append(user_message)
+    full_prompt = "\n\n".join(parts)
+    ai_text = call_ai_api(full_prompt, max_tokens=1024)
+    if ai_text.startswith("❌"):
+        return "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.", None
+
+    intent_type = None
+    json_match = re.search(r'\{("intent_type"\s*:\s*"[^"]+")\}', ai_text, re.DOTALL)
+    if json_match:
+        try:
+            parsed = json.loads("{" + json_match.group(1) + "}")
+            intent_type = parsed.get("intent_type")
+        except json.JSONDecodeError:
+            pass
+        ai_text = re.sub(r'\s*\{("intent_type"\s*:\s*"[^"]+")\}\s*$', '', ai_text).strip()
+    return ai_text, intent_type
+
+
+def _family_generate_synthesis(system_prompt: str) -> str:
+    ai_text = call_ai_api(system_prompt + "\n\nСгенерируй финальный отчёт на основе данных выше.", max_tokens=1024)
+    if ai_text.startswith("❌"):
+        return "Не удалось сгенерировать отчёт. Попробуйте позже."
+    return ai_text
+
+
+def _family_extract_needs(response_text: str) -> list[str]:
+    needs = []
+    lower = response_text.lower()
+    patterns = [
+        r'(?:тебе\s+)?важно\s+(.+)',
+        r'(?:похоже|кажется|вижу),?\s+(?:что\s+)?(?:для\s+)?(?:тебя|тебе)\s+(.+?)(?:[.?!]|$)',
+        r'(?:ценность|потребность|ценно)\s+(?:—\s+)?(.+?)(?:[.?!]|$)',
+    ]
+    for pattern in patterns:
+        for m in re.findall(pattern, lower):
+            need = m.strip().rstrip(".,!?")
+            if len(need) > 10 and need not in needs:
+                needs.append(need)
+    return needs
+
+
+# ── Family Circle: API ────────────────────────────────────────────
+
+@app.route("/api/family/rooms", methods=["POST"])
+def api_family_rooms_create():
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    creator_name = (data.get("creator_name") or "").strip()
+    if not name:
+        return jsonify({"error": "Укажите название комнаты"}), 400
+    try:
+        result = _family_create_room(name, creator_name)
+        return jsonify(result)
+    except Exception as exc:
+        print(f"[FAMILY] create room error: {exc}")
+        return jsonify({"error": "Ошибка при создании комнаты"}), 500
+
+
+@app.route("/api/family/rooms/join", methods=["POST"])
+def api_family_rooms_join():
+    data = request.get_json() or {}
+    room_id = (data.get("room_id") or "").strip()
+    member_name = (data.get("member_name") or "").strip()
+    try:
+        result = _family_join_room(room_id, member_name)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as exc:
+        print(f"[FAMILY] join room error: {exc}")
+        return jsonify({"error": "Ошибка при входе в комнату"}), 500
+
+
+@app.route("/api/family/rooms/<room_id>", methods=["GET"])
+def api_family_rooms_get(room_id):
+    room = _family_get_room(room_id)
+    if not room:
+        return jsonify({"error": "Комната не найдена"}), 404
+    room["members"] = _family_room_members(room_id)
+    return jsonify(room)
+
+
+@app.route("/api/family/rooms/<room_id>", methods=["DELETE"])
+def api_family_rooms_delete(room_id):
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        result = conn.execute(text("DELETE FROM rooms WHERE id = :rid"), {"rid": room_id})
+    if result.rowcount == 0:
+        return jsonify({"error": "Комната не найдена"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/family/chat/send", methods=["POST"])
+def api_family_chat_send():
+    data = request.get_json() or {}
+    room_id = (data.get("room_id") or "").strip()
+    member_name = (data.get("member_name") or "").strip()
+    password = (data.get("password") or "").strip()
+    message = (data.get("message") or "").strip()
+
+    member = _family_verify_member(room_id, member_name, password)
+    if not member:
+        return jsonify({"error": "Неверное имя участника или пароль"}), 403
+    if member["finished"]:
+        return jsonify({"error": "Вы уже завершили диалог"}), 400
+
+    room = _family_get_room(room_id)
+    if not room or room["status"] != "active":
+        return jsonify({"error": "Комната недоступна"}), 400
+
+    needs_text = _family_room_needs_text(room_id)
+    member_names = _family_room_members(room_id)
+    system_prompt = _family_build_system_prompt(room["name"], member_names, room["spoke_count"], needs_text)
+
+    history = []
+    for msg in _family_room_messages(room_id):
+        history.append({"role": "user", "content": f"{msg['member_name']}: {msg['content']}"})
+        if msg["response"]:
+            history.append({"role": "assistant", "content": msg["response"]})
+
+    current_message = f"{member_name}: {message}"
+    response_text, intent_type = _family_chat_dialog(system_prompt, current_message, history)
+
+    needs_found = _family_extract_needs(response_text)
+    for need_text in needs_found:
+        _family_add_need(room_id, need_text, member["id"])
+
+    _family_create_message(
+        member["id"], message,
+        response=response_text,
+        intent_type=intent_type,
+        needs_extracted=[{"need": n} for n in needs_found] if needs_found else None,
+    )
+
+    return jsonify({"response": response_text, "intent_type": intent_type})
+
+
+@app.route("/api/family/chat/finish", methods=["POST"])
+def api_family_chat_finish():
+    data = request.get_json() or {}
+    room_id = (data.get("room_id") or "").strip()
+    member_name = (data.get("member_name") or "").strip()
+    password = (data.get("password") or "").strip()
+
+    member = _family_verify_member(room_id, member_name, password)
+    if not member:
+        return jsonify({"error": "Неверное имя участника или пароль"}), 403
+    if member["finished"]:
+        return jsonify({"error": "Вы уже завершили диалог"}), 400
+
+    _family_finish_member(member)
+    room = _family_get_room(room_id)
+    if room:
+        new_count = _family_count_spoken(room_id)
+        with get_db_engine().begin() as conn:
+            conn.execute(text("UPDATE rooms SET spoke_count = :c WHERE id = :rid"), {"c": new_count, "rid": room_id})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/family/report/generate", methods=["POST"])
+def api_family_report_generate():
+    data = request.get_json() or {}
+    room_id = (data.get("room_id") or "").strip()
+    member_name = (data.get("member_name") or "").strip()
+    password = (data.get("password") or "").strip()
+
+    member = _family_verify_member(room_id, member_name, password)
+    if not member:
+        return jsonify({"error": "Неверное имя участника или пароль"}), 403
+
+    room = _family_get_room(room_id)
+    if not room or room["status"] != "active":
+        return jsonify({"error": "Комната недоступна"}), 400
+
+    existing = _family_get_report(room_id)
+    if existing:
+        return jsonify({"report_text": existing})
+
+    needs_text = _family_room_needs_text(room_id)
+    prompt = _family_build_synthesis_prompt(needs_text)
+    report_text = _family_generate_synthesis(prompt)
+
+    _family_save_report(room_id, report_text)
+    return jsonify({"report_text": report_text})
+
+
+# ── Family Circle: страницы ───────────────────────────────────────
+
+_FAMILY_STYLE = """
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif; background: #f5f0eb; color: #2d2d2d; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+.container { max-width: 640px; width: 100%; padding: 24px 16px; }
+h1 { font-size: 28px; color: #4a3728; margin-bottom: 4px; }
+.subtitle { color: #8a7a6a; margin-bottom: 24px; font-size: 14px; }
+.card { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 16px; }
+.card h2 { font-size: 18px; color: #4a3728; margin-bottom: 12px; }
+label { display: block; font-size: 13px; color: #8a7a6a; margin-bottom: 6px; margin-top: 12px; }
+label:first-of-type { margin-top: 0; }
+input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; font-family: inherit; background: #fafafa; transition: border-color 0.2s; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #c7a87b; background: #fff; }
+textarea { resize: vertical; min-height: 80px; }
+button { display: inline-block; padding: 10px 20px; background: #c7a87b; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer; transition: background 0.2s; margin-top: 12px; }
+button:hover { background: #b8956a; }
+button:disabled { background: #ccc; cursor: not-allowed; }
+button.secondary { background: #eee; color: #555; }
+button.secondary:hover { background: #ddd; }
+button.danger { background: #e74c3c; }
+button.danger:hover { background: #c0392b; }
+.error { color: #e74c3c; font-size: 13px; margin-top: 8px; }
+.success { color: #27ae60; font-size: 13px; margin-top: 8px; }
+.chat-log { max-height: 400px; overflow-y: auto; padding: 12px; background: #fafafa; border-radius: 12px; margin-bottom: 12px; }
+.msg { margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; max-width: 85%; font-size: 14px; line-height: 1.5; }
+.msg.user { background: #e8f0fe; margin-left: auto; border-bottom-right-radius: 4px; }
+.msg.ai { background: #fff; border: 1px solid #eee; border-bottom-left-radius: 4px; }
+.msg .label { font-size: 11px; font-weight: 600; color: #8a7a6a; margin-bottom: 4px; }
+.typing { font-style: italic; color: #aaa; font-size: 13px; padding: 8px 0; }
+.chat-input-row { display: flex; gap: 8px; }
+.chat-input-row input { flex: 1; }
+.password-list { background: #f9f6f0; border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 13px; }
+.password-list .entry { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #eee; }
+.password-list .entry:last-child { border-bottom: none; }
+.password-list .name { font-weight: 500; }
+.password-list .pass { color: #c7a87b; font-family: monospace; font-size: 14px; }
+.report-section { margin-bottom: 16px; }
+.report-section h3 { font-size: 16px; color: #4a3728; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid #f0e8dd; }
+.report-section p, .report-section li { font-size: 14px; line-height: 1.6; color: #444; }
+.report-section ul { padding-left: 20px; }
+.report-section li { margin-bottom: 4px; }
+.info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0e8dd; font-size: 14px; }
+.info-row:last-child { border-bottom: none; }
+.info-label { color: #8a7a6a; }
+.info-value { font-weight: 500; }
+.nav { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.nav a { color: #c7a87b; text-decoration: none; font-size: 13px; }
+.nav a:hover { text-decoration: underline; }
+.back-link { display: inline-block; margin-top: 8px; color: #8a7a6a; text-decoration: none; font-size: 13px; }
+.back-link:hover { text-decoration: underline; }
+"""
+
+_FAMILY_JS_UTILS = """
+const API = window.location.origin + '/api/family';
+function $(id) { return document.getElementById(id); }
+function showError(id, msg) { const el = $(id); if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; } }
+function hide(el) { if (el) el.style.display = 'none'; }
+function show(el, display) { if (el) el.style.display = display || 'block'; }
+function store(key, val) { try { sessionStorage.setItem('fc_' + key, val); } catch(e) {} }
+function load(key) { try { return sessionStorage.getItem('fc_' + key); } catch(e) { return null; } }
+async function api(method, path, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const resp = await fetch(API + path, opts);
+    let data = {};
+    try { data = await resp.json(); } catch(e) {}
+    if (!resp.ok) throw new Error(data.error || data.detail || 'Ошибка сервера');
+    return data;
+}
+"""
+
+
+@app.route("/family")
+def family_page():
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Circle — Создать комнату</title>
+    <style>{_FAMILY_STYLE}</style>
+</head>
+<body>
+    <div class="container">
+        <h1>🫂 Family Circle</h1>
+        <p class="subtitle">Асинхронная семейная медиация с ИИ-помощником</p>
+
+        <div class="card">
+            <h2>Создать комнату</h2>
+            <label for="roomName">Название</label>
+            <input id="roomName" type="text" placeholder="Например: Семейный совет" maxlength="255">
+            <label for="creatorName">Ваше имя</label>
+            <input id="creatorName" type="text" placeholder="Ваше имя" maxlength="100">
+            <button id="createBtn">Создать комнату</button>
+            <div id="createError" class="error"></div>
+        </div>
+
+        <div id="resultCard" class="card" style="display:none;">
+            <h2>Комната создана</h2>
+            <p id="roomIdDisplay"></p>
+            <p id="inviteLink" style="margin-top:8px;"></p>
+            <div id="passwordDisplay" class="password-list"></div>
+            <button id="goToRoomBtn" class="secondary" style="margin-top:12px;">Перейти в комнату</button>
+        </div>
+
+        <div class="nav" style="margin-top:16px;">
+            <a href="/family/room">Войти в существующую комнату</a>
+        </div>
+    </div>
+
+    <script>
+{_FAMILY_JS_UTILS}
+    (function() {{
+        const createBtn = $('createBtn');
+        if (!createBtn) return;
+        createBtn.addEventListener('click', async () => {{
+            const name = $('roomName').value.trim() || 'Семейный совет';
+            const creator = $('creatorName').value.trim() || 'Я';
+            showError('createError', '');
+            createBtn.disabled = true;
+            createBtn.textContent = 'Создаём...';
+            try {{
+                const data = await api('POST', '/rooms', {{ name, creator_name: creator }});
+                $('roomIdDisplay').textContent = 'ID комнаты: ' + data.room_id;
+                $('inviteLink').innerHTML = 'Ссылка: <a href="' + data.invite_link + '">' + window.location.origin + data.invite_link + '</a>';
+                const passDiv = $('passwordDisplay');
+                passDiv.innerHTML = '<h3 style="font-size:14px;margin-bottom:8px;">Ваш пароль (сохраните его!):</h3>';
+                passDiv.innerHTML += '<div class="entry"><span class="name">' + data.your_name + '</span><span class="pass">' + data.your_password + '</span></div>';
+                show($('resultCard'));
+                $('goToRoomBtn').onclick = () => {{ window.location.href = '/family/room?room_id=' + data.room_id; }};
+            }} catch (err) {{
+                showError('createError', err.message);
+            }} finally {{
+                createBtn.disabled = false;
+                createBtn.textContent = 'Создать комнату';
+            }}
+        }});
+    }})();
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/family/room")
+def family_room_page():
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Circle — Комната</title>
+    <style>{_FAMILY_STYLE}</style>
+</head>
+<body>
+    <div class="container">
+        <h1>🫂 Family Circle</h1>
+        <p class="subtitle" id="roomSubtitle">Комната</p>
+
+        <div class="nav">
+            <a href="/family">Создать комнату</a>
+            <a href="/family/result">Отчёт</a>
+        </div>
+
+        <div id="loginCard" class="card">
+            <h2>Вход в комнату</h2>
+            <label for="roomIdInput">ID комнаты</label>
+            <input id="roomIdInput" type="text" placeholder="Вставьте ID комнаты">
+            <label for="memberSelect">Ваше имя</label>
+            <select id="memberSelect"></select>
+            <p id="memberSelectHint" style="font-size:12px;color:#aaa;margin-top:4px;">Сначала введите ID комнаты</p>
+            <label for="passwordInput">Пароль</label>
+            <input id="passwordInput" type="password" placeholder="Пароль участника">
+            <button id="loginBtn">Войти</button>
+            <div id="loginError" class="error"></div>
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;">
+                <label for="joinName">Новый участник? Введите имя</label>
+                <input id="joinName" type="text" placeholder="Имя для входа">
+                <button id="joinBtn" class="secondary">Присоединиться к комнате</button>
+                <div id="joinInfo" class="success"></div>
+            </div>
+        </div>
+
+        <div id="chatCard" class="card" style="display:none;">
+            <div id="roomInfo"></div>
+            <div id="chatLog" class="chat-log"></div>
+            <div id="typing" class="typing" style="display:none;">✏️ ИИ печатает...</div>
+            <div class="chat-input-row">
+                <input id="messageInput" type="text" placeholder="Напишите сообщение..." maxlength="5000">
+                <button id="sendBtn">Отправить</button>
+            </div>
+            <div id="chatError" class="error"></div>
+
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;">
+                <button id="finishBtn" class="danger">Завершить диалог</button>
+                <p style="font-size:12px;color:#aaa;margin-top:4px;">После завершения вы больше не сможете писать в этой комнате</p>
+            </div>
+
+            <div style="margin-top:12px;">
+                <button id="reportBtn" class="secondary">📄 Посмотреть отчёт</button>
+                <p id="reportReady" style="font-size:12px;color:#27ae60;margin-top:4px;display:none;">✅ Отчёт готов!</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+{_FAMILY_JS_UTILS}
+    (function() {{
+        const loginBtn = $('loginBtn');
+        if (!loginBtn) return;
+
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('room_id')) {{
+            $('roomIdInput').value = urlParams.get('room_id');
+            loadRoomInfo(urlParams.get('room_id'));
+        }}
+
+        $('roomIdInput').addEventListener('change', () => {{
+            const rid = $('roomIdInput').value.trim();
+            if (rid) loadRoomInfo(rid);
+        }});
+
+        const savedRoom = load('room_id');
+        const savedName = load('member_name');
+        const savedPass = load('password');
+        if (savedRoom && savedName && savedPass) {{
+            $('roomIdInput').value = savedRoom;
+            loadRoomInfo(savedRoom, savedName, savedPass);
+        }}
+
+        async function loadRoomInfo(roomId, autoName, autoPass) {{
+            try {{
+                const data = await api('GET', '/rooms/' + roomId);
+                $('roomSubtitle').textContent = 'Комната: ' + data.name;
+                const sel = $('memberSelect');
+                sel.innerHTML = '';
+                data.members.forEach(m => {{
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    sel.appendChild(opt);
+                }});
+                if (autoName && data.members.includes(autoName)) {{
+                    sel.value = autoName;
+                    $('passwordInput').value = autoPass || '';
+                    tryLogin();
+                }}
+            }} catch (err) {{
+                showError('loginError', 'Не удалось загрузить комнату: ' + err.message);
+            }}
+        }}
+
+        loginBtn.addEventListener('click', tryLogin);
+
+        async function tryLogin() {{
+            const roomId = $('roomIdInput').value.trim();
+            const memberName = $('memberSelect').value;
+            const password = $('passwordInput').value.trim();
+            if (!roomId || !memberName || !password) {{
+                showError('loginError', 'Заполните все поля');
+                return;
+            }}
+            showError('loginError', '');
+            loginBtn.disabled = true;
+            try {{
+                const data = await api('GET', '/rooms/' + roomId);
+                if (!data.members.includes(memberName)) throw new Error('Участник не найден в этой комнате');
+                store('room_id', roomId);
+                store('member_name', memberName);
+                store('password', password);
+                $('roomSubtitle').textContent = 'Комната: ' + data.name;
+                $('roomInfo').innerHTML = '';
+                var infoHtml = ''
+                    + '<div class="info-row"><span class="info-label">Статус</span><span class="info-value">' + (data.status === 'active' ? 'Активна' : data.status) + '</span></div>'
+                    + '<div class="info-row"><span class="info-label">Высказалось</span><span class="info-value">' + data.spoke_count + '/' + data.participants_total + '</span></div>'
+                    + '<div class="info-row"><span class="info-label">Участники</span><span class="info-value">' + data.members.join(', ') + '</span></div>';
+                $('roomInfo').innerHTML = infoHtml;
+                hide($('loginCard'));
+                show($('chatCard'));
+                $('messageInput').focus();
+            }} catch (err) {{
+                showError('loginError', err.message);
+            }} finally {{
+                loginBtn.disabled = false;
+            }}
+        }}
+
+        $('joinBtn').addEventListener('click', async () => {{
+            const roomId = $('roomIdInput').value.trim();
+            const name = $('joinName').value.trim();
+            if (!roomId || !name) {{ showError('loginError', 'Введите ID комнаты и имя'); return; }}
+            showError('loginError', '');
+            $('joinBtn').disabled = true;
+            try {{
+                const data = await api('POST', '/rooms/join', {{ room_id: roomId, member_name: name }});
+                $('joinInfo').textContent = data.is_new ? ('Вы вошли! Пароль: ' + data.your_password) : 'Участник уже есть. Введите пароль ниже.';
+                loadRoomInfo(roomId);
+            }} catch (err) {{
+                showError('loginError', err.message);
+            }} finally {{
+                $('joinBtn').disabled = false;
+            }}
+        }});
+
+        const sendBtn = $('sendBtn');
+        const msgInput = $('messageInput');
+        const chatLog = $('chatLog');
+        const typing = $('typing');
+
+        msgInput.addEventListener('keydown', (e) => {{
+            if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); sendBtn.click(); }}
+        }});
+
+        sendBtn.addEventListener('click', async () => {{
+            const text = msgInput.value.trim();
+            if (!text) return;
+            const roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+            if (!roomId || !memberName || !password) {{ showError('chatError', 'Сессия потеряна. Войдите заново.'); return; }}
+            showError('chatError', '');
+            sendBtn.disabled = true; msgInput.disabled = true;
+            addMessage('user', memberName, text);
+            msgInput.value = '';
+            show(typing);
+            try {{
+                const data = await api('POST', '/chat/send', {{ room_id: roomId, member_name: memberName, password: password, message: text }});
+                hide(typing);
+                addMessage('ai', 'Медиатор', data.response);
+            }} catch (err) {{
+                hide(typing);
+                showError('chatError', err.message);
+            }} finally {{
+                sendBtn.disabled = false; msgInput.disabled = false; msgInput.focus();
+            }}
+        }});
+
+        function addMessage(type, label, text) {{
+            const div = document.createElement('div');
+            div.className = 'msg ' + type;
+            div.innerHTML = '<div class="label">' + label + '</div>' + escapeHtml(text);
+            chatLog.appendChild(div);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }}
+        function escapeHtml(text) {{ const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }}
+
+        $('finishBtn').addEventListener('click', async () => {{
+            if (!confirm('Вы уверены, что хотите завершить диалог? После этого вы не сможете писать в этой комнате.')) return;
+            const roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+            try {{
+                await api('POST', '/chat/finish', {{ room_id: roomId, member_name: memberName, password: password }});
+                sendBtn.disabled = true; msgInput.disabled = true;
+                $('finishBtn').disabled = true; $('finishBtn').textContent = '✓ Диалог завершён';
+                showError('chatError', '');
+                show($('reportReady'));
+            }} catch (err) {{ showError('chatError', err.message); }}
+        }});
+
+        $('reportBtn').addEventListener('click', () => {{
+            const roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+            window.location.href = '/family/result?room_id=' + roomId + '&name=' + encodeURIComponent(memberName) + '&pass=' + encodeURIComponent(password);
+        }});
+    }})();
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/family/result")
+def family_result_page():
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Circle — Отчёт</title>
+    <style>{_FAMILY_STYLE}</style>
+</head>
+<body>
+    <div class="container">
+        <h1>🫂 Family Circle</h1>
+        <p class="subtitle">Финальный отчёт медиации</p>
+
+        <div class="nav">
+            <a href="/family">Создать комнату</a>
+            <a href="/family/room">Войти в комнату</a>
+        </div>
+
+        <div class="card">
+            <h2>Получить отчёт</h2>
+            <label for="roomIdInput">ID комнаты</label>
+            <input id="roomIdInput" type="text" placeholder="ID комнаты">
+            <label for="memberSelect">Ваше имя</label>
+            <select id="memberSelect"></select>
+            <label for="passwordInput">Пароль</label>
+            <input id="passwordInput" type="password" placeholder="Пароль участника">
+            <button id="getReportBtn">Получить отчёт</button>
+            <div id="reportError" class="error"></div>
+        </div>
+
+        <div id="reportCard" class="card" style="display:none;">
+            <h2 id="reportTitle">Отчёт</h2>
+            <div id="reportContent"></div>
+            <button id="printBtn" class="secondary" style="margin-top:16px;">🖨️ Распечатать</button>
+        </div>
+    </div>
+
+    <script>
+{_FAMILY_JS_UTILS}
+    (function() {{
+        const getReportBtn = $('getReportBtn');
+        if (!getReportBtn) return;
+
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('room_id') && urlParams.get('name') && urlParams.get('pass')) {{
+            $('roomIdInput').value = urlParams.get('room_id');
+            loadMembers(urlParams.get('room_id'), urlParams.get('name'), urlParams.get('pass'));
+        }}
+
+        $('roomIdInput').addEventListener('change', () => {{
+            const rid = $('roomIdInput').value.trim();
+            if (rid) loadMembers(rid);
+        }});
+
+        async function loadMembers(roomId, autoName, autoPass) {{
+            try {{
+                const data = await api('GET', '/rooms/' + roomId);
+                const sel = $('memberSelect');
+                sel.innerHTML = '';
+                data.members.forEach(m => {{
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    sel.appendChild(opt);
+                }});
+                if (autoName) {{
+                    sel.value = autoName;
+                    $('passwordInput').value = autoPass || '';
+                    fetchReport();
+                }}
+            }} catch (err) {{ showError('reportError', err.message); }}
+        }}
+
+        getReportBtn.addEventListener('click', fetchReport);
+
+        async function fetchReport() {{
+            const roomId = $('roomIdInput').value.trim();
+            const memberName = $('memberSelect').value;
+            const password = $('passwordInput').value.trim();
+            if (!roomId || !memberName || !password) {{ showError('reportError', 'Заполните все поля'); return; }}
+            showError('reportError', '');
+            getReportBtn.disabled = true;
+            getReportBtn.textContent = 'Генерируем...';
+            try {{
+                const data = await api('POST', '/report/generate', {{ room_id: roomId, member_name: memberName, password: password }});
+                $('reportTitle').textContent = 'Отчёт по комнате';
+                $('reportContent').innerHTML = formatReport(data.report_text);
+                show($('reportCard'));
+            }} catch (err) {{ showError('reportError', err.message); }}
+            finally {{ getReportBtn.disabled = false; getReportBtn.textContent = 'Получить отчёт'; }}
+        }}
+
+        function formatReport(text) {{
+            let html = text
+                .replace(/### \\d+\\.\\s+(.+)/g, '</div><div class="report-section"><h3>$1</h3>')
+                .replace(/- (.+)/g, '<li>$1</li>')
+                .replace(/\\n\\n/g, '</p><p>')
+                .replace(/\\n/g, '<br>');
+            html = html.replace(/<li>/g, '<ul><li>');
+            html = html.replace(/<\\/li>(?![\\s\\S]*?<\\/li>)/g, '</li></ul>');
+            return '<div class="report-section" style="margin-top:0;">' + html + '</div>';
+        }}
+
+        $('printBtn').addEventListener('click', () => {{ window.print(); }});
+    }})();
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 # Vercel handler

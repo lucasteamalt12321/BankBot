@@ -1,8 +1,0 @@
-.env
-.env.local
-.env.example
-.git
-.gitignore
-__pycache__
-*.pyc
-frontend/

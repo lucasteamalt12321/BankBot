@@ -401,8 +401,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | WEB-07 | Admin Panel — управление пользователями, ошибки | pending | 16 |
 | WEB-08 | Практика глаголов — AI-генерация заданий, проверка | in_progress | 10 |
 | WEB-09 | AI Chat: виртуальный компьютер (tool-calling: код, браузинг, файлы, фото) | completed | 8 |
+| WEB-10 | Family Circle — объединение отдельного Vercel-проекта в LTHub (страницы /family, /family/room, /family/result + API /api/family/*) | completed | 6 |
 
-**Phase 3: 92/118 completed** (WEB-00 + WEB-01 + WEB-02 + WEB-03 + WEB-04 + WEB-05 + WEB-06 + WEB-09; WEB-08 added +10, WEB-09 added +8)
+**Phase 3: 98/118 completed** (WEB-00 + WEB-01 + WEB-02 + WEB-03 + WEB-04 + WEB-05 + WEB-06 + WEB-09 + WEB-10; WEB-08 added +10, WEB-09 added +8, WEB-10 added +6)
 
 ---
 
