@@ -1,7 +1,7 @@
-"""Free local BankBot assistant without paid API dependencies.
+"""Free local LTHub assistant without paid API dependencies.
 
 The first assistant iteration is intentionally deterministic and local: it gives useful
-BankBot navigation/help answers without requiring network calls, API keys, or paid
+LTHub navigation/help answers without requiring network calls, API keys, or paid
 LLM providers. This keeps Hugging Face runtime stable and cost-free.
 """
 
@@ -28,7 +28,7 @@ class AiTopic:
 
 
 class AiLiteService:
-    """Rule-based local assistant for common BankBot questions."""
+    """Rule-based local assistant for common LTHub questions."""
 
     def __init__(self) -> None:
         self.dynamic_knowledge = load_dynamic_knowledge()
@@ -48,7 +48,7 @@ class AiLiteService:
                     "about",
                 ),
                 answer=(
-                    "🤖 Это BankBot LucasTeam — Telegram-бот для игровой банковской системы.\n"
+                    "🤖 Это LTHub (LucasTeam Hub) — Telegram-бот для игровой экосистемы.\n"
                     "Он помогает с балансом, профилем, магазином, мини-играми, D&D, "
                     "предложениями/жалобами и подсказками по командам.\n\n"
                     "Быстрый старт:\n"
@@ -73,7 +73,7 @@ class AiLiteService:
                     "smart",
                 ),
                 answer=(
-                    "Честно: сейчас это не большая нейросеть, а бесплатный локальный справочник BankBot.\n"
+                    "Честно: сейчас это не большая нейросеть, а бесплатный локальный справочник LTHub.\n"
                     "Он не ходит в интернет, не использует платные API и поэтому отвечает только по темам бота.\n\n"
                     "Что он умеет хорошо: команды, магазин, игры, D&D, feedback, профиль и режимы.\n"
                     "Чтобы сделать его реально умнее, нужен следующий этап: подключить бесплатный локальный LLM "
@@ -84,7 +84,7 @@ class AiLiteService:
                 title="smalltalk",
                 keywords=("чай", "кофе", "привет", "hello", "hi", "как дела", "погода"),
                 answer=(
-                    "Я могу поддержать короткий оффтоп, но моя главная роль — справочник по BankBot.\n"
+                    "Я могу поддержать короткий оффтоп, но моя главная роль — справочник по LTHub.\n"
                     "Про чай: хороший выбор ☕ Если хотите действие в боте, попробуйте:\n"
                     "• /shop — посмотреть товары.\n"
                     "• /games — игры.\n"
@@ -187,9 +187,9 @@ class AiLiteService:
     def help_text(self) -> str:
         """Return assistant usage help."""
         return (
-            "🤖 <b>AI-lite / справочник BankBot</b>\n\n"
+            "🤖 <b>AI-lite / справочник LTHub</b>\n\n"
             "Это бесплатный локальный помощник без платных API, внешних ключей и большой LLM.\n"
-            "Он лучше всего работает как навигатор по возможностям BankBot.\n\n"
+            "Он лучше всего работает как навигатор по возможностям LTHub.\n\n"
             "Команды:\n"
             "• /ai &lt;вопрос&gt; — спросить помощника.\n"
             "• /ask &lt;вопрос&gt; — то же самое.\n"
@@ -221,7 +221,7 @@ class AiLiteService:
         if not matched_topics:
             return self._fallback_answer(normalized_question)
 
-        response_parts = ["🤖 Справочник BankBot нашёл подходящие подсказки:"]
+        response_parts = ["🤖 Справочник LTHub нашёл подходящие подсказки:"]
         response_parts.extend(topic.answer for topic in matched_topics[:2])
         response_parts.append("\nЕсли нужна полная карта команд — используйте /commands.")
         return self._truncate("\n\n".join(response_parts))
@@ -311,7 +311,7 @@ class AiLiteService:
         """Return a useful answer when no specific topic matched."""
         if self._looks_like_how_to(normalized_question):
             return (
-                "🤖 Я бесплатный локальный справочник BankBot. Я не большая нейросеть, "
+                "🤖 Я бесплатный локальный справочник LTHub. Я не большая нейросеть, "
                 "зато быстро подсказываю команды без платных API.\n\n"
                 "Чаще всего нужны:\n"
                 "• /commands — все разделы.\n"
@@ -323,7 +323,7 @@ class AiLiteService:
             )
 
         return (
-            "🤖 Я не настоящий большой ИИ, а бесплатный локальный помощник-справочник по BankBot.\n"
+            "🤖 Я не настоящий большой ИИ, а бесплатный локальный помощник-справочник по LTHub.\n"
             "На такой вопрос могу ответить только примерно. Лучше спросите про команды бота: "
             "магазин, игры, D&D, feedback, профиль, режимы или канон Олеговируса/LTL.\n"
             "Примеры: /ai как посмотреть баланс или /ai что такое Олеговирус"

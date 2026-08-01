@@ -7,7 +7,7 @@ def index():
     return jsonify({
         "status": "ok",
         "message": "Python functions work!",
-        "service": "BankBot API"
+        "service": "LTHub API"
     })
 
 # Vercel handler

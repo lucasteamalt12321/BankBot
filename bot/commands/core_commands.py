@@ -148,7 +148,7 @@ WELCOME_TEXT = """
 """
 
 SHORT_WELCOME_TEXT = """
-[BANK] LucasTeam BankBot
+[BANK] LucasTeam Hub (LTHub)
 Привет, {name}!
 Регистрация: {registration_status}
 ID: {user_id}

@@ -1,4 +1,4 @@
-"""Local knowledge base for BankBot AI-lite.
+"""Local knowledge base for LTHub AI-lite.
 
 The content is a compact offline snapshot of the public Google Doc:
 "Вселенная Олеговируса и LTL-паразита: канон", version 2.9

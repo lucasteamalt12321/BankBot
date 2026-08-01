@@ -1,6 +1,6 @@
-# Инструкция по запуску BankBot
+# Инструкция по запуску LTHub (LucasTeam Hub)
 
-> Важно: для локального запуска используйте **Python 3.12**. На Python 3.14 основной BankBot может падать при создании `python-telegram-bot` application из-за runtime-несовместимости.
+> Важно: для локального запуска используйте **Python 3.12**. На Python 3.14 основной LTHub может падать при создании `python-telegram-bot` application из-за runtime-несовместимости.
 
 ## ✅ Чеклист перед запуском
 
@@ -91,7 +91,7 @@ VK_PEER_ID=2000000001
 
 ### 3. Запуск ботов
 
-**BankBot (основной):**
+**LTHub (основной):**
 
 Локально (polling):
 ```bash
@@ -142,7 +142,7 @@ ruff check bot/ core/ database/ utils/
 
 Markdown-документацию (`*.md`) через `ruff` не проверяем.
 
-## Быстрая проверка команд BankBot
+## Быстрая проверка команд LTHub
 
 После запуска основного бота в Telegram можно проверить:
 
@@ -241,8 +241,8 @@ New-Item -ItemType Directory -Force data
 ## Структура проекта
 
 ```
-BankBot/
-├── bot/              # BankBot (Telegram)
+LTHub/
+├── bot/              # LTHub (Telegram)
 ├── bridge_bot/       # BridgeBot (Telegram → VK)
 ├── vk_bot/           # VK Bot
 ├── database/         # База данных

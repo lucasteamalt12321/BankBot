@@ -58,7 +58,7 @@ async def fetch_lichess_user(username: str, timeout_seconds: int = DEFAULT_TIMEO
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     url = f"{LICHESS_API_BASE_URL}/user/{normalized_username}"
-    headers = {"Accept": "application/json", "User-Agent": "BankBot/ChessModule"}
+    headers = {"Accept": "application/json", "User-Agent": "LTHub/ChessModule"}
 
     try:
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:

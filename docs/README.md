@@ -1,12 +1,12 @@
-# BankBot - Документация проекта
+# LTHub (LucasTeam Hub) — Документация проекта
 
-High-level документация по текущей архитектуре, точкам входа и ключевым модулям проекта. Архитектурная цель BankBot — production-grade парсинг игровой активности с надёжным банковым контуром вокруг него.
+High-level документация по текущей архитектуре, точкам входа и ключевым модулям проекта. Архитектурная цель LTHub — production-grade парсинг игровой активности с надёжной экосистемой вокруг него.
 
 ## О проекте
 
 Репозиторий содержит основной production-компонент и legacy/dev-интеграции:
 
-- `BankBot` - основной Telegram-бот для целевого парсинга игровой активности, банковой логики, балансов, feedback и администрирования.
+- `LTHub` - основной Telegram-бот для целевого парсинга игровой активности, банковой логики, балансов, feedback и администрирования.
 - `BridgeBot` и `VK Bot` остаются в репозитории как legacy/dev-интеграции, но исключены из production HF runtime по решению пользователя.
 
 Также в проекте есть общие слои конфигурации, базы данных, сервисов и тестов.
@@ -38,8 +38,8 @@ High-level документация по текущей архитектуре, 
 
 | Компонент | Точка входа | Назначение |
 |-----------|-------------|------------|
-| BankBot HF production | `run_bot.py` | Flask endpoints + Telegram webhook, без polling |
-| BankBot local/dev | `bot/main.py` | Локальный polling fallback |
+| LTHub HF production | `run_bot.py` | Flask endpoints + Telegram webhook, без polling |
+| LTHub local/dev | `bot/main.py` | Локальный polling fallback |
 | BridgeBot | `bridge_bot/main.py` | Legacy/dev, не запускается в HF production |
 | VK Bot | `vk_bot/main.py` | Legacy/dev, не запускается в HF production |
 
@@ -47,7 +47,7 @@ High-level документация по текущей архитектуре, 
 
 ### 1. Основной бот
 
-Папка `bot/` содержит рабочую точку входа BankBot и orchestration-логику запуска.
+Папка `bot/` содержит рабочую точку входа LTHub и orchestration-логику запуска.
 
 Ключевые файлы:
 
@@ -109,7 +109,7 @@ High-level документация по текущей архитектуре, 
 - `core/repositories/*` и `core/services/__init__.py` — shim namespace над `bank_bot.*`; новый код предпочтительно писать в согласованный `bank_bot.*` слой или явно используемый runtime-модуль.
 - `src/config.py`, `src/startup_validator.py`, `src/process_manager.py` — инфраструктурный startup слой; `src/parsers.py` остаётся compatibility façade над `core.parsers`.
 - `utils/simple_db.py`, `utils/admin_system.py`, `utils/compat.py` — frozen deprecated shims: не расширять, не удалять без отдельного migration PR.
-- `bot/commands/shop_commands.py` — aiogram legacy candidate; текущий BankBot runtime использует `shop_commands_ptb.py`.
+- `bot/commands/shop_commands.py` — aiogram legacy candidate; текущий runtime использует `shop_commands_ptb.py`.
 
 ### 4. Конфигурация
 
@@ -143,7 +143,7 @@ High-level документация по текущей архитектуре, 
 
 ### 6. Hugging Face runtime
 
-`run_bot.py` запускает Flask-сервер на порту `7860` и основной BankBot через Telegram webhook. Polling в HF production не запускается.
+`run_bot.py` запускает Flask-сервер на порту `7860` и основной LTHub через Telegram webhook. Polling в HF production не запускается.
 
 Runtime endpoints:
 
@@ -164,7 +164,7 @@ Runtime endpoints:
 ## Структура проекта
 
 ```text
-BankBot/
+LTHub/
 ├── run_bot.py
 ├── README.md
 ├── RUN.md
@@ -225,7 +225,7 @@ BankBot/
 
 Для проверки production-бота без разработки используйте Telegram-группу LucasTeam: https://t.me/lucasteamgroup. Клонирование репозитория для такой проверки не требуется.
 
-Важно: локальный runtime для BankBot следует фиксировать на **Python 3.12**. Практическая проверка показала, что на Python 3.14 `python-telegram-bot==20.7` может падать при инициализации `Updater`.
+Важно: локальный runtime следует фиксировать на **Python 3.12**. Практическая проверка показала, что на Python 3.14 `python-telegram-bot==20.7` может падать при инициализации `Updater`.
 
 Коротко:
 

@@ -1,4 +1,4 @@
-# HF Webhook Migration Plan — BankBot
+# HF Webhook Migration Plan — LTHub
 
 ## Статус
 

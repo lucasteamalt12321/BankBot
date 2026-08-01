@@ -50,5 +50,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 # Use tini for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# По умолчанию запускает BankBot через HF startup wrapper
+# По умолчанию запускает LTHub через HF startup wrapper
 CMD ["python", "scripts/start_hf.py"]

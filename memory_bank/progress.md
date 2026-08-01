@@ -2,11 +2,12 @@
 
 ## Статус проекта
 **Процент выполнения:** 96% (Phase 2) по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** Phase 2 Feature Expansion — Family Budget Module MVP завершён
+**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal в работе
 
 ## Known Issues
 
 ### Решённые
+- ✅ F821 `reply_to` в webhook-хендлере api/index.py — определение перенесено выше D&D-блока
 - ✅ ruff: 0 errors в продакшн коде (bot/, bridge_bot/, common/, core/, database/, src/, utils/, vk_bot/)
 - ✅ ruff: 149 errors в тестах (добавлены в ruff.toml per-file-ignores)
 - ✅ Тесты BridgeBot + VK Bot: 43 passed
@@ -19,6 +20,124 @@
 - ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
 
 ## Changelog
+
+### 2026-08-01 (Session: Chess WEB-05 портирован)
+
+**WEB-05 completed:** Шахматный модуль перенесён на веб-портал.
+
+**Сделано:**
+- `GET /chess` — SPA с тремя вкладками: Моя статистика / Поиск игрока / Пазл.
+- Вкладка «Моя статистика»: привязка Lichess аккаунта прямо со страницы, рейтинги (bullet/blitz/rapid/classical), статистика игр с winrate, история решённых пазлов, баланс монет.
+- Вкладка «Поиск игрока»: поиск по нику через Lichess API (рейтинги, онлайн-статус, статистика игр).
+- Вкладка «Пазл»: случайная задача из Lichess (`/api/puzzle/next`), доска через FEN GIF (lichess1.org), ввод хода в формате UCI, +5 монет за верный ход, кнопка «Открыть на Lichess».
+- API: `GET /api/chess/stats?user_id=`, `GET /api/chess/user/<nick>`, `POST /api/chess/link`, `POST /api/chess/puzzle`, `POST /api/chess/puzzle/check`.
+- Переиспользованы существующие функции: `fetch_lichess_user()`, `get_chess_account()`, `link_chess_account()`, `update_user_coins()`, `log_chess_game()`, `_PENDING_PUZZLES`.
+- Новые хелперы: `_derive_puzzle_fen()` (PGN→FEN через python-chess, зеркалирование при ходе чёрных), `_fetch_lichess_puzzle()` (пазл + нормализация solution в список UCI-ходов).
+- Карточка «Шахматы ♟️» добавлена в хаб `/` в блок бета-модулей.
+
+**Проверка:** py_compile OK; ruff clean; flask test client: `/chess` 200, все API-сценарии (пазл без аккаунта → 400, correct/wrong/stale ход) пройдены, `_derive_puzzle_fen` верифицирован. Lichess API локально недоступен (ReadTimeout) — на проде используется теми же функциями бота.
+
+**Коммит:** не коммитился (по правилам AGENTS.md)
+
+### 2026-08-01 (Session: Trivia fix + AI Chat error fix)
+
+**WEB-03 completed:** Веб-викторина по канону доведена до рабочего состояния.
+
+**Сделано:**
+- Исправлен критический баг `/api/trivia/answer`: эндпоинт заново генерировал дистракторы при каждом ответе, поэтому массив вариантов отличался от показанного — счётчик работал некорректно.
+- Введено in-memory хранилище `_TRIVIA_SESSIONS`: `POST /api/trivia/question` сохраняет `{options, correct_index, explanation}`, `POST /api/trivia/answer` проверяет по сохранённому сеансу.
+- В `_TRIVIA_QUESTIONS` добавлено поле `explanation` для всех 23 вопросов (фронтенд его отображал, но данные отсутствовали).
+- `GET /trivia` (страница) существовала и работает: карточка вопроса, 4 кнопки-варианта, подсветка правильного/неправильного, счёт в localStorage.
+
+**WEB-01 AI Chat — исправление «Ошибка ответа.» после каждого ответа:**
+- `_pc_ai_chat`: Groq может возвращать `content` массивом (multimodal) — теперь конвертируется в строку, чтобы `reply` всегда был строкой.
+- `api_ai_chat`: добавлен try-except — любые внутренние исключения возвращают JSON (а не HTML-ошибку Flask), `reply`/`images` нормализуются.
+- Фронтенд: проверка структуры ответа (`r` — объект, `reply` — строка, `images` — массив) + `console.error` для диагностики.
+
+**Проверка:** py_compile OK; flask test client: `/api/trivia/question` → 4 опции + correct_index, `/api/trivia/answer` correct/wrong/stale — все сценарии пройдены. ruff — только pre-existing (F821 `reply_to`, E402, F401 `ImageDraw`).
+
+**Коммит:** не коммитился (по правилам AGENTS.md)
+
+### 2026-08-01 (Fix: /gd отдавал 404)
+
+**Сделано:**
+- На хабе `/` карточка Geometry Dash вела на `/gd`, но route отсутствовал в `api/index.py` → 404.
+- Реализована страница `GET /gd` (тёмная тема GitHub Dark) с тремя вкладками: поиск игрока, топ уровней, моя статистика.
+- Добавлены API: `GET /api/gd/user/<nick>` (fetch_gd_user), `GET /api/gd/leaderboard` (get_gd_leaderboard), `GET /api/gd/my_stats?user_id=` (player_stats + hardest + completions + submissions).
+
+**Проверка:** py_compile OK, flask test client: `/gd` 200, `/api/gd/leaderboard` 200, `/api/gd/user/Riot` 200. ruff — только pre-existing F821 (reply_to, не мой код).
+
+**Коммит:** не коммитился (по правилам AGENTS.md)
+
+### 2026-07-31 (Session: AI Chat — виртуальный компьютер, как у Manus)
+
+**WEB-09 completed:** AI-персонажи получили виртуальный компьютер.
+
+**Сделано:**
+- `POST /api/ai_chat` переписан на агентный цикл tool-calling (Groq llama-3.3-70b-versatile, tools, до 6 итераций)
+- Инструменты: run_python (реальный запуск кода), browse_web (загрузка сайта), виртуальная ФС (list_dir/read_file/write_file/get_cwd/set_cwd), edit_image (Pillow)
+- Виртуальная ФС per-user в памяти (`_VIRTUAL_PC`), загруженные файлы → `/home/user/uploads/`
+- Кнопка 📎 в чате: загрузка фото/текста/кода → AI может обработать
+- Результат edit_image рендерится как картинка в чате
+- Фронтенд шлёт историю сообщений (20 последних)
+- `api/requirements.txt` — добавлен Pillow
+
+**Проверка:** py_compile OK, ruff — только pre-existing F821 (reply_to, не мой код), локальные тесты инструментов прошли.
+
+**Коммит:** не коммитился (по правилам AGENTS.md)
+
+### 2026-07-26 (Session: Web Portal — хаб на / + план портирования модулей)
+
+**Новый Phase 3: Web Portal — дублирование функций бота в веб**
+
+**Сделано:**
+- Хаб на `/` с карточками трёх сервисов (чтение, окончания, бюджет)
+- Кнопка «Печать» в тренажёре окончаний (скрывает UI, оставляет пропуски)
+- Архитектурный план в `memory_bank/activeContext.md` и `memory_bank/projectbrief.md`
+
+**Утверждённые модули для портирования (7 шт):**
+| Модуль | Приоритет | Статус |
+|--------|-----------|--------|
+| AI / Чат | 1 | ✅ |
+| D&D AI Master (StoryForge) | 2 | ✅ |
+| Trivia | 3 | ⏳ |
+| Daily Prayer | 4 | ⏳ |
+| Chess | 5 | ⏳ |
+| GD | 6 | ✅ |
+| Admin Panel | 7 | ⏳ |
+
+**Коммит:** 60adaa9
+
+### 2026-07-30 (Session: Family Circle — DATABASE_URL подключена)
+
+**Сделано:**
+- Добавлена DATABASE_URL (Supabase pooler) в `family_circle/backend/.env` и в Vercel project `family_circle` (production)
+- Исправлен `database.py`: pool заменён на `NullPool` для serverless-совместимости
+- Строка подключения переведена на Supabase pooler (`aws-0-eu-west-1.pooler.supabase.com:6543`) с `sslmode=require`
+- Выполнен production деплой на Vercel
+- Сайт https://familycircle-nine.vercel.app отвечает 200, статика загружается, БД подключается
+
+**Блокер DATABASE_URL снят.**
+
+### 2026-07-27 (Session: Web Portal — GD Module портирован)
+
+**WEB-06 completed:** Geometry Dash Module перенесён на веб.
+
+**Сделано:**
+- `/gd` — веб-страница с тремя вкладками в тёмной теме (GitHub Dark)
+- Вкладка «Поиск игрока» — поиск по нику, отображение статистики из GD API (звёзды, демоны, CP, монеты, алмазы, ранг)
+- Вкладка «Топ уровней» — таблица уровней из БД (позиция, название, сложность, прохождения, игроки)
+- Вкладка «Моя статистика» — карточки с показателями игрока (хардест, прохождения, заявки, процент одобрения)
+- `GET /api/gd/user/<nick>` — API для поиска игрока
+- `GET /api/gd/leaderboard` — API для получения топа уровней
+- `GET /api/gd/my_stats?user_id=...` — API для статистики игрока
+- Карточка GD добавлена в хаб на `/`
+
+**Файлы:**
+- `api/index.py` — все роуты и API эндпоинты (inline HTML + API handlers)
+- `memory_bank/activeContext.md` — статус обновлён
+- `memory_bank/projectbrief.md` — WEB-06 отмечен как completed
+- `memory_bank/progress.md` — changelog обновлён
 
 ### 2026-07-06 (Session: VK + Vercel deploy, /budget dual links)
 
@@ -456,7 +575,7 @@
 - После ES5-фикса и Playwright-верификации JS работает корректно
 
 ## last_checked_commit
-3abc5bf (2026-07-06, feat: VK Mini App and Vercel links in /budget)
+(HEAD, uncommitted — GD web module ported)
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
 - **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
@@ -974,5 +1093,17 @@
 
 **Коммиты:** `795435b`, `3fd47df`
 
+### 2026-07-28 — Практика глаголов (WEB-08)
+
+**Новый модуль:** Веб-приложение для практики неправильных глаголов английского языка.
+
+**Что сделано:**
+- Memory bank обновлён (activeContext, projectbrief, progress)
+- План утверждён пользователем через `question` tool
+- _(реализация следует)_
+
+**Файлы:**
+- `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
+
 ## last_checked_commit
-4e4da4e remove Yandex.Disk export feature (dead code causing periodic errors)
+89d61b4 (2026-08-01, fix: pass room name, participant list, and speaker attribution to AI prompt)

@@ -1,4 +1,4 @@
-"""Family Budget bot commands for BankBot."""
+"""Family Budget bot commands for LTHub."""
 
 import re
 
