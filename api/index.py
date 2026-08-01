@@ -16,7 +16,7 @@ import sys
 import tempfile
 import time
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from flask import Flask, jsonify, request
@@ -1606,7 +1606,7 @@ def get_gd_hardest_level_name(user_id: int) -> str:
         return "Нет"
 
 
-def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str) -> int | None:
+def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str, status: str | None = None) -> int | None:
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -1625,13 +1625,13 @@ def create_gd_submission(user_id: int, username: str, level_name: str, media_fil
                 print("create_gd_submission: no result from RETURNING")
                 return None
             else:
-                # Create placeholder submission (media pending)
+                # Create placeholder submission (media pending by default, or explicit status)
                 result = conn.execute(
                     text("""
                         INSERT INTO submissions (user_id, username, level_name, status)
-                        VALUES (:uid, :un, :ln, 'pending_media') RETURNING id
+                        VALUES (:uid, :un, :ln, :st) RETURNING id
                     """),
-                    {"uid": user_id, "un": username, "ln": level_name},
+                    {"uid": user_id, "un": username, "ln": level_name, "st": status or "pending_media"},
                 ).mappings().first()
                 conn.commit()
                 return int(result["id"]) if result else None
@@ -2777,6 +2777,12 @@ def gd_page():
         .error { color: #f85149; margin-top: 12px; }
         .hint { color: #8b949e; font-size: 14px; margin-top: 12px; }
         .completers { font-size: 12px; color: #8b949e; margin-top: 4px; }
+        .sub-card { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+        .mod-btns { margin-top: 8px; }
+        .btn-approve { background: #238636; }
+        .btn-approve:hover { background: #2ea043; }
+        .btn-reject { background: #da3633; margin-left: 8px; }
+        .btn-reject:hover { background: #f85149; }
     </style>
 </head>
 <body>
@@ -2789,6 +2795,8 @@ def gd_page():
             <button class="tab active" id="tab-user" onclick="showTab('user')">Поиск игрока</button>
             <button class="tab" id="tab-leaderboard" onclick="showTab('leaderboard')">Топ уровней</button>
             <button class="tab" id="tab-mystats" onclick="showTab('mystats')">Моя статистика</button>
+            <button class="tab" id="tab-submit" onclick="showTab('submit')">Отправить рекорд</button>
+            <button class="tab" id="tab-moderate" onclick="showTab('moderate')">Модерация</button>
         </div>
 
         <div class="panel active" id="panel-user">
@@ -2812,10 +2820,32 @@ def gd_page():
                 <div id="mystats-result"><p class="hint">Загрузка...</p></div>
             </div>
         </div>
+
+        <div class="panel" id="panel-submit">
+            <div class="card">
+                <div class="input-row">
+                    <input type="text" id="sub-level" placeholder="Название уровня (например: Tartarus)" onkeydown="if(event.key==='Enter')submitRecord()">
+                </div>
+                <div class="input-row">
+                    <input type="text" id="sub-name" placeholder="Ваше имя (необязательно)">
+                </div>
+                <button class="btn" id="sub-btn" onclick="submitRecord()">📨 Отправить рекорд</button>
+                <div id="sub-result"></div>
+            </div>
+        </div>
+
+        <div class="panel" id="panel-moderate">
+            <div class="card">
+                <div id="mod-result"><p class="hint">Загрузка...</p></div>
+            </div>
+        </div>
     </div>
     <script>
         var USER_ID = localStorage.getItem('gd_user_id');
         if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('gd_user_id', USER_ID); }
+        var urlParams = new URLSearchParams(window.location.search);
+        var qid = urlParams.get('user_id');
+        if (qid) { USER_ID = qid; localStorage.setItem('gd_user_id', qid); }
 
         function showTab(name) {
             document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
@@ -2824,6 +2854,7 @@ def gd_page():
             document.getElementById('panel-' + name).classList.add('active');
             if (name === 'leaderboard') ensureLoaded('lb-result', loadLeaderboard);
             if (name === 'mystats') ensureLoaded('mystats-result', loadMyStats);
+            if (name === 'moderate') renderModeration(0);
         }
 
         function ensureLoaded(id, loader) {
@@ -2911,6 +2942,103 @@ def gd_page():
             xhr.onerror = function() { out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
             xhr.send();
         }
+
+        function submitRecord() {
+            var level = document.getElementById('sub-level').value.trim();
+            var name = document.getElementById('sub-name').value.trim();
+            var out = document.getElementById('sub-result');
+            if (!level) { out.innerHTML = '<p class="error">Укажите название уровня</p>'; return; }
+            var btn = document.getElementById('sub-btn');
+            btn.disabled = true;
+            out.innerHTML = '<p class="hint">📨 Отправка...</p>';
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/gd/submit');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                btn.disabled = false;
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
+                    document.getElementById('sub-level').value = '';
+                    document.getElementById('sub-name').value = '';
+                } catch(e) { out.innerHTML = '<p class="error">Ошибка отправки.</p>'; }
+            };
+            xhr.onerror = function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
+            xhr.send(JSON.stringify({user_id: USER_ID, level_name: level, username: name}));
+        }
+
+        function renderModeration(page) {
+            var out = document.getElementById('mod-result');
+            out.innerHTML = '<p class="hint">Загрузка...</p>';
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/gd/moderate?user_id=' + encodeURIComponent(USER_ID) + '&page=' + page);
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    if (!r.submissions.length) {
+                        out.innerHTML = '<p class="hint">✅ Все заявки обработаны! Новых заявок нет.</p>';
+                        return;
+                    }
+                    var html = '<p class="hint" style="margin-top:0;margin-bottom:12px">Страница ' + (r.page + 1) + '/' + r.total_pages + ' · ' + r.total + ' заявок</p>';
+                    r.submissions.forEach(function(s) {
+                        html += '<div class="sub-card">'
+                            + '<div style="color:#8b949e;font-size:13px">Заявка #' + s.id + ' · ' + (s.username || s.user_id) + '</div>'
+                            + '<div style="color:#c9d1d9;font-size:15px;margin:6px 0">🎮 ' + s.level_name + '</div>'
+                            + '<div class="hint" style="margin-top:0">📅 ' + (s.submitted_at || '—') + ' · ' + (s.media_type || 'без медиа') + '</div>'
+                            + '<div class="mod-btns">'
+                            + '<button class="btn btn-approve" onclick="approveSub(' + s.id + ')">✅ Подтвердить</button>'
+                            + '<button class="btn btn-reject" onclick="rejectSub(' + s.id + ')">❌ Отклонить</button>'
+                            + '</div></div>';
+                    });
+                    if (r.total_pages > 1) {
+                        html += '<div class="nav-row">';
+                        if (r.page > 0) html += '<button class="tab" style="flex:none" onclick="renderModeration(' + (r.page - 1) + ')">⬅️ Назад</button>';
+                        if (r.page < r.total_pages - 1) html += '<button class="tab" style="flex:none" onclick="renderModeration(' + (r.page + 1) + ')">➡️ Вперёд</button>';
+                        html += '</div>';
+                    }
+                    out.innerHTML = html;
+                } catch(e) { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; }
+            };
+            xhr.onerror = function() { out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
+            xhr.send();
+        }
+
+        function approveSub(id) {
+            var pos = prompt('Введите позицию уровня в топе (число):', '1');
+            if (pos === null) return;
+            pos = parseInt(pos, 10);
+            if (!pos || pos < 1) { alert('Позиция должна быть положительным числом'); return; }
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/gd/moderate/approve');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    alert(r.error ? '❌ ' + r.error : '✅ Заявка #' + id + ' подтверждена!');
+                    renderModeration(0);
+                } catch(e) { alert('Ошибка'); }
+            };
+            xhr.onerror = function() { alert('Ошибка сети'); };
+            xhr.send(JSON.stringify({user_id: USER_ID, submission_id: id, position: pos}));
+        }
+
+        function rejectSub(id) {
+            if (!confirm('Отклонить заявку #' + id + '?')) return;
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/gd/moderate/reject');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    alert(r.error ? '❌ ' + r.error : '❌ Заявка #' + id + ' отклонена');
+                    renderModeration(0);
+                } catch(e) { alert('Ошибка'); }
+            };
+            xhr.onerror = function() { alert('Ошибка сети'); };
+            xhr.send(JSON.stringify({user_id: USER_ID, submission_id: id}));
+        }
     </script>
 </body>
 </html>"""
@@ -2966,6 +3094,114 @@ def api_gd_my_stats():
         "completions": get_gd_user_completions_count(uid),
         "submissions": get_gd_submission_counts(uid),
     })
+
+
+def _gd_web_uid(user_id_raw: str | None) -> int | None:
+    """Resolve web user_id to a numeric id (Telegram id if numeric, else hashed)."""
+    if not user_id_raw:
+        return None
+    if user_id_raw.isdigit():
+        return int(user_id_raw)
+    return _web_user_id(user_id_raw)
+
+
+def _gd_web_is_admin(user_id_raw: str | None) -> bool:
+    """Check admin rights for a web request."""
+    uid = _gd_web_uid(user_id_raw)
+    if not uid:
+        return False
+    if uid == ADMIN_TELEGRAM_ID:
+        return True
+    return check_admin(uid)
+
+
+@app.route("/api/gd/me")
+def api_gd_me():
+    user_id_raw = request.args.get("user_id", "")
+    return jsonify({"is_admin": _gd_web_is_admin(user_id_raw)})
+
+
+@app.route("/api/gd/submit", methods=["POST"])
+def api_gd_submit():
+    data = request.get_json(silent=True) or {}
+    uid = _gd_web_uid(data.get("user_id", ""))
+    level_name = (data.get("level_name") or "").strip()
+    if uid is None:
+        return jsonify({"error": "Нет user_id"}), 400
+    if not level_name:
+        return jsonify({"error": "Укажите название уровня"}), 400
+    username = (data.get("username") or "").strip() or f"web_{uid}"
+    sub_id = create_gd_submission(uid, username, level_name, "", "", status="pending")
+    if not sub_id:
+        return jsonify({"error": "Ошибка создания заявки"}), 500
+    return jsonify({"ok": True, "submission_id": sub_id})
+
+
+@app.route("/api/gd/moderate")
+def api_gd_moderate():
+    user_id_raw = request.args.get("user_id", "")
+    if not _gd_web_is_admin(user_id_raw):
+        return jsonify({"error": "Нет прав администратора"}), 403
+    page = max(request.args.get("page", default=0, type=int), 0)
+    per_page = 5
+    submissions, total = get_gd_pending_submissions(page, per_page)
+    for s in submissions:
+        if s.get("submitted_at"):
+            s["submitted_at"] = str(s["submitted_at"])[:19]
+    total_pages = max((total + per_page - 1) // per_page, 1)
+    return jsonify({
+        "submissions": submissions,
+        "total": total,
+        "total_pages": total_pages,
+        "page": page,
+    })
+
+
+@app.route("/api/gd/moderate/reject", methods=["POST"])
+def api_gd_moderate_reject():
+    data = request.get_json(silent=True) or {}
+    if not _gd_web_is_admin(data.get("user_id", "")):
+        return jsonify({"error": "Нет прав администратора"}), 403
+    sub_id = int(data.get("submission_id") or 0)
+    admin_id = _gd_web_uid(data.get("user_id", "")) or 0
+    if not sub_id:
+        return jsonify({"error": "Нет submission_id"}), 400
+    if reject_gd_submission_db(sub_id, admin_id):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
+
+
+@app.route("/api/gd/moderate/approve", methods=["POST"])
+def api_gd_moderate_approve():
+    data = request.get_json(silent=True) or {}
+    if not _gd_web_is_admin(data.get("user_id", "")):
+        return jsonify({"error": "Нет прав администратора"}), 403
+    sub_id = int(data.get("submission_id") or 0)
+    position = int(data.get("position") or 0)
+    admin_id = _gd_web_uid(data.get("user_id", "")) or 0
+    if not sub_id:
+        return jsonify({"error": "Нет submission_id"}), 400
+    if position < 1:
+        return jsonify({"error": "Позиция должна быть положительным числом"}), 400
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT level_name FROM submissions WHERE id = :sid AND status = 'pending'"),
+                {"sid": sub_id},
+            ).mappings().first()
+    except Exception as exc:
+        print(f"approve fetch error: {exc}")
+        return jsonify({"error": "Ошибка базы данных"}), 500
+    if not row:
+        return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
+    level_name = row["level_name"]
+    difficulty = get_gd_difficulty_name(level_name)
+    level_id = add_gd_level(level_name, position, difficulty)
+    if not level_id:
+        return jsonify({"error": f"Ошибка при добавлении уровня {level_name} в топ"}), 500
+    if approve_gd_submission_db(sub_id, admin_id):
+        return jsonify({"ok": True, "level_id": level_id})
+    return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
 
 
 @app.route("/health")
@@ -8456,12 +8692,14 @@ def _family_create_room(name: str, creator_name: str) -> dict:
     member_id = str(uuid.uuid4())
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO rooms (id, name, participants_total) VALUES (:id, :name, 1)"
-        ), {"id": rid, "name": name})
+            "INSERT INTO rooms (id, name, created_at, status, participants_total, spoke_count) "
+            "VALUES (:id, :name, :ts, 'active', 1, 0)"
+        ), {"id": rid, "name": name, "ts": datetime.now(timezone.utc)})
         conn.execute(text(
-            "INSERT INTO members (id, room_id, display_name, password_hash) "
-            "VALUES (:id, :rid, :name, :hash)"
-        ), {"id": member_id, "rid": rid, "name": creator_display, "hash": _family_hash_password(raw_password)})
+            "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
+            "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
+        ), {"id": member_id, "rid": rid, "name": creator_display, "hash": _family_hash_password(raw_password),
+            "ts": datetime.now(timezone.utc)})
     members = [m for m in _family_room_members(rid)]
     return {
         "room_id": rid,
@@ -8488,9 +8726,10 @@ def _family_join_room(room_id: str, member_name: str) -> dict:
     member_id = str(uuid.uuid4())
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO members (id, room_id, display_name, password_hash) "
-            "VALUES (:id, :rid, :name, :hash)"
-        ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(raw_password)})
+            "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
+            "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
+        ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(raw_password),
+            "ts": datetime.now(timezone.utc)})
         conn.execute(text(
             "UPDATE rooms SET participants_total = participants_total + 1 WHERE id = :rid"
         ), {"rid": room_id})
@@ -8563,8 +8802,8 @@ def _family_create_message(member_id: str, content: str, response: str | None,
         needs_str = _family_encrypt(json.dumps(needs_extracted, ensure_ascii=False))
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO messages (id, member_id, content, response, intent_type, needs_extracted) "
-            "VALUES (:id, :mid, :content, :response, :intent, :needs)"
+            "INSERT INTO messages (id, member_id, content, response, intent_type, needs_extracted, created_at) "
+            "VALUES (:id, :mid, :content, :response, :intent, :needs, :ts)"
         ), {
             "id": msg_id,
             "mid": member_id,
@@ -8572,6 +8811,7 @@ def _family_create_message(member_id: str, content: str, response: str | None,
             "response": _family_encrypt(response) if response else None,
             "intent": intent_type,
             "needs": needs_str,
+            "ts": datetime.now(timezone.utc),
         })
 
 
@@ -8580,8 +8820,10 @@ def _family_add_need(room_id: str, need_text: str, member_id: str | None = None)
     need_id = str(uuid.uuid4())
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO needs (id, room_id, need_text, member_id) VALUES (:id, :rid, :text, :mid)"
-        ), {"id": need_id, "rid": room_id, "text": need_text, "mid": member_id})
+            "INSERT INTO needs (id, room_id, need_text, member_id, created_at) "
+            "VALUES (:id, :rid, :text, :mid, :ts)"
+        ), {"id": need_id, "rid": room_id, "text": need_text, "mid": member_id,
+            "ts": datetime.now(timezone.utc)})
 
 
 def _family_room_needs_text(room_id: str) -> str:
@@ -8614,8 +8856,10 @@ def _family_save_report(room_id: str, report_text: str) -> None:
     report_id = str(uuid.uuid4())
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO final_reports (id, room_id, report_text) VALUES (:id, :rid, :text)"
-        ), {"id": report_id, "rid": room_id, "text": report_text})
+            "INSERT INTO final_reports (id, room_id, report_text, created_at) "
+            "VALUES (:id, :rid, :text, :ts)"
+        ), {"id": report_id, "rid": room_id, "text": report_text,
+            "ts": datetime.now(timezone.utc)})
 
 
 def _family_get_report(room_id: str) -> str | None:
