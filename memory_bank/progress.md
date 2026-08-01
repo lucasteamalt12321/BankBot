@@ -21,6 +21,18 @@
 
 ## Changelog
 
+### 2026-08-01 (Session: Family Circle prod-фиксы — NOT NULL без DEFAULT)
+
+**Проблема:** `POST /api/family/rooms` возвращал 500 `NotNullViolation` для `rooms.created_at`.
+
+**Root cause:** Таблицы уже существовали в Supabase — их создал Alembic старого проекта `family_circle`, где `created_at`/`status`/`spoke_count`/`finished` имеют `nullable=False` без DEFAULT на уровне БД (DEFAULT был только в ORM). `CREATE TABLE IF NOT EXISTS` существующие таблицы не меняет.
+
+**Фикс (commit c77502c):** все INSERT'ы Family Circle теперь передают поля явно: `created_at` (datetime.now(timezone.utc)), `status`, `participants_total`, `spoke_count`, `finished`. Добавлен импорт `timezone`.
+
+**Верификация на проде:** create → join → chat (AI отвечает) → finish → report — все 200. Страницы /family, /family/room, /family/result — 200. debug-поле `detail` из 500-ответа убрано.
+
+**Прочее:** Vercel-проект `family_circle` удалён (`vercel project rm family_circle`), production alias familycircle-nine.vercel.app больше не существует. ENCRYPTION_KEY (Fernet) выставлен в Vercel project bank-bot (production, sensitive) — сообщения шифруются. `cryptography` в requirements.
+
 ### 2026-08-01 (Session: Family Circle объединён в LTHub — WEB-10)
 
 **WEB-10 completed:** Отдельный Vercel-проект `family_circle` (familycircle-nine.vercel.app) удалён; модуль медиации перенесён в основной LTHub проект.
@@ -591,7 +603,8 @@
 - После ES5-фикса и Playwright-верификации JS работает корректно
 
 ## last_checked_commit
-(HEAD, uncommitted — GD web module ported)
+c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT) + деплой
+
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
 - **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
