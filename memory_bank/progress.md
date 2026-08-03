@@ -6,6 +6,18 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: PARSE01 часть 2 — idempotency + защита от ложных начислений)
+
+**Сделано:**
+- **`api/index.py` `_ensure_parsing_tables()`:** добавлены колонки `chat_id BIGINT`, `message_id BIGINT` (CREATE + ALTER IF NOT EXISTS для существующей прод-таблицы) + `CREATE UNIQUE INDEX IF NOT EXISTS uq_parsed_transactions_msg ON parsed_transactions(chat_id, message_id) WHERE message_id IS NOT NULL` (частичный индекс, обёрнут try/except).
+- **`_log_parsed_transaction()` / `_record_parsing_result()`:** принимают `chat_id`/`message_id`. `_record_parsing_result` теперь возвращает bool; **убран предварительный SELECT-дубль** — повторный парсинг детектится через UNIQUE-индекс (IntegrityError, сообщения `duplicate`/`unique` → False).
+- **Webhook-блок парсинга:** проверка `reply_from.get("is_bot")` — reply на сообщение НЕ бота → запись `not_bot` (failed) + «❌ Парсинг доступен только в ответ на сообщение игрового бота...». При `recorded=False` → «ℹ️ Это сообщение уже было распарсено ранее.» без начисления. Оба вызова `_record_parsing_result` (success / unknown) обновлены с chat_id/message_id.
+- **`tests/unit/test_vercel_parsing_e2e.py`:** хелпер `_build_parsing_update` получил `is_bot: True` у reply_to.from; добавлен тест `test_webhook_parsing_reply_from_user_rejected`.
+
+**Проверки:** 41 passed (test_vercel_parsing_e2e + test_admin_manager); полный test/unit: 914 passed / 10 failed — все 10 падений **pre-existing** (gd_models/gd_player_stats/short_mode; подтверждено git stash: падают и без моих правок). ruff All checks passed; SYNTAX OK (только известные SyntaxWarnings). Задеплоено на prod.
+
+**Осталось (часть 3):** единый source of truth курсов (gdcards 2:1 в bot vs 2.5 в api), E2E PTB-тесты (handle_manual_parsing с реальной БД).
+
 ### 2026-08-03 (Session: PARSE01 — мониторинг парсинга: parsed_transactions пишется в проде)
 
 **Сделано (часть 1 PARSE01):**

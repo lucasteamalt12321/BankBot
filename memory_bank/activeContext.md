@@ -2,7 +2,7 @@
 
 **Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** PARSE01 часть 1 — мониторинг парсинга (parsed_transactions пишется в проде)
+**Последнее действие:** PARSE01 часть 2 — idempotency (UNIQUE index по chat_id+message_id) + защита `reply_to.from.is_bot` (ложные начисления чужому профилю)
 
 ## Текущий фокус
 
@@ -16,7 +16,17 @@
 - `database/database.py`: `ParsedTransaction.status` (default 'success').
 - Тест-мок обновлён (status='success').
 
-**Осталось (часть 2):** idempotency/де-дуп в api-пути, проверка `reply_to.from` (защита от ложных начислений чужому профилю), единый source of truth курсов (сейчас gdcards 2:1 в bot vs 2.5 в api), E2E PTB-тесты (handle_manual_parsing с реальной БД).
+**Осталось (часть 3):** единый source of truth курсов (сейчас gdcards 2:1 в bot vs 2.5 в api), E2E PTB-тесты (handle_manual_parsing с реальной БД).
+
+### PARSE01 часть 2 — idempotency + защита от ложных начислений ✅ (2026-08-03)
+
+**Сделано:**
+- `api/index.py` `_ensure_parsing_tables()`: колонки `chat_id BIGINT`, `message_id BIGINT` + `CREATE UNIQUE INDEX IF NOT EXISTS uq_parsed_transactions_msg ON parsed_transactions(chat_id, message_id) WHERE message_id IS NOT NULL` (частичный, обёрнут try/except).
+- `_log_parsed_transaction()` / `_record_parsing_result()`: принимают `chat_id`/`message_id`; `_record_parsing_result` возвращает bool. Убран предварительный SELECT-дубль — детект дубля через UNIQUE-индекс (IntegrityError `duplicate`/`unique` → False).
+- Webhook: проверка `reply_from.get("is_bot")` — если reply на сообщение НЕ бота → запись `not_bot` (failed) + сообщение «Парсинг доступен только в ответ на сообщение игрового бота...». Повторный парсинг того же сообщения → `recorded=False` → «ℹ️ Это сообщение уже было распарсено ранее.» без начисления.
+- Тест-хелпер `_build_parsing_update` получил `is_bot: True` у reply_to.from; добавлен тест `test_webhook_parsing_reply_from_user_rejected`.
+
+**Проверка:** 41 passed (test_vercel_parsing_e2e + test_admin_manager), полный test/unit 914 passed / 10 failed — 10 падений **pre-existing** (gd_models/gd_player_stats/short_mode, подтверждено git stash: падают и без моих правок). ruff 0 errors, SYNTAX OK. Задеплоено.
 
 ### TRIVIA01 — Брейн-Ринг по Канону (completed) ✅
 
