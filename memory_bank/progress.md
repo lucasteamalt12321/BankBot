@@ -1253,4 +1253,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-08e130c (2026-08-03, PARSE01: track parsing in parsed_transactions (prod), count failed_parses)
+a2b30f1 (2026-08-03, PARSE01: idempotency via UNIQUE(chat_id,message_id) + block non-bot reply parsing)
