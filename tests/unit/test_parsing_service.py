@@ -303,15 +303,17 @@ class TestParsingServiceErrors:
         assert "Ошибка при обработке данных" in message
 
     def test_default_conversion_rate_when_missing(self, db_session, sample_user):
-        """Use default k=1.0 when conversion rate not in DB."""
+        """Use canonical conversion rate when not in DB (single source of truth)."""
+        from core.parsers.rates import BOT_CONVERSION_RATES
+
         service = ParsingService(db_session)
         text = "🤩 Орбы: +10"
 
         success, message, details = service.parse_and_accrue(sample_user.id, text)
 
         assert success is True
-        assert details["k"] == Decimal("1.0")
-        assert details["points"] == 10  # 10 * 1.0 = 10
+        assert details["k"] == Decimal(str(BOT_CONVERSION_RATES["gdcards"]))
+        assert details["points"] == int(10 * BOT_CONVERSION_RATES["gdcards"])
 
 
 class TestParsingServicePatterns:

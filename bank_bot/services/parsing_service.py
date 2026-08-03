@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from bank_bot.repositories.balance_repository import BalanceRepository
 from bank_bot.repositories.transaction_repository import TransactionRepository
+from core.parsers.rates import get_conversion_rate as _canonical_rate
 from database.database import UserResource, ConversionRate
 
 logger = structlog.get_logger()
@@ -289,11 +290,11 @@ class ParsingService:
 
         if rate is None:
             logger.warning(
-                "Conversion rate not found, using default 1.0",
+                "Conversion rate not found, using canonical rate",
                 bot_name=bot_name,
                 resource_type=resource_type,
             )
-            return Decimal("1.0")
+            return Decimal(str(_canonical_rate(bot_name)))
 
         return Decimal(str(rate.k))
 
