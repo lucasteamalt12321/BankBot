@@ -304,7 +304,7 @@ class TestParsingServiceErrors:
 
     def test_default_conversion_rate_when_missing(self, db_session, sample_user):
         """Use canonical conversion rate when not in DB (single source of truth)."""
-        from core.parsers.rates import BOT_CONVERSION_RATES
+        from core.rates import BOT_CONVERSION_RATES
 
         service = ParsingService(db_session)
         text = "🤩 Орбы: +10"
