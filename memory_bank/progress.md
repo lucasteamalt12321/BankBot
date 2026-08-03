@@ -6,6 +6,15 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: Личный кабинет + раздельные Войти/Зарегистрироваться)
+
+**Сделано:**
+- Новая страница `/account` — «Личный кабинет»: аватар, имя, @логин, 💎 монеты, поля профиля, кнопки «Редактировать профиль»/«На главную»/«Выйти»; без токена → редирект на /login
+- `/api/auth/me` дополнен полем `coins` (баланс из `user_coins`)
+- Хаб `/`: аноним — раздельные ссылки «Войти» (/login) и «Зарегистрироваться» (/register); залогиненный — «Личный кабинет» (/account) + «Выйти»
+
+**Проверки (E2E):** register → me (coins=0); /account 200; /login 200; /register 200. ruff 0 errors, py_compile OK.
+
 ### 2026-08-03 (Session: Предложения + 5 фиксов багов)
 
 **Сделано:**
@@ -1208,3 +1217,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 
 ## last_checked_commit
 779ebd1 (2026-08-03, Phase 3: web portal complete (WEB-07..WEB-11), suggestions feature, 5 bug fixes)
+**Текущий last_checked_commit НЕ соответствует HEAD** — changed working tree not committed; see git status; new commit (account page, /api/auth/me coins, hub links split) pending

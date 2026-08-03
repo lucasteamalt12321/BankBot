@@ -3033,18 +3033,18 @@ def index():
                                 avatar.textContent = name.charAt(0).toUpperCase();
                                 nameEl.textContent = name;
                                 subEl.textContent = '@' + p.login;
-                                actionsEl.innerHTML = '<a class="logout-btn" href="/settings">Настройки</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
+                                actionsEl.innerHTML = '<a class="logout-btn" href="/account">Личный кабинет</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
                             })
                             .catch(function () {
                                 nameEl.textContent = 'Пользователь';
                                 subEl.textContent = 'Аккаунт';
-                                actionsEl.innerHTML = '<a class="logout-btn" href="/settings">Настройки</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
+                                actionsEl.innerHTML = '<a class="logout-btn" href="/account">Личный кабинет</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
                             });
                     } else {
                         avatar.textContent = uid.slice(4, 5).toUpperCase() || '?';
                         nameEl.textContent = 'Аноним';
                         subEl.textContent = 'Данные хранятся в браузере';
-                        actionsEl.innerHTML = '<a href="/register">Войти / Зарегистрироваться</a>';
+                        actionsEl.innerHTML = '<a href="/login" style="margin-right:10px">Войти</a><a href="/register">Зарегистрироваться</a>';
                     }
                 }
                 function logout() {
@@ -6036,6 +6036,123 @@ def login_page():
     return html
 
 
+@app.route("/account")
+def account_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Личный кабинет — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { max-width: 480px; width: 100%; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #e94560; }
+        .header p { color: #888; font-size: 14px; margin-top: 8px; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 28px; }
+        .profile-top { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+        .avatar { width: 64px; height: 64px; border-radius: 50%; background: #e94560; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; color: white; flex-shrink: 0; }
+        .profile-top .who h2 { font-size: 20px; }
+        .profile-top .who .login { color: #888; font-size: 14px; margin-top: 2px; }
+        .coins-row { display: flex; align-items: center; justify-content: space-between; background: #0a1628; border: 1px solid #1a5276; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
+        .coins-row .lbl { font-size: 13px; color: #aaa; }
+        .coins-row .val { font-size: 22px; font-weight: 700; color: #e3b341; }
+        .field { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #12294a; font-size: 14px; }
+        .field:last-of-type { border-bottom: none; }
+        .field .k { color: #888; }
+        .field .v { color: #e0e0e0; max-width: 60%; text-align: right; word-break: break-word; }
+        .btn { width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; text-align: center; text-decoration: none; display: block; }
+        .btn:hover { background: #d63851; }
+        .btn-secondary { background: #0f3460; color: #e0e0e0; margin-top: 10px; }
+        .btn-secondary:hover { background: #1a5276; }
+        .btn-gray { background: #33415e; color: #e0e0e0; margin-top: 10px; }
+        .btn-gray:hover { background: #42547a; }
+        .link { color: #e94560; text-decoration: none; }
+        .link:hover { text-decoration: underline; }
+        .back-link { display: inline-block; margin-top: 20px; color: #888; text-decoration: none; font-size: 14px; }
+        .back-link:hover { color: #e94560; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1b5e20; color: white; padding: 12px 24px; border-radius: 10px; display: none; z-index: 100; }
+        .toast.error { background: #b71c1c; }
+        @media (max-width: 480px) { .card { padding: 20px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>LTHub</h1>
+        <p>Личный кабинет</p>
+    </div>
+    <div class="card" id="card">
+        <p style="color:#888;text-align:center;padding:20px 0">Загрузка...</p>
+    </div>
+    <a href="/" class="back-link">← На главную</a>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+    var token = localStorage.getItem('web_token');
+    var uid = localStorage.getItem('web_user_id');
+    function showToast(msg, error) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast' + (error ? ' error' : '');
+        t.style.display = 'block';
+        setTimeout(function() { t.style.display = 'none'; }, 3000);
+    }
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function render(p) {
+        var name = p.display_name || p.login || 'Пользователь';
+        var fields = [];
+        fields.push({k: 'Логин', v: '@' + esc(p.login || '')});
+        fields.push({k: 'Имя', v: esc(p.display_name || '—')});
+        fields.push({k: 'Geometry Dash', v: esc(p.gd_nickname || '—')});
+        fields.push({k: 'Telegram ID', v: p.telegram_id ? esc(p.telegram_id) : '—'});
+        fields.push({k: 'Lichess', v: esc(p.lichess_nickname || '—')});
+        fields.push({k: 'Статус', v: p.is_admin ? '👨‍💼 Админ' : 'Пользователь'});
+        var html = '<div class="profile-top">' +
+            '<div class="avatar">' + esc(name.charAt(0).toUpperCase()) + '</div>' +
+            '<div class="who"><h2>' + esc(name) + '</h2><div class="login">@' + esc(p.login || '') + '</div></div>' +
+            '</div>' +
+            '<div class="coins-row"><div class="lbl">💎 Монеты</div><div class="val">' + (p.coins != null ? p.coins : 0) + '</div></div>' +
+            fields.map(function(f) { return '<div class="field"><div class="k">' + f.k + '</div><div class="v">' + f.v + '</div></div>'; }).join('') +
+            '<a class="btn" href="/settings">Редактировать профиль</a>' +
+            '<a class="btn btn-secondary" href="/">На главную</a>' +
+            '<button class="btn btn-gray" onclick="logout()">Выйти</button>';
+        document.getElementById('card').innerHTML = html;
+    }
+    function logout() {
+        if (token) {
+            fetch('/api/auth/logout', { method: 'POST', headers: { 'X-Auth-Token': token } }).catch(function () {});
+        }
+        localStorage.removeItem('web_user_id');
+        localStorage.removeItem('web_token');
+        window.location.href = '/';
+    }
+    if (!token || !uid || uid.indexOf('u') !== 0) {
+        showToast('Вы не вошли в аккаунт', true);
+        setTimeout(function() { window.location.href = '/login'; }, 1200);
+    } else {
+        fetch('/api/auth/me', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(p) {
+                if (p.error) {
+                    localStorage.removeItem('web_token');
+                    localStorage.removeItem('web_user_id');
+                    showToast(p.error, true);
+                    setTimeout(function() { window.location.href = '/login'; }, 1200);
+                    return;
+                }
+                render(p);
+            })
+            .catch(function() { showToast('Ошибка сети', true); });
+    }
+</script>
+</body>
+</html>"""
+    return html
+
+
 @app.route("/suggest")
 def suggest_page():
     html = """<!DOCTYPE html>
@@ -6555,6 +6672,12 @@ def api_auth_me():
     user = _get_session_user(token)
     if not user:
         return jsonify({"error": "Не авторизован"}), 401
+    try:
+        coins = get_user_coins(_web_user_id("u" + str(user["id"])))
+        user["coins"] = int((coins or {}).get("balance", 0))
+    except Exception as exc:
+        print(f"[AUTH] me coins error: {exc}")
+        user["coins"] = 0
     return jsonify(user)
 
 
