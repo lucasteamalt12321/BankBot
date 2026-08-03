@@ -156,7 +156,7 @@ def _build_parsing_update(replied_text: str) -> dict:
                 "message_id": 49,
                 "text": replied_text,
                 "chat": {"id": 12345, "type": "group"},
-                "from": {"id": 111111, "first_name": "BotUser"},
+                "from": {"id": 111111, "first_name": "BotUser", "is_bot": True},
             },
         },
     }
@@ -270,6 +270,22 @@ def test_webhook_parsing_no_reply_ignored(mock_send, mock_db):
     response = app.test_client().post(f"/telegram/webhook/{WEBHOOK_SECRET}", json=payload)
     assert response.status_code == 200
     mock_send.assert_not_called()
+
+
+@patch("api.index.get_db_engine")
+@patch("api.index.send_telegram_message")
+def test_webhook_parsing_reply_from_user_rejected(mock_send, mock_db):
+    """Reply to a non-bot (user) message should be rejected, not parsed."""
+    mock_db.return_value.connect.return_value.__enter__.return_value.execute.return_value.mappings.return_value.first.return_value = None
+    payload = _build_parsing_update(GDCARDS_CARD)
+    payload["message"]["reply_to_message"]["from"] = {
+        "id": 2091908459, "first_name": "TestUser", "is_bot": False,
+    }
+    response = app.test_client().post(f"/telegram/webhook/{WEBHOOK_SECRET}", json=payload)
+    assert response.status_code == 200
+    mock_send.assert_called_once()
+    text = mock_send.call_args[0][1]
+    assert "Парсинг доступен только в ответ на сообщение игрового бота" in text
 
 
 @patch("api.index.get_db_engine")

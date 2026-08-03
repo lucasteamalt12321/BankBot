@@ -840,6 +840,8 @@ def _ensure_parsing_tables(engine):
                     converted_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
                     currency_type VARCHAR(20),
                     status VARCHAR(16) NOT NULL DEFAULT 'success',
+                    chat_id BIGINT,
+                    message_id BIGINT,
                     message_text TEXT,
                     parsed_at TIMESTAMPTZ DEFAULT NOW()
                 )
@@ -848,7 +850,19 @@ def _ensure_parsing_tables(engine):
                 conn.execute(text("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS status VARCHAR(16) DEFAULT 'success'"))
             except Exception:
                 pass
+            try:
+                conn.execute(text("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS chat_id BIGINT"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS message_id BIGINT"))
+            except Exception:
+                pass
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_parsed_transactions_parsed_at ON parsed_transactions(parsed_at)"))
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_parsed_transactions_msg ON parsed_transactions(chat_id, message_id) WHERE message_id IS NOT NULL"))
+            except Exception:
+                pass
             conn.commit()
         print("[PARSING] Tables ensured")
     except Exception as exc:
@@ -864,14 +878,16 @@ def _log_parsed_transaction(
     currency_type: str,
     message_text: str,
     status: str = "success",
+    chat_id: int | None = None,
+    message_id: int | None = None,
 ) -> None:
     """Record a parsing attempt (success or failure) in parsed_transactions."""
     try:
         conn.execute(
             text("""
                 INSERT INTO parsed_transactions
-                    (user_id, source_bot, original_amount, converted_amount, currency_type, status, message_text)
-                VALUES (:uid, :bot, :orig, :conv, :curr, :status, :msg)
+                    (user_id, source_bot, original_amount, converted_amount, currency_type, status, chat_id, message_id, message_text)
+                VALUES (:uid, :bot, :orig, :conv, :curr, :status, :chat_id, :msg_id, :msg)
             """),
             {
                 "uid": user_id,
@@ -880,6 +896,8 @@ def _log_parsed_transaction(
                 "conv": converted_amount,
                 "curr": currency_type,
                 "status": status,
+                "chat_id": chat_id,
+                "msg_id": message_id,
                 "msg": message_text[:2000],
             },
         )
@@ -895,8 +913,15 @@ def _record_parsing_result(
     currency_type: str,
     message_text: str,
     success: bool,
-) -> None:
-    """Record a parsing attempt in parsed_transactions (resolves internal user id)."""
+    chat_id: int | None = None,
+    message_id: int | None = None,
+) -> bool:
+    """Record a parsing attempt in parsed_transactions (resolves internal user id).
+
+    Returns False if the (chat_id, message_id) pair was already parsed
+    (idempotency guard against double accrual on repeated 'парсинг' replies,
+    enforced by the UNIQUE index uq_parsed_transactions_msg).
+    """
     try:
         internal_id = None
         if user_id:
@@ -916,10 +941,17 @@ def _record_parsing_result(
                 currency_type,
                 message_text,
                 status="success" if success else "failed",
+                chat_id=chat_id,
+                message_id=message_id,
             )
             conn.commit()
+        return True
     except Exception as exc:
+        # Duplicate (chat_id, message_id) -> unique index violation
+        if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
+            return False
         print(f"[PARSING] record parsing result error: {exc}")
+        return True
 
 
 def _save_verb_exercise(ex: dict):
@@ -8233,8 +8265,25 @@ def telegram_webhook(secret: str):
             replied_text = reply_to.get("text") or reply_to.get("caption", "")
             print(f"Replied text length: {len(replied_text)}")
 
+        reply_msg_id = (reply_to or {}).get("message_id")
+        reply_from = (reply_to or {}).get("from", {}) or {}
+
         if reply_to and is_parsing_trigger:
             replied_text = reply_to.get("text") or reply_to.get("caption", "")
+
+            # Security: only parse messages coming from a bot (game bot), not from a user.
+            # Prevents awarding coins to an arbitrary profile by replying to a user message.
+            if not reply_from.get("is_bot"):
+                _record_parsing_result(
+                    user_id, "not_bot", 0, 0, "unknown", replied_text or "", False,
+                    chat_id=chat_id, message_id=reply_msg_id,
+                )
+                send_telegram_message(
+                    chat_id,
+                    "❌ Парсинг доступен только в ответ на сообщение игрового бота (GD Cards, Гуся Cards, Shmalala, Чайометр, BunkerRP).",
+                )
+                return jsonify({"ok": True})
+
             parsed = parse_bot_message(replied_text)
 
             if parsed and chat_id:
@@ -8293,9 +8342,13 @@ def telegram_webhook(secret: str):
                         detail = f"{game}: ×{parsed['rate']}"
                     description = f"Парсинг {game}: +{coins}"
 
-                _record_parsing_result(
-                    target_user_id, game, amount, coins, parsed.get("type", "balance"), replied_text, True
+                recorded = _record_parsing_result(
+                    target_user_id, game, amount, coins, parsed.get("type", "balance"), replied_text, True,
+                    chat_id=chat_id, message_id=reply_msg_id,
                 )
+                if not recorded:
+                    send_telegram_message(chat_id, "ℹ️ Это сообщение уже было распарсено ранее.")
+                    return jsonify({"ok": True})
 
                 if add_user_balance(target_user_id, coins, description):
                     mention = f"**{target_name}**" if target_id else f"**{target_name}**"
@@ -8308,7 +8361,8 @@ def telegram_webhook(secret: str):
                 return jsonify({"ok": True})
             elif chat_id:
                 _record_parsing_result(
-                    user_id, "unknown", 0, 0, "unknown", replied_text or "", False
+                    user_id, "unknown", 0, 0, "unknown", replied_text or "", False,
+                    chat_id=chat_id, message_id=reply_msg_id,
                 )
                 send_telegram_message(
                     chat_id,
