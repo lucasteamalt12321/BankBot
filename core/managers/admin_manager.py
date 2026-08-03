@@ -216,6 +216,7 @@ class AdminManager:
             total_transactions = len(transactions)
             total_amount_converted = Decimal('0')
             successful_parses = 0
+            failed_parses = 0
 
             for transaction in transactions:
                 bot_name = transaction.source_bot
@@ -236,14 +237,22 @@ class AdminManager:
                 original_amount = getattr(transaction, 'original_amount', Decimal('0'))
                 converted_amount = getattr(transaction, 'converted_amount', Decimal('0'))
 
+                status = getattr(transaction, 'status', 'success') or 'success'
+                is_failed = status != 'success'
+
                 if hasattr(original_amount, '__add__'):  # Check if it's a proper number
                     stats_by_bot[bot_name]['total_original_amount'] += original_amount
                 if hasattr(converted_amount, '__add__'):  # Check if it's a proper number
                     stats_by_bot[bot_name]['total_converted_amount'] += converted_amount
-                    total_amount_converted += converted_amount
+                    if not is_failed:
+                        total_amount_converted += converted_amount
 
-                stats_by_bot[bot_name]['successful_parses'] += 1
-                successful_parses += 1
+                if is_failed:
+                    stats_by_bot[bot_name]['failed_parses'] += 1
+                    failed_parses += 1
+                else:
+                    stats_by_bot[bot_name]['successful_parses'] += 1
+                    successful_parses += 1
 
             # Get parsing rules for context
             active_rules = self.db.query(ParsingRule).filter(
@@ -289,7 +298,7 @@ class AdminManager:
                 end_time=now.isoformat(),
                 total_transactions=total_transactions,
                 successful_parses=successful_parses,
-                failed_parses=0,  # We don't track failed parses separately yet
+                failed_parses=failed_parses,
                 total_amount_converted=float(total_amount_converted),
                 success_rate=round(success_rate, 2),
                 active_bots=active_bots,

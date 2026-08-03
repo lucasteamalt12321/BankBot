@@ -2,9 +2,21 @@
 
 **Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** TRIVIA01 завершён (фиксы async, награда, тесты)
+**Последнее действие:** PARSE01 часть 1 — мониторинг парсинга (parsed_transactions пишется в проде)
 
 ## Текущий фокус
+
+### PARSE01 — Production E2E парсинг игровых сообщений (в работе) 🚧
+
+**Цель:** Довести парсинг игровых сообщений по ответам до production E2E. Исследование выявило 3 несогласованных стека парсера (core/parsers, bank_bot ParsingService, api/index.py), отсутствие записи в `parsed_transactions` и мониторинга неуспехов.
+
+**Сделано (часть 1 — мониторинг):**
+- `api/index.py`: `_ensure_parsing_tables()` (таблица `parsed_transactions` + колонка `status`), `_log_parsed_transaction()`, `_record_parsing_result()` (резолв users.id, success/failed). Ручной парсинг «парсинг» по reply теперь пишется в БД: успех и неудача (unknown/failed).
+- `admin_manager.get_parsing_stats()`: считает `failed_parses` по `status != 'success'` (было закомментировано `=0`), суммы только по успешным.
+- `database/database.py`: `ParsedTransaction.status` (default 'success').
+- Тест-мок обновлён (status='success').
+
+**Осталось (часть 2):** idempotency/де-дуп в api-пути, проверка `reply_to.from` (защита от ложных начислений чужому профилю), единый source of truth курсов (сейчас gdcards 2:1 в bot vs 2.5 в api), E2E PTB-тесты (handle_manual_parsing с реальной БД).
 
 ### TRIVIA01 — Брейн-Ринг по Канону (completed) ✅
 

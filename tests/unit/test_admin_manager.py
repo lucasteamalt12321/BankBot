@@ -165,6 +165,7 @@ class TestAdminManager:
         mock_transaction.original_amount = Decimal('100')
         mock_transaction.converted_amount = Decimal('150')
         mock_transaction.currency_type = "coins"
+        mock_transaction.status = "success"
 
         # Mock parsing rules
         mock_rule = Mock()

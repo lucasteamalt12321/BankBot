@@ -6,6 +6,18 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: PARSE01 — мониторинг парсинга: parsed_transactions пишется в проде)
+
+**Сделано (часть 1 PARSE01):**
+- **`api/index.py`:** добавлены `_ensure_parsing_tables` (создаёт `parsed_transactions` с колонкой `status`) + вызов из `get_db_engine()`, helper `_log_parsed_transaction()` и `_record_parsing_result()` (резолвит `users.id`, пишет success/failed). Теперь каждый ручной reply-парсинг «парсинг» записывается в `parsed_transactions`: при успехе (после расчёта монет) и при неудаче (source_bot='unknown', status='failed').
+- **`core/managers/admin_manager.py`:** `get_parsing_stats()` теперь реально считает `failed_parses` (по полю `status != 'success'`) вместо закомментированного `failed_parses=0`; `total_amount_converted` и `successful_parses` считаются только по успешным.
+- **`database/database.py`:** ORM-модель `ParsedTransaction` получила атрибут `status` (default 'success').
+- **`tests/unit/test_admin_manager.py`:** мок транзакции получил `status='success'` (Mock авто-создаёт атрибуты).
+
+**Проверки:** 77 passed (test_admin_manager, test_vercel_parsing_e2e, test_parsing_service, test_manual_parsing); ruff 0 errors; /api/dnd/status 200 после деплоя (триггер создания таблицы без 500). Integration is_admin падения — предсуществующие (падают и на чистом HEAD, не связаны с правкой).
+
+**Осталось (часть 2):** idempotency/де-дуп в api-пути, проверка reply_to.from (защита от ложных начислений), единый source of truth курсов, E2E PTB-тесты.
+
 ### 2026-08-03 (Session: TRIVIA01 завершён)
 
 **TRIVIA01 completed.** Мини-игра «Брейн-Ринг по Канону» доведена до готовности:
