@@ -1241,4 +1241,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-3ed8754 (2026-08-03, TRIVIA01: fix async webhook /trivia, async test, reward text, mark completed)
+08e130c (2026-08-03, PARSE01: track parsing in parsed_transactions (prod), count failed_parses)
