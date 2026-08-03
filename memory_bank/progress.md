@@ -1229,4 +1229,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-a0f7e0d (2026-08-03, Web auth UX: separate account page (/account), login/register links, coins in /api/auth/me)
+3ed8754 (2026-08-03, TRIVIA01: fix async webhook /trivia, async test, reward text, mark completed)
