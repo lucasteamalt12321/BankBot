@@ -435,6 +435,7 @@ class ParsedTransaction(Base):
     original_amount = Column(DECIMAL(10, 2), nullable=False)
     converted_amount = Column(DECIMAL(10, 2), nullable=False)
     currency_type = Column(String(20), nullable=False)
+    status = Column(String(16), default="success")
     parsed_at = Column(DateTime, default=datetime.utcnow)
     message_text = Column(Text)
 
@@ -746,3 +747,8 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_db_session():
+    """Return one SQLAlchemy session for legacy command handlers that expect get_db()."""
+    return next(get_db())

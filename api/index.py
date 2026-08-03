@@ -286,6 +286,7 @@ def get_db_engine():
     _ensure_verb_tables(DB_ENGINE)
     _ensure_family_tables(DB_ENGINE)
     _ensure_web_auth_tables(DB_ENGINE)
+    _ensure_parsing_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -824,6 +825,101 @@ def _ensure_web_auth_tables(engine):
         print("[AUTH] Tables ensured")
     except Exception as exc:
         print(f"[AUTH] Table init error: {exc}")
+
+
+def _ensure_parsing_tables(engine):
+    """Create parsing tracking tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS parsed_transactions (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    source_bot VARCHAR(50) NOT NULL,
+                    original_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                    converted_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                    currency_type VARCHAR(20),
+                    status VARCHAR(16) NOT NULL DEFAULT 'success',
+                    message_text TEXT,
+                    parsed_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            try:
+                conn.execute(text("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS status VARCHAR(16) DEFAULT 'success'"))
+            except Exception:
+                pass
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_parsed_transactions_parsed_at ON parsed_transactions(parsed_at)"))
+            conn.commit()
+        print("[PARSING] Tables ensured")
+    except Exception as exc:
+        print(f"[PARSING] Table init error: {exc}")
+
+
+def _log_parsed_transaction(
+    conn,
+    user_id: int | None,
+    source_bot: str,
+    original_amount: float,
+    converted_amount: float,
+    currency_type: str,
+    message_text: str,
+    status: str = "success",
+) -> None:
+    """Record a parsing attempt (success or failure) in parsed_transactions."""
+    try:
+        conn.execute(
+            text("""
+                INSERT INTO parsed_transactions
+                    (user_id, source_bot, original_amount, converted_amount, currency_type, status, message_text)
+                VALUES (:uid, :bot, :orig, :conv, :curr, :status, :msg)
+            """),
+            {
+                "uid": user_id,
+                "bot": source_bot,
+                "orig": original_amount,
+                "conv": converted_amount,
+                "curr": currency_type,
+                "status": status,
+                "msg": message_text[:2000],
+            },
+        )
+    except Exception as exc:
+        print(f"[PARSING] log parsed_transaction error: {exc}")
+
+
+def _record_parsing_result(
+    user_id: int | None,
+    game: str,
+    original_amount: float,
+    converted_amount: float,
+    currency_type: str,
+    message_text: str,
+    success: bool,
+) -> None:
+    """Record a parsing attempt in parsed_transactions (resolves internal user id)."""
+    try:
+        internal_id = None
+        if user_id:
+            with get_db_engine().connect() as conn:
+                row = conn.execute(
+                    text("SELECT id FROM users WHERE telegram_id = :tid"),
+                    {"tid": user_id},
+                ).mappings().first()
+                internal_id = row["id"] if row else None
+        with get_db_engine().connect() as conn:
+            _log_parsed_transaction(
+                conn,
+                internal_id,
+                game,
+                float(original_amount),
+                float(converted_amount),
+                currency_type,
+                message_text,
+                status="success" if success else "failed",
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[PARSING] record parsing result error: {exc}")
 
 
 def _save_verb_exercise(ex: dict):
@@ -8197,6 +8293,10 @@ def telegram_webhook(secret: str):
                         detail = f"{game}: ×{parsed['rate']}"
                     description = f"Парсинг {game}: +{coins}"
 
+                _record_parsing_result(
+                    target_user_id, game, amount, coins, parsed.get("type", "balance"), replied_text, True
+                )
+
                 if add_user_balance(target_user_id, coins, description):
                     mention = f"**{target_name}**" if target_id else f"**{target_name}**"
                     send_telegram_message(
@@ -8207,6 +8307,9 @@ def telegram_webhook(secret: str):
                     send_telegram_message(chat_id, "❌ Ошибка начисления")
                 return jsonify({"ok": True})
             elif chat_id:
+                _record_parsing_result(
+                    user_id, "unknown", 0, 0, "unknown", replied_text or "", False
+                )
                 send_telegram_message(
                     chat_id,
                     "❌ Не удалось распарсить сообщение. Поддерживаются: GDcards, Гуся Cards, Shmalala, Чайометр, BunkerRP",
