@@ -1216,5 +1216,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-779ebd1 (2026-08-03, Phase 3: web portal complete (WEB-07..WEB-11), suggestions feature, 5 bug fixes)
-**Текущий last_checked_commit НЕ соответствует HEAD** — changed working tree not committed; see git status; new commit (account page, /api/auth/me coins, hub links split) pending
+a0f7e0d (2026-08-03, Web auth UX: separate account page (/account), login/register links, coins in /api/auth/me)
