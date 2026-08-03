@@ -425,7 +425,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
 | PARSE01 | Production E2E парсинг игровых сообщений по ответам | in_progress | P0 |
-| TRIVIA01 | Мини-игра: Брейн-Ринг по Канону Олеговируса | in_progress | P0 |
+| TRIVIA01 | Мини-игра: Брейн-Ринг по Канону Олеговируса | completed | P0 |
 | GD-02 | Команда /submit (заявка на прохождение) | pending | 4 |
 | GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
 | GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
@@ -464,7 +464,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **PR12-PR13 notes:** `bot/bot.py` получил чистый `build_polling_kwargs(is_hf)` без изменения HF timeout/retry semantics; structured polling logs сохранены. UX/watchlist закрыт безопасными runtime-правками: `/shop` и `/games` больше не дублируют вывод, `/games_list` показывает активные сессии, `/dnd_*` исправлены на `core.systems.dnd_system`, неизвестные команды получают fallback-ответ.
 
-**TRIVIA01 notes:** Мини-игра «Брейн-Ринг по Канону Олеговируса». Команда `/trivia` запускает викторину в чате с вопросом по лору из `bot/ai/knowledge.py`. Использование inline-кнопок позволяет мгновенно фиксировать клики через `CallbackQueryHandler`, определять победителя, начислить ему монеты в Supabase PostgreSQL и предотвращать повторные клики. Включает защиту от спама командами в одном чате.
+**TRIVIA01 notes (STATUS: completed, 2026-08-03):** Мини-игра «Брейн-Ринг по Канону Олеговируса». Команда `/trivia` запускает нативную неанонимную Telegram-викторину (quiz-poll, а не inline-кнопки) с вопросом по лору из канона (`data/canon_knowledge.txt` + пул `bot/trivia/questions.py`). Первый правильный ответ через `PollAnswerHandler` определяет победителя и даёт **10 монет** (константа `TRIVIA_COINS_REWARD`), транзакция `trivia_win` пишется в PostgreSQL. Защита от спама: антиспам-таймаут 60 сек на чат. AI-генерация через `generate_trivia_question()` с fallback на пул из 23 вопросов.**Проверено 2026-08-03: починен async-тест (await), починен Vercel-вебхук `/trivia` (await async-функции через asyncio.run), текст награды приведён к фактическим +10.**
 
 ---
 

@@ -8830,7 +8830,8 @@ def telegram_webhook(secret: str):
             trivia_questions = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(trivia_questions)
             
-            question = trivia_questions.generate_trivia_question()
+            import asyncio
+            question = asyncio.run(trivia_questions.generate_trivia_question())
             question_text = question["text"]
             options = question["options"]
             correct_index = question["correct_index"]
@@ -8858,7 +8859,7 @@ def telegram_webhook(secret: str):
                     if response.status_code == 200:
                         send_telegram_message(
                             chat_id,
-                            "🎯 **Викторина по канону** отправлена!\nОтветьте на опрос выше. Правильный ответ даст +25 монет.",
+                            "🎯 **Викторина по канону** отправлена!\nОтветьте на опрос выше. Правильный ответ даст +10 монет.",
                             parse_mode="Markdown",
                         )
                         return jsonify({"ok": True})
@@ -8883,7 +8884,7 @@ def telegram_webhook(secret: str):
                 ])
             send_telegram_message(
                 chat_id,
-                "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +25 монет.",
+                "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +10 монет.",
                 reply_markup={"inline_keyboard": inline_keyboard},
             )
             return jsonify({"ok": True})
