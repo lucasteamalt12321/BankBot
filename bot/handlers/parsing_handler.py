@@ -417,25 +417,27 @@ class ParsingHandler:
             return
 
         # Determine bank coins based on game and result type
+        from core.parsers.rates import get_conversion_rate as _rate
+
         bank_coins = 0.0
         details = []
         game_emoji = {"GD Cards": "🃏", "Shmalala": "🎣", "True Mafia": "🎮", "Bunker RP": "🏚️"}.get(result.game, "🎲")
 
         if isinstance(result, AccrualResult):
             if result.game == "GD Cards":
-                bank_coins = float(result.amount) / 2
+                bank_coins = float(result.amount) * _rate("gdcards")
                 details.append(f"{game_emoji} Начисление: +{result.amount} очков")
-                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 2:1)")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс ×{_rate('gdcards')})")
             elif result.game == "Shmalala":
-                bank_coins = float(result.amount)
+                bank_coins = float(result.amount) * _rate("shmalala")
                 details.append(f"{game_emoji} Начисление: +{result.amount}")
-                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 1:1)")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс ×{_rate('shmalala')})")
 
         elif isinstance(result, ProfileResult):
             if result.game == "GD Cards":
-                bank_coins = float(result.balance) / 2
+                bank_coins = float(result.balance) * _rate("gdcards")
                 details.append(f"{game_emoji} Профиль, баланс: {result.balance}")
-                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс 2:1)")
+                details.append(f"🏦 Конвертация: +{bank_coins:.1f} монет (курс ×{_rate('gdcards')})")
             elif result.game == "True Mafia":
                 bank_coins = float(result.balance) / 15
                 details.append(f"{game_emoji} Профиль, деньги: {result.balance}")

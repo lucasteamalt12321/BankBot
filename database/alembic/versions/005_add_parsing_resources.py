@@ -42,12 +42,12 @@ def upgrade() -> None:
     )
     op.create_index("ix_conversion_rates_bot_resource", "conversion_rates", ["bot_name", "resource_type"], unique=True)
 
-    # Insert default conversion rates
+    # Insert default conversion rates (canonical values from core/parsers/rates.py)
     op.execute("""
         INSERT INTO conversion_rates (bot_name, resource_type, k) VALUES
-        ('gusya_cards', 'coins', 1.0),
-        ('gdcards', 'orbs', 1.0),
-        ('shmalala', 'money', 1.0)
+        ('gusya_cards', 'coins', 5.0),
+        ('gdcards', 'orbs', 2.5),
+        ('shmalala', 'money', 2.5)
         ON CONFLICT DO NOTHING
     """)
 
