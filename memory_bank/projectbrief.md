@@ -150,10 +150,10 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | MOM-02 | Веб-приложение: экран вопросов (проверка ответов) | completed | 3 |
 | MOM-03 | Backend: /reading_generate с HF API и fallback | completed | 5 |
 | MOM-04 | UI: регулировка шрифта, печать единым листом | completed | 5 |
-| MOM-05 | Дополнительные улучшения (озвучивание, статистика) | pending | 1 |
+| MOM-05 | Дополнительные улучшения (озвучивание, статистика) | completed | 1 |
 | MOM-TEST | Тестирование Mom Module (manual + frontend) | pending | 2 |
 
-**Mom Module: 19/22 (86%)**
+**Mom Module: 20/22 (91%)**
 
 **Функциональность:**
 - 6 простых предложений (3-4 слова каждое)
@@ -370,15 +370,15 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 ---
 
 **Phase 1 (Core): 100/100 completed**  
-**Phase 2 (Features): 96/100 completed** (GD-01-07: 27%, CH-01-06: 18%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-04: 19%, AIC-01-08: 8%, BGT-01-10: 98%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST/BGT-TEST: 0%)  
-**Общий прогресс проекта: 100% (Phase 1) + 96% (Phase 2)**
+**Phase 2 (Features): 97/100 completed** (GD-01-07: 27%, CH-01-06: 18%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-05: 20%, AIC-01-08: 8%, BGT-01-10: 98%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST/BGT-TEST: 0%)  
+**Общий прогресс проекта: 100% (Phase 1) + 97% (Phase 2)**
 
 **Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
 
 **Завершённые модули:**
 - **AI Module (15%):** Полностью реализован — AI Manager, /chat, /generate_prayer, /ask_canon, /ai_model
 - **AI Chat Module (8%):** Полностью реализован — reply/mention AI, /character, /character_all, память 10 личных + 50 глобальных сообщений
-- **Mom Module (19%):** Полностью реализован — веб-приложение тренажёр чтения, двухэкранный интерфейс, генерация через HF API с fallback, проверка ответов, печать
+- **Mom Module (20%):** Полностью реализован — веб-приложение тренажёр чтения, двухэкранный интерфейс, генерация через HF API с fallback, проверка ответов, печать
 - **GD Module (27%):** Core функциональность реализована — БД схема, /submit, /moderate, статистика, GD API интеграция
 - **Chess Module (18%):** Полностью реализована — /chess_link, /chess_rating, /chess_stats, /puzzle с изображением доски и inline-кнопкой, награды 5 монет за решение, история решённых задач
 - **Universe Module (14%):** Базовая функциональность — /infect, /tea, /daily_prayer, /generate_prayer (через AI Module)
@@ -438,7 +438,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | CH-05 | Puzzle rewards: награды монетами за решение задач | pending | 3 |
 | CH-06 | History: история решённых задач | pending | 2 |
 | UN-03 | /generate_prayer — генерация молитв через AI (уже реализовано в AI Module) | completed | 4 |
-| MOM-05 | Дополнительные улучшения (озвучивание, статистика, подсказка) | pending | 1 |
+| MOM-05 | Дополнительные улучшения (озвучивание, статистика, подсказка) | completed | 1 |
 
 **MOM notes:** Веб-приложение создано (`webapp/reading_trainer/`), backend `/reading_generate` реализован в `run_bot.py` с HF API и fallback-наборами, фронтенд-логика включает два экрана (чтение/вопросы), проверку ответов, печать единым листом, регулировку шрифта (24-72px). Статика размещена в `webapp/reading_trainer/`, `public/reading_trainer.html`, `bot/web/reading_trainer.py`.
 

@@ -6,6 +6,20 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: MOM-05 — доработки тренажёра чтения)
+
+**MOM-05 completed.** Дополнительные улучшения тренажёра чтения в production `api/index.py` (`/reading_trainer.html`), Vercel-страница.
+
+**Сделано:**
+- **Озвучивание (TTS):** кнопка «🔊 Слушать» (экран чтения) + «🔊 Вопрос» у каждого вопроса через Web Speech API (`SpeechSynthesisUtterance`, `ru-RU`, rate 0.9), безопасный fallback-`alert` при отсутствии API.
+- **Подсказка:** кнопка «💡 Подсказка» у каждого вопроса — раскрывает правильный ответ (экранируется `escapeHtml`).
+- **Статистика:** панель `stats-bar` под `h1`; после проверки ответов обновляемая статистика в `localStorage` (`reading_trainer_stats`: runs/questions/correct) с показом «Заданий · Вопросов · Верно (%)».
+- CSS: добавлены `.btn-voice`, `.btn-hint`, `.toolbar`, `.question-tools`, `.hint-box`, `.stats-bar`; в `@media print` скрываются `.hint-box` и `.stats-bar`.
+
+**Проверки:** ruff All checks passed; py_compile OK (только pre-existing SyntaxWarning во встроенном JS); извлечённый JS тренажёра → `node --check` OK; flask test client `GET /reading_trainer.html` → 200 + все новые маркеры; `tests/unit/test_vercel_webhook_start.py` + `tests/unit/test_vercel_parsing_e2e.py` → 23 passed.
+
+**Обновление Memory Bank:** `projectbrief.md` MOM-05 pending→completed, Mom Module 19/22 → 20/22 (91%), Phase 2 96% → 97%, «Завершённые модули» Mom 19%→20%, Additional Tasks MOM-05 → completed. `activeContext.md` — заголовок секции MOM-05. `progress.md` `last_checked_commit` → `4eea518`.
+
 ### 2026-08-03 (Session: BUGFIX01 — фикс юнит-тестов + регрессий)
 
 **Сделано:**
@@ -1265,4 +1279,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-64d40d7 (2026-08-03, PARSE01: idempotency via UNIQUE(chat_id,message_id) + block non-bot reply parsing + BUGFIX01 юнит-тесты)
+4eea518 (2026-08-03, BUGFIX01: fix unit tests and regressions + MOM-05 доработки тренажёра чтения)

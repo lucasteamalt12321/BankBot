@@ -2,9 +2,23 @@
 
 **Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** BUGFIX01 — фикс юнит-тестов и регрессий (GD-модели, `filters.DOCUMENT`, `AdminSystem.get_db_connection`, бренд LTHub)
+**Последнее действие:** MOM-05 — доработки тренажёра чтения (озвучивание, подсказки, статистика) на Vercel
 
 ## Текущий фокус
+
+### MOM-05 — доработка тренажёра чтения ✅ (2026-08-03)
+
+**Цель:** Дополнительные улучшения тренажёра чтения: озвучивание, статистика, подсказка.
+
+**Сделано (production `api/index.py`, `/reading_trainer.html`):**
+- **🔊 Озвучивание (TTS):** кнопка «Слушать» на экране чтения (читает текст через Web Speech API, `ru-RU`, rate 0.9) + кнопка «🔊 Вопрос» у каждого вопроса. Fallback: alert, если `speechSynthesis` недоступен.
+- **💡 Подсказка:** кнопка «Подсказка» у каждого вопроса — раскрывает правильный ответ (XSS-safe через `escapeHtml`).
+- **📊 Статистика:** панель `stats-bar` под заголовком; после каждой проверки сохраняется в `localStorage` (`reading_trainer_stats`: runs/questions/correct) и показывает «Заданий · Вопросов · Верно (%)». При печати панель и подсказки скрываются.
+- CSS: `.btn-voice`, `.btn-hint`, `.toolbar`, `.question-tools`, `.hint-box`, `.stats-bar`; @media print скрывает `.hint-box`/`.stats-bar`.
+
+**Проверка:** ruff 0 errors; py_compile OK (только pre-existing SyntaxWarning); JS извлечён → `node --check` OK; flask test client `/reading_trainer.html` → 200 + все новые маркеры; test_vercel_webhook_start + test_vercel_parsing_e2e — 23 passed.
+
+**Осталось по MOM:** MOM-TEST (ручное тестирование, 2%).
 
 ### BUGFIX01 — фикс юнит-тестов + регрессий ✅ (2026-08-03)
 
