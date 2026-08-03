@@ -38,10 +38,10 @@ def test_user(db_session):
 class TestTriviaQuestions:
     """Test trivia question pool validation and dynamic generation."""
 
-    def test_question_generator(self):
+    async def test_question_generator(self):
         """Verify the dynamic generator produces correct structure and distractors."""
         for _ in range(50):  # Run multiple times to verify randomness and correctness
-            q = generate_trivia_question()
+            q = await generate_trivia_question()
             assert "id" in q
             assert "text" in q
             assert "options" in q

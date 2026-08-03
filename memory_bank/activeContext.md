@@ -2,9 +2,28 @@
 
 **Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** Отдельный «Личный кабинет» + раздельные ссылки Войти/Зарегистрироваться
+**Последнее действие:** TRIVIA01 завершён (фиксы async, награда, тесты)
 
 ## Текущий фокус
+
+### TRIVIA01 — Брейн-Ринг по Канону (completed) ✅
+
+**Цель:** Довести мини-игру до готовности: починить сломанный тест, Vercel-вебхук `/trivia`, синхронизировать награду и документацию.
+
+**Как работает trivia:**
+- Команда `/trivia` → нативная неанонимная Telegram-викторина (quiz-poll) с вопросом по канону (`data/canon_knowledge.txt` + пул `bot/trivia/questions.py`, 23 вопроса)
+- Первый правильный ответ через `PollAnswerHandler` → победитель, +10 монет (`TRIVIA_COINS_REWARD`), транзакция `trivia_win` в PostgreSQL
+- Антиспам: 60 сек таймаут на чат (`active_trivia` в bot_data)
+- AI-генерация `generate_trivia_question()` (async) с fallback на пул
+
+**Исправления 2026-08-03:**
+- Тест `tests/unit/test_trivia_game.py:41` → async + await (падал с coroutine TypeError)
+- Vercel webhook `/trivia` (`api/index.py:8833`) → `asyncio.run(generate_trivia_question())` (был TypeError без await, молча проглатывался)
+- Тексты награды «+25» → «+10» (2 места, фактическая награда 10)
+- `projectbrief.md`: TRIVIA01 completed + notes (quiz-poll не inline-кнопки)
+- Добавлен `bot/trivia/__init__.py`
+
+**Проверка:** pytest 3 passed, ruff 0 errors, задеплоено.
 
 ### Личный кабинет, Войти, Зарегистрироваться — раздельные страницы ✅
 

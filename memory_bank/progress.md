@@ -6,6 +6,19 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: TRIVIA01 завершён)
+
+**TRIVIA01 completed.** Мини-игра «Брейн-Ринг по Канону» доведена до готовности:
+
+**Сделано:**
+- Починен сломанный тест `tests/unit/test_trivia_game.py:41` — `test_question_generator` теперь `async` с `await generate_trivia_question()` (asyncio_mode=auto уже включён). Тест падал с `TypeError: coroutine` с коммита a11826f (async-переход) — 3/3 passed.
+- Починен Vercel webhook `/trivia` (`api/index.py:8833`): `generate_trivia_question()` вызывалась без `await` → `TypeError`, молча проглатывался `except` → опрос не отправлялся. Теперь `import asyncio; asyncio.run(...)`. Проверено локально: возвращает вопрос с 4 вариантами.
+- Награда в текстах приведена к фактической: «+25 монет» → «+10 монет» (2 места). Колбэк `trivia_answer_callback` даёт 10.
+- `projectbrief.md`: TRIVIA01 `in_progress` → `completed`; notes обновлены (нативные quiz-poll, а не inline-кнопки; канон из `data/canon_knowledge.txt`; награда 10 монет).
+- Добавлен `bot/trivia/__init__.py`.
+
+**Проверки:** pytest tests/unit/test_trivia_game.py → 3 passed; ruff 0 errors (api/index.py, bot/trivia, test_trivia_game.py); API SYNTAX OK; задеплоено на prod.
+
 ### 2026-08-03 (Session: Личный кабинет + раздельные Войти/Зарегистрироваться)
 
 **Сделано:**
