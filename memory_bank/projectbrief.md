@@ -398,12 +398,13 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | WEB-04 | Daily Prayer — страница с молитвой дня | completed | 5 |
 | WEB-05 | Chess — статистика Lichess + пазлы | completed | 15 |
 | WEB-06 | GD Module — профили, топ, статистика | completed | 15 |
-| WEB-07 | Admin Panel — управление пользователями, ошибки | pending | 16 |
-| WEB-08 | Практика глаголов — AI-генерация заданий, проверка | in_progress | 10 |
+| WEB-07 | Admin Panel — управление пользователями, ошибки | completed | 16 |
+| WEB-08 | Практика глаголов — AI-генерация заданий, проверка | completed | 10 |
 | WEB-09 | AI Chat: виртуальный компьютер (tool-calling: код, браузинг, файлы, фото) | completed | 8 |
 | WEB-10 | Family Circle — объединение отдельного Vercel-проекта в LTHub (страницы /family, /family/room, /family/result + API /api/family/*) | completed | 6 |
+| WEB-11 | Единая регистрация — страница /register, единый web_user_id, привязка Telegram | completed | 5 |
 
-**Phase 3: 98/118 completed** (WEB-00 + WEB-01 + WEB-02 + WEB-03 + WEB-04 + WEB-05 + WEB-06 + WEB-09 + WEB-10; WEB-08 added +10, WEB-09 added +8, WEB-10 added +6)
+**Phase 3: 123/123 completed** (WEB-00 + WEB-01 + WEB-02 + WEB-03 + WEB-04 + WEB-05 + WEB-06 + WEB-07 + WEB-08 + WEB-09 + WEB-10 + WEB-11; WEB-07 added +16, WEB-08 added +10, WEB-09 added +8, WEB-10 added +6, WEB-11 added +5)
 
 ---
 

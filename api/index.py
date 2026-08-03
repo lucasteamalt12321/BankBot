@@ -23,11 +23,172 @@ from flask import Flask, jsonify, request
 from sqlalchemy import create_engine, text
 
 
+# === Web Auth Helpers ===
+# Временный user_id для анонимных пользователей генерируется на фронтенде и хранится в localStorage.
+# Backend не хранит состояние для анонимов — валидирует только формат.
+# Для привязанных к Telegram аккаунтов используем telegram_id из БД.
+
+_WEB_USER_PREFIX = "web_"
+_TELEGRAM_USER_PREFIX = "tg_"
+
+def _generate_web_user_id() -> str:
+    """Generate a new anonymous web user ID."""
+    return _WEB_USER_PREFIX + uuid.uuid4().hex[:24]
+
+def _is_valid_web_user_id(user_id: str) -> bool:
+    """Validate web user ID format."""
+    return (
+        isinstance(user_id, str) and
+        (user_id.startswith(_WEB_USER_PREFIX) or user_id.startswith(_TELEGRAM_USER_PREFIX)) and
+        len(user_id) >= 10
+    )
+
+def _extract_telegram_id(user_id: str) -> int | None:
+    """Extract telegram_id from tg_ prefixed user_id."""
+    if user_id.startswith(_TELEGRAM_USER_PREFIX):
+        try:
+            return int(user_id[len(_TELEGRAM_USER_PREFIX):])
+        except ValueError:
+            return None
+    return None
+
+def _web_user_id_to_int(user_id: str) -> int:
+    """Convert web_user_id to int for compatibility with existing code expecting int user_id."""
+    if user_id.startswith(_TELEGRAM_USER_PREFIX):
+        return _extract_telegram_id(user_id) or 0
+    if user_id.startswith(_WEB_USER_PREFIX):
+        # Hash the UUID part to int
+        h = hashlib.sha256(user_id.encode()).hexdigest()[:12]
+        return int(h, 16) % 2000000000
+    # Fallback for legacy ai_user_id format
+    h = hashlib.sha256(str(user_id).encode()).hexdigest()[:12]
+    return int(h, 16) % 2000000000
+
+
 def _web_user_id(raw: str | None) -> int:
     if not raw:
         return 0
     h = hashlib.sha256(str(raw).encode()).hexdigest()[:12]
     return int(h, 16) % 2000000000
+
+
+def _hash_password(password: str) -> str:
+    """Hash a password with PBKDF2-SHA256 (salt stored in hash)."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+    return salt.hex() + ":" + digest.hex()
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """Verify a password against a stored PBKDF2 hash."""
+    try:
+        salt_hex, digest_hex = stored.split(":", 1)
+        salt = bytes.fromhex(salt_hex)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+        return hmac.compare_digest(digest.hex(), digest_hex)
+    except Exception:
+        return False
+
+
+def _create_session(user_id: int) -> str | None:
+    """Create a session token for a web user."""
+    token = secrets.token_hex(32)
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            conn.execute(
+                text("INSERT INTO web_sessions (token, user_id) VALUES (:t, :uid)"),
+                {"t": token, "uid": user_id},
+            )
+            conn.commit()
+        return token
+    except Exception as exc:
+        print(f"[AUTH] create session error: {exc}")
+        return None
+
+
+def _get_session_user(token: str | None) -> dict | None:
+    """Resolve a session token to a web user dict, or None."""
+    if not token:
+        return None
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id, u.lichess_nickname, u.is_admin
+                    FROM web_sessions s JOIN web_users u ON u.id = s.user_id
+                    WHERE s.token = :t
+                """),
+                {"t": token},
+            ).mappings().first()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "login": row["login"],
+            "display_name": row["display_name"] or row["login"],
+            "gd_nickname": row["gd_nickname"],
+            "telegram_id": row["telegram_id"],
+            "lichess_nickname": row["lichess_nickname"],
+            "is_admin": bool(row["is_admin"]),
+        }
+    except Exception as exc:
+        print(f"[AUTH] get session error: {exc}")
+        return None
+
+
+def _auth_token_from_request() -> str | None:
+    """Extract session token from Authorization header or X-Auth-Token."""
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return request.headers.get("X-Auth-Token") or request.args.get("token")
+
+
+def _web_admin_session() -> dict | None:
+    """Resolve current request to a web admin session user, or None."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return None
+    is_admin = user.get("is_admin") or user.get("telegram_id") == ADMIN_TELEGRAM_ID
+    if not is_admin:
+        return None
+    return user
+
+
+def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
+    """Add coins to a web user balance and log the transaction.
+
+    user_id is the web_users.id; the user_coins key for web users is
+    _web_user_id("u<id>") (the same hashing used by the chess/GD modules).
+    """
+    uid = _web_user_id("u" + str(user_id))
+    try:
+        with get_db_engine().connect() as conn:
+            existing = conn.execute(
+                text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
+                {"user_id": uid},
+            ).mappings().first()
+            if existing:
+                conn.execute(
+                    text("UPDATE user_coins SET balance = balance + :delta WHERE user_id = :user_id"),
+                    {"delta": amount, "user_id": uid},
+                )
+            else:
+                conn.execute(
+                    text("INSERT INTO user_coins (user_id, balance, last_puzzle_at) VALUES (:user_id, :delta, NOW())"),
+                    {"user_id": uid, "delta": amount},
+                )
+            conn.execute(
+                text("INSERT INTO web_coin_log (user_id, amount, description) VALUES (:user_id, :amount, :desc)"),
+                {"user_id": uid, "amount": amount, "desc": description},
+            )
+            conn.commit()
+            return True
+    except Exception as exc:
+        print(f"[ADMIN] award coins error: {exc}")
+        return False
 
 app = Flask(__name__)
 
@@ -124,6 +285,7 @@ def get_db_engine():
     _ensure_dnd_tables(DB_ENGINE)
     _ensure_verb_tables(DB_ENGINE)
     _ensure_family_tables(DB_ENGINE)
+    _ensure_web_auth_tables(DB_ENGINE)
     return DB_ENGINE
 
 
@@ -440,6 +602,22 @@ def _ensure_dnd_tables(engine):
                 )
             """))
             conn.execute(text("""
+                ALTER TABLE dnd_sessions
+                    ADD COLUMN IF NOT EXISTS description TEXT,
+                    ADD COLUMN IF NOT EXISTS max_players INTEGER DEFAULT 6,
+                    ADD COLUMN IF NOT EXISTS current_players INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'planning',
+                    ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS book_content TEXT,
+                    ADD COLUMN IF NOT EXISTS current_scene TEXT,
+                    ADD COLUMN IF NOT EXISTS context_summary TEXT,
+                    ADD COLUMN IF NOT EXISTS ai_system_prompt TEXT,
+                    ADD COLUMN IF NOT EXISTS last_ai_response TEXT,
+                    ADD COLUMN IF NOT EXISTS chapter_breakdown TEXT
+            """))
+            conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS dnd_characters (
                     id SERIAL PRIMARY KEY,
                     session_id INTEGER REFERENCES dnd_sessions(id) ON DELETE CASCADE,
@@ -587,6 +765,65 @@ def _ensure_family_tables(engine):
         print("[FAMILY] Tables ensured")
     except Exception as exc:
         print(f"[FAMILY] Table init error: {exc}")
+
+
+def _ensure_web_auth_tables(engine):
+    """Create web auth tables (users + sessions) if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_users (
+                    id SERIAL PRIMARY KEY,
+                    login VARCHAR(64) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    display_name VARCHAR(100),
+                    gd_nickname VARCHAR(64),
+                    telegram_id BIGINT,
+                    lichess_nickname VARCHAR(64),
+                    is_admin BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_sessions (
+                    token VARCHAR(64) PRIMARY KEY,
+                    user_id INTEGER REFERENCES web_users(id) ON DELETE CASCADE,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_coin_log (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    amount INTEGER NOT NULL,
+                    description VARCHAR(255),
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_feedback (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    login VARCHAR(64),
+                    author_name VARCHAR(100),
+                    category VARCHAR(16) NOT NULL,
+                    module VARCHAR(64),
+                    message TEXT NOT NULL,
+                    status VARCHAR(16) DEFAULT 'open',
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_sessions_user ON web_sessions(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_coin_log_user ON web_coin_log(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_feedback_status ON web_feedback(status)"))
+            try:
+                conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
+            except Exception:
+                pass
+            conn.commit()
+        print("[AUTH] Tables ensured")
+    except Exception as exc:
+        print(f"[AUTH] Table init error: {exc}")
 
 
 def _save_verb_exercise(ex: dict):
@@ -1955,7 +2192,12 @@ def link_chess_account(user_id: int, lichess_username: str, force: bool = False)
 
 
 def _derive_puzzle_fen(pgn_text: str, initial_ply: int) -> str:
-    """Derive board FEN from puzzle PGN + initialPly (mirrored if black to move)."""
+    """Derive board FEN from puzzle PGN + initialPly.
+
+    The position shown to the solver is reached after `initial_ply + 1`
+    half-moves (Lichess `solution[0]` is legal from that position). If black
+    is to move, the board is mirrored so black sits at the bottom.
+    """
     try:
         import io
 
@@ -1968,7 +2210,7 @@ def _derive_puzzle_fen(pgn_text: str, initial_ply: int) -> str:
         board = pgn_game.board()
         moves = list(pgn_game.mainline_moves())
         for i, move in enumerate(moves):
-            if i >= initial_ply:
+            if i >= initial_ply + 1:
                 break
             board.push(move)
         if board.turn == chess.BLACK:
@@ -2005,7 +2247,7 @@ def _fetch_lichess_puzzle() -> dict | None:
             "themes": puzzle.get("themes", []),
             "solution": solution_moves,
             "fen": fen,
-            "turn": "Белых" if puzzle.get("initialPly", 0) % 2 == 0 else "Чёрных",
+            "turn": "Белых" if (puzzle.get("initialPly", 0) + 1) % 2 == 0 else "Чёрных",
             "initial_ply": puzzle.get("initialPly", 0),
             "link": f"https://lichess.org/training/{puzzle_id}",
         }
@@ -2616,8 +2858,8 @@ def index():
         .beta-toggle-content p { font-size: 14px; color: #888; }
         .beta-toggle-arrow { font-size: 18px; color: #ccc; transition: transform 0.2s; flex-shrink: 0; }
         .beta-toggle-arrow.open { transform: rotate(90deg); }
-        .beta-cards { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
-        .beta-cards.open { max-height: 800px; }
+        .beta-cards { display: none; }
+        .beta-cards.open { display: block; }
         .beta-cards .card:first-child { margin-top: 16px; }
         .card { display: flex; align-items: center; gap: 20px; background: white; padding: 24px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); text-decoration: none; transition: all 0.2s; text-align: left; }
         .card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.12); transform: translateY(-2px); }
@@ -2625,12 +2867,33 @@ def index():
         .card-content h2 { font-size: 18px; color: #1a1a2e; margin-bottom: 4px; }
         .card-content p { font-size: 14px; color: #888; }
         .beta-tag { display: inline-block; font-size: 10px; font-weight: 600; color: #e67e22; background: #fef3e2; padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+        .user-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #1a1a2e; color: #e0e0e0; padding: 12px 20px; border-radius: 12px; margin-bottom: 24px; font-size: 14px; }
+        .user-bar .user-info { display: flex; align-items: center; gap: 10px; }
+        .user-bar .user-avatar { width: 34px; height: 34px; border-radius: 50%; background: #e94560; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: white; flex-shrink: 0; }
+        .user-bar .user-name { font-weight: 600; }
+        .user-bar .user-sub { font-size: 12px; color: #888; }
+        .user-bar a { color: #e94560; text-decoration: none; font-weight: 600; }
+        .user-bar a:hover { text-decoration: underline; }
+        .user-bar .logout-btn { background: none; border: 1px solid #e94560; color: #e94560; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
+        .user-bar .logout-btn:hover { background: #e94560; color: white; }
+        .bug-fab { position: fixed; right: 20px; bottom: 20px; width: 54px; height: 54px; border-radius: 50%; background: #e94560; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(0,0,0,.4); z-index: 999; text-decoration: none; }
+        .bug-fab:hover { background: #d63851; transform: scale(1.08); }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>LTHub</h1>
         <p class="subtitle">Выберите сервис</p>
+        <div class="user-bar" id="user-bar">
+            <div class="user-info">
+                <div class="user-avatar" id="user-avatar">?</div>
+                <div>
+                    <div class="user-name" id="user-name">Загрузка...</div>
+                    <div class="user-sub" id="user-sub"></div>
+                </div>
+            </div>
+            <div id="user-actions"></div>
+        </div>
         <div class="cards">
             <div class="section-label">Основные</div>
             <a class="card" href="/ai_chat">
@@ -2721,6 +2984,20 @@ def index():
                         <p>Ежедневная молитва из канона</p>
                     </div>
                 </a>
+                <a class="card" href="/settings">
+                    <div class="card-icon">👨‍💼</div>
+                    <div class="card-content">
+                        <h2>Администрирование <span class="beta-tag">Бета</span></h2>
+                        <p>Пользователи, монеты, статистика, ошибки</p>
+                    </div>
+                </a>
+                <a class="card" href="/suggest">
+                    <div class="card-icon">💡</div>
+                    <div class="card-content">
+                        <h2>Предложения</h2>
+                        <p>Идеи по улучшению или сообщить о баге</p>
+                    </div>
+                </a>
             </div>
             <script>
                 function toggleBeta() {
@@ -2729,9 +3006,67 @@ def index():
                     cards.classList.toggle('open');
                     arrow.classList.toggle('open');
                 }
+
+                function loadUser() {
+                    var uid = localStorage.getItem('web_user_id');
+                    var token = localStorage.getItem('web_token');
+                    if (!uid || uid.indexOf('tg_') === 0) {
+                        uid = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+                        localStorage.setItem('web_user_id', uid);
+                    }
+                    var avatar = document.getElementById('user-avatar');
+                    var nameEl = document.getElementById('user-name');
+                    var subEl = document.getElementById('user-sub');
+                    var actionsEl = document.getElementById('user-actions');
+                    if (uid.indexOf('u') === 0 && token) {
+                        fetch('/api/auth/me', { headers: { 'X-Auth-Token': token } })
+                            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                            .then(function (res) {
+                                if (!res.ok) {
+                                    localStorage.removeItem('web_token');
+                                    localStorage.removeItem('web_user_id');
+                                    window.location.reload();
+                                    return;
+                                }
+                                var p = res.j;
+                                var name = p.display_name || p.login || 'Пользователь';
+                                avatar.textContent = name.charAt(0).toUpperCase();
+                                nameEl.textContent = name;
+                                subEl.textContent = '@' + p.login;
+                                actionsEl.innerHTML = '<a class="logout-btn" href="/settings">Настройки</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
+                            })
+                            .catch(function () {
+                                nameEl.textContent = 'Пользователь';
+                                subEl.textContent = 'Аккаунт';
+                                actionsEl.innerHTML = '<a class="logout-btn" href="/settings">Настройки</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
+                            });
+                    } else {
+                        avatar.textContent = uid.slice(4, 5).toUpperCase() || '?';
+                        nameEl.textContent = 'Аноним';
+                        subEl.textContent = 'Данные хранятся в браузере';
+                        actionsEl.innerHTML = '<a href="/register">Войти / Зарегистрироваться</a>';
+                    }
+                }
+                function logout() {
+                    var token = localStorage.getItem('web_token');
+                    if (token) {
+                        fetch('/api/auth/logout', { method: 'POST', headers: { 'X-Auth-Token': token } }).catch(function () {});
+                    }
+                    localStorage.removeItem('web_user_id');
+                    localStorage.removeItem('web_token');
+                    window.location.reload();
+                }
+                loadUser();
+                window.addEventListener('error', function() { showBugBtn(); });
+                window.addEventListener('unhandledrejection', function() { showBugBtn(); });
+                function showBugBtn() {
+                    var b = document.getElementById('bug-fab');
+                    if (b && b.style.display !== 'block') b.style.display = 'block';
+                }
             </script>
         </div>
     </div>
+    <a id="bug-fab" class="bug-fab" href="/suggest?type=bug&module=hub" title="Сообщить о баге" style="display:none">🐛</a>
 </body>
 </html>"""
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
@@ -2951,21 +3286,33 @@ def gd_page():
             var btn = document.getElementById('sub-btn');
             btn.disabled = true;
             out.innerHTML = '<p class="hint">📨 Отправка...</p>';
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/gd/submit');
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onload = function() {
-                btn.disabled = false;
-                try {
-                    var r = JSON.parse(xhr.responseText);
-                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
-                    out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
-                    document.getElementById('sub-level').value = '';
-                    document.getElementById('sub-name').value = '';
-                } catch(e) { out.innerHTML = '<p class="error">Ошибка отправки.</p>'; }
+            var doSubmit = function(finalName) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/gd/submit');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onload = function() {
+                    btn.disabled = false;
+                    try {
+                        var r = JSON.parse(xhr.responseText);
+                        if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                        out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
+                        document.getElementById('sub-level').value = '';
+                        document.getElementById('sub-name').value = '';
+                    } catch(e) { out.innerHTML = '<p class="error">Ошибка отправки.</p>'; }
+                };
+                xhr.onerror = function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
+                xhr.send(JSON.stringify({user_id: USER_ID, level_name: level, username: finalName, token: localStorage.getItem('web_token') || ''}));
             };
-            xhr.onerror = function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
-            xhr.send(JSON.stringify({user_id: USER_ID, level_name: level, username: name}));
+            if (name) { doSubmit(name); return; }
+            var token = localStorage.getItem('web_token');
+            if (!token) { doSubmit(''); return; }
+            fetch('/api/auth/me', { headers: { 'X-Auth-Token': token } })
+                .then(function(r) { return r.json(); })
+                .then(function(p) {
+                    if (p && !p.error && p.gd_nickname) { doSubmit(p.gd_nickname); }
+                    else { doSubmit(''); }
+                })
+                .catch(function() { doSubmit(''); });
         }
 
         function renderModeration(page) {
@@ -3130,7 +3477,14 @@ def api_gd_submit():
         return jsonify({"error": "Нет user_id"}), 400
     if not level_name:
         return jsonify({"error": "Укажите название уровня"}), 400
-    username = (data.get("username") or "").strip() or f"web_{uid}"
+    username = (data.get("username") or "").strip()
+    if not username:
+        token = (data.get("token") or "").strip()
+        web_user = _get_session_user(token or None)
+        if web_user and web_user.get("gd_nickname"):
+            username = web_user["gd_nickname"]
+    if not username:
+        username = f"web_{uid}"
     sub_id = create_gd_submission(uid, username, level_name, "", "", status="pending")
     if not sub_id:
         return jsonify({"error": "Ошибка создания заявки"}), 500
@@ -3202,6 +3556,366 @@ def api_gd_moderate_approve():
     if approve_gd_submission_db(sub_id, admin_id):
         return jsonify({"ok": True, "level_id": level_id})
     return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
+
+
+# ── D&D AI Master (web) ────────────────────────────────────────────
+
+def _dnd_plain(text: str) -> str:
+    """Strip Telegram HTML tags from D&D replies for clean web display."""
+    import re
+    return re.sub(r"<[^>]+>", "", text or "").strip()
+
+
+@app.route("/api/dnd/status")
+def api_dnd_status():
+    user_id_raw = request.args.get("user_id", "")
+    if not user_id_raw:
+        return jsonify({"error": "Нет user_id"}), 400
+    uid = _gd_web_uid(user_id_raw)
+    try:
+        from api.dnd_runtime import find_active_session, get_session_log, get_session_players
+        session = find_active_session(uid)
+        if not session:
+            return jsonify({"active": False})
+        sid = session["id"]
+        log = get_session_log(sid)
+        players = get_session_players(sid)
+        return jsonify({
+            "active": True,
+            "id": sid,
+            "name": session.get("name"),
+            "scene": session.get("current_scene") or "Новая игра",
+            "log_count": len(log),
+            "last_ai_response": (session.get("last_ai_response") or "")[:300],
+            "players": [
+                {
+                    "name": p.get("player_name") or p.get("name") or "Игрок",
+                    "char_class": p.get("character_class"),
+                    "level": p.get("level"),
+                }
+                for p in players
+            ],
+            "log": log,
+        })
+    except Exception as exc:
+        print(f"[DND] status error: {exc}")
+        log_error("DnD", "status_query", f"dnd status user={uid}: {exc}", "query: dnd status")
+        return jsonify({"active": False})
+
+
+@app.route("/api/dnd/start", methods=["POST"])
+def api_dnd_start():
+    data = request.get_json(silent=True) or {}
+    uid = _gd_web_uid(data.get("user_id", ""))
+    if uid is None:
+        return jsonify({"error": "Нет user_id"}), 400
+    name = (data.get("name") or "").strip()
+    from api.dnd_runtime import cmd_dnd_start
+    reply = cmd_dnd_start(uid, uid, name)
+    return jsonify({"ok": True, "reply": _dnd_plain(reply)})
+
+
+@app.route("/api/dnd/act", methods=["POST"])
+def api_dnd_act():
+    data = request.get_json(silent=True) or {}
+    uid = _gd_web_uid(data.get("user_id", ""))
+    if uid is None:
+        return jsonify({"error": "Нет user_id"}), 400
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Пустое действие"}), 400
+    from api.dnd_runtime import handle_free_text
+    reply = handle_free_text(uid, uid, text)
+    if reply is None:
+        return jsonify({"error": "Нет активной D&D сессии. Начните новую сессию."}), 400
+    return jsonify({"ok": True, "reply": _dnd_plain(reply)})
+
+
+@app.route("/api/dnd/roll", methods=["POST"])
+def api_dnd_roll():
+    data = request.get_json(silent=True) or {}
+    uid = _gd_web_uid(data.get("user_id", ""))
+    if uid is None:
+        return jsonify({"error": "Нет user_id"}), 400
+    dice = (data.get("dice") or "").strip()
+    purpose = (data.get("purpose") or "").strip()
+    if not dice:
+        return jsonify({"error": "Укажите кубик, например d20 или 2d6+3"}), 400
+    from api.dnd_runtime import cmd_dnd_roll
+    args = dice + (" " + purpose if purpose else "")
+    reply = cmd_dnd_roll(uid, uid, args)
+    return jsonify({"ok": True, "reply": _dnd_plain(reply)})
+
+
+@app.route("/api/dnd/stop", methods=["POST"])
+def api_dnd_stop():
+    data = request.get_json(silent=True) or {}
+    uid = _gd_web_uid(data.get("user_id", ""))
+    if uid is None:
+        return jsonify({"error": "Нет user_id"}), 400
+    try:
+        from api.dnd_runtime import cmd_dnd_stop
+        reply = cmd_dnd_stop(uid, uid)
+    except Exception as exc:
+        return jsonify({"error": f"Ошибка: {exc}"}), 500
+    return jsonify({"ok": True, "reply": _dnd_plain(reply)})
+
+
+@app.route("/api/dnd/fix", methods=["POST"])
+def api_dnd_fix():
+    data = request.get_json(silent=True) or {}
+    uid = _gd_web_uid(data.get("user_id", ""))
+    if uid is None:
+        return jsonify({"error": "Нет user_id"}), 400
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Пустой текст исправления"}), 400
+    from api.dnd_runtime import cmd_dnd_fix
+    reply = cmd_dnd_fix(uid, uid, text)
+    return jsonify({"ok": True, "reply": _dnd_plain(reply)})
+
+
+@app.route("/dnd")
+def dnd_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D&D AI Master — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; min-height: 100vh; color: #c9d1d9; padding: 20px; }
+        .container { max-width: 720px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #58a6ff; }
+        .header a { color: #8b949e; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: #58a6ff; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        .status-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .chip { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+        .chip b { color: #58a6ff; }
+        .log { max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+        .msg { padding: 10px 14px; border-radius: 10px; max-width: 85%; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+        .msg.user { background: #1f6feb; color: #fff; align-self: flex-end; }
+        .msg.ai { background: #161b22; border: 1px solid #30363d; align-self: flex-start; }
+        .msg.dice { background: #1a1f2e; border: 1px solid #d29922; color: #e3b341; align-self: flex-start; }
+        .msg.system { background: transparent; color: #8b949e; font-size: 12px; align-self: center; }
+        .input-row { display: flex; gap: 10px; margin-bottom: 12px; }
+        .input-row input { flex: 1; padding: 12px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; color: #c9d1d9; font-size: 15px; font-family: inherit; }
+        .input-row input:focus { outline: none; border-color: #58a6ff; }
+        .btn { padding: 12px 20px; border: none; border-radius: 8px; background: #238636; color: #fff; font-size: 15px; font-family: inherit; cursor: pointer; }
+        .btn:hover { background: #2ea043; }
+        .btn:disabled { opacity: 0.6; cursor: default; }
+        .btn-roll { background: #b06e28; }
+        .btn-roll:hover { background: #d29922; }
+        .btn-stop { background: #da3633; }
+        .btn-stop:hover { background: #f85149; }
+        .btn-fix { background: #1f6feb; }
+        .btn-fix:hover { background: #388bfd; }
+        .error { color: #f85149; margin-top: 10px; font-size: 14px; }
+        .hint { color: #8b949e; font-size: 14px; margin-top: 8px; }
+        .sec-label { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; font-weight: 600; }
+        #start-panel { display: block; }
+        #game-panel { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐉 D&D AI Master</h1>
+            <a href="/">← На главную</a>
+        </div>
+
+        <div id="start-panel">
+            <div class="card">
+                <div class="sec-label">Новая сессия</div>
+                <div class="input-row">
+                    <input type="text" id="campaign-name" placeholder="Название кампании (например: Проклятие подземелья)" onkeydown="if(event.key==='Enter')startSession()">
+                    <button class="btn" id="start-btn" onclick="startSession()">🎲 Начать</button>
+                </div>
+                <p class="hint">Напишите название кампании или оставьте пустым — бот создаст сессию и станет вашим мастером.</p>
+                <div id="start-result"></div>
+            </div>
+        </div>
+
+        <div id="game-panel">
+            <div class="card">
+                <div class="status-row" id="status-row"></div>
+                <div class="log" id="log"></div>
+            </div>
+            <div class="card">
+                <div class="sec-label">Ваше действие</div>
+                <div class="input-row">
+                    <input type="text" id="action-text" placeholder="Что вы делаете? Например: осматриваю пещеру" onkeydown="if(event.key==='Enter')sendAction()">
+                    <button class="btn" id="act-btn" onclick="sendAction()">➤</button>
+                </div>
+                <div class="sec-label">Бросок кубика</div>
+                <div class="input-row">
+                    <input type="text" id="dice-text" placeholder="d20 / 2d6+3" style="max-width:120px" onkeydown="if(event.key==='Enter')rollDice()">
+                    <input type="text" id="dice-purpose" placeholder="Зачем (например: Проверка восприятия)" onkeydown="if(event.key==='Enter')rollDice()">
+                    <button class="btn btn-roll" onclick="rollDice()">🎲</button>
+                </div>
+                <div class="sec-label">Исправление мастера</div>
+                <div class="input-row">
+                    <input type="text" id="fix-text" placeholder="Запомнить исправление: в этом мире нет магии" onkeydown="if(event.key==='Enter')sendFix()">
+                    <button class="btn btn-fix" onclick="sendFix()">✏️</button>
+                </div>
+                <div class="input-row">
+                    <button class="btn btn-stop" onclick="stopSession()">⏸ Остановить сессию</button>
+                </div>
+                <div id="game-result"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var USER_ID = localStorage.getItem('dnd_user_id');
+        if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('dnd_user_id', USER_ID); }
+        var urlParams = new URLSearchParams(window.location.search);
+        var qid = urlParams.get('user_id');
+        if (qid) { USER_ID = qid; localStorage.setItem('dnd_user_id', qid); }
+
+        function post(url, body, cb) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', url);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() { try { cb(JSON.parse(xhr.responseText)); } catch(e) { cb({error: 'Ошибка ответа сервера.'}); } };
+            xhr.onerror = function() { cb({error: 'Ошибка сети.'}); };
+            xhr.send(JSON.stringify(body));
+        }
+
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function showMsg(role, content) {
+            var log = document.getElementById('log');
+            var div = document.createElement('div');
+            div.className = 'msg ' + role;
+            div.textContent = content || '';
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function renderLog(log) {
+            var logEl = document.getElementById('log');
+            logEl.innerHTML = '';
+            log.forEach(function(m) {
+                var role = m.role;
+                if (role !== 'user' && role !== 'ai' && role !== 'dice') role = 'system';
+                showMsg(role, m.content);
+            });
+        }
+
+        function renderStatus(s) {
+            var chips = '<span class="chip">📜 <b>' + esc(s.name) + '</b></span>' +
+                        '<span class="chip">📖 Сцена: <b>' + esc(s.scene) + '</b></span>' +
+                        '<span class="chip">📝 Событий: <b>' + s.log_count + '</b></span>';
+            if (s.players && s.players.length) {
+                var names = s.players.map(function(p){ return esc(p.name) + ' (' + (p.char_class || '') + ' ' + (p.level || 1) + ')'; }).join(', ');
+                chips += '<span class="chip">👥 <b>' + esc(names) + '</b></span>';
+            }
+            document.getElementById('status-row').innerHTML = chips;
+        }
+
+        function refreshStatus() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/dnd/status?user_id=' + encodeURIComponent(USER_ID));
+            xhr.onload = function() {
+                if (xhr.status !== 200) { showStart('Не удалось загрузить статус сессии. Проверьте подключение.'); return; }
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (!r.active) { showStart(); return; }
+                    showGame();
+                    renderStatus(r);
+                    renderLog(r.log);
+                } catch(e) { showStart('Не удалось обработать ответ сервера.'); }
+            };
+            xhr.onerror = function() { showStart('Сетевая ошибка. Проверьте подключение.'); };
+            xhr.send();
+        }
+
+        function showStart(errMsg) {
+            document.getElementById('start-panel').style.display = 'block';
+            document.getElementById('game-panel').style.display = 'none';
+            var el = document.getElementById('start-result');
+            if (errMsg) { el.innerHTML = '<p class="error">' + esc(errMsg) + '</p>'; }
+            else { el.innerHTML = ''; }
+        }
+
+        function showGame() {
+            document.getElementById('start-panel').style.display = 'none';
+            document.getElementById('game-panel').style.display = 'block';
+        }
+
+        function startSession() {
+            var name = document.getElementById('campaign-name').value.trim();
+            var btn = document.getElementById('start-btn');
+            btn.disabled = true;
+            post('/api/dnd/start', {user_id: USER_ID, name: name}, function(r) {
+                btn.disabled = false;
+                if (r.error) { document.getElementById('start-result').innerHTML = '<p class="error">' + esc(r.error) + '</p>'; return; }
+                document.getElementById('start-result').innerHTML = '';
+                showGame();
+                document.getElementById('log').innerHTML = '';
+                showMsg('ai', r.reply);
+                refreshStatus();
+            });
+        }
+
+        function sendAction() {
+            var text = document.getElementById('action-text').value.trim();
+            if (!text) return;
+            var btn = document.getElementById('act-btn');
+            btn.disabled = true;
+            showMsg('user', text);
+            document.getElementById('action-text').value = '';
+            post('/api/dnd/act', {user_id: USER_ID, text: text}, function(r) {
+                btn.disabled = false;
+                if (r.error) { showMsg('system', '❌ ' + r.error); return; }
+                showMsg('ai', r.reply);
+                refreshStatus();
+            });
+        }
+
+        function rollDice() {
+            var dice = document.getElementById('dice-text').value.trim();
+            var purpose = document.getElementById('dice-purpose').value.trim();
+            if (!dice) return;
+            var btn = document.querySelector('.btn-roll');
+            btn.disabled = true;
+            post('/api/dnd/roll', {user_id: USER_ID, dice: dice, purpose: purpose}, function(r) {
+                btn.disabled = false;
+                if (r.error) { showMsg('system', '❌ ' + r.error); return; }
+                showMsg('dice', r.reply);
+                refreshStatus();
+            });
+        }
+
+        function sendFix() {
+            var text = document.getElementById('fix-text').value.trim();
+            if (!text) return;
+            post('/api/dnd/fix', {user_id: USER_ID, text: text}, function(r) {
+                if (r.error) { showMsg('system', '❌ ' + r.error); return; }
+                showMsg('system', r.reply);
+                document.getElementById('fix-text').value = '';
+            });
+        }
+
+        function stopSession() {
+            post('/api/dnd/stop', {user_id: USER_ID}, function(r) {
+                if (r.error) { showMsg('system', '❌ ' + r.error); return; }
+                showMsg('system', r.reply);
+                showStart();
+                document.getElementById('start-result').innerHTML = '';
+            });
+        }
+
+        refreshStatus();
+    </script>
+</body>
+</html>"""
+    return html
 
 
 @app.route("/health")
@@ -3669,30 +4383,30 @@ def endings_trainer():
 # Vercel trivia (no external imports)
 
 _TRIVIA_QUESTIONS: list[dict] = [
-    {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан", "explanation": "Реального Олега в каноническом творчестве называют только 'Олег' или 'Степан'."},
-    {"id": 2, "group": "rules", "text": "Что из перечисленного является строго ЗАПРЕЩЁННОЙ темой в каноническом творчестве?", "correct_text": "Внешность и медицинские диагнозы реальных людей", "explanation": "Строго запрещены темы внешности, семейных обстоятельств и медицинских диагнозов."},
-    {"id": 3, "group": "rules", "text": "Какой уровень канонизации требует обязательного одобрения и Луки, и Олега?", "correct_text": "Высокий канон (🔵)", "explanation": "Высокий канон полностью соответствует правилам и утверждается обеими сторонами."},
+    {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан", "explanation": "Реального Олега в каноническом творчестве называют только 'Олег' или 'Степан'.", "distractors": ["Лука или LucasTeam", "Рома или Никита", "Олеговирус"]},
+    {"id": 2, "group": "rules", "text": "Что из перечисленного является строго ЗАПРЕЩЁННОЙ темой в каноническом творчестве?", "correct_text": "Внешность и Медицинские диагнозы реальных людей", "explanation": "Строго запрещены темы внешности, семейных обстоятельств и медицинских диагнозов.", "distractors": ["Сюжеты фантастики", "Описание треков", "Шутки про чай"]},
+    {"id": 3, "group": "rules", "text": "Какой уровень канонизации требует обязательного одобрения и Луки, и Олега?", "correct_text": "Высокий канон (🔵)", "explanation": "Высокий канон полностью соответствует правилам и утверждается обеими сторонами.", "distractors": ["Средний канон (🟡)", "Игнорируемый канон (⚪)", "Фанатский фандом (💬)"]},
     {"id": 4, "group": "tracks", "text": "Какой трек является первым документом вселенной Олеговируса?", "correct_text": "«Рома» (Олег, 11 декабря 2025)", "explanation": "Трек «Рома» от 11 декабря 2025 — самый первый документ вселенной."},
     {"id": 5, "group": "tracks", "text": "В каком треке впервые прозвучал термин «олеговирус»?", "correct_text": "«Олег, как ты задолбал» (Лука, 26 декабря 2025)", "explanation": "Именно там появилась строка: «Ты не Олег, ты вирус в зале, Олеговирус — твой диагноз»."},
     {"id": 6, "group": "tracks", "text": "Кто из сторонних участников первым внёс вклад в мифологию, написав трек «Олеговирус»?", "correct_text": "Рома", "explanation": "Рома написал трек «Олеговирус» — первый случай вклада стороннего участника."},
-    {"id": 7, "group": "tracks", "text": "Какая статья впервые дала Олеговирусу научное описание с антигенами KHM и POST?", "correct_text": "«Olegovirus checkmarevus» (Лука, апрель 2026)", "explanation": "Статья описывает вокальные тики, антигены и 1000 личностей носителя."},
-    {"id": 24, "group": "tracks", "text": "Какие варианты проявления Олеговируса согласно статье «Olegovirus checkmarevus»?", "correct_text": "Все вышеперечисленные: вокальные тики, моторные тики и множественные личности", "explanation": "Статья «Olegovirus checkmarevus» описывает все три варианта: вокальные тики («кхм-кхм», «бум-бум», «тыц-тыц»), моторные тики (хлопанье в ладоши с качанием шеи) и множественные личности носителя (Степан, Иван, Олег-диктатор и ещё 997 неизученных)."},
+    {"id": 7, "group": "tracks", "text": "Какая статья впервые дала Олеговирусу научное описание с антигенами KHM и POST?", "correct_text": "«Olegovarious checkmarevus» (Лука, апрель 2026)", "explanation": "Статья описывает вокальные тики, антигены и 1000 личностей носителя."},
+    {"id": 24, "group": "tracks", "text": "Какие варианты проявления Олеговируса согласно статье «Olegovarious checkmarevus»?", "correct_text": "Все вышеперечисленные: вокальные тики, моторные тики и множественные личности", "explanation": "Статья «Olegovarious checkmarevus» описывает все три варианта: вокальные тики («кхм-кхм», «бум-бум», «тыц-тыц»), моторные тики (хлопанье в ладоши с качанием шеи) и множественные личности носителя (Степан, Иван, Олег-диктатор и ещё 997 неизученных)."},
     {"id": 8, "group": "tracks", "text": "Почему трек «Вирус LucasTeamLuke» признан неканоничным?", "correct_text": "Нарушает именование (LucasTeamLuke) и упоминает внешность", "explanation": "Трек использует LucasTeamLuke вместо «Лука»/«LucasTeam» и содержит намёки на внешность."},
     {"id": 9, "group": "tracks", "text": "Какая статья Олега описывает LTL-паразита с синдромами СГД и СНЧ, но требует переработки из-за внешности?", "correct_text": "«LukasTeamLuke sp. nov.» (средний канон, 🟡)", "explanation": "Статья содержит «рыжие волосы, прикус, белую кожу» — противоречит канону, ждёт переработки."},
-    {"id": 10, "group": "tracks", "text": "В каких отношениях состоят олеговирус и LTL-паразит согласно статье «Olegovirus checkmarevus»?", "correct_text": "Союзничество-конкурентство", "explanation": "Они находятся в отношениях «союзничества-конкурентства»."},
-    {"id": 11, "group": "tracks", "text": "Какой трек Ромы впервые сводит обоих агентов (олеговирус и LTL-паразита) в одном пространстве?", "correct_text": "«Тень агента (V.2)» (апрель 2026)", "explanation": "Трек содержит отсылки к обоим: «кхм-кхм» Олеговируса и «забытый чайной настой» LTL-паразита. Высокий канон."},
+    {"id": 10, "group": "tracks", "text": "В каких отношениях состоят олеговирус и LTL-паразит согласно статье «Olegovarious checkmarevus»?", "correct_text": "Союзничество-конкурентство", "explanation": "Они находятся в отношениях «союзничества-конкурентства»."},
+    {"id": 11, "group": "tracks", "text": "Какой трек Ромы впервые сводит обоих агентов (олеговирус и LTL-паразита) в одном пространстве?", "correct_text": "«Тень агента (V.2)» (апрель 2026)", "explanation": "Трек содержит отсылки к обоим: «кхм-кхм» Олеговируса и «забытый чайный настой» LTL-паразита. Высокий канон."},
     {"id": 12, "group": "candy", "text": "Какая базовая награда конфетами за прохождение Nine Circles?", "correct_text": "1 конфета за 2% прохождения", "explanation": "Базовое правило: 1 конфета за 2% прогресса."},
     {"id": 13, "group": "candy", "text": "Сколько конфет полагается за 1% на сложных партах (61-70%) Nine Circles?", "correct_text": "1 конфета за 1% прохождения", "explanation": "Для сложных партов (61-70%) награда удваивается — 1 конфета за 1%."},
     {"id": 14, "group": "candy", "text": "Кто такой «Хранитель конфет» в конфетной экономике?", "correct_text": "Лука (отказался от своей награды в 28 конфет)", "explanation": "Лука набрал 56% прогресса (≈28 конфет), но отказался от награды в пользу других."},
     {"id": 15, "group": "candy", "text": "Сколько конфет получил Рома после «инфляции счастья» (умножение на 1.5, округление вверх)?", "correct_text": "16 конфет", "explanation": "После умножения всех наград на 1.5 и округления вверх: Рома — 16, Никита — 11, Антон — 5."},
-    {"id": 16, "group": "tea", "text": "Каким священным выражением заканчиваются молитвы в Чайной религии (Teaology)?", "correct_text": "eight-nine", "explanation": "Любая молитва завершается сакральным «eight-nine»."},
-    {"id": 17, "group": "tea", "text": "Кто автор и создатель Чайной религии (Teaology)?", "correct_text": "Лука (LucasTeam, 27 апреля 2026)", "explanation": "Лука опубликовал катехизис культа 27 апреля. Высокий канон."},
+    {"id": 16, "group": "tea", "text": "Каким священным выражением заканчиваются молитвы в Чайной религии (Teaology)?", "correct_text": "eight-nine", "explanation": "Любая молитва завершается сакральным «eight-nine».", "distractors": ["eight-eight", "nine-eight", "eight-tea"]},
+    {"id": 17, "group": "tea", "text": "Кто автор и создатель Чайной религии (Teaology)?", "correct_text": "Лука (LucasTeam, 27 апреля 2026)", "explanation": "Лука принял катехизис культа 27 апреля. Высокий канон.", "distractors": ["Олег", "Рома", "Никита"]},
     {"id": 18, "group": "tracks", "text": "Какой трек Луки стал первым «бытовым» произведением в каноне (3 мая 2026)?", "correct_text": "«Восемь километров (походный дневник)»", "explanation": "Лирический репортаж о лесе, мокрых кроссах и усталости, с отсылками к чайной религии. Высокий канон."},
-    {"id": 19, "group": "ltrs", "text": "Какие координаты (хаос; экспрессивность) у Луки в рейтинге LTRS?", "correct_text": "(10; 46) — ритуальный экспрессив", "explanation": "Лука: минимальный хаос (10), максимальная экспрессивность (46)."},
-    {"id": 20, "group": "ltrs", "text": "Кто в рейтинге LTRS имеет тип личности «мемный экспрессив»?", "correct_text": "Рома (23; 26)", "explanation": "Рома определён как «мемный экспрессив» — хаос выше среднего, экспрессивность средняя."},
-    {"id": 21, "group": "glossary", "text": "Что такое «антиген KHM» в терминологии Олеговируса?", "correct_text": "Реакция «закатывание глаз» у окружающих", "explanation": "Антиген KHM — один из двух антигенов Олеговируса, вызывает реакцию «закатывание глаз»."},
-    {"id": 22, "group": "glossary", "text": "Что в глоссарии канона означает термин «Парадокс ожидания»?", "correct_text": "Бронь парта сгорает, его проходит Хранитель конфет", "explanation": "Парадокс ожидания: забронированный парт долго ждёт игрока, и в итоге его проходит Хранитель конфет."},
-    {"id": 23, "group": "glossary", "text": "Кто в глоссарии LTRS определяется как «Пассивный изолят»?", "correct_text": "Саша (15; 14)", "explanation": "Саша: средний пассивный хаос (15), низкая экспрессивность (14) — «пассивный изолят»."},
+    {"id": 19, "group": "ltrs", "text": "Какие координаты (хаос; экспрессивность) у Луки в рейтинге LTRS?", "correct_text": "(10; 46) — ритуальный экспрессив", "explanation": "Лука: минимальная хаос (10), максимальная экспрессивность (46).", "distractors": ["Рома (23; 26) — мемный экспрессив", "Саша (15; 14) — пассивный изолят", "Никита (18; 40) — активный харизматик"]},
+    {"id": 20, "group": "ltrs", "text": "Кто в рейтинге LTRS имеет тип личности «мемный экспрессив»?", "correct_text": "Рома (23; 26)", "explanation": "Рома определён как «мемный экспрессив» — хаос выше среднего, экспрессивность средняя.", "distractors": ["Лука (10; 46)", "Олег (5; 12)", "Никита (18; 40)"]},
+    {"id": 21, "group": "glossary", "text": "Что такое «антиген KHM» в терминологии Олеговируса?", "correct_text": "Реакция «закатывание глаз» у окружающих", "explanation": "Антиген KHM — один из двух антигенов Олеговируса, вызывает реакцию «закатывание глаз».", "distractors": ["Хлопанье в ладоши", "Вокальный тик «бум-бум»", "Приступ смеха"]},
+    {"id": 22, "group": "glossary", "text": "Что в глоссарии канона означает термин «Парадокс ожидания»?", "correct_text": "Бронь парта сгорает, его проходит Хранитель конфет", "explanation": "Парадокс ожидания: забронированный парт долго ждёт игрока, и в итоге его проходит Хранитель конфет.", "distractors": ["Парт проходится со скидкой", "Парт считается за две конфеты", "Парт требует жертвы Олеговируса"]},
+    {"id": 23, "group": "glossary", "text": "Кто в глоссарии LTRS определяется как «Пассивный изолят»?", "correct_text": "Саша (15; 14)", "explanation": "Саша: средний пассивный хаос (15), низкая экспрессивность (14) — «пассивный изолят».", "distractors": ["Лука (10; 46)", "Рома (23; 26)", "Никита (18; 40)"]},
 ]
 
 # In-memory storage for generated questions (question_id -> {options, correct_index, explanation})
@@ -4481,8 +5195,8 @@ var CHARS = __CHARS_JSON__;
     var welcomeMsg = document.getElementById('welcome-msg');
     var chatHistory = [];
     var pendingFiles = [];
-    var USER_ID = localStorage.getItem('ai_user_id');
-    if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('ai_user_id', USER_ID); }
+    var USER_ID = localStorage.getItem('web_user_id');
+    if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
 
     function updateCharInfo() {
         var key = charSelect.value;
@@ -5102,6 +5816,1294 @@ def api_chess_puzzle_check():
     return jsonify({"correct": correct, "move": first_move})
 
 
+# ===== Web Auth (Register / Login) =====
+
+@app.route("/register")
+def register_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { max-width: 460px; width: 100%; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 32px; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #e94560; }
+        .header p { color: #888; font-size: 14px; margin-top: 8px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+        .form-group label .req { color: #e94560; }
+        .form-group label .opt { color: #888; font-weight: 400; }
+        .form-group input { width: 100%; padding: 12px 14px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; }
+        .form-group input:focus { outline: none; border-color: #e94560; }
+        .divider { height: 1px; background: #1a5276; margin: 20px 0; }
+        .btn { width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        .btn:hover { background: #d63851; }
+        .btn:disabled { background: #555; cursor: not-allowed; }
+        .btn-secondary { background: #0f3460; color: #e0e0e0; margin-top: 12px; }
+        .btn-secondary:hover { background: #1a5276; }
+        .info-box { background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; padding: 14px; margin-top: 16px; font-size: 13px; color: #888; line-height: 1.5; }
+        .info-box strong { color: #e94560; }
+        .link { color: #e94560; text-decoration: none; }
+        .link:hover { text-decoration: underline; }
+        .back-link { display: inline-block; margin-top: 20px; color: #888; text-decoration: none; font-size: 14px; }
+        .back-link:hover { color: #e94560; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1b5e20; color: white; padding: 12px 24px; border-radius: 10px; display: none; z-index: 100; }
+        .toast.error { background: #b71c1c; }
+        @media (max-width: 480px) { .card { padding: 24px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <div class="header">
+            <h1>LTHub</h1>
+            <p>Регистрация для синхронизации данных между устройствами</p>
+        </div>
+        <div class="form-group">
+            <label>Логин <span class="req">*</span></label>
+            <input type="text" id="reg-login" placeholder="например: lucas" autocomplete="username">
+        </div>
+        <div class="form-group">
+            <label>Пароль <span class="req">*</span></label>
+            <input type="password" id="reg-password" placeholder="минимум 6 символов" autocomplete="new-password">
+        </div>
+        <div class="divider"></div>
+        <div class="form-group">
+            <label>Имя <span class="opt">(необязательно)</span></label>
+            <input type="text" id="reg-name" placeholder="если пусто — будет логин" autocomplete="nickname">
+        </div>
+        <div class="form-group">
+            <label>Geometry Dash nickname <span class="opt">(необязательно)</span></label>
+            <input type="text" id="reg-gd" placeholder="например: lucasGD" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label>Telegram ID <span class="opt">(необязательно)</span></label>
+            <input type="number" id="reg-tg" placeholder="123456789" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label>Lichess nickname <span class="opt">(необязательно)</span></label>
+            <input type="text" id="reg-lichess" placeholder="например: lucas_chess" autocomplete="off">
+        </div>
+        <button class="btn" onclick="doRegister()">Зарегистрироваться</button>
+        <div class="info-box">
+            <strong>Уже есть аккаунт?</strong>
+            <a class="link" href="/login">Войти</a>
+            <br><br>
+            Опциональные поля можно заполнить позже в <a class="link" href="/settings">настройках</a>.
+            Анонимный режим по-прежнему работает без регистрации.
+        </div>
+        <a href="/" class="back-link">← На главную</a>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+    function showToast(msg, error) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast' + (error ? ' error' : '');
+        t.style.display = 'block';
+        setTimeout(function() { t.style.display = 'none'; }, 3500);
+    }
+    function doRegister() {
+        var login = document.getElementById('reg-login').value.trim();
+        var password = document.getElementById('reg-password').value;
+        if (!login || !password) { showToast('Логин и пароль обязательны', true); return; }
+        if (password.length < 6) { showToast('Пароль минимум 6 символов', true); return; }
+        var payload = {
+            login: login,
+            password: password,
+            display_name: document.getElementById('reg-name').value.trim() || null,
+            gd_nickname: document.getElementById('reg-gd').value.trim() || null,
+            telegram_id: document.getElementById('reg-tg').value.trim() ? parseInt(document.getElementById('reg-tg').value.trim()) : null,
+            lichess_nickname: document.getElementById('reg-lichess').value.trim() || null
+        };
+        document.querySelector('.btn').disabled = true;
+        fetch('/api/auth/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); }).then(function(r) {
+            document.querySelector('.btn').disabled = false;
+            if (r.error) { showToast(r.error, true); }
+            else {
+                localStorage.setItem('web_user_id', 'u' + r.user_id);
+                localStorage.setItem('web_token', r.token);
+                showToast('Аккаунт создан!');
+                setTimeout(function() { window.location.href = '/'; }, 800);
+            }
+        }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
+    }
+</script>
+</body>
+</html>"""
+    return html
+
+
+@app.route("/login")
+def login_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { max-width: 420px; width: 100%; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 32px; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #e94560; }
+        .header p { color: #888; font-size: 14px; margin-top: 8px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+        .form-group input { width: 100%; padding: 12px 14px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; }
+        .form-group input:focus { outline: none; border-color: #e94560; }
+        .btn { width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        .btn:hover { background: #d63851; }
+        .btn:disabled { background: #555; cursor: not-allowed; }
+        .btn-secondary { background: #0f3460; color: #e0e0e0; margin-top: 12px; }
+        .btn-secondary:hover { background: #1a5276; }
+        .link { color: #e94560; text-decoration: none; }
+        .link:hover { text-decoration: underline; }
+        .back-link { display: inline-block; margin-top: 20px; color: #888; text-decoration: none; font-size: 14px; }
+        .back-link:hover { color: #e94560; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1b5e20; color: white; padding: 12px 24px; border-radius: 10px; display: none; z-index: 100; }
+        .toast.error { background: #b71c1c; }
+        @media (max-width: 480px) { .card { padding: 24px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <div class="header">
+            <h1>LTHub</h1>
+            <p>Вход в аккаунт</p>
+        </div>
+        <div class="form-group">
+            <label>Логин</label>
+            <input type="text" id="login-login" placeholder="ваш логин" autocomplete="username">
+        </div>
+        <div class="form-group">
+            <label>Пароль</label>
+            <input type="password" id="login-password" placeholder="ваш пароль" autocomplete="current-password">
+        </div>
+        <button class="btn" onclick="doLogin()">Войти</button>
+        <div class="info-box" style="margin-top:16px">
+            Нет аккаунта? <a class="link" href="/register">Зарегистрироваться</a>
+        </div>
+        <a href="/" class="back-link">← На главную</a>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+    function showToast(msg, error) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast' + (error ? ' error' : '');
+        t.style.display = 'block';
+        setTimeout(function() { t.style.display = 'none'; }, 3500);
+    }
+    function doLogin() {
+        var login = document.getElementById('login-login').value.trim();
+        var password = document.getElementById('login-password').value;
+        if (!login || !password) { showToast('Введите логин и пароль', true); return; }
+        document.querySelector('.btn').disabled = true;
+        fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({login: login, password: password})
+        }).then(function(r) { return r.json(); }).then(function(r) {
+            document.querySelector('.btn').disabled = false;
+            if (r.error) { showToast(r.error, true); }
+            else {
+                localStorage.setItem('web_user_id', 'u' + r.user_id);
+                localStorage.setItem('web_token', r.token);
+                showToast('Вход выполнен!');
+                setTimeout(function() { window.location.href = '/'; }, 800);
+            }
+        }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
+    }
+    document.getElementById('login-password').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+</script>
+</body>
+</html>"""
+    return html
+
+
+@app.route("/suggest")
+def suggest_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Предложения — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 560px; width: 100%; margin: 0 auto; padding-top: 20px; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 28px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+        .seg { display: flex; gap: 8px; margin-bottom: 16px; }
+        .seg button { flex: 1; padding: 12px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; color: #e0e0e0; font-size: 14px; font-weight: 600; cursor: pointer; }
+        .seg button.on { background: #e94560; border-color: #e94560; color: #fff; }
+        .form-group textarea, .form-group input, .form-group select { width: 100%; padding: 12px 14px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; font-family: inherit; }
+        .form-group textarea { min-height: 120px; resize: vertical; }
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { outline: none; border-color: #e94560; }
+        .btn { width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        .btn:hover { background: #d63851; }
+        .btn:disabled { background: #555; cursor: not-allowed; }
+        .hint { margin-top: 16px; font-size: 13px; color: #888; line-height: 1.5; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1b5e20; color: white; padding: 12px 24px; border-radius: 10px; display: none; z-index: 100; }
+        .toast.error { background: #b71c1c; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Предложения</h1>
+        <a href="/">На главную</a>
+    </div>
+    <div class="card">
+        <div class="seg">
+            <button id="seg-bug" class="on" onclick="setCat('bug')">🐛 Сообщить о баге</button>
+            <button id="seg-suggestion" onclick="setCat('suggestion')">💡 Предложение</button>
+        </div>
+        <div class="form-group">
+            <label>Раздел</label>
+            <select id="fb-module"></select>
+        </div>
+        <div class="form-group">
+            <label>Текст</label>
+            <textarea id="fb-text" placeholder="Опишите проблему или идею..."></textarea>
+        </div>
+        <button class="btn" onclick="sendFeedback()">Отправить</button>
+        <div class="hint">
+            Для предложения: что бы вы хотели улучшить и почему.<br>
+            Для бага: напишите, что делали и что произошло — это поможет быстрее исправить.
+        </div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+    var category = 'bug';
+    var MODULES = [
+        ['', '— выберите раздел —'],
+        ['hub', 'Главная / хаб'],
+        ['verbs', 'Практика глаголов'],
+        ['reading', 'Тренажёр чтения'],
+        ['endings', 'Тренажёр окончаний'],
+        ['family', 'Family Circle'],
+        ['daily_prayer', 'Молитва дня'],
+        ['gd', 'Geometry Dash'],
+        ['chess', 'Шахматы'],
+        ['budget', 'Семейный бюджет'],
+        ['auth', 'Вход / регистрация / настройки'],
+        ['other', 'Другое']
+    ];
+    function showToast(msg, error) {
+        var t = document.getElementById('toast');
+        t.textContent = msg; t.className = 'toast' + (error ? ' error' : ''); t.style.display = 'block';
+        setTimeout(function() { t.style.display = 'none'; }, 3000);
+    }
+    function setCat(c) {
+        category = c;
+        document.getElementById('seg-bug').className = c === 'bug' ? 'on' : '';
+        document.getElementById('seg-suggestion').className = c === 'suggestion' ? 'on' : '';
+    }
+    function sendFeedback() {
+        var module = document.getElementById('fb-module').value;
+        var message = document.getElementById('fb-text').value.trim();
+        if (!module) { showToast('Выберите раздел', true); return; }
+        if (!message) { showToast('Введите текст', true); return; }
+        document.querySelector('.btn').disabled = true;
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': localStorage.getItem('web_token') || '' },
+            body: JSON.stringify({ category: category, module: module, message: message })
+        }).then(function(r) { return r.json(); }).then(function(r) {
+            document.querySelector('.btn').disabled = false;
+            if (r.error) { showToast(r.error, true); }
+            else { showToast('Спасибо! Отправлено'); document.getElementById('fb-text').value = ''; setTimeout(function() { window.location.href = '/'; }, 1500); }
+        }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
+    }
+    (function() {
+        var sel = document.getElementById('fb-module');
+        var params = new URLSearchParams(window.location.search);
+        var preModule = params.get('module') || '';
+        var preCat = params.get('type') || 'bug';
+        setCat(preCat === 'suggestion' ? 'suggestion' : 'bug');
+        sel.innerHTML = MODULES.map(function(m) { return '<option value="' + m[0] + '">' + m[1] + '</option>'; }).join('');
+        if (preModule) sel.value = preModule;
+        var preMsg = params.get('msg');
+        if (preMsg) document.getElementById('fb-text').value = decodeURIComponent(preMsg);
+    })();
+</script>
+</body>
+</html>"""
+    return html
+
+
+@app.route("/settings")
+def settings_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройки — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 460px; width: 100%; margin: 0 auto; padding-top: 20px; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 28px; margin-bottom: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+        .form-group label .opt { color: #888; font-weight: 400; }
+        .form-group input, .form-group select { width: 100%; padding: 12px 14px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; }
+        .form-group input:focus { outline: none; border-color: #e94560; }
+        .btn { width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        .btn:hover { background: #d63851; }
+        .btn:disabled { background: #555; cursor: not-allowed; }
+        .btn.small { width: auto; padding: 8px 14px; font-size: 13px; margin-top: 0; }
+        .btn.gray { background: #33415e; }
+        .btn.gray:hover { background: #42547a; }
+        .btn.green { background: #1b5e20; }
+        .btn.green:hover { background: #216926; }
+        .missing { background: #3e2723; border: 1px solid #b71c1c; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #ef9a9a; line-height: 1.5; }
+        .missing b { color: #ffcdd2; }
+        .admin-title { font-size: 20px; color: #e94560; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .admin-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+        .admin-tabs button { flex: 1; min-width: 130px; padding: 10px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; color: #e0e0e0; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .admin-tabs button.on { background: #e94560; border-color: #e94560; color: white; }
+        .admin-panel { display: none; }
+        .admin-panel.on { display: block; }
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+        .stat-box { background: #0a1628; border: 1px solid #1a5276; border-radius: 12px; padding: 16px; text-align: center; }
+        .stat-box .num { font-size: 26px; font-weight: 700; color: #e94560; }
+        .stat-box .lbl { font-size: 12px; color: #aaa; margin-top: 4px; }
+        .table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+        .table th, .table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #1a5276; }
+        .table th { color: #aaa; font-weight: 600; }
+        .search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .search-row input { flex: 1; }
+        .err-list { max-height: 260px; overflow-y: auto; }
+        .err-item { background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 12px; }
+        .err-item .t { color: #e94560; font-weight: 600; margin-bottom: 3px; }
+        .err-item .d { color: #aaa; line-height: 1.4; word-break: break-word; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1b5e20; color: white; padding: 12px 24px; border-radius: 10px; display: none; z-index: 100; }
+        .toast.error { background: #b71c1c; }
+        @media (max-width: 480px) { .card { padding: 20px; } .stat-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Настройки</h1>
+        <a href="/">На главную</a>
+    </div>
+    <div class="card">
+        <div id="missing-box"></div>
+        <div class="form-group">
+            <label>Логин</label>
+            <input type="text" id="set-login" disabled style="opacity:0.6">
+        </div>
+        <div class="form-group">
+            <label>Имя <span class="opt">(если пусто — будет логин)</span></label>
+            <input type="text" id="set-name" placeholder="ваше имя">
+        </div>
+        <div class="form-group">
+            <label>Geometry Dash nickname</label>
+            <input type="text" id="set-gd" placeholder="например: lucasGD">
+        </div>
+        <div class="form-group">
+            <label>Telegram ID</label>
+            <input type="number" id="set-tg" placeholder="123456789">
+        </div>
+        <div class="form-group">
+            <label>Lichess nickname</label>
+            <input type="text" id="set-lichess" placeholder="например: lucas_chess">
+        </div>
+        <button class="btn" onclick="saveSettings()">Сохранить</button>
+    </div>
+    <div class="card" id="admin-card" style="display:none">
+        <div class="admin-title">Администрирование</div>
+        <div class="admin-tabs">
+            <button id="tab-stats" class="on" onclick="showTab('stats')">Статистика</button>
+            <button id="tab-users" onclick="showTab('users')">Пользователи</button>
+            <button id="tab-coins" onclick="showTab('coins')">Начислить монеты</button>
+            <button id="tab-errors" onclick="showTab('errors')">Ошибки</button>
+            <button id="tab-feedback" onclick="showTab('feedback')">Предложения</button>
+        </div>
+        <div id="panel-stats" class="admin-panel on">
+            <div class="stat-grid">
+                <div class="stat-box"><div class="num" id="st-users">–</div><div class="lbl">Пользователей</div></div>
+                <div class="stat-box"><div class="num" id="st-admins">–</div><div class="lbl">Админов</div></div>
+                <div class="stat-box"><div class="num" id="st-errors">–</div><div class="lbl">Ошибок</div></div>
+                <div class="stat-box"><div class="num" id="st-coins">–</div><div class="lbl">Монет в системе</div></div>
+            </div>
+            <p style="font-size:12px;color:#aaa;margin-top:8px">Последние ошибки появятся на вкладке «Ошибки».</p>
+        </div>
+        <div id="panel-users" class="admin-panel">
+            <div class="search-row">
+                <input type="text" id="user-search" placeholder="Поиск по логину/имени..." oninput="searchUsers()">
+            </div>
+            <table class="table">
+                <thead><tr><th>Логин</th><th>Имя</th><th>Монеты</th><th>Админ</th></tr></thead>
+                <tbody id="users-tbody"></tbody>
+            </table>
+        </div>
+        <div id="panel-coins" class="admin-panel">
+            <div class="form-group">
+                <label>Пользователь</label>
+                <select id="coin-user"></select>
+            </div>
+            <div class="form-group">
+                <label>Количество монет</label>
+                <input type="number" id="coin-amount" value="10" min="1">
+            </div>
+            <div class="form-group">
+                <label>Описание</label>
+                <input type="text" id="coin-desc" placeholder="например: бонус за активность">
+            </div>
+            <button class="btn green" onclick="awardCoins()">Начислить</button>
+        </div>
+        <div id="panel-errors" class="admin-panel">
+            <div class="err-list" id="errors-list"></div>
+            <button class="btn gray" style="margin-top:12px" onclick="clearErrors()">Очистить ошибки</button>
+        </div>
+        <div id="panel-feedback" class="admin-panel">
+            <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+                <button class="btn small green" onclick="loadFeedback()">Все</button>
+                <button class="btn small gray" onclick="loadFeedback('bug')">Баг</button>
+                <button class="btn small gray" onclick="loadFeedback('suggestion')">Предложения</button>
+                <button class="btn small gray" onclick="loadFeedback('open')">Открытые</button>
+            </div>
+            <div id="feedback-list" class="err-list"></div>
+        </div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+    var token = localStorage.getItem('web_token');
+    var uid = localStorage.getItem('web_user_id');
+    function showToast(msg, error) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast' + (error ? ' error' : '');
+        t.style.display = 'block';
+        setTimeout(function() { t.style.display = 'none'; }, 3000);
+    }
+    function loadProfile() {
+        if (!token) {
+            showToast('Вы не вошли в аккаунт', true);
+            setTimeout(function() { window.location.href = '/login'; }, 1200);
+            return;
+        }
+        fetch('/api/auth/me', {headers: {'X-Auth-Token': token}})
+            .then(function(r) { return r.json(); })
+            .then(function(p) {
+                if (p.error) { showToast(p.error, true); setTimeout(function() { window.location.href = '/login'; }, 1200); return; }
+                document.getElementById('set-login').value = p.login || '';
+                document.getElementById('set-name').value = p.display_name || '';
+                document.getElementById('set-gd').value = p.gd_nickname || '';
+                document.getElementById('set-tg').value = p.telegram_id || '';
+                document.getElementById('set-lichess').value = p.lichess_nickname || '';
+                renderMissing(p);
+                renderAdmin(p);
+            })
+            .catch(function() { showToast('Ошибка сети', true); });
+    }
+    function renderAdmin(p) {
+        var card = document.getElementById('admin-card');
+        if (!p.is_admin) { card.style.display = 'none'; return; }
+        card.style.display = 'block';
+        loadStats();
+        loadUsers();
+        loadErrors();
+    }
+    function showTab(name) {
+        ['stats','users','coins','errors','feedback'].forEach(function(t) {
+            document.getElementById('tab-' + t).className = (t === name) ? 'on' : '';
+            document.getElementById('panel-' + t).className = 'admin-panel' + (t === name ? ' on' : '');
+        });
+        if (name === 'coins' && !document.getElementById('coin-user').options.length) loadCoinUsers();
+        if (name === 'feedback') loadFeedback();
+    }
+    function loadFeedback(kind) {
+        var url = '/api/admin/feedback';
+        if (kind && kind !== 'open') url += '?status=' + kind;
+        adminFetch(url, {}, function(j) {
+            var list = j.items || [];
+            var el = document.getElementById('feedback-list');
+            if (!list.length) { el.innerHTML = '<p style="color:#888;font-size:13px">Пусто</p>'; return; }
+            el.innerHTML = list.map(function(f) {
+                var tag = f.category === 'bug' ? '<span style="color:#e94560">🐛 Баг</span>' : '<span style="color:#58a6ff">💡 Предложение</span>';
+                var status = f.status === 'open' ? '<span style="color:#e3b341"> (открыт)</span>' : '';
+                var author = f.author_name || f.login || 'аноним';
+                return '<div class="err-item"><div class="t">' + tag + status + ' · ' + esc(author) + (f.module ? ' · ' + esc(f.module) : '') + '</div>' +
+                    '<div class="d">' + esc(f.message) + '</div>' +
+                    '<button class="btn small gray" style="margin-top:6px" onclick="deleteFeedback(' + f.id + ')">Удалить</button></div>';
+            }).join('');
+        });
+    }
+    function deleteFeedback(id) {
+        adminFetch('/api/admin/feedback/' + id, {method: 'DELETE'}, function() { showToast('Удалено'); loadFeedback(); });
+    }
+    function adminFetch(url, opts, ok, fail) {
+        opts = opts || {};
+        (opts.headers = opts.headers || {})['X-Auth-Token'] = token;
+        fetch(url, opts).then(function(r) { return r.json(); }).then(function(j) {
+            if (j.error) { showToast(j.error, true); if (fail) fail(j); }
+            else ok(j);
+        }).catch(function() { showToast('Ошибка сети', true); });
+    }
+    function loadStats() {
+        adminFetch('/api/admin/stats', {}, function(s) {
+            document.getElementById('st-users').textContent = s.web_users != null ? s.web_users : '–';
+            document.getElementById('st-admins').textContent = s.web_admins != null ? s.web_admins : '–';
+            document.getElementById('st-errors').textContent = s.error_count != null ? s.error_count : '–';
+            document.getElementById('st-coins').textContent = s.total_coins != null ? s.total_coins : '–';
+        });
+    }
+    function searchUsers() {
+        var q = document.getElementById('user-search').value.trim();
+        adminFetch('/api/admin/users?q=' + encodeURIComponent(q), {}, function(j) { renderUsers(j.users || []); });
+    }
+    function renderUsers(list) {
+        var tbody = document.getElementById('users-tbody');
+        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" style="color:#888">Никого не найдено</td></tr>'; return; }
+        tbody.innerHTML = list.map(function(u) {
+            return '<tr><td>' + esc(u.login) + '</td><td>' + esc(u.display_name || '') + '</td><td>' + (u.coins || 0) + '</td>' +
+                '<td><button class="btn small ' + (u.is_admin ? 'gray' : 'green') + '" onclick="toggleAdmin(' + u.id + ')">' + (u.is_admin ? 'Снять' : 'Дать') + '</button></td></tr>';
+        }).join('');
+    }
+    function loadUsers() {
+        adminFetch('/api/admin/users?q=', function(j) { renderUsers(j.users || []); });
+    }
+    function loadCoinUsers() {
+        adminFetch('/api/admin/users?q=', function(j) {
+            var sel = document.getElementById('coin-user');
+            sel.innerHTML = (j.users || []).map(function(u) { return '<option value="' + u.id + '">' + esc(u.login) + ' (' + (u.coins || 0) + ' монет)</option>'; }).join('');
+        });
+    }
+    function toggleAdmin(id) {
+        adminFetch('/api/admin/set_admin', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: id})},
+            function() { showToast('Права обновлены'); loadUsers(); loadStats(); });
+    }
+    function awardCoins() {
+        var uid = document.getElementById('coin-user').value;
+        var amount = parseInt(document.getElementById('coin-amount').value);
+        var desc = document.getElementById('coin-desc').value.trim();
+        if (!uid || !amount || amount < 1) { showToast('Выберите пользователя и количество', true); return; }
+        adminFetch('/api/admin/coins/award', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: parseInt(uid), amount: amount, description: desc})},
+            function() { showToast('Монеты начислены'); loadStats(); loadCoinUsers(); });
+    }
+    function loadErrors() {
+        adminFetch('/api/admin/errors', {}, function(j) {
+            var list = j.errors || [];
+            var el = document.getElementById('errors-list');
+            if (!list.length) { el.innerHTML = '<p style="color:#888;font-size:13px">Ошибок нет</p>'; return; }
+            el.innerHTML = list.map(function(e) {
+                var name = e.name || 'ошибка'; var msg = e.message || e.error || ''; var time = e.time || '';
+                return '<div class="err-item"><div class="t">' + esc(name) + (time ? ' · ' + esc(time) : '') + '</div><div class="d">' + esc(msg) + '</div></div>';
+            }).join('');
+        });
+    }
+    function clearErrors() {
+        adminFetch('/api/admin/errors/clear', {method: 'POST'}, function() { showToast('Ошибки очищены'); loadErrors(); loadStats(); });
+    }
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function renderMissing(p) {
+        var box = document.getElementById('missing-box');
+        var missing = [];
+        if (!p.gd_nickname) missing.push('Geometry Dash nickname');
+        if (!p.lichess_nickname) missing.push('Lichess nickname');
+        if (!p.telegram_id) missing.push('Telegram ID');
+        if (!missing.length) { box.style.display = 'none'; return; }
+        box.style.display = 'block';
+        box.innerHTML = '<b>Рекомендуем заполнить:</b> ' + missing.join(', ') + '.<br>Это позволит автоматически подставлять данные в GD, шахматы и бюджет.';
+    }
+    function saveSettings() {
+        var payload = {
+            display_name: document.getElementById('set-name').value.trim() || null,
+            gd_nickname: document.getElementById('set-gd').value.trim() || null,
+            telegram_id: document.getElementById('set-tg').value.trim() ? parseInt(document.getElementById('set-tg').value.trim()) : null,
+            lichess_nickname: document.getElementById('set-lichess').value.trim() || null
+        };
+        document.querySelector('.btn').disabled = true;
+        fetch('/api/auth/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-Auth-Token': token},
+            body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); }).then(function(r) {
+            document.querySelector('.btn').disabled = false;
+            if (r.error) { showToast(r.error, true); }
+            else { showToast('Сохранено!'); setTimeout(function() { window.location.href = '/'; }, 800); }
+        }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
+    }
+    loadProfile();
+</script>
+</body>
+</html>"""
+    return html
+
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_auth_register():
+    """Создать аккаунт с логином/паролем и опциональными полями."""
+    data = request.get_json(silent=True) or {}
+    login = (data.get("login") or "").strip().lower()
+    password = data.get("password") or ""
+    if not login or not password:
+        return jsonify({"error": "Логин и пароль обязательны"}), 400
+    if len(login) < 3:
+        return jsonify({"error": "Логин минимум 3 символа"}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Пароль минимум 6 символов"}), 400
+    if not re.match(r"^[a-z0-9_]+$", login):
+        return jsonify({"error": "Логин: только латиница, цифры и _"}), 400
+
+    display_name = (data.get("display_name") or "").strip() or login
+    gd_nickname = (data.get("gd_nickname") or "").strip() or None
+    lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
+    telegram_id = data.get("telegram_id")
+    try:
+        telegram_id = int(telegram_id) if telegram_id else None
+    except (TypeError, ValueError):
+        telegram_id = None
+
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            existing = conn.execute(
+                text("SELECT id FROM web_users WHERE login = :login"), {"login": login}
+            ).mappings().first()
+            if existing:
+                return jsonify({"error": "Логин уже занят"}), 409
+            result = conn.execute(
+                text("""
+                    INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, is_admin)
+                    VALUES (:login, :hash, :name, :gd, :tg, :lichess, :is_admin)
+                    RETURNING id
+                """),
+                {
+                    "login": login,
+                    "hash": _hash_password(password),
+                    "name": display_name,
+                    "gd": gd_nickname,
+                    "tg": telegram_id,
+                    "lichess": lichess_nickname,
+                    "is_admin": telegram_id == ADMIN_TELEGRAM_ID,
+                },
+            )
+            user_id = result.scalar()
+            conn.commit()
+    except Exception as exc:
+        print(f"[AUTH] register error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+    token = _create_session(user_id)
+    if not token:
+        return jsonify({"error": "Не удалось создать сессию"}), 500
+    return jsonify({"user_id": user_id, "token": token, "login": login})
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    """Войти по логину/паролю."""
+    data = request.get_json(silent=True) or {}
+    login = (data.get("login") or "").strip().lower()
+    password = data.get("password") or ""
+    if not login or not password:
+        return jsonify({"error": "Логин и пароль обязательны"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT id, password_hash FROM web_users WHERE login = :login"),
+                {"login": login},
+            ).mappings().first()
+    except Exception as exc:
+        print(f"[AUTH] login error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    if not row or not _verify_password(password, row["password_hash"]):
+        return jsonify({"error": "Неверный логин или пароль"}), 401
+    token = _create_session(row["id"])
+    if not token:
+        return jsonify({"error": "Не удалось создать сессию"}), 500
+    return jsonify({"user_id": row["id"], "token": token, "login": login})
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def api_auth_me():
+    """Получить профиль текущего пользователя по токену."""
+    token = _auth_token_from_request()
+    user = _get_session_user(token)
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    return jsonify(user)
+
+
+@app.route("/api/auth/update", methods=["POST"])
+def api_auth_update():
+    """Обновить опциональные поля профиля."""
+    token = _auth_token_from_request()
+    user = _get_session_user(token)
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.get_json(silent=True) or {}
+    display_name = (data.get("display_name") or "").strip() or None
+    gd_nickname = (data.get("gd_nickname") or "").strip() or None
+    lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
+    telegram_id = data.get("telegram_id")
+    try:
+        telegram_id = int(telegram_id) if telegram_id else None
+    except (TypeError, ValueError):
+        telegram_id = None
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            conn.execute(
+                text("""
+                    UPDATE web_users
+                    SET display_name = COALESCE(:name, login),
+                        gd_nickname = :gd,
+                        telegram_id = :tg,
+                        lichess_nickname = :lichess,
+                        is_admin = CASE WHEN :tg = :admin_tg THEN TRUE ELSE is_admin END
+                    WHERE id = :uid
+                """),
+                {
+                    "name": display_name,
+                    "gd": gd_nickname,
+                    "tg": telegram_id,
+                    "lichess": lichess_nickname,
+                    "admin_tg": ADMIN_TELEGRAM_ID,
+                    "uid": user["id"],
+                },
+            )
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as exc:
+        print(f"[AUTH] update error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    """Завершить сессию."""
+    token = _auth_token_from_request()
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            conn.execute(text("DELETE FROM web_sessions WHERE token = :t"), {"t": token})
+            conn.commit()
+    except Exception as exc:
+        print(f"[AUTH] logout error: {exc}")
+    return jsonify({"success": True})
+
+
+# ===== Admin Panel (WEB-07) =====
+
+def _admin_require():
+    """Return current web admin or abort with 401/403."""
+    user = _web_admin_session()
+    if not user:
+        return None
+    return user
+
+
+@app.route("/api/admin/stats", methods=["GET"])
+def api_admin_stats():
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            wu = conn.execute(text("SELECT COUNT(*) AS c FROM web_users")).mappings().first()
+            adm = conn.execute(text("SELECT COUNT(*) AS c FROM web_users WHERE is_admin = TRUE")).mappings().first()
+            coins = conn.execute(text("SELECT COALESCE(SUM(balance),0) AS s FROM user_coins")).mappings().first()
+            tg = conn.execute(text("SELECT COUNT(*) AS c FROM users")).mappings().first()
+            tx = conn.execute(text("SELECT COUNT(*) AS c FROM web_coin_log")).mappings().first()
+        return jsonify({
+            "web_users": int(wu["c"] or 0),
+            "admins": int(adm["c"] or 0),
+            "total_coins": int(coins["s"] or 0),
+            "telegram_users": int(tg["c"] or 0),
+            "coin_tx": int(tx["c"] or 0),
+        })
+    except Exception as exc:
+        print(f"[ADMIN] stats error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/users", methods=["GET"])
+def api_admin_users():
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    q = (request.args.get("q") or "").strip().lower()
+    try:
+        with get_db_engine().connect() as conn:
+            if q:
+                rows = conn.execute(
+                    text("""
+                        SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id,
+                               u.lichess_nickname, u.is_admin, u.created_at
+                        FROM web_users u
+                        WHERE LOWER(u.login) LIKE :p OR LOWER(u.display_name) LIKE :p
+                           OR COALESCE(LOWER(u.gd_nickname), '') LIKE :p
+                        ORDER BY u.created_at DESC LIMIT 100
+                    """),
+                    {"p": f"%{q}%"},
+                ).mappings().all()
+            else:
+                rows = conn.execute(
+                    text("""
+                        SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id,
+                               u.lichess_nickname, u.is_admin, u.created_at
+                        FROM web_users u
+                        ORDER BY u.created_at DESC LIMIT 100
+                    """),
+                ).mappings().all()
+        result = []
+        for r in rows:
+            result.append({
+                "id": r["id"],
+                "login": r["login"],
+                "display_name": r["display_name"],
+                "gd_nickname": r["gd_nickname"],
+                "telegram_id": r["telegram_id"],
+                "lichess_nickname": r["lichess_nickname"],
+                "is_admin": bool(r["is_admin"]),
+                "created_at": str(r["created_at"]) if r["created_at"] else None,
+                "balance": 0,
+            })
+        # Batch-fetch coin balances: user_coins stores _web_user_id('u<id>')
+        if result:
+            ids = [_web_user_id("u" + str(u["id"])) for u in result]
+            with get_db_engine().connect() as conn:
+                coins = conn.execute(
+                    text("SELECT user_id, balance FROM user_coins WHERE user_id = ANY(:ids)"),
+                    {"ids": ids},
+                ).mappings().all()
+            coin_map = {int(c["user_id"]): int(c["balance"] or 0) for c in coins}
+            for u in result:
+                u["balance"] = coin_map.get(_web_user_id("u" + str(u["id"])), 0)
+        return jsonify(result)
+    except Exception as exc:
+        print(f"[ADMIN] users error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/users/<int:user_id>/coins", methods=["GET"])
+def api_admin_user_coins(user_id):
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    uid = _web_user_id("u" + str(user_id))
+    try:
+        with get_db_engine().connect() as conn:
+            coins = conn.execute(
+                text("SELECT COALESCE(balance, 0) AS b FROM user_coins WHERE user_id = :uid"),
+                {"uid": uid},
+            ).mappings().first()
+            log = conn.execute(
+                text("SELECT amount, description, created_at FROM web_coin_log WHERE user_id = :uid ORDER BY created_at DESC LIMIT 50"),
+                {"uid": uid},
+            ).mappings().all()
+        return jsonify({
+            "balance": int(coins["b"] or 0) if coins else 0,
+            "log": [
+                {"amount": int(r["amount"] or 0), "description": r["description"] or "", "created_at": str(r["created_at"]) if r["created_at"] else None}
+                for r in log
+            ],
+        })
+    except Exception as exc:
+        print(f"[ADMIN] user coins error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/coins/award", methods=["POST"])
+def api_admin_coins_award():
+    admin = _admin_require()
+    if not admin:
+        return jsonify({"error": "Нет доступа"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        user_id = int(data.get("user_id") or 0)
+        amount = int(data.get("amount") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Некорректные данные"}), 400
+    if not user_id:
+        return jsonify({"error": "Укажите пользователя"}), 400
+    if amount == 0:
+        return jsonify({"error": "Сумма не может быть нулевой"}), 400
+    if not _award_web_coins(user_id, amount, data.get("description") or "Начисление админом"):
+        return jsonify({"error": "Не удалось начислить монеты"}), 500
+    return jsonify({"success": True, "user_id": user_id, "amount": amount})
+
+
+@app.route("/api/admin/set_admin", methods=["POST"])
+def api_admin_set_admin():
+    admin = _admin_require()
+    if not admin:
+        return jsonify({"error": "Нет доступа"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        user_id = int(data.get("user_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Некорректные данные"}), 400
+    if not user_id:
+        return jsonify({"error": "Укажите пользователя"}), 400
+    if user_id == admin["id"]:
+        return jsonify({"error": "Нельзя менять статус самого себя"}), 400
+    is_admin = bool(data.get("is_admin"))
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text("UPDATE web_users SET is_admin = :v WHERE id = :uid"),
+                {"v": is_admin, "uid": user_id},
+            )
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as exc:
+        print(f"[ADMIN] set_admin error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/errors", methods=["GET"])
+def api_admin_errors():
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    return jsonify({"count": len(_ERROR_LOG), "errors": list(reversed(_ERROR_LOG[-50:]))})
+
+
+@app.route("/api/admin/errors/clear", methods=["POST"])
+def api_admin_errors_clear():
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    _ERROR_LOG.clear()
+    return jsonify({"success": True})
+
+
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback_submit():
+    """Submit a suggestion or bug report (any web user or anonymous)."""
+    data = request.get_json(silent=True) or {}
+    category = (data.get("category") or "").strip().lower()
+    message = (data.get("message") or "").strip()
+    if category not in ("suggestion", "bug"):
+        return jsonify({"error": "Некорректная категория"}), 400
+    if len(message) < 3:
+        return jsonify({"error": "Опишите сообщение подробнее"}), 400
+    module = (data.get("module") or "").strip()[:64]
+    user = _get_session_user(_auth_token_from_request())
+    user_id = user.get("id") if user else None
+    login = user.get("login") if user else None
+    author_name = (user.get("display_name") or login) if user else None
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(text("""
+                INSERT INTO web_feedback (user_id, login, author_name, category, module, message)
+                VALUES (:uid, :login, :name, :cat, :mod, :msg)
+            """), {
+                "uid": user_id,
+                "login": login,
+                "name": author_name,
+                "cat": category,
+                "mod": module or None,
+                "msg": message[:4000],
+            })
+            conn.commit()
+    except Exception as exc:
+        print(f"[FEEDBACK] submit error: {exc}")
+        return jsonify({"error": "Не удалось сохранить"}), 500
+    tag = "🐛 Баг" if category == "bug" else "💡 Предложение"
+    notify_admin(f"{tag} (модуль: {module or 'не указан'})\n{message[:300]}")
+    return jsonify({"success": True, "id": None})
+
+
+@app.route("/api/admin/feedback", methods=["GET"])
+def api_admin_feedback():
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    status = (request.args.get("status") or "").strip()
+    try:
+        with get_db_engine().connect() as conn:
+            if status:
+                rows = conn.execute(text("""
+                    SELECT id, login, author_name, category, module, message, status, created_at
+                    FROM web_feedback WHERE status = :s ORDER BY created_at DESC LIMIT 200
+                """), {"s": status}).mappings().all()
+            else:
+                rows = conn.execute(text("""
+                    SELECT id, login, author_name, category, module, message, status, created_at
+                    FROM web_feedback ORDER BY (status = 'open') DESC, created_at DESC LIMIT 200
+                """)).mappings().all()
+        return jsonify({"count": len(rows), "items": [dict(r) for r in rows]})
+    except Exception as exc:
+        print(f"[FEEDBACK] list error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/feedback/<int:fid>", methods=["DELETE"])
+def api_admin_feedback_delete(fid):
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(text("DELETE FROM web_feedback WHERE id = :id"), {"id": fid})
+            conn.commit()
+    except Exception as exc:
+        print(f"[FEEDBACK] delete error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/admin")
+def admin_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; min-height: 100vh; color: #c9d1d9; padding: 20px; }
+        .container { max-width: 900px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #58a6ff; }
+        .header a { color: #8b949e; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: #58a6ff; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab { padding: 10px 16px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; color: #8b949e; font-size: 14px; font-family: inherit; cursor: pointer; transition: all 0.15s; }
+        .tab:hover { border-color: #58a6ff; color: #c9d1d9; }
+        .tab.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+        .stat-card { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 16px; text-align: center; }
+        .stat-card .value { font-size: 26px; font-weight: 700; color: #58a6ff; }
+        .stat-card .label { font-size: 12px; color: #8b949e; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #30363d; font-size: 14px; }
+        th { color: #8b949e; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .input-row { display: flex; gap: 10px; margin-bottom: 16px; }
+        .input-row input, .input-row select { flex: 1; padding: 12px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; color: #c9d1d9; font-size: 15px; font-family: inherit; }
+        .input-row input:focus { outline: none; border-color: #58a6ff; }
+        .btn { padding: 10px 18px; border: none; border-radius: 8px; background: #238636; color: #fff; font-size: 14px; font-family: inherit; cursor: pointer; }
+        .btn:hover { background: #2ea043; }
+        .btn-danger { background: #da3633; }
+        .btn-danger:hover { background: #f85149; }
+        .btn-secondary { background: #21262d; color: #c9d1d9; }
+        .btn-secondary:hover { background: #30363d; }
+        .btn-small { padding: 6px 12px; font-size: 13px; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .badge-admin { background: #1f6feb33; color: #58a6ff; }
+        .badge-user { background: #30363d; color: #8b949e; }
+        .error { color: #f85149; margin-top: 8px; }
+        .ok { color: #3fb950; margin-top: 8px; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1f6feb; color: #fff; padding: 10px 20px; border-radius: 8px; display: none; z-index: 100; }
+        .toast.error { background: #da3633; }
+        .search-result { cursor: pointer; }
+        .search-result:hover { background: #161b22; }
+        .log-row { padding: 10px 0; border-bottom: 1px solid #21262d; font-size: 13px; line-height: 1.5; }
+        .log-ts { color: #8b949e; font-size: 12px; }
+        .empty { color: #8b949e; text-align: center; padding: 24px; }
+        @media (max-width: 600px) { .tabs { gap: 6px; } .tab { padding: 8px 12px; font-size: 13px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>👨‍💼 Админ-панель</h1>
+        <a href="/">← На главную</a>
+    </div>
+    <div id="gate" style="display:none; text-align:center; padding:40px;" class="card">
+        <p id="gate-msg">Проверка доступа...</p>
+    </div>
+    <div id="app" style="display:none;">
+        <div class="tabs">
+            <button class="tab active" data-tab="stats" onclick="showTab('stats')">📊 Статистика</button>
+            <button class="tab" data-tab="users" onclick="showTab('users')">👤 Пользователи</button>
+            <button class="tab" data-tab="coins" onclick="showTab('coins')">💰 Начисление монет</button>
+            <button class="tab" data-tab="errors" onclick="showTab('errors')">📋 Ошибки</button>
+        </div>
+        <div class="panel active" id="panel-stats"></div>
+        <div class="panel" id="panel-users"></div>
+        <div class="panel" id="panel-coins"></div>
+        <div class="panel" id="panel-errors"></div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+    var TOKEN = localStorage.getItem('web_token');
+    function toast(msg, error) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast' + (error ? ' error' : '');
+        t.style.display = 'block';
+        setTimeout(function() { t.style.display = 'none'; }, 3000);
+    }
+    function api(path, opts) {
+        opts = opts || {};
+        opts.headers = opts.headers || {};
+        opts.headers['X-Auth-Token'] = TOKEN;
+        if (opts.body) opts.headers['Content-Type'] = 'application/json';
+        return fetch(path, opts).then(function(r) { return r.json().then(function(j) { return {ok: r.ok, j: j}; }); });
+    }
+    function showTab(name) {
+        document.querySelectorAll('.tab').forEach(function(t) { t.classList.toggle('active', t.dataset.tab === name); });
+        document.querySelectorAll('.panel').forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + name); });
+        if (name === 'stats') loadStats();
+        if (name === 'users') loadUsers();
+        if (name === 'errors') loadErrors();
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+    function loadStats() {
+        api('/api/admin/stats').then(function(res) {
+            if (!res.ok) { document.getElementById('panel-stats').innerHTML = '<div class="error">' + esc(res.j.error) + '</div>'; return; }
+            var s = res.j;
+            document.getElementById('panel-stats').innerHTML =
+                '<div class="stat-grid">' +
+                '<div class="stat-card"><div class="value">' + s.web_users + '</div><div class="label">Веб-пользователей</div></div>' +
+                '<div class="stat-card"><div class="value">' + s.admins + '</div><div class="label">Админов</div></div>' +
+                '<div class="stat-card"><div class="value">' + s.total_coins + '</div><div class="label">Всего монет</div></div>' +
+                '<div class="stat-card"><div class="value">' + s.telegram_users + '</div><div class="label">Telegram-пользователей</div></div>' +
+                '<div class="stat-card"><div class="value">' + s.coin_tx + '</div><div class="label">Операций с монетами</div></div>' +
+                '</div>';
+        });
+    }
+
+    function loadUsers(q) {
+        var url = '/api/admin/users' + (q ? '?q=' + encodeURIComponent(q) : '');
+        api(url).then(function(res) {
+            if (!res.ok) { document.getElementById('panel-users').innerHTML = '<div class="error">' + esc(res.j.error) + '</div>'; return; }
+            var users = res.j;
+            var h = '<div class="input-row"><input id="user-search" placeholder="Поиск по логину, имени, GD никнейму..." value="' + esc(q || '') + '" onkeydown="if(event.key===\'Enter\'){loadUsers(this.value);}"><button class="btn btn-secondary" onclick="loadUsers(document.getElementById(\'user-search\').value)">Найти</button></div>';
+            h += '<table><tr><th>ID</th><th>Логин</th><th>Имя</th><th>Баланс</th><th>Статус</th><th>Действия</th></tr>';
+            if (!users.length) h += '<tr><td colspan="6" class="empty">Пользователи не найдены</td></tr>';
+            users.forEach(function(u) {
+                h += '<tr>' +
+                    '<td>' + u.id + '</td>' +
+                    '<td>@' + esc(u.login) + '</td>' +
+                    '<td>' + esc(u.display_name) + '</td>' +
+                    '<td>' + u.balance + ' 💰</td>' +
+                    '<td>' + (u.is_admin ? '<span class="badge badge-admin">Админ</span>' : '<span class="badge badge-user">Пользователь</span>') + '</td>' +
+                    '<td><button class="btn btn-secondary btn-small" onclick="viewCoins(' + u.id + ',\'' + esc(u.login) + '\')">Монеты</button> ' +
+                    (u.is_admin
+                        ? '<button class="btn btn-danger btn-small" onclick="toggleAdmin(' + u.id + ',false)">Снять админа</button>'
+                        : '<button class="btn btn-small" onclick="toggleAdmin(' + u.id + ',true)">Сделать админом</button>') +
+                    '</td></tr>';
+            });
+            h += '</table>';
+            document.getElementById('panel-users').innerHTML = h;
+        });
+    }
+
+    function viewCoins(userId, login) {
+        api('/api/admin/users/' + userId + '/coins').then(function(res) {
+            if (!res.ok) { toast(res.j.error || 'Ошибка', true); return; }
+            var d = res.j;
+            var h = '<div class="card"><h3 style="margin-bottom:12px;color:#58a6ff">💰 @' + esc(login) + ' — баланс: ' + d.balance + '</h3>';
+            if (!d.log.length) h += '<div class="empty">Операций нет</div>';
+            d.log.forEach(function(r) {
+                h += '<div class="log-row">' + (r.amount > 0 ? '+' : '') + r.amount + ' монет — ' + esc(r.description) + '<div class="log-ts">' + esc(r.created_at) + '</div></div>';
+            });
+            h += '<button class="btn btn-secondary" style="margin-top:12px" onclick="loadUsers()">Назад</button></div>';
+            document.getElementById('panel-users').innerHTML = h;
+        });
+    }
+
+    function toggleAdmin(userId, makeAdmin) {
+        api('/api/admin/set_admin', {method: 'POST', body: JSON.stringify({user_id: userId, is_admin: makeAdmin})}).then(function(res) {
+            if (res.ok) { toast(makeAdmin ? 'Админ назначен' : 'Админ снят'); loadUsers(); }
+            else toast(res.j.error || 'Ошибка', true);
+        });
+    }
+
+    function loadCoinsPanel() {
+        api('/api/admin/users?q=').then(function(res) {
+            if (!res.ok) return;
+            var users = res.j;
+            var opts = users.map(function(u) { return '<option value="' + u.id + '">@' + esc(u.login) + ' (id ' + u.id + ')</option>'; }).join('');
+            document.getElementById('panel-coins').innerHTML =
+                '<div class="card"><h3 style="margin-bottom:16px;color:#58a6ff">Начисление монет</h3>' +
+                '<div class="input-row"><select id="coin-user">' + opts + '</select></div>' +
+                '<div class="input-row"><input type="number" id="coin-amount" placeholder="Сумма (можно отрицательная)"></div>' +
+                '<div class="input-row"><input type="text" id="coin-desc" placeholder="Описание"></div>' +
+                '<button class="btn" onclick="awardCoins()">Начислить</button><span id="coin-result"></span></div>';
+        });
+    }
+
+    function awardCoins() {
+        var userId = parseInt(document.getElementById('coin-user').value);
+        var amount = parseInt(document.getElementById('coin-amount').value) || 0;
+        var desc = document.getElementById('coin-desc').value.trim();
+        api('/api/admin/coins/award', {method: 'POST', body: JSON.stringify({user_id: userId, amount: amount, description: desc})}).then(function(res) {
+            document.getElementById('coin-result').className = res.ok ? 'ok' : 'error';
+            document.getElementById('coin-result').textContent = res.ok ? ' ✓ Начислено' : (' ' + (res.j.error || 'Ошибка'));
+        });
+    }
+
+    function loadErrors() {
+        api('/api/admin/errors').then(function(res) {
+            if (!res.ok) { document.getElementById('panel-errors').innerHTML = '<div class="error">' + esc(res.j.error) + '</div>'; return; }
+            var d = res.j;
+            var h = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><h3 style="color:#58a6ff">Журнал ошибок (' + d.count + ')</h3><button class="btn btn-danger btn-small" onclick="clearErrors()">Очистить</button></div>';
+            if (!d.errors.length) h += '<div class="empty">Ошибок нет</div>';
+            d.errors.forEach(function(e) {
+                h += '<div class="card"><div class="log-ts">' + esc(e.timestamp) + '</div><div>' + esc(e.module) + ' / ' + esc(e.error_type) + '</div><div>' + esc(e.message) + '</div></div>';
+            });
+            document.getElementById('panel-errors').innerHTML = h;
+        });
+    }
+
+    function clearErrors() {
+        api('/api/admin/errors/clear', {method: 'POST'}).then(function(res) {
+            if (res.ok) { toast('Ошибки очищены'); loadErrors(); }
+            else toast(res.j.error || 'Ошибка', true);
+        });
+    }
+
+    (function init() {
+        if (!TOKEN) {
+            document.getElementById('gate').style.display = 'block';
+            document.getElementById('gate-msg').textContent = 'Вы не вошли в аккаунт';
+            return;
+        }
+        api('/api/auth/me').then(function(res) {
+            if (!res.ok || !res.j.is_admin) {
+                document.getElementById('gate').style.display = 'block';
+                document.getElementById('gate-msg').textContent = 'Доступ только для админов';
+                return;
+            }
+            document.getElementById('gate').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            loadStats();
+        });
+    })();
+</script>
+</body>
+</html>"""
+    return html
+
+
 # ===== Trivia =====
 
 @app.route("/trivia")
@@ -5230,9 +7232,13 @@ def api_trivia_question():
     q = random.choice(_TRIVIA_QUESTIONS)
     correct = q["correct_text"]
     group = q.get("group", "")
-    same = [x["correct_text"] for x in _TRIVIA_QUESTIONS if x.get("group") == group and x["correct_text"] != correct]
-    pool = same if len(same) >= 3 else [x["correct_text"] for x in _TRIVIA_QUESTIONS if x["correct_text"] != correct]
-    distractors = random.sample(pool, 3)
+    manual = q.get("distractors") or []
+    if len(manual) >= 3:
+        distractors = random.sample(manual, 3)
+    else:
+        same = [x["correct_text"] for x in _TRIVIA_QUESTIONS if x.get("group") == group and x["correct_text"] != correct]
+        pool = same if len(same) >= 3 else [x["correct_text"] for x in _TRIVIA_QUESTIONS if x["correct_text"] != correct]
+        distractors = random.sample(pool, 3)
     options = [correct] + distractors
     random.shuffle(options)
     correct_index = options.index(correct)
@@ -5258,21 +7264,21 @@ def api_trivia_answer():
 # ── Daily Prayer ──────────────────────────────────────────────────────────
 
 _PRAYERS = [
-    "Да будет настрой стабилен, а пинг — нулевым.",
-    "О Чай, дай нам мудрости в коде и терпения в дебаге.",
-    "Да будет каждый день наполнен ароматом чая.",
-    "Да будет моя душа чиста, как первозданный настой.",
-    "Да будет кружка-алтарь моей рукой всегда наполнена.",
-    "О Великий Баг, прости нам наши deprecated зависимости.",
-    "Да будет деплой быстрым, а баги — редкими.",
-    "Чай, чай, чай — да будет eight-nine с нами!",
-    "Да будет CI зелёным, а код — без багов.",
-    "О великий Компилятор, прости нам наши null pointer'ы.",
-    "Да будет память чиста, а утечки — лишь в кране.",
-    "Благослови, Чай, наш commit mesage — да будет он осмысленным.",
-    "Да будет ревью снисходительным, а мерж — без конфликтов.",
-    "О Eight-Nine, освяти наш спринт и убери technical debt.",
-    "Да будет рефакторинг удачным, а тесты — зелёными.",
+    "Чай. Чай. Чай. Да будет настой мой чист, как первозданный лист. Чай. Чай. Чай. eight-nine.",
+    "Чай. Чай. Чай. Благослови, Великий Заварник, дела мои дневные. Чай, чай, чай. eight-nine.",
+    "Чай, чай, чай. Да будет кружка-чаша моя всегда наполнена, а душа — спокойна. Чай, чай, чай. eight-nine.",
+    "Чай. Чай. Чай. О Настой, даруй мне терпение и ясность в час трудный. Чай, чай, чай. eight-nine.",
+    "Чай, чай, чай. Отведи от меня тьму и суету, Чай Святой. Чай, чай, чай. eight-nine.",
+    "Чай. Чай. Чай. Да буду я мирен в словах и горяч в делах, как настой мой. Чай, чай, чай. eight-nine.",
+    "Чай, чай, чай. Великий Лист, научи меня смотреть в глубь кружки и в глубь себя. Чай, чай, чай. eight-nine.",
+    "Чай. Чай. Чай. Да будет всякий приходящий принят и обогрет чаем. Чай, чай, чай. eight-nine.",
+    "Чай, чай, чай. О Чай, избави нас от напастей и от шума пустого. Чай, чай, чай. eight-nine.",
+    "Чай. Чай. Чай. Благословен настой этот и день этот мирный. Чай, чай, чай. eight-nine.",
+    "Чай, чай, чай. Да будет мысль моя прозрачна, а сердце — тёплым, как чайник. Чай, чай, чай. eight-nine.",
+    "Чай. Чай. Чай. О Восемь Напитков и Один Неопределимый, храни нас. Чай, чай, чай. eight-nine.",
+    "Чай, чай, чай. Да будет смирен я пред величием Чая и милостив к ближним. Чай, чай, чай. eight-nine.",
+    "Чай. Чай. Чай. Греет настой, греет душа — восхваляю Настой и Число. Чай, чай, чай. eight-nine.",
+    "Чай, чай, чай. О Великий Чай, веди меня путём чайн тем, где свет. Чай, чай, чай. eight-nine.",
 ]
 
 
@@ -5324,8 +7330,8 @@ def daily_prayer_page():
         <a class="back-link" href="/">← На главную</a>
     </div>
     <script>
-        var USER_ID = localStorage.getItem('ai_user_id');
-        if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('ai_user_id', USER_ID); }
+        var USER_ID = localStorage.getItem('web_user_id');
+        if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
         function getPrayer() {
             var btn = document.getElementById('get-btn');
             btn.disabled = true;
@@ -5337,7 +7343,7 @@ def daily_prayer_page():
                 try {
                     var r = JSON.parse(xhr.responseText);
                     if (r.error) { document.getElementById('prayer-content').innerHTML = '<p style="color:#e94560">'+r.error+'</p>'; btn.style.display='none'; return; }
-                    document.getElementById('prayer-content').innerHTML = '<div class="prayer-text">"'+r.prayer+'"</div><div class="prayer-amen">eight-nine!</div>';
+                    document.getElementById('prayer-content').innerHTML = '<div class="prayer-text">"'+r.prayer+'"</div>';
                     if (r.already) {
                         document.getElementById('subtext').textContent = 'Вы уже получали сегодняшнюю молитву. Возвращайтесь завтра!';
                         btn.style.display = 'none';
@@ -5499,10 +7505,25 @@ def irregular_verbs_page():
     </div>
     <script>
         (function() {
-            var USER_ID = localStorage.getItem('ai_user_id');
-            if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('ai_user_id', USER_ID); }
+            var USER_ID = localStorage.getItem('web_user_id');
+            if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
             var studentName = localStorage.getItem('verbs_name') || '';
             var content = document.getElementById('content');
+
+            var token = localStorage.getItem('web_token');
+            var uid = localStorage.getItem('web_user_id');
+            if (token && (!studentName || !localStorage.getItem('verbs_name_from_profile'))) {
+                fetch('/api/auth/me', {headers: {'X-Auth-Token': token}})
+                    .then(function(r) { return r.json(); })
+                    .then(function(p) {
+                        if (!p.error && p.display_name) {
+                            studentName = p.display_name;
+                            localStorage.setItem('verbs_name', p.display_name);
+                            localStorage.setItem('verbs_name_from_profile', '1');
+                        }
+                    })
+                    .catch(function() {});
+            }
 
             function render(html) { content.innerHTML = html; }
 
@@ -7013,7 +9034,7 @@ def telegram_webhook(secret: str):
                             board = pgn_game.board()
                             moves = list(pgn_game.mainline_moves())
                             for i, move in enumerate(moves):
-                                if i >= initial_ply:
+                                if i >= initial_ply + 1:
                                     break
                                 board.push(move)
                             fen = board.fen()
@@ -7046,7 +9067,7 @@ def telegram_webhook(secret: str):
                     
                     board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
                     
-                    turn = "Белых" if initial_ply % 2 == 0 else "Чёрных"
+                    turn = "Белых" if (initial_ply + 1) % 2 == 0 else "Чёрных"
                     puzzle_msg = (
                         f"🧩 **Шахматная задача**\n\n"
                         f"Рейтинг: {rating}\n"
@@ -7621,17 +9642,7 @@ def telegram_webhook(secret: str):
                             "🙏 Вы уже получали сегодняшнюю молитву!\nВозвращайтесь завтра.",
                         )
                         return jsonify({"ok": True})
-                    prayers = [
-                        "Да будет настрой стабилен, а пинг — нулевым.",
-                        "О Чай, дай нам мудрости в коде и терпения в дебаге.",
-                        "Да будет каждый день наполнен ароматом чая.",
-                        "Да будет моя душа чиста, как первозданный настой.",
-                        "Да будет кружка-алтарь моей рукой всегда наполнена.",
-                        "О Великий Баг, прости нам наши deprecated зависимости.",
-                        "Да будет деплой быстрым, а баги — редкими.",
-                        "Чай, чай, чай — да будет eight-nine с нами!",
-                    ]
-                    prayer = random.choice(prayers)
+                    prayer = random.choice(_PRAYERS)
                     conn.execute(
                         text("""
                             INSERT INTO daily_prayer_log (user_id, prayer_date)
@@ -7643,7 +9654,7 @@ def telegram_webhook(secret: str):
                     conn.commit()
                 send_telegram_message(
                     chat_id,
-                    f"🙏 Молитва на сегодня:\n\n_{prayer}_\n\neight-nine!",
+                    f"🙏 Молитва на сегодня:\n\n_{prayer}_",
                     parse_mode="Markdown",
                 )
             except Exception as exc:
