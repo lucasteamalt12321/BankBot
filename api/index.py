@@ -863,10 +863,39 @@ def _ensure_parsing_tables(engine):
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_parsed_transactions_msg ON parsed_transactions(chat_id, message_id) WHERE message_id IS NOT NULL"))
             except Exception:
                 pass
+            _sync_conversion_rates(conn)
             conn.commit()
         print("[PARSING] Tables ensured")
     except Exception as exc:
         print(f"[PARSING] Table init error: {exc}")
+
+
+def _sync_conversion_rates(conn):
+    """Seed/refresh conversion_rates with canonical values from core.parsers.rates.
+
+    Sets k to the canonical value for known bots so both parsing stacks read the
+    same single source of truth. Preserves any admin-tweaked rows by only updating
+    rows that currently match the old seeded default (1.0).
+    """
+    try:
+        for bot_name, k in BOT_CONVERSION_RATES.items():
+            resource_type = PARSING_RESOURCE_TYPES.get(bot_name, bot_name)
+            existing = conn.execute(
+                text("SELECT k FROM conversion_rates WHERE bot_name = :bn AND resource_type = :rt"),
+                {"bn": bot_name, "rt": resource_type},
+            ).mappings().first()
+            if existing is None:
+                conn.execute(
+                    text("INSERT INTO conversion_rates (bot_name, resource_type, k) VALUES (:bn, :rt, :k)"),
+                    {"bn": bot_name, "rt": resource_type, "k": k},
+                )
+            elif float(existing["k"]) == 1.0 and float(existing["k"]) != k:
+                conn.execute(
+                    text("UPDATE conversion_rates SET k = :k WHERE bot_name = :bn AND resource_type = :rt"),
+                    {"bn": bot_name, "rt": resource_type, "k": k},
+                )
+    except Exception as exc:
+        print(f"[PARSING] conversion_rates sync error: {exc}")
 
 
 def _log_parsed_transaction(
@@ -2487,14 +2516,7 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
 
 
 
-BOT_CONVERSION_RATES = {
-    "gdcards": 2.5,
-    "gusya_cards": 5.0,
-    "shmalala": 2.5,
-    "shmalala_karma": 0.5,
-    "bunkerrp": 50.0,
-    "chaometer": 1.0,
-}
+from core.parsers.rates import BOT_CONVERSION_RATES, PARSING_RESOURCE_TYPES
 
 
 def get_conversion_rate(bot_name: str) -> float:
@@ -4170,6 +4192,14 @@ def reading_trainer():
         .btn-secondary:hover { background: #636366; }
         .btn-print { background: #34C759; color: white; }
         .btn-print:hover { background: #248A3D; }
+        .btn-voice { background: #FF9500; color: white; }
+        .btn-voice:hover { background: #CC7400; }
+        .btn-hint { background: #5E5CE6; color: white; padding: 8px 14px; font-size: 14px; }
+        .btn-hint:hover { background: #4A48C4; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 16px 0; }
+        .question-tools { display: flex; gap: 8px; margin-top: 8px; }
+        .hint-box { margin-top: 8px; padding: 10px 14px; background: #FFF4DC; border: 1px solid #FFD08A; border-radius: 8px; color: #8A5A00; font-weight: 600; }
+        .stats-bar { text-align: center; padding: 10px 16px; margin-bottom: 20px; background: #EAF3FF; border: 1px solid #BBD8F5; border-radius: 8px; color: #1A5FA8; font-weight: 600; font-size: 15px; }
         input { width: 100%; padding: 12px; font-size: 16px; margin: 10px 0; border: 2px solid #ddd; border-radius: 8px; }
         input:focus { outline: none; border-color: #007AFF; }
         .question { margin: 20px 0; }
@@ -4184,6 +4214,8 @@ def reading_trainer():
             button { display: none !important; }
             input { border: none; border-bottom: 2px solid #000; background: transparent; }
             .result { display: none !important; }
+            .hint-box { display: none !important; }
+            .stats-bar { display: none !important; }
             h1 { font-size: 24px; margin-bottom: 20px; }
             .story-title { font-size: 20px; margin-bottom: 10px; }
             .story-image { font-size: 60px; margin: 10px 0; }
@@ -4199,17 +4231,23 @@ def reading_trainer():
 <body>
     <div class="container">
         <h1>🧸 Тренажёр чтения и понимания</h1>
+        <div id="stats-bar" class="stats-bar">📊 Пока нет результатов — прочитай текст и ответь на вопросы.</div>
         <div id="reading-screen">
             <div id="sentences"></div>
-            <button class="btn-primary" onclick="goToQuestions()">Дальше →</button>
-            <button class="btn-secondary" onclick="loadNewText()">Новый текст</button>
-            <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
+            <div class="toolbar">
+                <button class="btn-voice" onclick="speakStory()">🔊 Слушать</button>
+                <button class="btn-primary" onclick="goToQuestions()">Дальше →</button>
+                <button class="btn-secondary" onclick="loadNewText()">Новый текст</button>
+                <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
+            </div>
         </div>
         <div id="questions-screen">
             <div id="questions-container"></div>
-            <button class="btn-primary" onclick="checkAnswers()">Проверить</button>
-            <button class="btn-secondary" onclick="goBackToReading()">← Назад к чтению</button>
-            <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
+            <div class="toolbar">
+                <button class="btn-primary" onclick="checkAnswers()">Проверить</button>
+                <button class="btn-secondary" onclick="goBackToReading()">← Назад к чтению</button>
+                <button class="btn-print" onclick="printWorksheet()">🖨️ Печать</button>
+            </div>
         </div>
     </div>
     <script>
@@ -4295,6 +4333,11 @@ def reading_trainer():
                 '<div class="question">' +
                 '<div class="question-text">' + (i+1) + '. ' + q.question + '</div>' +
                 '<input type="text" id="answer-' + i + '" placeholder="Введите ответ">' +
+                '<div class="question-tools">' +
+                '<button type="button" class="btn-hint" onclick="toggleHint(' + i + ')">💡 Подсказка</button>' +
+                '<button type="button" class="btn-voice" onclick="speakQuestion(' + i + ')">🔊 Вопрос</button>' +
+                '</div>' +
+                '<div class="hint-box" id="hint-' + i + '" style="display:none;">Ответ: ' + escapeHtml(q.answer) + '</div>' +
                 '<div class="result" id="result-' + i + '" style="display:none;"></div>' +
                 '</div>'
             ).join('');
@@ -4306,6 +4349,7 @@ def reading_trainer():
             document.getElementById('questions-screen').style.display = 'none';
         }
         function checkAnswers() {
+            let correctCount = 0;
             currentData.questions.forEach((q, i) => {
                 const input = document.getElementById('answer-' + i);
                 const result = document.getElementById('result-' + i);
@@ -4314,12 +4358,56 @@ def reading_trainer():
                 if (userAnswer === correctAnswer) {
                     result.textContent = '✓ Правильно!';
                     result.className = 'result correct';
+                    correctCount++;
                 } else {
                     result.textContent = '✗ Правильный ответ: ' + q.answer;
                     result.className = 'result incorrect';
                 }
                 result.style.display = 'block';
             });
+            const s = loadStats();
+            s.runs += 1;
+            s.questions += currentData.questions.length;
+            s.correct += correctCount;
+            saveStats(s);
+            renderStats();
+        }
+        function toggleHint(i) {
+            const el = document.getElementById('hint-' + i);
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+        function speakText(text) {
+            if (!('speechSynthesis' in window)) {
+                alert('Озвучивание не поддерживается этим браузером');
+                return;
+            }
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(String(text));
+            utterance.lang = 'ru-RU';
+            utterance.rate = 0.9;
+            window.speechSynthesis.speak(utterance);
+        }
+        function speakStory() {
+            if (currentData && currentData.text) speakText(currentData.text);
+        }
+        function speakQuestion(i) {
+            if (currentData && currentData.questions[i]) speakText(currentData.questions[i].question);
+        }
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function loadStats() {
+            try { return JSON.parse(localStorage.getItem('reading_trainer_stats') || '{"runs":0,"questions":0,"correct":0}'); }
+            catch (e) { return {"runs":0,"questions":0,"correct":0}; }
+        }
+        function saveStats(s) { localStorage.setItem('reading_trainer_stats', JSON.stringify(s)); }
+        function renderStats() {
+            const el = document.getElementById('stats-bar');
+            if (!el) return;
+            const s = loadStats();
+            if (!s.runs) { el.innerHTML = '📊 Пока нет результатов — прочитай текст и ответь на вопросы.'; return; }
+            const pct = s.questions ? Math.round(100 * s.correct / s.questions) : 0;
+            el.innerHTML = '📊 Заданий: ' + s.runs + ' · Вопросов: ' + s.questions + ' · Верно: ' + s.correct + ' (' + pct + '%)';
         }
         function printWorksheet() {
             const readingScreen = document.getElementById('reading-screen');
@@ -4348,6 +4436,7 @@ def reading_trainer():
             }, 100);
         }
         loadNewText();
+        renderStats();
     </script>
 </body>
 </html>"""
