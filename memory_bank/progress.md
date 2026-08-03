@@ -6,6 +6,26 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: PARSE01 часть 3 — единый source of truth курсов конвертации)
+
+**PARSE01 ч.3 completed.** Курсы конвертации игровых валют приведены к единому канону.
+
+**Проблема:** 3 несогласованных источника курсов: api-словарь (gdcards 2.5, gusya 5.0, shmalala 2.5, karma 0.5, bunkerrp 50) был мёртвым fallback (миграция 005 засеяла прод-таблицу `conversion_rates` значениями 1.0); legacy `bot/handlers/parsing_handler.py` имел жёсткие 2:1/1:1/15:1/20:1; `/admin_rate` правил только in-memory `src.config`.
+
+**Сделано:**
+- **`core/rates.py`** — новый канонический модуль: `BOT_CONVERSION_RATES` (значения api-словаря), `DEFAULT_CONVERSION_RATE=1.0`, `PARSING_RESOURCE_TYPES` (gusya_cards→coins, gdcards→orbs, shmalala→money, shmalala_karma→karma), `get_conversion_rate(bot_name)`.
+- **`api/index.py`**: импорт канона (~2519); `_ensure_parsing_tables` → `_sync_conversion_rates(conn)` (INSERT отсутствующих, UPDATE только строк с k==1.0 — сохраняет админ-правки).
+- **`bank_bot/services/parsing_service.py`**: fallback-курс из канона вместо жёсткой 1.0.
+- **`bot/handlers/parsing_handler.py`** legacy: GD Cards/Shmalala конвертация через канон (курс ×...), True Mafia /15 и BunkerRP /20 оставлены.
+- **Миграция `005_add_parsing_resources.py`**: seed 1.0 → 5.0/2.5/2.5.
+- **`tests/unit/test_parsing_service.py`**: fallback-тест ждёт канонический gdcards 2.5.
+
+**Блокер деплоя:** первый деплой упал `ModuleNotFoundError: structlog` — импорт `core.parsers.rates` тянул тяжёлый `core/parsers/__init__.py`. Модуль перенесён в `core/rates.py` (лёгкий родительский пакет).
+
+**Проверки:** 70 passed (test_parsing_service + test_vercel_parsing_e2e + test_admin_manager); полный `tests/unit` **924 passed / 10 skipped / 0 failed**; ruff All checks passed. После фикса импорта задеплоено: `/api/dnd/status` → 400 (нормальный запуск, без traceback). Интеграционные падения (7) — pre-existing (git stash), не связаны.
+
+**Осталось по PARSE01:** E2E PTB-тесты (handle_manual_parsing с реальной БД).
+
 ### 2026-08-03 (Session: MOM-05 — доработки тренажёра чтения)
 
 **MOM-05 completed.** Дополнительные улучшения тренажёра чтения в production `api/index.py` (`/reading_trainer.html`), Vercel-страница.
@@ -1279,4 +1299,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-4eea518 (2026-08-03, BUGFIX01: fix unit tests and regressions + MOM-05 доработки тренажёра чтения)
+dfa2c75 (2026-08-03, PARSE01 ч.3: канонические курсы конвертации core/rates.py)

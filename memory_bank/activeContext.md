@@ -2,7 +2,7 @@
 
 **Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** MOM-05 — доработки тренажёра чтения (озвучивание, подсказки, статистика) на Vercel
+**Последнее действие:** PARSE01 ч.3 — единый канон курсов конвертации (core/rates.py), задеплоено
 
 ## Текущий фокус
 
@@ -55,6 +55,20 @@
 - Тест-хелпер `_build_parsing_update` получил `is_bot: True` у reply_to.from; добавлен тест `test_webhook_parsing_reply_from_user_rejected`.
 
 **Проверка:** 41 passed (test_vercel_parsing_e2e + test_admin_manager), полный test/unit 914 passed / 10 failed — 10 падений **pre-existing** (gd_models/gd_player_stats/short_mode, подтверждено git stash: падают и без моих правок). ruff 0 errors, SYNTAX OK. Задеплоено.
+
+### PARSE01 часть 3 — единый source of truth курсов конвертации ✅ (2026-08-03)
+
+**Проблема:** 3 несогласованных источника курсов (api-словарь был мёртвым fallback — прод-таблица `conversion_rates` засеяна 1.0 миграцией 005; legacy `bot/handlers/parsing_handler.py` — жёсткие 2:1/1:1/15:1/20:1; `/admin_rate` правил только in-memory).
+
+**Сделано:**
+- **`core/rates.py`**: канонический модуль — `BOT_CONVERSION_RATES` (api-значения: gdcards 2.5, gusya 5.0, shmalala 2.5, karma 0.5, bunkerrp 50, chaometer 1.0), `DEFAULT_CONVERSION_RATE=1.0`, `PARSING_RESOURCE_TYPES`, `get_conversion_rate()`.
+- **`api/index.py`**: импорт канона (~2519); `_sync_conversion_rates(conn)` в `_ensure_parsing_tables` — INSERT отсутствующих, UPDATE только строк с k==1.0 (сохраняет админ-правки).
+- **`bank_bot/services/parsing_service.py`** fallback-курс; **`bot/handlers/parsing_handler.py`** legacy GD Cards/Shmalala по канону; **миграция 005** seed 5.0/2.5/2.5; тест fallback ждёт gdcards 2.5.
+- **Блокер:** импорт `core.parsers.rates` тянул тяжёлый `core/parsers/__init__.py` → `structlog` (нет на Vercel) → первый деплой 500. Перенос в `core/rates.py`.
+
+**Проверка:** 924 passed / 10 skipped / 0 failed (полный unit), ruff clean, 70 passed (таргетированные). Задеплоено: `/api/dnd/status` → 400 (нормальный запуск, импорт ок).
+
+**Осталось по PARSE01:** E2E PTB-тесты (handle_manual_parsing с реальной БД).
 
 ### TRIVIA01 — Брейн-Ринг по Канону (completed) ✅
 
