@@ -1207,4 +1207,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-b671c4d (2026-08-01, docs: record Family Circle prod fixes, ENCRYPTION_KEY setup, project removal)
+779ebd1 (2026-08-03, Phase 3: web portal complete (WEB-07..WEB-11), suggestions feature, 5 bug fixes)
