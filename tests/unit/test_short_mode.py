@@ -45,7 +45,7 @@ async def test_short_all_lists_main_menus() -> None:
     assert context.bot_data["global_short_mode_enabled"] is True
     text = message.reply_text.await_args.args[0]
     assert "/balance" in text
-    assert "/shop" in text
+    assert "/profile" in text
     assert "/long_all" in text
 
 

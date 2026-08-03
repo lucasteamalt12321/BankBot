@@ -229,5 +229,7 @@ class TestGetGdHandlers:
         handlers = get_gd_handlers()
 
         assert isinstance(handlers, list)
-        assert len(handlers) == 1
+        assert len(handlers) == 3
         assert handlers[0].entry_points[0].callback.__name__ == "submit_command_start"
+        assert handlers[1].callback.__name__ == "gd_user_command"
+        assert handlers[2].callback.__name__ == "gd_level_command"

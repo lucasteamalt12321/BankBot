@@ -6,6 +6,18 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: BUGFIX01 — фикс юнит-тестов + регрессий)
+
+**Сделано:**
+- **`database/database.py`:** добавлен хелпер `get_db_session()` (= `next(get_db())`) — экспортируется как единый источник сессий, импортируется модулями GD/bot. Добавлены `__init__` c дефолтами для GD-моделей (`Level.created_at`, `Submission.status`/`submitted_at`, `PlayerStats.total_approved`, `LevelCompletion.completed_at`): SQLAlchemy `default=` применяется только при INSERT, поэтому создание объекта в памяти без явных kwargs оставляло `None` → падали тесты `test_gd_models.py`/`test_gd_player_stats.py`.
+- **`bot/commands/gd_commands_ptb.py`:** убран невалидный kwargs `username` у `Submission` (TypeError); создание `PlayerStats` без несуществующих колонок `total_submissions`/`approved_submissions`; `context.user_data.clear()` в ветке «Отменить»; `filters.DOCUMENT` → `filters.Document.ALL` (в PTB 21.0 `filters.DOCUMENT` отсутствует).
+- **`utils/admin/admin_system.py`:** добавлен совместимый `get_db_connection()` (raw-коннекция глобального движка из `database.database` с `sqlite3.Row`) — закрывает регрессию DB01 `'AdminSystem' object has no attribute 'get_db_connection'`; восстановлено тело `get_users_count()` (случайно повреждённого при правке). `test_add_admin_verification.py`: 2 passed.
+- **Обновлены тесты под актуальный бренд LTHub / scope:** `test_gd_commands.py` (ожидает 3 хендлера от `get_gd_handlers`), `test_vercel_webhook_start.py` («[BANK] LucasTeam Hub (LTHub)»), `test_short_mode.py` («/profile» вместо исключённого «/shop»), `test_ai_lite.py` («LTHub (LucasTeam Hub)» + «справочник по LTHub»), `test_gd_player_stats.py` (сортировка через int-позиции, `SimpleNamespace` вместо `MagicMock` для `name`).
+
+**Проверки:** полный `tests/unit`: **924 passed, 10 skipped** (0 failed); `tests/smoke`: 12 passed; ruff All checks passed; py_compile OK (только pre-existing SyntaxWarning во встроенном JS `api/index.py`).
+
+**Примечание:** рабочая копия содержит параллельные незакоммиченные правки `api/index.py` + `tests/unit/test_vercel_parsing_e2e.py` (идемпотентность PARSE01 ч.2, принадлежат другим коммитам PARSE01/64d40d7). Мои правки багфикса — в `git diff HEAD`.
+
 ### 2026-08-03 (Session: PARSE01 часть 2 — idempotency + защита от ложных начислений)
 
 **Сделано:**
@@ -1253,4 +1265,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-a2b30f1 (2026-08-03, PARSE01: idempotency via UNIQUE(chat_id,message_id) + block non-bot reply parsing)
+64d40d7 (2026-08-03, PARSE01: idempotency via UNIQUE(chat_id,message_id) + block non-bot reply parsing + BUGFIX01 юнит-тесты)

@@ -94,6 +94,7 @@ async def submit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "❌ Отправка отменена.",
             parse_mode=None
         )
+        context.user_data.clear()
         return ConversationHandler.END
     
     if update.message.text != "✅ Подтвердить":
@@ -107,7 +108,6 @@ async def submit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         with get_db_session() as session:
             submission = Submission(
                 user_id=user.id,
-                username=user.username or user.full_name,
                 level_name=level_name,
                 media_file_id=media_data['file_id'],
                 media_type=media_data['type'],
@@ -116,15 +116,12 @@ async def submit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             
             session.add(submission)
-            session.commit()
             
             # Update player stats
             player_stats = session.query(PlayerStats).filter_by(user_id=user.id).first()
             if not player_stats:
-                player_stats = PlayerStats(user_id=user.id, total_submissions=0, approved_submissions=0)
-                session.add(player_stats)
+                session.add(PlayerStats(user_id=user.id))
             
-            player_stats.total_submissions += 1
             session.commit()
             
             logger.info(f"Submission created: user={user.id}, level={level_name}, submission_id={submission.id}")
@@ -170,7 +167,7 @@ def get_gd_handlers():
             ],
             SUBMIT_UPLOAD_MEDIA: [
                 MessageHandler(
-                    filters.VIDEO | filters.DOCUMENT | filters.PHOTO,
+                    filters.VIDEO | filters.Document.ALL | filters.PHOTO,
                     submit_upload_media
                 )
             ],

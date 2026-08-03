@@ -37,7 +37,7 @@ def test_ai_answers_about_bot_question() -> None:
 
     answer = service.answer("что это за бот?")
 
-    assert "BankBot LucasTeam" in answer
+    assert "LTHub (LucasTeam Hub)" in answer
     assert "/commands" in answer
     assert "/feedback <текст>" in answer
 
@@ -67,7 +67,7 @@ def test_ai_handles_offtopic_tea_without_claiming_llm() -> None:
     answer = service.answer("кофе")
 
     assert "оффтоп" in answer
-    assert "справочник по BankBot" in answer
+    assert "справочник по LTHub" in answer
     assert "/commands" in answer
 
 

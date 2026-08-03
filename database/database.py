@@ -537,6 +537,11 @@ class Level(Base):
     submissions = relationship("Submission", back_populates="level", cascade="all, delete-orphan")
     completions = relationship("LevelCompletion", back_populates="level", cascade="all, delete-orphan")
 
+    def __init__(self, **kwargs):
+        if "created_at" not in kwargs:
+            kwargs["created_at"] = datetime.utcnow()
+        super().__init__(**kwargs)
+
 
 class Submission(Base):
     """
@@ -558,6 +563,13 @@ class Submission(Base):
 
     level = relationship("Level", back_populates="submissions")
 
+    def __init__(self, **kwargs):
+        if "status" not in kwargs:
+            kwargs["status"] = "pending"
+        if "submitted_at" not in kwargs:
+            kwargs["submitted_at"] = datetime.utcnow()
+        super().__init__(**kwargs)
+
 
 class PlayerStats(Base):
     """
@@ -571,6 +583,11 @@ class PlayerStats(Base):
 
     hardest_level = relationship("Level", foreign_keys=[hardest_level_id])
 
+    def __init__(self, **kwargs):
+        if "total_approved" not in kwargs:
+            kwargs["total_approved"] = 0
+        super().__init__(**kwargs)
+
 
 class LevelCompletion(Base):
     """
@@ -583,6 +600,11 @@ class LevelCompletion(Base):
     completed_at = Column(DateTime, default=datetime.utcnow)
 
     level = relationship("Level", back_populates="completions")
+
+    def __init__(self, **kwargs):
+        if "completed_at" not in kwargs:
+            kwargs["completed_at"] = datetime.utcnow()
+        super().__init__(**kwargs)
 
 
 # ========== Phase 2: Chess Module ==========

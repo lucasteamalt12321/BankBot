@@ -28,7 +28,7 @@ def test_vercel_webhook_replies_to_start() -> None:
     mock_post.assert_called_once()
     payload = mock_post.call_args.kwargs["json"]
     assert payload["chat_id"] == 12345
-    assert "[BANK] LucasTeam BankBot" in payload["text"]
+    assert "[BANK] LucasTeam Hub (LTHub)" in payload["text"]
     assert "Привет, LucasTeam!" in payload["text"]
     assert "ID: 2091908459" in payload["text"]
     assert "/long_all — полный режим для всех" in payload["text"]
