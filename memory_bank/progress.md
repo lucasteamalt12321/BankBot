@@ -2,24 +2,96 @@
 
 ## Статус проекта
 **Процент выполнения:** 96% (Phase 2) по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal в работе
-
-## Known Issues
-
-### Решённые
-- ✅ F821 `reply_to` в webhook-хендлере api/index.py — определение перенесено выше D&D-блока
-- ✅ ruff: 0 errors в продакшн коде (bot/, bridge_bot/, common/, core/, database/, src/, utils/, vk_bot/)
-- ✅ ruff: 149 errors в тестах (добавлены в ruff.toml per-file-ignores)
-- ✅ Тесты BridgeBot + VK Bot: 43 passed
-- ✅ T13 (рефакторинг bot/bot.py): 3923 → 2112 строк (−44%)
-- ✅ T14: PARSING_ENABLED=true
-- ✅ T15: Ruff cleanup завершён, ruff.toml создан
-- ✅ F01: Root cause найден — sys.path.insert в source файлах
-- ✅ F01: Исправлены импорты — 746 passed (было 0 с указанными ошибками)
-- ✅ F02: Merge conflict markers не найдены
-- ✅ F03: CI/CD pipeline создан (.github/workflows/ci.yml)
+**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal завершён (123/123), пост-фаза: фиксы багов + новые функции
 
 ## Changelog
+
+### 2026-08-03 (Session: Предложения + 5 фиксов багов)
+
+**Сделано:**
+- **Функция «Предложения»:** таблица `web_feedback`, страница `/suggest` (категория баг/предложение + раздел + текст), карточка на хабе, вкладка «Предложения» в админ-панели настроек, плавающая кнопка 🐛 (появляется при JS-ошибке), API `POST /api/feedback` / `GET /api/admin/feedback` / `DELETE /api/admin/feedback/<id>`, уведомление админу в Telegram.
+- **Фикс шахмат (off-by-one):** позиция задачи переведена на `initialPly + 1` полуходов (web + telegram), `turn = Белых/Чёрных` от `(initialPly+1)%2`, mirror при ходе чёрных сохранён. Подтверждено эмпирически (solution[0] легален на ip+1 в 19+ тестах).
+- **Фикс D&D пустой страницы:** `#start-panel` видна по умолчанию, `refreshStatus()` получил обработку onerror/status/catch с показом ошибки; серверный `/api/dnd/status` обёрнут в try/except.
+- **Фикс GD-ника:** при отправке рекорда подтягивается `gd_nickname` из профиля (клиент через `/api/auth/me`, сервер-фолбэк через токен).
+- **Фикс викторины:** добавлены ручные `distractors` для групп rules/tea/ltrs/glossary; генераторы web и telegram используют их.
+- **Фикс молитв:** `_PRAYERS` переписаны по канону чайной религии («чай» + просьба + «eight-nine»); telegram использует единый `_PRAYERS`; убран дубликат eight-nine на web-странице.
+
+**Проверки (E2E):** /suggest 200 + форма, POST /api/feedback (suggestion) ok; страница /dnd 200 + старт-панель; /api/daily_prayer (канон-текст); /api/trivia/question — реалистичные варианты (id 20 → только LTRS-имена). ruff 0 errors, py синтаксис OK.
+
+### 2026-08-02 (Session: Админ-панель WEB-07)
+
+**WEB-07 completed:** Веб-админ-панель LTHub готова. **Phase 3 завершён: 123/123.**
+
+**Сделано:**
+- Страница `/admin` — 4 вкладки: Статистика / Пользователи (поиск) / Начисление монет / Журнал ошибок
+- API: `/api/admin/stats`, `/api/admin/users?q=`, `/api/admin/users/<id>/coins`, `/api/admin/coins/award`, `/api/admin/set_admin`, `/api/admin/errors`, `/api/admin/errors/clear`
+- Авторизация по токену профиля: `_web_admin_session()` (is_admin флаг в `web_users` ИЛИ telegram_id == ADMIN_TELEGRAM_ID), не-админ → 403, самим собой управлять нельзя
+- Авто-грант админа при регистрации/обновлении профиля при telegram_id == ADMIN_TELEGRAM_ID
+- Монеты: `_award_web_coins()` — ключ `_web_user_id("u<id>")` (согласовано с chess/GD), лог в таблицу `web_coin_log`
+- Колонка `is_admin` в `web_users`, таблица `web_coin_log`
+- Карточка «Админ-панель» добавлена на хаб `/`
+
+**Проверки (E2E на https://bank-bot-ruby.vercel.app):** регистрация с admin Telegram ID → is_admin=True; stats 5 web_users / 2 admins; начисление 15 монет → баланс 15 + лог; set_admin on/off; self-set_admin → 400; без токена → 403; страница /admin 200. py_compile OK, ruff 0 errors.
+
+### 2026-08-02 (Session: D&D AI Master веб-страница реализована)
+
+**Проблема:** карточка «D&D AI Master» на хабе вела на `/dnd`, но route отсутствовал → 404. В memory bank модуль был помечен как портированный, но веб-обёртки фактически не было (только Telegram-логика в `api/dnd_runtime.py`).
+
+**Сделано:**
+- `GET /dnd` — SPA в стиле GitHub Dark: панель статуса (название, сцена, число событий, персонажи), чат-лог, форма старта сессии, инпут действия, бросок кубика (d20 / 2d6+3 + назначение), исправление мастера, остановка сессии. `user_id` из localStorage / `?user_id=`.
+- API: `GET /api/dnd/status`, `POST /api/dnd/start`, `POST /api/dnd/act`, `POST /api/dnd/roll`, `POST /api/dnd/stop`, `POST /api/dnd/fix` — обёртки над `api/dnd_runtime.py`, `user_id` резолвится через `_gd_web_uid()` (числовой = Telegram id, иначе hash).
+- Фикс схемы: `_ensure_dnd_tables` теперь добавляет недостающие колонки к уже существующей прод-таблице через `ALTER TABLE dnd_sessions ADD COLUMN IF NOT EXISTS ...` (продовская таблица, созданная старым проектом, не имела `paused_at` → `cmd_dnd_stop` падал с 500 UndefinedColumn).
+- Ответы D&D приходят в Telegram-HTML (`<b>` и т.п.) — для веба теги вырезаются через `_dnd_plain()` (regex-стрип, XSS-safe).
+
+**Проверка на проде:** page `/dnd` 200; start → act (AI отвечает) → roll d20 (AI комментирует) → stop — все 200; status отдаёт лог. Тестовые кампании удалены через временный эндпоинт `_cleanup_test` (задеплоен → выполнен → удалён), прод чистая (status `active:false`).
+
+**Коммит:** не коммитился (по правилам AGENTS.md)
+
+### 2026-08-02 (Session: Завершение тренажёра глаголов WEB-08, регистрация доведена)
+
+**WEB-08 completed:** Практика глаголов полностью готова и проверена на продакшене.
+
+**Сделано:**
+- Полный цикл «учитель → ученик» проверен E2E: генерация (id=930065) → выдача задания с пропусками → проверка (9/9) → результаты для учителя (1 submission, 403 для чужого учителя)
+- Share-ссылка `/irregular_verbs/exercise/<id>` → 302 на `?exercise=<id>`
+- Имя ученика по умолчанию подставляется из профиля (display_name) для зарегистрированных пользователей
+- Регистрация доведена: логин+пароль, `/login`, `/settings`, logout инвалидирует токен (401 после выхода)
+
+**Проверки:** py_compile OK, ruff 0 errors, E2E на https://bank-bot-ruby.vercel.app.
+
+**Итог Phase 3: 113/123** (остался WEB-07 Admin Panel).
+
+### 2026-08-01 (Session: Единая регистрация для веб-портала, WEB-11)
+
+**WEB-11 completed:** Единая система пользователей для всех модулей.
+
+**Сделано:**
+- Страница `/register` — анонимный вход / привязка Telegram (ID + 6-значный код)
+- API: `/api/auth/register`, `/api/auth/me`, `/api/auth/link_telegram`, `/api/auth/logout`
+- Анонимный `web_user_id` в localStorage — работа без регистрации сохранена
+- Зарегистрированный пользователь = `tg_<telegram_id>` (синхронизация между устройствами)
+- Хаб `/` получил user-bar: аватар, имя, статус, вход/выход
+- Все страницы (AI Chat, Chess, GD, Verbs) переведены с `ai_user_id` на единый `web_user_id`
+- Вспомогательные функции auth: `_generate_web_user_id()`, `_is_valid_web_user_id()`, `_extract_telegram_id()`, `_web_user_id_to_int()`
+
+**Проверка:** py_compile OK, ruff 0 errors, деплой на Vercel выполнен.
+
+**Коммит:** не коммитился (по правилам AGENTS.md)
+
+### 2026-08-01 (Session: GD web — отправка рекордов + модерация, чистка тестовых данных)
+
+**Сделано:**
+- Сложность уровней на `/gd` и `/api/gd/leaderboard` — через GDDL: исправлен `get_gd_difficulty_name()` (читает поле `difficulty` из gdbrowser, а не несуществующие `isDemon`/`difficultyName`). Проверено: Grey Trap → Hard Demon, Tartarus/Bloodbath → Extreme Demon.
+- Leaderboard обогащается сложностью через ThreadPoolExecutor (5 workers); прохождения — `COALESCE(NULLIF(u.first_name,''), u.username, '?')`, на фронте «👤 имя» под числом.
+- `create_gd_submission()` получила параметр `status`.
+- Новые API: `GET /api/gd/me` (is_admin), `POST /api/gd/submit` (уровень + имя), `GET /api/gd/moderate` (пагинация), `POST /api/gd/moderate/reject`, `POST /api/gd/moderate/approve` (добавляет уровень в топ через `add_gd_level` + `approve_gd_submission_db`). Хелперы `_gd_web_uid()`, `_gd_web_is_admin()`.
+- Фронтенд `/gd`: вкладки «Отправить рекорд» и «Модерация» (только для админа, ✅/❌), поддержка `?user_id=` в URL.
+- E2E-проверка на проде: submit → заявка #13, reject OK, не-админ → 403, approve → уровень id=2, повторный approve → «уже обработана».
+- Тестовые данные удалены из прод-БД (levels.id=2 «Nine Circles», submissions #13/#14, player_stats/level_completions uid=248609333) через временный эндпоинт `/api/gd/_cleanup_test` (задеплоен → выполнен → удалён). Локально подключение к pooler заблокировано (TCP проходит, SQL-handshake виснет), поэтому чистка выполнена с Vercel.
+
+**Проверка:** ruff All checks passed; прод: leaderboard чист (только Grey Trap), moderate total=0, my_stats uid=248609333 пуст.
+
+**Коммит:** не коммитился (по правилам AGENTS.md)
 
 ### 2026-08-01 (Session: Family Circle prod-фиксы — NOT NULL без DEFAULT)
 
@@ -1135,4 +1207,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-40e97c0 (2026-08-01, feat: port Chess module to web (WEB-05) + fix trivia and AI chat)
+b671c4d (2026-08-01, docs: record Family Circle prod fixes, ENCRYPTION_KEY setup, project removal)

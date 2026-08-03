@@ -1,10 +1,55 @@
 # Active Context
 
-**Последнее обновление:** 2026-08-01  
+**Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** Портирован Chess (WEB-05) — страница `/chess` с тремя вкладками: статистика, поиск игрока, пазлы
+**Последнее действие:** Функция «Предложения» + батч из 5 фиксов багов
 
 ## Текущий фокус
+
+### Функция «Предложения» (новое) ✅
+
+**Цель:** Пользователь может отправить предложение по улучшению проекта или сообщить о баге.
+
+**Как работает:**
+- Таблица `web_feedback` (user_id, login, author_name, category[bug|suggestion], module, message, status[open], created_at)
+- Страница `/suggest` — форма: категория (🐛 баг / 💡 предложение), раздел (выпадающий список модулей), текст
+- Карточка «Предложения» в бета-блоке хаба
+- Плавающая кнопка 🐛 появляется при JS-ошибке (window.onerror / unhandledrejection) на хубе → ведёт на `/suggest?type=bug&module=hub`
+- Вкладка «Предложения» в админ-панели настроек (просмотр по типам, удаление)
+- Уведомление админу в Telegram через `notify_admin`
+
+**API:** `POST /api/feedback` (подача), `GET /api/admin/feedback?status=`, `DELETE /api/admin/feedback/<id>`
+
+### Пакет исправлений багов (2026-08-03) ✅
+
+Исправлены 5 багов из обращения пользователя:
+
+1. **Шахматы жёсткого off-by-one** (web + telegram): позиция задачи выводилась на `initialPly` полуходов, а не `initialPly + 1`, что давало инверсию цвета («Ход: Белых», но «правильный ход — за чёрных»). Эмпирически подтверждено на 19+ задачах Lichess: `solution[0]` легален именно на `initialPly + 1`. Mirror при ходе чёрных СОХРАНЁН (телеграм-бот не ломался). `turn` теперь считается от `(initialPly + 1) % 2`.
+
+2. **D&D пустая страница**: панели скрывались навсегда, т.к. `refreshStatus()` молча глотал ошибки. Исправлено: `#start-panel` видна по умолчанию, добавлены `xhr.onerror`/`xhr.status !== 200`/`catch`, ошибка показывается в `start-result`; серверный `/api/dnd/status` обёрнут в try/except → `{"active": false}` вместо 500, ошибка логируется в `log_error`.
+
+3. **GD рекорд без GD-ника**: раньше ник из профиля не подтягивался, сохранялась заглушка `web_<hash>`. Исправлено: клиент при пустом поле имени автоматически берёт `gd_nickname` из `/api/auth/me` (если залогинен), сервер добавляе фолбэк через токен (поле `token` в payload) → `_get_session_user(token).gd_nickname`.
+
+4. **Нереалистичные варианты викторины**: в малых группах (rules/tea/ltrs/glossary) фолбэк брал ответы из всей базы («Высокий канон» попадал в вопрос про LTRS). Добавлены ручные поля `distractors` (3 реалистичных варианта) к вопросам групп rules(1-3), tea(16-17), ltrs(19-20), glossary(21-23); генераторы `api_trivia_question()` и telegram `generate_trivia_question()` теперь отут ручные дистракторы.
+
+5. **Молитвы не по канону**: списки `_PRAYERS` (web + telegram дубль) состояли из IT-юмора. Переписаны по канону чайной религии (многократное «чай» + просьба + финальное «eight-nine»). Telegram теперь использует единый `_PRAYERS` (`random.choice(_PRAYERS)`) без дублирующего кода; убран дубликат `<div class="prayer-amen">eight-nine!</div>` на web-странице.
+
+### Единая регистрация (WEB-11) ✅
+
+**Цель:** Единый пользователь для всех модулей (AI Chat, GD, Chess, Budget, Family, Verbs) без обязательной регистрации.
+
+**Как работает:**
+- Анонимный `web_user_id` генерируется в localStorage при первом визите — пользоваться можно без регистрации
+- Страница `/register` — регистрация с логином+паролем (обязательно) и опциональными полями: имя, GD nickname, Telegram ID, Lichess nickname
+- Зарегистрированный пользователь = `u<user_id>` в localStorage + `web_token` (сессия из таблицы `web_sessions`) → синхронизация между устройствами
+- Хаб `/` показывает user-bar: аватар, имя, статус, кнопку «Войти / Зарегистрироваться» или «Выйти» (+ «Настройки»)
+- Страницы: `/register`, `/login`, `/settings` (профиль через `/api/auth/me`, обновление через `/api/auth/update`)
+- **Поле «Имя» (display_name) предназначено для модулей «Психолог» и «Тренажёр английского»** — в тренажёре глаголов теперь подставляется как имя ученика по умолчанию
+- Пароли: PBKDF2-SHA256 (100k итераций), хэш `salt_hex:digest_hex`; сессии: `secrets.token_hex(32)`
+- Вспомогательные функции: `_hash_password()`, `_verify_password()`, `_create_session()`, `_get_session_user()`, `_auth_token_from_request()`, `_ensure_web_auth_tables()`
+- AI Chat, GD, Chess, Verbs переведены с `ai_user_id` на единый `web_user_id`
+
+**API:** `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/update`, `POST /api/auth/logout`
 
 ### Виртуальный компьютер для AI Chat (WEB-09) ✅
 
@@ -20,18 +65,28 @@
 
 **Файлы:** `api/index.py` (весь бэкенд + inline HTML страницы), `api/requirements.txt` (+Pillow)
 
-### Практика глаголов — новый модуль (WEB-08)
+### Практика глаголов — новый модуль (WEB-08) ✅
 
 **Цель:** Создать веб-приложение для практики неправильных глаголов английского языка с AI-генерацией заданий.
 
 **Роли:** Учитель (создаёт задания, смотрит результаты) / Ученик (выполняет, получает проверку).
 
+**Как работает:**
+- Страница `/irregular_verbs` — роли «Я учитель» / «Я ученик», тёмная тема
+- Учитель: создаёт задание (глаголы, кол-во 1-50, режим 2/3 формы, пожелания) → AI генерирует → превью с правильными ответами → подтвердить и получить share-ссылку → «Мои задания» (id, кол-во заданий, учеников) → результаты с ошибками
+- Ученик: вводит ID или переходит по share-ссылке → если имя не задано, спрашивает «Как тебя зовут?» (сохраняется в localStorage `verbs_name`) → заполняет пропуски → проверка с подсветкой ✓/✗ и счётом
+- Имя ученика по умолчанию подставляется из профиля (display_name) для зарегистрированных пользователей
+- Режимы: mode=3 (1 подсказка + 2 пропуска), mode=2 (первые 2 формы видны, пропущен Past Participle)
+- Share-ссылка: `/irregular_verbs/exercise/<id>` → 302 на `?exercise=<id>`
+
 **API:**
-- `POST /api/verbs/generate` — AI генерирует задание (Groq llama-3.3-70b)
-- `GET /api/verbs/exercises` — список заданий учителя
-- `GET /api/verbs/exercise/<id>` — задание со строками
-- `POST /api/verbs/submit` — проверка ответов ученика
-- `GET /api/verbs/exercise/<id>/results` — результаты по заданию
+- `POST /api/verbs/generate` — AI генерирует задание (Groq llama-3.3-70b), лимит 10 сек между генерациями (`VERB_GEN_LOCK`)
+- `GET /api/verbs/exercises` — список заданий учителя (+ student_count)
+- `GET /api/verbs/exercise/<id>` — задание с пропусками для ученика
+- `POST /api/verbs/submit` — проверка ответов ученика (посимвольно по inf/past/pp)
+- `GET /api/verbs/exercise/<id>/results` — результаты по заданию (только учитель, 403 иначе)
+
+**БД:** `verb_exercises` (id, teacher_id, verbs, task_count, mode, wishes, tasks JSON, created_at), `verb_submissions` (exercise_id, user_id, name, score, total, details JSON, timestamp). Хелперы `_save_verb_exercise`/`_load_verb_exercise`/`_load_teacher_exercises`/`_save_verb_submission`/`_load_verb_submissions`.
 
 ### Web Portal — все модули бота в браузере
 
@@ -47,7 +102,7 @@
 | 2 | Викторина (/trivia) | ✅ Портирован |
 | 3 | D&D AI Master | ✅ Портирован (аналог StoryForge) |
 | 4 | GD модуль | ✅ Портирован |
-| 5 | Практика глаголов | 🔧 В работе |
+| 5 | Практика глаголов | ✅ Портирован |
 | 6 | Шахматы | ✅ Портирован |
 | 7 | Ежедневная молитва | ⏳ Утверждён |
 | 8 | Админ-панель | ⏳ Утверждён |
@@ -55,7 +110,7 @@
 
 **Не портируются:** магазин, личный кабинет/профиль, вселенная (infect/tea), парсинг реплаев, основные команды.
 
-**Прогресс Phase 3: 98/118** (WEB-00, WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06, WEB-09, WEB-10).
+**Прогресс Phase 3: 123/123** (WEB-00, WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06, WEB-07, WEB-08, WEB-09, WEB-10, WEB-11).
 
 ## План архитектуры
 
@@ -71,17 +126,19 @@
 - **UI:** Карточка с вопросом, 4 кнопки-варианта, подсветка правильного/неправильного, счёт
 - **Данные:** Брать вопросы из `bot/ai/knowledge.py` или новой таблицы
 
-### 3. D&D AI Master (StoryForge-like)
-- **Страница:** `/dnd`
-- **API:** `POST /api/dnd/start`, `POST /api/dnd/act` (действие игрока), `GET /api/dnd/status`
-- **UI:** Лог сессии (лента сообщений), поле ввода действия, кнопка броска кубика, кнопка "новая сессия"
-- **Данные:** Переиспользует `dnd_runtime.py`
+### 3. D&D AI Master (StoryForge-like) ✅ Портирован
+- **Страница:** `/dnd` — SPA в стиле GitHub Dark (статус, чат-лог, старт, действие, кубик, исправление, стоп)
+- **API:** `GET /api/dnd/status`, `POST /api/dnd/start`, `POST /api/dnd/act`, `POST /api/dnd/roll`, `POST /api/dnd/stop`, `POST /api/dnd/fix`
+- **UI:** Лог сессии (лента сообщений user/ai/dice/system), поле ввода действия, бросок кубика (d20 / 2d6+3 + цель), исправление мастера, "новая сессия", остановка
+- **Данные:** обёртки над `api/dnd_runtime.py`; `user_id` через `_gd_web_uid()`; ответы в Telegram-HTML → `_dnd_plain()`
+- **Схема:** прод-таблица `dnd_sessions` (старый проект) без `paused_at` → `ALTER TABLE ADD COLUMN IF NOT EXISTS` в `_ensure_dnd_tables`
 
 ### 4. GD модуль ✅ Портирован
-- **Страница:** `/gd` — хаб GD с тремя вкладками
-- **API:** `GET /api/gd/user/<nick>`, `GET /api/gd/leaderboard`, `GET /api/gd/my_stats?user_id=...`
-- **UI:** Поиск игрока (статистика из GD API), топ уровней (таблица из БД), моя статистика (карточки с показателями)
+- **Страница:** `/gd` — хаб GD с пятью вкладками: Поиск игрока / Топ уровней / Моя статистика / Отправить рекорд / Модерация
+- **API:** `GET /api/gd/user/<nick>`, `GET /api/gd/leaderboard`, `GET /api/gd/my_stats?user_id=...`, `GET /api/gd/me`, `POST /api/gd/submit`, `GET /api/gd/moderate`, `POST /api/gd/moderate/reject`, `POST /api/gd/moderate/approve`
+- **UI:** Поиск игрока (статистика из GD API), топ уровней (таблица из БД, сложность из GDDL через `get_gd_difficulty_name()`), моя статистика (карточки), отправка рекорда (уровень + имя), модерация (пагинация, ✅/❌, только админ)
 - **Тёмная тема:** стиль GitHub Dark
+- **Web-user identity:** `_gd_web_uid()` хеширует нечисловой `user_id` в int; числовой = Telegram id. `_gd_web_is_admin()` проверяет по ADMIN_TELEGRAM_ID.
 
 ### 5. Шахматы ✅ Портирован
 - **Страница:** `/chess` — три вкладки: Моя статистика / Поиск игрока / Пазл
@@ -94,11 +151,19 @@
 - **API:** `GET /api/prayer/today` — молитва дня
 - **UI:** Карточка с текстом молитвы, дата, кнопка "обновить"
 
-### 7. Админ-панель
+### 7. Ежедневная молитва
+- **Страница:** `/prayer`
+- **API:** `GET /api/prayer/today` — молитва дня
+- **UI:** Карточка с текстом молитвы, дата, кнопка "обновить"
+
+### 8. Админ-панель (WEB-07) ✅
 - **Страница:** `/admin`
-- **API:** `GET /api/admin/users`, `GET /api/admin/stats`, `POST /api/admin/add_points`, `GET /api/admin/errors`
-- **UI:** Таблицы, поиск, формы начисления монет, просмотр ошибок
-- **Безопасность:** Доступ по списку ADMIN_IDS через заголовок/параметр `user_id`
+- **API:** `GET /api/admin/stats`, `GET /api/admin/users?q=`, `GET /api/admin/users/<id>/coins`, `POST /api/admin/coins/award`, `POST /api/admin/set_admin`, `GET /api/admin/errors`, `POST /api/admin/errors/clear`
+- **UI:** 4 вкладки: Статистика / Пользователи / Начисление монет / Ошибки. Тёмная тема GitHub Dark.
+- **Авторизация:** по токену профиля — `_web_admin_session()` (is_admin флаг в web_users ИЛИ telegram_id == ADMIN_TELEGRAM_ID). Не-админ → 403. Самим собой управлять нельзя.
+- **Назначение админа:** авто-грант при регистрации/обновлении, если telegram_id == ADMIN_TELEGRAM_ID; кнопка «Сделать/снять админа» в списке.
+- **Монеты:** `_award_web_coins()` — ключ `_web_user_id("u<web_users.id>")` (согласовано с chess/GD), лог в `web_coin_log`.
+- **БД:** `web_users.is_admin` колонка + таблица `web_coin_log` (id, user_id, amount, description, created_at).
 
 ### Общий подход
 - Каждая страница — отдельный route в `api/index.py` с inline HTML (как hub, reading_trainer, endings_trainer)
@@ -115,7 +180,9 @@
 4. **Prayer** — ✅ Портирован
 5. **Chess** — ✅ Портирован
 6. **GD** — ✅ Портирован
-7. **Admin** — следующий, самый объёмный
+7. **Admin** — ✅ Портирован
+
+**Phase 3 (Web Portal) завершён: 123/123.**
 
 ## Архитектура (схема)
 
@@ -127,14 +194,22 @@ api/index.py (Flask)
 ├── GET  /trivia               → Trivia SPA
 ├── GET  /api/trivia_question   → вопрос из knowledge.py
 ├── POST /api/trivia_answer    → проверка + монеты
-├── GET  /dnd                  → D&D SPA
-├── POST /api/dnd/start        → dnd_runtime.start_session()
-├── POST /api/dnd/act          → dnd_runtime.process_action()
-├── GET  /api/dnd/status       → dnd_runtime.get_status()
+├── GET  /dnd                  → D&D SPA (старт/логи/действие/кубик/стоп)
+├── GET  /api/dnd/status       → find_active_session + лог
+├── POST /api/dnd/start        → cmd_dnd_start
+├── POST /api/dnd/act          → handle_free_text
+├── POST /api/dnd/roll         → cmd_dnd_roll
+├── POST /api/dnd/stop         → cmd_dnd_stop
+├── POST /api/dnd/fix          → cmd_dnd_fix
 ├── GET  /gd                   → GD SPA
 ├── GET  /api/gd/user/<nick>  → fetch_gd_user()
-├── GET  /api/gd/leaderboard   → get_gd_leaderboard()
+├── GET  /api/gd/leaderboard   → get_gd_leaderboard() + GDDL сложность
 ├── GET  /api/gd/my_stats      → get_gd_player_stats()
+├── GET  /api/gd/me            → is_admin по user_id
+├── POST /api/gd/submit        → create_gd_submission(status='pending')
+├── GET  /api/gd/moderate      → get_gd_pending_submissions()
+├── POST /api/gd/moderate/reject → reject_gd_submission_db()
+├── POST /api/gd/moderate/approve → add_gd_level() + approve_gd_submission_db()
 ├── GET  /chess                → Chess SPA
 ├── GET  /api/chess/stats      → fetch_lichess_user()
 ├── GET  /api/chess/user/<nick>→ fetch_lichess_user()
