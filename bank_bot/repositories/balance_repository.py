@@ -107,7 +107,7 @@ class BalanceRepository(BaseRepository[User]):
         user = self.get_balance_with_lock(user_id)
         if user is None:
             return None
-        user.balance += amount
+        user.balance = (user.balance or 0) + amount
         if amount > 0:
-            user.total_earned += amount
+            user.total_earned = (user.total_earned or 0) + amount
         return user
