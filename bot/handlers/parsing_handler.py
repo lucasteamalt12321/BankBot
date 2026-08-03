@@ -417,7 +417,7 @@ class ParsingHandler:
             return
 
         # Determine bank coins based on game and result type
-        from core.parsers.rates import get_conversion_rate as _rate
+        from core.rates import get_conversion_rate as _rate
 
         bank_coins = 0.0
         details = []

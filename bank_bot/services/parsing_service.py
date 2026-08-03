@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from bank_bot.repositories.balance_repository import BalanceRepository
 from bank_bot.repositories.transaction_repository import TransactionRepository
-from core.parsers.rates import get_conversion_rate as _canonical_rate
+from core.rates import get_conversion_rate as _canonical_rate
 from database.database import UserResource, ConversionRate
 
 logger = structlog.get_logger()

@@ -871,7 +871,7 @@ def _ensure_parsing_tables(engine):
 
 
 def _sync_conversion_rates(conn):
-    """Seed/refresh conversion_rates with canonical values from core.parsers.rates.
+    """Seed/refresh conversion_rates with canonical values from core.rates.
 
     Sets k to the canonical value for known bots so both parsing stacks read the
     same single source of truth. Preserves any admin-tweaked rows by only updating
@@ -2516,7 +2516,7 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
 
 
 
-from core.parsers.rates import BOT_CONVERSION_RATES, PARSING_RESOURCE_TYPES
+from core.rates import BOT_CONVERSION_RATES, PARSING_RESOURCE_TYPES
 
 
 def get_conversion_rate(bot_name: str) -> float:
