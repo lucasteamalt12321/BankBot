@@ -2,9 +2,23 @@
 
 **Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** PARSE01 часть 2 — idempotency (UNIQUE index по chat_id+message_id) + защита `reply_to.from.is_bot` (ложные начисления чужому профилю)
+**Последнее действие:** BUGFIX01 — фикс юнит-тестов и регрессий (GD-модели, `filters.DOCUMENT`, `AdminSystem.get_db_connection`, бренд LTHub)
 
 ## Текущий фокус
+
+### BUGFIX01 — фикс юнит-тестов + регрессий ✅ (2026-08-03)
+
+**Проблема:** полный `tests/unit` падал на 10 тестах (GD-модели, AI-lite, short_mode, admin DB01) — большинство pre-existing, ещё были TypeError от `filters.DOCUMENT` (PTB 21 нет такого) и нулевых SQLAlchemy `default=` в памяти объектов.
+
+**Сделано:**
+- `database/database.py`: хелпер `get_db_session()` (единый источник сессий) + `__init__`-дефолты в GD-моделях (`Level.created_at`, `Submission.status/submitted_at`, `PlayerStats.total_approved`, `LevelCompletion.completed_at`) — применяются при создании объекта, т.к. SQLAlchemy `default=` срабатывает только на INSERT.
+- `bot/commands/gd_commands_ptb.py`: убран невалидный `username` у `Submission`; создание `PlayerStats` без несуществующих колонок; `context.user_data.clear()` при отмене; `filters.DOCUMENT` → `filters.Document.ALL`.
+- `utils/admin/admin_system.py`: совместимый `get_db_connection()` (закрывает регрессию DB01), восстановлено тело `get_users_count()`.
+- Тесты обновлены под LTHub/scope: `test_gd_commands` (3 хендлера), `test_vercel_webhook_start`, `test_short_mode` (`/profile`), `test_ai_lite`, `test_gd_player_stats` (`SimpleNamespace`).
+
+**Проверка:** 924 passed / 10 skipped, tests/smoke 12 passed, ruff clean, py_compile OK.
+
+**Осталось (часть 3 PARSE01):** единый source of truth курсов (gdcards 2:1 bot vs 2.5 api), E2E PTB-тесты (handle_manual_parsing с реальной БД).
 
 ### PARSE01 — Production E2E парсинг игровых сообщений (в работе) 🚧
 

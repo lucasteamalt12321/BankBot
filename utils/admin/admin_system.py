@@ -306,7 +306,7 @@ class AdminSystem:
     def get_users_count(self) -> int:
         """
         Получение общего количества пользователей
-        
+
         Returns:
             int: Количество пользователей
         """
@@ -322,6 +322,18 @@ class AdminSystem:
         except Exception as e:
             logger.error(f"Error getting users count: {e}")
             return 0
+
+    def get_db_connection(self):
+        """Return a raw DBAPI connection to the global engine (compatibility shim)."""
+        from database.database import engine
+
+        raw = engine.raw_connection()
+        dbapi = raw.driver_connection
+        if hasattr(dbapi, "row_factory"):
+            import sqlite3
+
+            dbapi.row_factory = sqlite3.Row
+        return dbapi
 
     def add_transaction(
         self,

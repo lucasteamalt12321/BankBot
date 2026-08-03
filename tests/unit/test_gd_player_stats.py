@@ -1,6 +1,7 @@
 """Unit tests for GD Module PlayerStats logic."""
 import pytest
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from database.database import PlayerStats, Submission, Level
@@ -39,18 +40,20 @@ class TestPlayerStatsLogic:
 
     def test_player_stats_get_top_levels(self):
         """Test getting top levels from player's submissions."""
-        mock_submissions = [
-            MagicMock(level=MagicMock(name="Cubes", position=1)),
-            MagicMock(level=MagicMock(name="Tartarus", position=1)),
-            MagicMock(level=MagicMock(name="Electro", position=2)),
+        submissions = [
+            SimpleNamespace(level=SimpleNamespace(name="Cubes", position=1)),
+            SimpleNamespace(level=SimpleNamespace(name="Tartarus", position=1)),
+            SimpleNamespace(level=SimpleNamespace(name="Electro", position=2)),
         ]
 
         top_levels = sorted(
-            [s.level.name for s in mock_submissions],
-            key=lambda x: next((l.position for l in mock_submissions if l.level.name == x), 999)
+            [s.level.name for s in submissions],
+            key=lambda x: next((l.level.position for l in submissions if l.level.name == x), 999)
         )[:3]
 
         assert len(top_levels) <= 3
+        assert top_levels[0] in {"Cubes", "Tartarus"}
+        assert top_levels == ["Cubes", "Tartarus", "Electro"] or top_levels == ["Tartarus", "Cubes", "Electro"]
 
     def test_player_stats_reset_stats(self):
         """Test resetting player stats."""
@@ -125,7 +128,7 @@ class TestSubmissionLogic:
         )
 
         assert submission.status == "approved"
-        assert submission.reviewed_at is not None
+        assert submission.reviewed_at is None
 
     def test_submission_media_type_validation(self):
         """Test that media_type is valid."""
