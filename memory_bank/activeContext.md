@@ -2,7 +2,7 @@
 
 **Последнее обновление:** 2026-08-03  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** PARSE01 ч.3 — единый канон курсов конвертации (core/rates.py), задеплоено
+**Последнее действие:** PARSE01 завершён — E2E PTB-тест handle_manual_parsing + фикс бага начисления (total_earned NULL)
 
 ## Текущий фокус
 
@@ -34,7 +34,7 @@
 
 **Осталось (часть 3 PARSE01):** единый source of truth курсов (gdcards 2:1 bot vs 2.5 api), E2E PTB-тесты (handle_manual_parsing с реальной БД).
 
-### PARSE01 — Production E2E парсинг игровых сообщений (в работе) 🚧
+### PARSE01 — Production E2E парсинг игровых сообщений ✅ (завершён, 2026-08-03)
 
 **Цель:** Довести парсинг игровых сообщений по ответам до production E2E. Исследование выявило 3 несогласованных стека парсера (core/parsers, bank_bot ParsingService, api/index.py), отсутствие записи в `parsed_transactions` и мониторинга неуспехов.
 
@@ -68,7 +68,11 @@
 
 **Проверка:** 924 passed / 10 skipped / 0 failed (полный unit), ruff clean, 70 passed (таргетированные). Задеплоено: `/api/dnd/status` → 400 (нормальный запуск, импорт ок).
 
-**Осталось по PARSE01:** E2E PTB-тесты (handle_manual_parsing с реальной БД).
+**Финал PARSE01 (E2E PTB-тест + фикс бага):**
+- **`tests/unit/test_manual_parsing_handler_e2e.py`** — 5 тестов на реальной SQLite (tmp-файл), оба DB-контура: целевой путь GD Cards (`🤩 Орбы: +10` → 25 монет), legacy True Mafia профиль (`💵 Деньги: 3000` → 200 монет 15:1), идемпотентность (повтор блокируется), нераспознанное / без reply. Патчи: `database.database.engine`/`SessionLocal` + `utils.admin.admin_system.SessionLocal`.
+- **Баг (найден тестом):** `balance_repository.add_balance()` — `TypeError: NoneType += int` из-за NULL `total_earned` (raw INSERT `register_user` без него). Фикс: `user.balance = (user.balance or 0) + amount`, `user.total_earned = (user.total_earned or 0) + amount`.
+
+**PARSE01 полностью завершён** (все части: мониторинг, idempotency, канон курсов, E2E PTB).
 
 ### TRIVIA01 — Брейн-Ринг по Канону (completed) ✅
 

@@ -6,6 +6,23 @@
 
 ## Changelog
 
+### 2026-08-03 (Session: PARSE01 финал — E2E PTB-тест handle_manual_parsing + фикс бага начисления)
+
+**PARSE01 completed.** Реальный E2E-тест PTB-хендлера + production-баг, найденный тестом.
+
+**Сделано:**
+- **`tests/unit/test_manual_parsing_handler_e2e.py`** (5 тестов, реальная SQLite в tmp-файле, оба DB-контура): 
+  - целевой путь `ParsingService` для GD Cards (`🤩 Орбы: +10` → 25 монет по канону 2.5, транзакция),
+  - legacy-путь `UnifiedParser` для True Mafia профиля (`💵 Деньги: 3000` → 200 монет, курс 15:1),
+  - идемпотентность (`processed_messages` в сыром SQLiteRepository) — повторный парсинг блокируется,
+  - нераспознанное сообщение / отсутствие reply.
+  - Фикстуры патчат оба входа: `database.database.engine`/`SessionLocal` + `utils.admin.admin_system.SessionLocal`.
+- **Баг:** `bank_bot/repositories/balance_repository.py` `add_balance()` падал `TypeError: unsupported operand += 'NoneType' and 'int'` — `AdminSystem.register_user()` делает raw INSERT без `total_earned` (→ NULL в БД), а `add_balance` делал `user.total_earned += amount`. Исправлено на `user.balance = (user.balance or 0) + amount` / `user.total_earned = (user.total_earned or 0) + amount`.
+
+**Проверки:** 5/5 passed (новый E2E); таргетированные 57 passed (parsing_service + manual_parsing + vercel_parsing_e2e); полный `tests/unit` 938 passed / 10 skipped, 1 failed — **pre-existing** `test_web_portal_e2e.py::test_admin_stats_and_users` (PostgreSQL-only `ANY()` на SQLite, untracked-файл, не связан с правкой). ruff All checks passed.
+
+**Осталось по PARSE01:** нет — все части (мониторинг, idempotency, канон курсов, E2E PTB) закрыты.
+
 ### 2026-08-03 (Session: PARSE01 часть 3 — единый source of truth курсов конвертации)
 
 **PARSE01 ч.3 completed.** Курсы конвертации игровых валют приведены к единому канону.
@@ -1299,4 +1316,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-dfa2c75 (2026-08-03, PARSE01 ч.3: канонические курсы конвертации core/rates.py)
+4f71919 (2026-08-03, PARSE01 финал: E2E PTB-тест handle_manual_parsing + фикс add_balance)
