@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 from flask import Flask, jsonify, request
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 
 
 # === Web Auth Helpers ===
@@ -7036,7 +7036,7 @@ def api_admin_users():
             ids = [_web_user_id("u" + str(u["id"])) for u in result]
             with get_db_engine().connect() as conn:
                 coins = conn.execute(
-                    text("SELECT user_id, balance FROM user_coins WHERE user_id = ANY(:ids)"),
+                    text("SELECT user_id, balance FROM user_coins WHERE user_id IN :ids").bindparams(bindparam("ids", expanding=True)),
                     {"ids": ids},
                 ).mappings().all()
             coin_map = {int(c["user_id"]): int(c["balance"] or 0) for c in coins}
