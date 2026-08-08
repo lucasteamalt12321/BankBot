@@ -1352,5 +1352,4 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-a728e95 (2026-08-03, docs: PARSE01 completed + QUALITY A/B session: ruff-clean, web-portal tests)
-(последнее обновление документации: 2026-08-07, CANON01)
+7a73c3a (2026-08-07, CANON01: core/canon/ единый source of truth канона + страница /canon)
