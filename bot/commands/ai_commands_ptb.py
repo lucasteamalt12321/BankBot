@@ -9,13 +9,13 @@ Commands:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 
 from bot.ai.model_manager import AIModelManager
+from core.canon import load_canon_text
 
 
 logger = logging.getLogger(__name__)
@@ -56,19 +56,13 @@ class AICommandsHandler:
         self._load_canon_knowledge()
     
     def _load_canon_knowledge(self) -> None:
-        """Load canon knowledge from file."""
-        canon_file = Path("data/canon_knowledge.txt")
-        
-        if canon_file.exists():
-            try:
-                with open(canon_file, 'r', encoding='utf-8') as f:
-                    self.canon_knowledge = f.read()
-                logger.info(f"Loaded canon knowledge: {len(self.canon_knowledge)} chars")
-            except Exception as e:
-                logger.error(f"Failed to load canon knowledge: {e}")
-                self.canon_knowledge = None
+        """Load canon knowledge from core.canon (source of truth)."""
+        canon = load_canon_text()
+        if canon:
+            self.canon_knowledge = canon
+            logger.info(f"Loaded canon knowledge: {len(canon)} chars")
         else:
-            logger.warning(f"Canon knowledge file not found: {canon_file}")
+            logger.warning("Canon knowledge unavailable (core/canon/canon.md missing)")
             self.canon_knowledge = None
     
     async def chat_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -224,7 +218,7 @@ class AICommandsHandler:
         if not self.canon_knowledge:
             await update.message.reply_text(
                 "❌ База знаний канона не загружена. "
-                "Создайте файл data/canon_knowledge.txt с информацией о каноне."
+                "Отсутствует файл core/canon/canon.md."
             )
             return
         

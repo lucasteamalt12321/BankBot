@@ -17,13 +17,16 @@ from typing import Iterable
 
 import aiohttp
 
+from core.canon import (
+    CANON_DOC_EXPORT_URL,
+    CANON_DOC_URL,
+    CANON_FILE_PATH,
+)
 
-CANON_DOC_ID = "1cThh8Yo_y74Zz2MKZHhVgUzfTa8-SO-fuoQvtxLzSl0"
-CANON_DOC_URL = f"https://docs.google.com/document/d/{CANON_DOC_ID}/edit?tab=t.0"
-CANON_DOC_EXPORT_URL = f"https://docs.google.com/document/d/{CANON_DOC_ID}/export?format=txt"
+
 DEFAULT_CHANNEL_URL = "https://t.me/s/lucasteamgd"
 DEFAULT_CACHE_PATH = Path("data/ai_knowledge_cache.json")
-LOCAL_CANON_PATH = Path("data/canon_knowledge.txt")
+LOCAL_CANON_PATH = CANON_FILE_PATH
 
 MAX_DYNAMIC_ENTRIES = 40
 MAX_ENTRY_TEXT_LENGTH = 1200
@@ -123,7 +126,7 @@ async def update_ai_knowledge_cache(
 
 
 def load_local_canon_knowledge(path: Path = LOCAL_CANON_PATH) -> tuple[DynamicKnowledgeEntry, ...]:
-    """Parse data/canon_knowledge.txt into structured entries with good keywords.
+    """Parse core/canon/canon.md into structured entries with good keywords.
 
     Splits by 📖 block headers and by glossary lines so each topic has its own
     searchable entry with full canon text as the answer.

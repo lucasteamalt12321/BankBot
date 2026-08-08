@@ -245,23 +245,33 @@ class AiLiteService:
         return [topic for _score, _title, topic in scored_topics]
 
     def _match_knowledge(self, normalized_question: str) -> list[KnowledgeEntry]:
-        """Return canon knowledge entries ordered by simple keyword score."""
-        scored_entries = []
-        for entry in (*CANON_KNOWLEDGE, *self.dynamic_knowledge, *self.local_knowledge):
-            # Longer/specific keywords should beat generic words. Example:
-            # "кто такой олеговирус" must prefer the Olegovirus entry over
-            # generic canon rules that contain the shorter word "олег".
-            score = sum(len(keyword) for keyword in entry.keywords if keyword in normalized_question)
-            if score:
-                scored_entries.append((score, entry.title, entry))
+        """Return canon knowledge entries ordered by simple keyword score.
 
-        if not scored_entries:
-            return []
+        Приоритет групп: runtime-кэш (свежий) > кураторская статика > сырые local.
+        Внутри группы — сортировка по сумме длин совпавших keywords.
+        """
 
-        max_score = max(score for score, _title, _entry in scored_entries)
-        scored_entries = [item for item in scored_entries if item[0] >= max_score * 0.5]
-        scored_entries.sort(key=lambda item: (-item[0], item[1]))
-        return [entry for _score, _title, entry in scored_entries]
+        def _score_entries(entries) -> list[KnowledgeEntry]:
+            scored: list[tuple[int, str, KnowledgeEntry]] = []
+            for entry in entries:
+                # Longer/specific keywords should beat generic words. Example:
+                # "кто такой олеговирус" must prefer the Olegovirus entry over
+                # generic canon rules that contain the shorter word "олег".
+                score = sum(len(keyword) for keyword in entry.keywords if keyword in normalized_question)
+                if score:
+                    scored.append((score, entry.title, entry))
+            if not scored:
+                return []
+            max_score = max(score for score, _title, _entry in scored)
+            scored = [item for item in scored if item[0] >= max_score * 0.5]
+            scored.sort(key=lambda item: (-item[0], item[1]))
+            return [entry for _score, _title, entry in scored]
+
+        for group in (self.dynamic_knowledge, CANON_KNOWLEDGE, self.local_knowledge):
+            matched = _score_entries(group)
+            if matched:
+                return matched
+        return []
 
     def _format_short_knowledge_answer(self, entries: list[KnowledgeEntry]) -> str:
         """Format compact canon answers for /short mode."""

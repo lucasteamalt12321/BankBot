@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from telegram import Message, Update
@@ -17,6 +16,7 @@ from bot.ai.knowledge_updater import update_ai_knowledge_cache
 from bot.ai.model_manager import AIModelManager
 from bot.response_modes import get_default_user_mode
 from bot.commands.feedback_commands import _append_feedback, _append_feedback_db
+from core.canon import load_canon_text
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ _ai_response_registry: dict[tuple[int, int], dict[str, Any]] = {}
 _pending_ai_improvements: dict[tuple[int, int], dict[str, Any]] = {}
 
 _ai_model_manager: AIModelManager | None = None
-_LOCAL_CANON_PATH = Path("data/canon_knowledge.txt")
 
 _AI_ASK_PROMPT = (
     "Ты — справочный AI-помощник LTHub по канону вселенной Олеговируса и LTL-паразита "
@@ -43,14 +42,8 @@ _AI_ASK_PROMPT = (
 
 
 def _load_canon_snippet(max_chars: int = 1500) -> str:
-    """Load first N chars of the local canon knowledge file."""
-    try:
-        if _LOCAL_CANON_PATH.exists():
-            text = _LOCAL_CANON_PATH.read_text(encoding="utf-8")
-            return text[:max_chars].rstrip()
-    except OSError:
-        pass
-    return ""
+    """Load first N chars of the local canon knowledge (core.canon)."""
+    return load_canon_text()[:max_chars].rstrip()
 
 
 async def _try_ai_answer(question: str) -> str | None:

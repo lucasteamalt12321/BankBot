@@ -2,9 +2,44 @@
 
 ## Статус проекта
 **Процент выполнения:** 96% (Phase 2) по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal завершён (123/123), пост-фаза: фиксы багов + новые функции
+**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal завершён (123/123), Phase 4 Canon Module завершён (CANON01: 100/100), пост-фаза: фиксы багов + новые функции
 
 ## Changelog
+
+### 2026-08-07 (Session: CANON01 — модуль хранения канона)
+
+**CANON01 completed.** Единый source of truth канона вселенной Олеговируса/LTL (Google Doc v2.9) вместо 5+ разошедшихся копий.
+
+**Сделано:**
+- **`core/canon/`** — лёгкий stdlib-пакет (паттерн `core/rates.py`, без тяжёлых зависимостей — критично для Vercel):
+  - `canon.md` — полный оригинальный текст v2.9 (232 строки, markdown-разметка, гиперссылки t.me, блок-цитаты; сохранена опечатка оригинала «námёки»).
+  - `__init__.py` — `CANON_VERSION="2.9 (12 мая 2026)"`, `CANON_DOC_ID`/`CANON_DOC_URL`/`CANON_DOC_EXPORT_URL`/`CANON_FILE_PATH`/`PROHIBITED_CANON_KEYWORDS`, `load_canon_text()`/`canon_version()`/`canon_sections()`/`find_canon()`/`render_markdown()` (свой stdlib-рендерер), `get_glossary()`/`get_works()`.
+  - `works.py` (16 произведений + фильтры level/kind), `glossary.py` (22 термина), `questions.py` (единый пул 24 вопросов trivia), `prayers.py` (15 молитв + `random_prayer`).
+- **Перевод потребителей на core.canon:** `api/index.py` (удалены локальные `_TRIVIA_QUESTIONS`/`_PRAYERS`, `_load_canon_trivia`/`generate_trivia_from_canon` → `load_canon_text()`), `bot/trivia/questions.py`, `bot/ai/knowledge.py`, `bot/ai/knowledge_updater.py` (`LOCAL_CANON_PATH = CANON_FILE_PATH`), `bot/commands/ai_commands_ptb.py` + `ai_commands.py`; `bot/ai/service.py::_match_knowledge` — приоритет групп dynamic > static (CANON_KNOWLEDGE) > local, порог 0.5×max.
+- **Страница `/canon`** (GitHub Dark, 3 вкладки: 📜 Полный текст / 🎵 Произведения с фильтрами / 🧩 Глоссарий с поиском) + API `GET /api/canon/{text,works,glossary,search}` + карточка «📖 Канон» на хабе `/`.
+- **Удалены** `data/canon_knowledge.txt` и `api/canon_knowledge.txt` (grep-проверка: ссылок в коде нет).
+- **Файлы:** `tests/unit/test_canon_module.py` (25 тестов), `/canon` добавлен в `test_web_portal_e2e.py::test_web_pages_render`.
+
+**Проверки:** полный `tests/unit` **964 passed / 10 skipped**; ruff All checks passed по всем изменённым файлам. Исправлен баг `'module' object is not callable` (функции `glossary()`/`works()` переименованы в `get_glossary()`/`get_works()` из-за конфликта с подмодулями).
+
+**Осталось отдельной задачей:** 4 падения pre-existing `tests/property/test_bunker_profile_parser_properties.py` + `test_mafia_profile_parser_properties.py`.
+
+### 2026-08-03 (Session: QUALITY — ruff-clean всего репозитория + автотесты веб-портала)
+
+**A — ruff-clean всего репо (завершено).**
+- `api/dnd_runtime.py`: удалён мёртвый `msg_type` (`"action"`/`"dice"`), нигде не использовался.
+- 4 субагента исправили E712/F841 в unit/property/integration/pbt-тестах (33+12+31+6 правок) + ручной фикс `tests/unit/test_command_validation_edge_cases.py:330`.
+- Итог: `ruff check . --exclude .venv --exclude vk_mini_app --exclude node_modules` → **All checks passed!** (было 100 ошибок).
+- Полный прогон (unit+integration+property+smoke): 30 failed / 1242 passed / 32 skipped / 3 errors; на чистом HEAD (git stash) — те же 30 failed + 3 errors → pre-existing, не связаны с ruff-правками.
+
+**B — автотесты веб-портала (10/10 passed).**
+- Создан `tests/unit/test_web_portal_e2e.py` (новый файл, не в collect_ignore): полный auth-цикл, feedback+admin flow, admin stats/users/coins, trivia (сессии + реалистичные дистракторы), веб-страницы (200 + маркеры), reading_trainer (MOM-05 маркеры + чистота HTML), /suggest форма, reading_generate fallback.
+- `_make_engine()`: in-memory sqlite со схемой, совместимой с PG-DDL продуктива (`web_users`, `web_sessions`, `web_coin_log`, `web_feedback`, `users`, `user_coins`) + sqlite-функция `NOW()`.
+- PG-only `ANY(:ids)` (`api/index.py:7039` /admin/users) → sqlite-функция `ANY` (JSON) + `do_execute`-хук сериализует список в JSON перед bind.
+- Убран ошибочный ассерт `{currentData` (валидный JS template literal в /reading_trainer.html) → проверка `id="stats-bar"`.
+- Проверка: полный `tests/unit` **939 passed / 10 skipped / 0 failed**; ruff All checks passed.
+
+**Осталось по QUALITY:** C — разбор TODO (`api/index.py:9347` cooldown пазлов; `bot/commands/gd_admin_commands_ptb.py:276` админ-проверка).
 
 ### 2026-08-03 (Session: PARSE01 финал — E2E PTB-тест handle_manual_parsing + фикс бага начисления)
 
@@ -782,6 +817,7 @@
 ## Known Issues
 - User сообщает что кнопка "Создать" на экране создания семьи не реагирует на нажатие в Telegram WebView (возможно не видит toast об ошибке "already in a family" или браузер кеширует старую версию)
 - После ES5-фикса и Playwright-верификации JS работает корректно
+- **Pre-existing падения тестов (подтверждено git stash — падают и на чистом HEAD, не связаны с QUALITY-правками):** `tests/property/test_error_handler_properties.py` (9), `test_process_manager_properties.py` (2 fail + 3 error), `test_base_repository_pbt.py`, `test_bunker_profile_parser_properties.py`, `test_mafia_profile_parser_properties.py`, `tests/integration/test_admin_manager_integration.py` (2), `test_background_integration.py` (1), `test_system_architecture_integration.py`. Итого ~30 failed + 3 errors. Требуют отдельной сессии починки (вне scope QUALITY A/B).
 
 ## last_checked_commit
 c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT) + деплой
@@ -1316,4 +1352,5 @@ c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT)
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-4f71919 (2026-08-03, PARSE01 финал: E2E PTB-тест handle_manual_parsing + фикс add_balance)
+a728e95 (2026-08-03, docs: PARSE01 completed + QUALITY A/B session: ruff-clean, web-portal tests)
+(последнее обновление документации: 2026-08-07, CANON01)
