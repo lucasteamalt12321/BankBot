@@ -22,6 +22,17 @@ import requests
 from flask import Flask, jsonify, request
 from sqlalchemy import bindparam, create_engine, text
 
+from core.canon import (
+    CANON_VERSION,
+    find_canon,
+    load_canon_text,
+    render_markdown,
+)
+from core.canon.glossary import GLOSSARY_TERMS
+from core.canon.prayers import PRAYERS as _PRAYERS
+from core.canon.questions import TRIVIA_QUESTIONS as _TRIVIA_QUESTIONS
+from core.canon.works import CANON_WORKS
+
 
 # === Web Auth Helpers ===
 # Временный user_id для анонимных пользователей генерируется на фронтенде и хранится в localStorage.
@@ -3134,6 +3145,13 @@ def index():
                         <p>Ежедневная молитва из канона</p>
                     </div>
                 </a>
+                <a class="card" href="/canon">
+                    <div class="card-icon">📖</div>
+                    <div class="card-content">
+                        <h2>Канон <span class="beta-tag">Бета</span></h2>
+                        <p>Полный текст канона, произведения и глоссарий</p>
+                    </div>
+                </a>
                 <a class="card" href="/settings">
                     <div class="card-icon">👨‍💼</div>
                     <div class="card-content">
@@ -4598,33 +4616,7 @@ def endings_trainer():
 
 
 # Vercel trivia (no external imports)
-
-_TRIVIA_QUESTIONS: list[dict] = [
-    {"id": 1, "group": "rules", "text": "Как согласно высокому канону правил именования вселенной разрешено называть в творчестве реального Олега?", "correct_text": "Олег или Степан", "explanation": "Реального Олега в каноническом творчестве называют только 'Олег' или 'Степан'.", "distractors": ["Лука или LucasTeam", "Рома или Никита", "Олеговирус"]},
-    {"id": 2, "group": "rules", "text": "Что из перечисленного является строго ЗАПРЕЩЁННОЙ темой в каноническом творчестве?", "correct_text": "Внешность и Медицинские диагнозы реальных людей", "explanation": "Строго запрещены темы внешности, семейных обстоятельств и медицинских диагнозов.", "distractors": ["Сюжеты фантастики", "Описание треков", "Шутки про чай"]},
-    {"id": 3, "group": "rules", "text": "Какой уровень канонизации требует обязательного одобрения и Луки, и Олега?", "correct_text": "Высокий канон (🔵)", "explanation": "Высокий канон полностью соответствует правилам и утверждается обеими сторонами.", "distractors": ["Средний канон (🟡)", "Игнорируемый канон (⚪)", "Фанатский фандом (💬)"]},
-    {"id": 4, "group": "tracks", "text": "Какой трек является первым документом вселенной Олеговируса?", "correct_text": "«Рома» (Олег, 11 декабря 2025)", "explanation": "Трек «Рома» от 11 декабря 2025 — самый первый документ вселенной."},
-    {"id": 5, "group": "tracks", "text": "В каком треке впервые прозвучал термин «олеговирус»?", "correct_text": "«Олег, как ты задолбал» (Лука, 26 декабря 2025)", "explanation": "Именно там появилась строка: «Ты не Олег, ты вирус в зале, Олеговирус — твой диагноз»."},
-    {"id": 6, "group": "tracks", "text": "Кто из сторонних участников первым внёс вклад в мифологию, написав трек «Олеговирус»?", "correct_text": "Рома", "explanation": "Рома написал трек «Олеговирус» — первый случай вклада стороннего участника."},
-    {"id": 7, "group": "tracks", "text": "Какая статья впервые дала Олеговирусу научное описание с антигенами KHM и POST?", "correct_text": "«Olegovarious checkmarevus» (Лука, апрель 2026)", "explanation": "Статья описывает вокальные тики, антигены и 1000 личностей носителя."},
-    {"id": 24, "group": "tracks", "text": "Какие варианты проявления Олеговируса согласно статье «Olegovarious checkmarevus»?", "correct_text": "Все вышеперечисленные: вокальные тики, моторные тики и множественные личности", "explanation": "Статья «Olegovarious checkmarevus» описывает все три варианта: вокальные тики («кхм-кхм», «бум-бум», «тыц-тыц»), моторные тики (хлопанье в ладоши с качанием шеи) и множественные личности носителя (Степан, Иван, Олег-диктатор и ещё 997 неизученных)."},
-    {"id": 8, "group": "tracks", "text": "Почему трек «Вирус LucasTeamLuke» признан неканоничным?", "correct_text": "Нарушает именование (LucasTeamLuke) и упоминает внешность", "explanation": "Трек использует LucasTeamLuke вместо «Лука»/«LucasTeam» и содержит намёки на внешность."},
-    {"id": 9, "group": "tracks", "text": "Какая статья Олега описывает LTL-паразита с синдромами СГД и СНЧ, но требует переработки из-за внешности?", "correct_text": "«LukasTeamLuke sp. nov.» (средний канон, 🟡)", "explanation": "Статья содержит «рыжие волосы, прикус, белую кожу» — противоречит канону, ждёт переработки."},
-    {"id": 10, "group": "tracks", "text": "В каких отношениях состоят олеговирус и LTL-паразит согласно статье «Olegovarious checkmarevus»?", "correct_text": "Союзничество-конкурентство", "explanation": "Они находятся в отношениях «союзничества-конкурентства»."},
-    {"id": 11, "group": "tracks", "text": "Какой трек Ромы впервые сводит обоих агентов (олеговирус и LTL-паразита) в одном пространстве?", "correct_text": "«Тень агента (V.2)» (апрель 2026)", "explanation": "Трек содержит отсылки к обоим: «кхм-кхм» Олеговируса и «забытый чайный настой» LTL-паразита. Высокий канон."},
-    {"id": 12, "group": "candy", "text": "Какая базовая награда конфетами за прохождение Nine Circles?", "correct_text": "1 конфета за 2% прохождения", "explanation": "Базовое правило: 1 конфета за 2% прогресса."},
-    {"id": 13, "group": "candy", "text": "Сколько конфет полагается за 1% на сложных партах (61-70%) Nine Circles?", "correct_text": "1 конфета за 1% прохождения", "explanation": "Для сложных партов (61-70%) награда удваивается — 1 конфета за 1%."},
-    {"id": 14, "group": "candy", "text": "Кто такой «Хранитель конфет» в конфетной экономике?", "correct_text": "Лука (отказался от своей награды в 28 конфет)", "explanation": "Лука набрал 56% прогресса (≈28 конфет), но отказался от награды в пользу других."},
-    {"id": 15, "group": "candy", "text": "Сколько конфет получил Рома после «инфляции счастья» (умножение на 1.5, округление вверх)?", "correct_text": "16 конфет", "explanation": "После умножения всех наград на 1.5 и округления вверх: Рома — 16, Никита — 11, Антон — 5."},
-    {"id": 16, "group": "tea", "text": "Каким священным выражением заканчиваются молитвы в Чайной религии (Teaology)?", "correct_text": "eight-nine", "explanation": "Любая молитва завершается сакральным «eight-nine».", "distractors": ["eight-eight", "nine-eight", "eight-tea"]},
-    {"id": 17, "group": "tea", "text": "Кто автор и создатель Чайной религии (Teaology)?", "correct_text": "Лука (LucasTeam, 27 апреля 2026)", "explanation": "Лука принял катехизис культа 27 апреля. Высокий канон.", "distractors": ["Олег", "Рома", "Никита"]},
-    {"id": 18, "group": "tracks", "text": "Какой трек Луки стал первым «бытовым» произведением в каноне (3 мая 2026)?", "correct_text": "«Восемь километров (походный дневник)»", "explanation": "Лирический репортаж о лесе, мокрых кроссах и усталости, с отсылками к чайной религии. Высокий канон."},
-    {"id": 19, "group": "ltrs", "text": "Какие координаты (хаос; экспрессивность) у Луки в рейтинге LTRS?", "correct_text": "(10; 46) — ритуальный экспрессив", "explanation": "Лука: минимальная хаос (10), максимальная экспрессивность (46).", "distractors": ["Рома (23; 26) — мемный экспрессив", "Саша (15; 14) — пассивный изолят", "Никита (18; 40) — активный харизматик"]},
-    {"id": 20, "group": "ltrs", "text": "Кто в рейтинге LTRS имеет тип личности «мемный экспрессив»?", "correct_text": "Рома (23; 26)", "explanation": "Рома определён как «мемный экспрессив» — хаос выше среднего, экспрессивность средняя.", "distractors": ["Лука (10; 46)", "Олег (5; 12)", "Никита (18; 40)"]},
-    {"id": 21, "group": "glossary", "text": "Что такое «антиген KHM» в терминологии Олеговируса?", "correct_text": "Реакция «закатывание глаз» у окружающих", "explanation": "Антиген KHM — один из двух антигенов Олеговируса, вызывает реакцию «закатывание глаз».", "distractors": ["Хлопанье в ладоши", "Вокальный тик «бум-бум»", "Приступ смеха"]},
-    {"id": 22, "group": "glossary", "text": "Что в глоссарии канона означает термин «Парадокс ожидания»?", "correct_text": "Бронь парта сгорает, его проходит Хранитель конфет", "explanation": "Парадокс ожидания: забронированный парт долго ждёт игрока, и в итоге его проходит Хранитель конфет.", "distractors": ["Парт проходится со скидкой", "Парт считается за две конфеты", "Парт требует жертвы Олеговируса"]},
-    {"id": 23, "group": "glossary", "text": "Кто в глоссарии LTRS определяется как «Пассивный изолят»?", "correct_text": "Саша (15; 14)", "explanation": "Саша: средний пассивный хаос (15), низкая экспрессивность (14) — «пассивный изолят».", "distractors": ["Лука (10; 46)", "Рома (23; 26)", "Никита (18; 40)"]},
-]
+# Единый пул вопросов импортируется из core.canon.questions (source of truth).
 
 # In-memory storage for generated questions (question_id -> {options, correct_index, explanation})
 _TRIVIA_SESSIONS: dict[int, dict] = {}
@@ -4675,17 +4667,7 @@ _AI_QUESTIONS_FALLBACK_PROMPT = """Ты — генератор викторин.
 
 
 def _load_canon_trivia(max_chars: int = 2000) -> str:
-    for candidate in [
-        os.path.join(os.path.dirname(__file__), "canon_knowledge.txt"),
-        os.path.join(os.path.dirname(__file__), "..", "data", "canon_knowledge.txt"),
-    ]:
-        try:
-            if os.path.exists(candidate):
-                with open(candidate, encoding="utf-8") as f:
-                    return f.read()[:max_chars].rstrip()
-        except OSError:
-            pass
-    return ""
+    return load_canon_text()[:max_chars].rstrip()
 
 
 def _parse_ai_question(text: str) -> dict | None:
@@ -7602,24 +7584,7 @@ def api_trivia_answer():
 
 
 # ── Daily Prayer ──────────────────────────────────────────────────────────
-
-_PRAYERS = [
-    "Чай. Чай. Чай. Да будет настой мой чист, как первозданный лист. Чай. Чай. Чай. eight-nine.",
-    "Чай. Чай. Чай. Благослови, Великий Заварник, дела мои дневные. Чай, чай, чай. eight-nine.",
-    "Чай, чай, чай. Да будет кружка-чаша моя всегда наполнена, а душа — спокойна. Чай, чай, чай. eight-nine.",
-    "Чай. Чай. Чай. О Настой, даруй мне терпение и ясность в час трудный. Чай, чай, чай. eight-nine.",
-    "Чай, чай, чай. Отведи от меня тьму и суету, Чай Святой. Чай, чай, чай. eight-nine.",
-    "Чай. Чай. Чай. Да буду я мирен в словах и горяч в делах, как настой мой. Чай, чай, чай. eight-nine.",
-    "Чай, чай, чай. Великий Лист, научи меня смотреть в глубь кружки и в глубь себя. Чай, чай, чай. eight-nine.",
-    "Чай. Чай. Чай. Да будет всякий приходящий принят и обогрет чаем. Чай, чай, чай. eight-nine.",
-    "Чай, чай, чай. О Чай, избави нас от напастей и от шума пустого. Чай, чай, чай. eight-nine.",
-    "Чай. Чай. Чай. Благословен настой этот и день этот мирный. Чай, чай, чай. eight-nine.",
-    "Чай, чай, чай. Да будет мысль моя прозрачна, а сердце — тёплым, как чайник. Чай, чай, чай. eight-nine.",
-    "Чай. Чай. Чай. О Восемь Напитков и Один Неопределимый, храни нас. Чай, чай, чай. eight-nine.",
-    "Чай, чай, чай. Да будет смирен я пред величием Чая и милостив к ближним. Чай, чай, чай. eight-nine.",
-    "Чай. Чай. Чай. Греет настой, греет душа — восхваляю Настой и Число. Чай, чай, чай. eight-nine.",
-    "Чай, чай, чай. О Великий Чай, веди меня путём чайн тем, где свет. Чай, чай, чай. eight-nine.",
-]
+# Молитвы импортируются из core.canon.prayers (source of truth).
 
 
 @app.route("/daily_prayer")
@@ -7728,6 +7693,240 @@ def api_daily_prayer():
         print(f"[DAILY_PRAYER] error: {exc}")
     prayer = random.choice(_PRAYERS)
     return jsonify({"prayer": prayer, "already": already})
+
+
+# ── Canon Module ──────────────────────────────────────────────────────────
+# Полный текст канона и структурированные данные из core.canon (source of truth).
+
+@app.route("/canon")
+def canon_page():
+    canon_text = load_canon_text()
+    version = CANON_VERSION
+    body_html = render_markdown(canon_text) if canon_text else "<p>Текст канона недоступен.</p>"
+    works_json = json.dumps(
+        [
+            {
+                "title": w.title,
+                "kind": w.kind,
+                "author": w.author,
+                "date": w.date,
+                "canon_level": w.canon_level,
+                "url": w.url,
+            }
+            for w in CANON_WORKS
+        ],
+        ensure_ascii=False,
+    )
+    terms_json = json.dumps(
+        [
+            {"term": t.term, "definition": t.definition, "source": t.source}
+            for t in GLOSSARY_TERMS
+        ],
+        ensure_ascii=False,
+    )
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Канон — LTHub</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; min-height: 100vh; color: #e6edf3; padding: 24px; }}
+        .container {{ max-width: 860px; width: 100%; margin: 0 auto; }}
+        .header {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }}
+        .header h1 {{ font-size: 24px; color: #58a6ff; }}
+        .header a {{ color: #8b949e; text-decoration: none; font-size: 14px; }}
+        .header a:hover {{ color: #58a6ff; }}
+        .meta {{ color: #8b949e; font-size: 13px; margin-bottom: 20px; }}
+        .tabs {{ display: flex; gap: 4px; border-bottom: 1px solid #21262d; margin-bottom: 24px; flex-wrap: wrap; }}
+        .tab {{ padding: 10px 18px; cursor: pointer; color: #8b949e; border-radius: 8px 8px 0 0; font-size: 14px; user-select: none; background: none; border: none; font-family: inherit; }}
+        .tab:hover {{ color: #e6edf3; background: #161b22; }}
+        .tab.active {{ color: #e6edf3; background: #21262d; font-weight: 600; }}
+        .panel {{ display: none; }}
+        .panel.active {{ display: block; }}
+        .canon-body {{ background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 28px; line-height: 1.65; font-size: 15px; overflow-wrap: anywhere; }}
+        .canon-body h1, .canon-body h2, .canon-body h3, .canon-body h4 {{ color: #58a6ff; margin: 18px 0 8px; }}
+        .canon-body h3 {{ font-size: 17px; }}
+        .canon-body p {{ margin: 10px 0; }}
+        .canon-body ul {{ margin: 8px 0 8px 22px; }}
+        .canon-body li {{ margin: 4px 0; }}
+        .canon-body blockquote {{ border-left: 3px solid #58a6ff; background: #0d1117; padding: 8px 16px; margin: 12px 0; border-radius: 0 8px 8px 0; color: #8b949e; }}
+        .canon-body hr {{ border: none; border-top: 1px solid #21262d; margin: 20px 0; }}
+        .canon-body a {{ color: #58a6ff; text-decoration: none; }}
+        .canon-body a:hover {{ text-decoration: underline; }}
+        .filters {{ display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }}
+        .filters label {{ font-size: 13px; color: #8b949e; }}
+        .filters select {{ background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: inherit; }}
+        .works-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
+        @media (max-width: 620px) {{ .works-grid {{ grid-template-columns: 1fr; }} }}
+        .work-card {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 16px; }}
+        .work-card h4 {{ font-size: 15px; color: #e6edf3; margin-bottom: 6px; }}
+        .work-card .work-meta {{ font-size: 13px; color: #8b949e; }}
+        .work-card a {{ color: #58a6ff; font-size: 13px; text-decoration: none; }}
+        .work-card a:hover {{ text-decoration: underline; }}
+        .badge {{ display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }}
+        .badge-high {{ color: #58a6ff; background: #0d419d; }}
+        .badge-medium {{ color: #d29922; background: #3a2f07; }}
+        .badge-low {{ color: #f85149; background: #5c0f12; }}
+        .badge-archive {{ color: #8b949e; background: #21262d; }}
+        .search {{ width: 100%; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; font-size: 14px; margin-bottom: 16px; font-family: inherit; }}
+        .term {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }}
+        .term h4 {{ color: #58a6ff; font-size: 15px; margin-bottom: 4px; }}
+        .term p {{ font-size: 14px; color: #c9d1d9; }}
+        .term .term-source {{ font-size: 12px; color: #8b949e; margin-top: 6px; }}
+        .count {{ color: #8b949e; font-size: 13px; margin-bottom: 12px; }}
+        .back-link {{ display: inline-block; color: #8b949e; text-decoration: none; font-size: 14px; margin-top: 24px; }}
+        .back-link:hover {{ color: #58a6ff; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📖 Канон вселенной Олеговируса и LTL-паразита</h1>
+            <a href="/">← На главную</a>
+        </div>
+        <div class="meta">Версия: {version}</div>
+        <div class="tabs">
+            <button class="tab active" data-tab="text">📜 Полный текст</button>
+            <button class="tab" data-tab="works">🎵 Произведения</button>
+            <button class="tab" data-tab="glossary">🧩 Глоссарий</button>
+        </div>
+        <div class="panel active" id="panel-text">
+            <div class="canon-body">{body_html}</div>
+        </div>
+        <div class="panel" id="panel-works">
+            <div class="filters">
+                <label for="level-filter">Уровень:</label>
+                <select id="level-filter" onchange="renderWorks()">
+                    <option value="all">Все</option>
+                    <option value="high">🔵 Высокий</option>
+                    <option value="medium">🟡 Средний</option>
+                    <option value="low">🔴 Неканон</option>
+                    <option value="archive">🗄 Архив</option>
+                </select>
+                <label for="kind-filter">Тип:</label>
+                <select id="kind-filter" onchange="renderWorks()">
+                    <option value="all">Все</option>
+                    <option value="track">🎵 Треки</option>
+                    <option value="article">📜 Статьи</option>
+                    <option value="archive">🗄 Архив</option>
+                </select>
+                <span class="count" id="works-count"></span>
+            </div>
+            <div class="works-grid" id="works-grid"></div>
+        </div>
+        <div class="panel" id="panel-glossary">
+            <input class="search" id="glossary-search" type="text" placeholder="Поиск по глоссарию..." oninput="renderGlossary(this.value)">
+            <div id="glossary-list"></div>
+        </div>
+        <a class="back-link" href="/">← На главную</a>
+    </div>
+    <script>
+        var LEVEL_LABELS = {{ 'high': ['🔵', 'Высокий', 'badge-high'], 'medium': ['🟡', 'Средний', 'badge-medium'], 'low': ['🔴', 'Неканон', 'badge-low'], 'archive': ['🗄', 'Архив', 'badge-archive'] }};
+        var ALL_WORKS = {works_json};
+        var ALL_TERMS = {terms_json};
+
+        var tabs = document.querySelectorAll('.tab');
+        var panels = {{ 'text': document.getElementById('panel-text'), 'works': document.getElementById('panel-works'), 'glossary': document.getElementById('panel-glossary') }};
+        tabs.forEach(function(t) {{ t.addEventListener('click', function() {{
+            tabs.forEach(function(x) {{ x.classList.remove('active'); }});
+            Object.keys(panels).forEach(function(k) {{ panels[k].classList.remove('active'); }});
+            t.classList.add('active');
+            panels[t.dataset.tab].classList.add('active');
+        }}); }});
+
+        function renderWorks() {{
+            var level = document.getElementById('level-filter').value;
+            var kind = document.getElementById('kind-filter').value;
+            var list = ALL_WORKS.filter(function(w) {{
+                return (level === 'all' || w.canon_level === level) && (kind === 'all' || w.kind === kind);
+            }});
+            document.getElementById('works-count').textContent = list.length + ' из ' + ALL_WORKS.length;
+            var grid = document.getElementById('works-grid');
+            grid.innerHTML = '';
+            list.forEach(function(w) {{
+                var meta = [w.author, w.date].filter(Boolean).join(', ');
+                var badge = LEVEL_LABELS[w.canon_level] || ['', w.canon_level, ''];
+                var link = w.url ? ' <a href="' + w.url + '" target="_blank" rel="noopener noreferrer">открыть ↗</a>' : '';
+                var card = document.createElement('div');
+                card.className = 'work-card';
+                card.innerHTML = '<h4>' + badge[0] + ' ' + w.title + '<span class="badge ' + badge[2] + '">' + badge[1] + '</span></h4>' +
+                    '<div class="work-meta">' + meta + link + '</div>';
+                grid.appendChild(card);
+            }});
+        }}
+        renderWorks();
+
+        function renderGlossary(q) {{
+            var query = (q || '').toLowerCase().trim();
+            var list = ALL_TERMS.filter(function(t) {{
+                if (!query) return true;
+                return t.term.toLowerCase().indexOf(query) !== -1 || t.definition.toLowerCase().indexOf(query) !== -1;
+            }});
+            var container = document.getElementById('glossary-list');
+            container.innerHTML = '';
+            list.forEach(function(t) {{
+                var div = document.createElement('div');
+                div.className = 'term';
+                div.innerHTML = '<h4>' + t.term + '</h4><p>' + t.definition + '</p>' +
+                    (t.source ? '<div class="term-source">Источник: ' + t.source + '</div>' : '');
+                container.appendChild(div);
+            }});
+        }}
+        renderGlossary('');
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/canon/text")
+def api_canon_text():
+    canon_text = load_canon_text()
+    if not canon_text:
+        return jsonify({"error": "Текст канона недоступен"}), 404
+    return jsonify({"text": canon_text, "version": CANON_VERSION})
+
+
+@app.route("/api/canon/works")
+def api_canon_works():
+    level = request.args.get("level", "all")
+    kind = request.args.get("kind", "all")
+    works = [
+        {
+            "title": w.title,
+            "kind": w.kind,
+            "author": w.author,
+            "date": w.date,
+            "canon_level": w.canon_level,
+            "url": w.url,
+        }
+        for w in CANON_WORKS
+        if (level == "all" or w.canon_level == level)
+        and (kind == "all" or w.kind == kind)
+    ]
+    return jsonify({"works": works, "total": len(works)})
+
+
+@app.route("/api/canon/glossary")
+def api_canon_glossary():
+    query = (request.args.get("q") or "").lower().strip()
+    terms = [
+        {"term": t.term, "definition": t.definition, "source": t.source}
+        for t in GLOSSARY_TERMS
+        if not query or query in t.term.lower() or query in t.definition.lower()
+    ]
+    return jsonify({"terms": terms, "total": len(terms)})
+
+
+@app.route("/api/canon/search")
+def api_canon_search():
+    query = (request.args.get("q") or "").strip()
+    if not query:
+        return jsonify({"results": [], "total": 0})
+    results = find_canon(query, limit=5)
+    return jsonify({"results": results, "total": len(results)})
 
 
 # ── Irregular Verbs Module ──────────────────────────────────────────────
@@ -10315,12 +10514,7 @@ def generate_trivia_from_canon(chat_id: int) -> str | None:
     Returns question string if successful, None if AI unavailable.
     """
     try:
-        canon_path = os.path.join(os.path.dirname(__file__), "..", "data", "canon_knowledge.txt")
-        canon_content = ""
-        
-        if os.path.exists(canon_path):
-            with open(canon_path, "r", encoding="utf-8") as f:
-                canon_content = f.read()[:5000]
+        canon_content = load_canon_text()[:5000]
         
         prompt = (
             "Ты — создатель викторины по вселенной Олеговируса и LTL-паразита.\n\n"

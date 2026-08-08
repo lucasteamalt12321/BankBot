@@ -10,13 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
-CANON_DOC_URL = (
-    "https://docs.google.com/document/d/"
-    "1cThh8Yo_y74Zz2MKZHhVgUzfTa8-SO-fuoQvtxLzSl0/edit?usp=sharing"
-)
-
-CANON_VERSION = "2.9 (12 мая 2026)"
+from core.canon import CANON_DOC_URL, CANON_VERSION, PROHIBITED_CANON_KEYWORDS
 
 
 @dataclass(frozen=True)
@@ -27,24 +21,6 @@ class KnowledgeEntry:
     keywords: tuple[str, ...]
     answer: str
     source: str = "Google Doc: канон вселенной Олеговируса и LTL-паразита"
-
-
-PROHIBITED_CANON_KEYWORDS = (
-    "внешность",
-    "цвет волос",
-    "лицо",
-    "кожа",
-    "рост",
-    "вес",
-    "семья",
-    "родител",
-    "брат",
-    "сестр",
-    "диагноз",
-    "болезн",
-    "эпилеп",
-    "аутиз",
-)
 
 
 CANON_KNOWLEDGE: tuple[KnowledgeEntry, ...] = (

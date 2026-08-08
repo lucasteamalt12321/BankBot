@@ -1,10 +1,63 @@
 # Active Context
 
-**Последнее обновление:** 2026-08-03  
+**Последнее обновление:** 2026-08-07  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** PARSE01 завершён — E2E PTB-тест handle_manual_parsing + фикс бага начисления (total_earned NULL)
+**Последнее действие:** CANON01 — модуль хранения канона (единый source of truth + страница /canon)
 
 ## Текущий фокус
+
+### CANON01 — Модуль хранения канона ✅ (завершён, 2026-08-07)
+
+**План (утверждён пользователем):**
+
+**Фаза 1 — Пакет `core/canon/` (готово):**
+- `core/canon/canon.md` — ПОЛНЫЙ оригинальный текст канона v2.9 (с markdown-разметкой, гиперссылками на t.me, блок-цитатами — как в google-документе). Read-only артефакт репозитория → переживает cold start.
+- `core/canon/__init__.py` — ЛЁГКИЙ (только stdlib+dataclasses, как `core/rates.py`, без structlog/aiohttp — критично для Vercel): `CANON_VERSION`, `CANON_DOC_ID`, `CANON_DOC_URL`, `CANON_DOC_EXPORT_URL`, `CANON_FILE_PATH`, `load_canon_text()`, `canon_version()`, `canon_sections()` (4 блока), `find_canon(query, limit)`, `render_markdown()` (свой stdlib-рендерер: **жирный**, *курсив*, `###`, `>` цитаты, списки, автоссылки, `---`), датаклассы `CanonWork`/`CanonTerm`, хелперы `get_glossary()`/`get_works()` (переименованы из `glossary()`/`works()` — конфликт имён с подмодулями!).
+- `core/canon/works.py` — 16 произведений Блока 3.2 (8 треков 🔵, «Лука» 🟡, «Вирус LucasTeamLuke» 🔴, 3 статьи 🔵, «Olegovirus checkmarevus» 🟡, «LukasTeamLuke sp. nov.» 🔴, архив «Пивология») + `works_by_level()`/`works_by_kind()`.
+- `core/canon/glossary.py` — 22 термина Блока 4.
+- `core/canon/questions.py` — ЕДИНЫЙ пул 24 вопросов trivia (объединил bot 23 + api пул; тексты из bot с корректными написаниями «Olegovirus», из api — статичные distractors).
+- `core/canon/prayers.py` — 15 молитв + `random_prayer(rng)`.
+
+**Фаза 2 — Перевод потребителей (готово):**
+- api/index.py: импорт `load_canon_text`/`_PRAYERS`/`_TRIVIA_QUESTIONS`/`CANON_WORKS`/`GLOSSARY_TERMS` из core.canon; удалены локальные дубли `_TRIVIA_QUESTIONS` (4606), `_PRAYERS` (7574); `_load_canon_trivia()` → `load_canon_text()`; `generate_trivia_from_canon()` читает из core.canon.
+- bot/trivia/questions.py: `_CANON_PATH` убран, `TRIVIA_QUESTIONS` импортируется из core.canon.questions.
+- bot/ai/knowledge.py: `CANON_DOC_URL`/`CANON_VERSION`/`PROHIBITED_CANON_KEYWORDS` из core.canon.
+- bot/ai/knowledge_updater.py: `LOCAL_CANON_PATH` → `core/canon/canon.md`; URL-ы из core.canon.
+- bot/commands/ai_commands_ptb.py + ai_commands.py: `_load_canon_knowledge()`/`_load_canon_snippet()` → `load_canon_text()`.
+- bot/ai/service.py: `_match_knowledge()` — приоритет групп dynamic > статика CANON_KNOWLEDGE > local (чинит конкуренцию «сырых» local-записей против кураторских при полном тексте canon.md).
+- Удалены `data/canon_knowledge.txt` + `api/canon_knowledge.txt` (grep-проверка: в коде ссылок нет).
+
+**Фаза 3 — Веб-страница `/canon` (готово):**
+- 3 вкладки (GitHub Dark, inline HTML в api/index.py): «📜 Полный текст» (полный оригинальный текст канона с разметкой и гиперссылками), «🎵 Произведения» (фильтры уровень 🔵🟡🔴/тип, ссылки t.me), «🧩 Глоссарий» (поиск).
+- API: `GET /api/canon/text`, `GET /api/canon/works?level=&kind=`, `GET /api/canon/glossary?q=`, `GET /api/canon/search?q=`. Карточка «Канон» на хабе `/`.
+
+**Фаза 5 — Тесты (готово):**
+- `tests/unit/test_canon_module.py` — 25 тестов (загрузка, версия 2.9, секции, find_canon, works/glossary/questions/prayers, render_markdown, страница /canon, все API).
+- `/canon` добавлен в `test_web_portal_e2e.py::test_web_pages_render`.
+- Проверка: `pytest tests/unit` → **964 passed / 10 skipped**; ruff clean.
+
+**Осталось отдельной задачей:** pre-existing падения tests/property (test_bunker_profile_parser, test_mafia_profile_parser — 4 failed).
+
+### QUALITY — ruff-clean всего репозитория (A) ✅ + автотесты веб-портала (B) ✅
+
+### QUALITY — ruff-clean всего репозитория (A) ✅ + автотесты веб-портала (B) 🚧
+
+**Цель (по заказу пользователя):** A — ruff-clean всего репозитория → B — автотесты на веб-фичи → C — разбор TODO → обновление memory_bank.
+
+**A — завершено:**
+- `api/dnd_runtime.py`: удалён мёртвый `msg_type = "action"` / `"dice"`.
+- 4 субагента исправили E712/F841 в unit/property/integration/pbt-тестах + ручной фикс `tests/unit/test_command_validation_edge_cases.py:330` (F841).
+- Итог: `python -m ruff check . --exclude .venv --exclude vk_mini_app --exclude node_modules` → **All checks passed!**; полный прогон tests/unit+integration+property+smoke → 30 failed / 1242 passed / 32 skipped / 3 errors — те же падения на чистом HEAD (git stash) → pre-existing, не связаны с ruff-правками.
+
+**B — в работе:**
+- Создан `tests/unit/test_web_portal_e2e.py` (новый, не в conftest collect_ignore): E2E по auth (register/login/me/update/logout), feedback+admin, admin stats/users/coins, trivia (question/answer, реалистичные дистракторы), веб-страницы, reading_trainer (MOM-05 маркеры + чистота HTML), /suggest форма, reading_generate fallback.
+- **10/10 passed.** Решённые проблемы:
+  - sqlite-совместимая схема в `_make_engine()` (свои DDL вместо PG-only `_ensure_web_auth_tables`): `web_users`, `web_sessions`, `web_coin_log`, `web_feedback`, `users`, `user_coins` + регистрация функции `NOW()`.
+  - PG-only `ANY(:ids)` в `/api/admin/users` (api/index.py:7039) → на движке зарегистрирована sqlite-функция `ANY` (парсит JSON) + `@event.listens_for(engine, "do_execute")` сериализует список в JSON перед bind.
+  - Некорректная проверка `{currentData` (легитимный JS template literal `${currentData.title}`) заменена на проверку `id="stats-bar"`.
+- Проверка: `pytest tests/unit` → **939 passed / 10 skipped / 0 failed** (включая новый файл), ruff на новом файле — All checks passed.
+
+**Дальше по QUALITY:** C — разбор TODO (`api/index.py:9347` вернуть cooldown пазлов; `bot/commands/gd_admin_commands_ptb.py:276` — админ-проверка через AdminSystem). Затем финальное обновление memory_bank.
 
 ### MOM-05 — доработка тренажёра чтения ✅ (2026-08-03)
 

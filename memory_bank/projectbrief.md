@@ -408,6 +408,28 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+### Phase 4: Canon Module — хранение канона (CANON01)
+
+**Цель:** Единый source of truth канона вселенной Олеговируса и LTL-паразита (Google Doc v2.9) вместо 5+ разошедшихся копий (`data/canon_knowledge.txt`, `api/canon_knowledge.txt`, дубли пулов trivia, `_PRAYERS`). Лёгкий пакет (паттерн `core/rates.py`), переживает cold start (read-only файлы из git).
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| CN-01 | Пакет `core/canon/`: canon.md (текст v2.9), `__init__.py` (CANON_VERSION, load_canon_text, CanonWork/CanonTerm/CanonEntity, find_canon, render_markdown) | completed | 15 |
+| CN-02 | `core/canon/works.py` — перечень произведений (Блок 3.2, уровни 🔵🟡🔴, t.me-ссылки) + `glossary.py` (Блок 4) | completed | 15 |
+| CN-03 | `core/canon/questions.py` — единый пул trivia + `prayers.py` — единый `_PRAYERS` | completed | 15 |
+| CN-04 | Перевод AI-lite: knowledge.py, knowledge_updater.py, ai_commands_ptb.py на core.canon | completed | 10 |
+| CN-05 | Перевод trivia: bot/trivia/questions.py + api/index.py пул → единый core/canon/questions.py | completed | 10 |
+| CN-06 | Перевод api/index.py: _load_canon_trivia, _PRAYERS, /ask_canon fallback | completed | 10 |
+| CN-07 | Страница `/canon` (3 вкладки: текст/произведения/глоссарий) + API `/api/canon/*` + карточка на хабе | completed | 15 |
+| CN-08 | Удаление data/canon_knowledge.txt и api/canon_knowledge.txt (после grep-проверки) | completed | 5 |
+| CN-TEST | Тесты test_canon_module.py + /canon в e2e, ruff clean | completed | 5 |
+
+**CANON01: 100/100**
+
+**Факт (2026-08-07):** `core/canon/` — canon.md (оригинальный текст v2.9 с markdown-разметкой), `__init__.py` (stdlib-only: `CANON_VERSION`, `CANON_DOC_URL`, `load_canon_text`, `canon_sections`, `find_canon`, `render_markdown`, `get_glossary`/`get_works`), `works.py` (16 произведений), `glossary.py` (22 термина), `questions.py` (единый пул 24 вопросов), `prayers.py` (15 молитв). Потребители (api/index.py, bot/trivia/questions.py, bot/ai/*) переведены на core.canon; `_match_knowledge` — приоритет dynamic > static > local; удалены `data/canon_knowledge.txt` + `api/canon_knowledge.txt`. Страница `/canon` (📜 Полный текст / 🎵 Произведения / 🧩 Глоссарий) + API `/api/canon/{text,works,glossary,search}`. Тесты: **964 passed / 10 skipped**, ruff clean.
+
+---
+
 ## Next Tasks (Post-Review Cleanup)
 
 | ID | Task | Priority | Status |
