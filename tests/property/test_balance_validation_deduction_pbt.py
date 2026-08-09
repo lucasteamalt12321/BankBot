@@ -229,7 +229,7 @@ class MinimalPurchaseSystem:
                     "new_balance": current_balance
                 }
 
-        except Exception as e:
+        except Exception:
             return {
                 "success": False,
                 "message": "Произошла ошибка при обработке покупки.",

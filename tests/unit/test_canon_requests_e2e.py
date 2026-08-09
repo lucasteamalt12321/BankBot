@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+
 from unittest.mock import patch
 
 import pytest
@@ -186,6 +188,85 @@ def test_admin_reject_and_doc_overlay(mock_engine):
     back = c.get("/api/canon/documents").get_json()
     assert back["source"] in ("db", "file")
     assert back["text"]
+
+
+@patch("api.index.get_db_engine")
+def test_audio_upload_stream_delete(mock_engine):
+    """Admin uploads audio for a track -> public stream -> has_audio in API -> delete."""
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+
+    user_token = _user_token(c)
+    admin_token = _admin_token(c)
+
+    c.post("/api/canon/request", json={
+        "title": "Трек с аудио", "kind": "track", "author": "Автор",
+        "content": "Текст", "canon_level": "high",
+    }, headers=_auth_headers(user_token))
+
+    listing = c.get("/api/admin/canon/requests", headers=_auth_headers(admin_token)).get_json()
+    req_id = next(r["id"] for r in listing["items"] if r["title"] == "Трек с аудио")
+    c.post(f"/api/admin/canon/requests/{req_id}/approve", json={}, headers=_auth_headers(admin_token))
+
+    works = c.get("/api/canon/works").get_json()
+    work = next(w for w in works["works"] if w["title"] == "Трек с аудио")
+    assert work["has_audio"] is False
+
+    anon_upload = c.post(
+        f"/api/admin/canon/works/{work['id']}/audio",
+        data={"audio": (io.BytesIO(b"fake-mp3-bytes"), "track.mp3")},
+        content_type="multipart/form-data",
+    )
+    assert anon_upload.status_code == 403
+
+    bad_ext = c.post(
+        f"/api/admin/canon/works/{work['id']}/audio",
+        data={"audio": (io.BytesIO(b"data"), "track.exe")},
+        content_type="multipart/form-data",
+        headers=_auth_headers(admin_token),
+    )
+    assert bad_ext.status_code == 400
+
+    upload = c.post(
+        f"/api/admin/canon/works/{work['id']}/audio",
+        data={"audio": (io.BytesIO(b"fake-mp3-bytes"), "track.mp3")},
+        content_type="multipart/form-data",
+        headers=_auth_headers(admin_token),
+    )
+    assert upload.status_code == 200
+    assert upload.get_json()["ok"] is True
+
+    works_after = c.get("/api/canon/works").get_json()
+    work_after = next(w for w in works_after["works"] if w["title"] == "Трек с аудио")
+    assert work_after["has_audio"] is True
+    assert work_after["audio_name"] == "track.mp3"
+
+    detail = c.get(f"/api/canon/work/{work['id']}").get_json()
+    assert detail["has_audio"] is True
+    assert detail["audio_mime"] == "audio/mpeg"
+
+    page = c.get(f"/canon/work/{work['id']}")
+    body = page.get_data(as_text=True)
+    assert "audio-card" in body
+    assert "/api/canon/work/{}/audio".format(work["id"]) in body
+
+    stream = c.get(f"/api/canon/work/{work['id']}/audio")
+    assert stream.status_code == 200
+    assert stream.mimetype == "audio/mpeg"
+    assert stream.data == b"fake-mp3-bytes"
+
+    missing = c.get("/api/canon/work/999999/audio")
+    assert missing.status_code == 404
+
+    remove = c.delete(f"/api/admin/canon/works/{work['id']}/audio", headers=_auth_headers(admin_token))
+    assert remove.status_code == 200
+
+    stream_after = c.get(f"/api/canon/work/{work['id']}/audio")
+    assert stream_after.status_code == 404
+
+    works_final = c.get("/api/canon/works").get_json()
+    work_final = next(w for w in works_final["works"] if w["title"] == "Трек с аудио")
+    assert work_final["has_audio"] is False
 
 
 @patch("api.index.get_db_engine")

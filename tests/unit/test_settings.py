@@ -224,7 +224,7 @@ class TestSettingsBasicValidation:
         )
 
         assert settings.ENV == "development"
-        assert settings.PARSING_ENABLED == False
+        assert not settings.PARSING_ENABLED
         assert settings.LOG_LEVEL == "INFO"
         assert settings.LOG_FILE is None
 
@@ -240,7 +240,7 @@ class TestSettingsBasicValidation:
             LOG_FILE="/var/log/bot.log"
         )
 
-        assert settings.PARSING_ENABLED == True
+        assert settings.PARSING_ENABLED
         assert settings.LOG_FILE == "/var/log/bot.log"
 
 
@@ -279,7 +279,7 @@ class TestSettingsEnvironmentVariables:
         }):
             settings = Settings()
 
-            assert settings.PARSING_ENABLED == True
+            assert settings.PARSING_ENABLED
             assert settings.LOG_LEVEL == 'ERROR'
 
     def test_partial_environment_variables(self):
@@ -584,7 +584,7 @@ class TestSettingsEdgeCases:
             DATABASE_URL="sqlite:///test.db",
             PARSING_ENABLED=True
         )
-        assert settings.PARSING_ENABLED == True
+        assert settings.PARSING_ENABLED
 
         # Test False
         settings = Settings(
@@ -593,7 +593,7 @@ class TestSettingsEdgeCases:
             DATABASE_URL="sqlite:///test.db",
             PARSING_ENABLED=False
         )
-        assert settings.PARSING_ENABLED == False
+        assert not settings.PARSING_ENABLED
 
 
 if __name__ == '__main__':

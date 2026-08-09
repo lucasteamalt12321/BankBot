@@ -141,16 +141,16 @@ class TestAdminManagerIntegration:
     def test_is_admin_integration(self):
         """Test admin verification with real database"""
         # Test admin user
-        assert self.admin_manager.is_admin(789012) == True
+        assert self.admin_manager.is_admin(789012)
 
         # Test non-admin user
-        assert self.admin_manager.is_admin(123456) == False
+        assert not self.admin_manager.is_admin(123456)
 
         # Test fallback admin
-        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID) == True
+        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID)
 
         # Test non-existent user
-        assert self.admin_manager.is_admin(999999) == False
+        assert not self.admin_manager.is_admin(999999)
 
     @pytest.mark.asyncio
     async def test_get_user_stats_integration(self):
@@ -165,8 +165,8 @@ class TestAdminManagerIntegration:
         assert stats.current_balance == 1000
         assert stats.total_purchases == 3
         assert stats.total_earned == 2000
-        assert stats.is_admin == False
-        assert stats.is_vip == True
+        assert not stats.is_admin
+        assert stats.is_vip
         assert stats.daily_streak == 5
 
         # Check active subscriptions
@@ -247,21 +247,21 @@ class TestAdminManagerIntegration:
         """Test adding and removing admin users"""
         # Test adding admin
         result = self.admin_manager.add_admin_user(123456)
-        assert result == True
+        assert result
 
         # Verify user is now admin
         self.session.refresh(self.test_user)
-        assert self.test_user.is_admin == True
-        assert self.admin_manager.is_admin(123456) == True
+        assert self.test_user.is_admin
+        assert self.admin_manager.is_admin(123456)
 
         # Test removing admin
         result = self.admin_manager.remove_admin_user(123456)
-        assert result == True
+        assert result
 
         # Verify user is no longer admin
         self.session.refresh(self.test_user)
-        assert self.test_user.is_admin == False
-        assert self.admin_manager.is_admin(123456) == False
+        assert not self.test_user.is_admin
+        assert not self.admin_manager.is_admin(123456)
 
     def test_get_admin_user_ids_integration(self):
         """Test getting admin user IDs from database"""

@@ -173,7 +173,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
         self._cleanup_test_data()
 
         # Get the shop item to determine its price
-        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active == True).all()
+        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active).all()
         if not shop_items or item_number > len(shop_items):
             self.skipTest(f"Item number {item_number} not available")
 
@@ -190,8 +190,6 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
         # Record initial state
         initial_balance = user_balance_decimal
         initial_purchases = user.total_purchases
-        initial_sticker_unlimited = user.sticker_unlimited
-        initial_sticker_until = user.sticker_unlimited_until
 
         # Execute the purchase
         result = asyncio.run(self.shop_manager.process_purchase(user_id, item_number))
@@ -306,7 +304,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
 
         # Find sticker item (item 1 in our test setup)
         sticker_item_number = 1
-        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active == True).all()
+        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active).all()
         sticker_item = shop_items[0]  # First item is sticker type
 
         # Ensure user has sufficient balance
@@ -314,7 +312,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
             user_balance = sticker_item.price + 100
 
         # Create test user
-        user = self._create_test_user(user_id, user_balance)
+        self._create_test_user(user_id, user_balance)
 
         # Record time before purchase for expiration verification
         purchase_time = datetime.utcnow()
@@ -385,7 +383,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
         self._cleanup_test_data()
 
         # Get all shop items
-        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active == True).all()
+        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active).all()
         if not shop_items:
             self.skipTest("No shop items available")
 
@@ -464,7 +462,7 @@ class TestPurchaseEffectsPBT(unittest.TestCase):
                 self._cleanup_test_data()
 
                 # Get item details
-                shop_items = self.session.query(ShopItem).filter(ShopItem.is_active == True).all()
+                shop_items = self.session.query(ShopItem).filter(ShopItem.is_active).all()
                 if item_number > len(shop_items):
                     continue
 

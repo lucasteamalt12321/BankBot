@@ -95,7 +95,7 @@ class DatabaseIntegritySystem:
                 conn.commit()
                 return True
 
-        except Exception as e:
+        except Exception:
             return False
 
     def update_balance(self, user_id: int, amount: float) -> Optional[float]:

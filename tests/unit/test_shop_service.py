@@ -354,12 +354,12 @@ class TestShopServiceItemActivation:
         # First activation should work
         activated = shop_service.activate_item(user.id, item.id)
         assert activated is not None
-        assert activated.is_active == True
+        assert activated.is_active
 
         # Second activation should return the same item
         activated2 = shop_service.activate_item(user.id, item.id)
         assert activated2 is not None
-        assert activated2.is_active == True
+        assert activated2.is_active
 
     def test_deactivate_item(self, shop_service, in_memory_db):
         """Test deactivating a purchased item."""
@@ -385,9 +385,9 @@ class TestShopServiceItemActivation:
         # First deactivation should work
         deactivated = shop_service.deactivate_item(user.id, item.id)
         assert deactivated is not None
-        assert deactivated.is_active == False
+        assert not deactivated.is_active
 
         # Second deactivation should return the same item
         deactivated2 = shop_service.deactivate_item(user.id, item.id)
         assert deactivated2 is not None
-        assert deactivated2.is_active == False
+        assert not deactivated2.is_active

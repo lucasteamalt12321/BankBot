@@ -57,7 +57,7 @@ def test_admin_system_integration():
         assert user is not None, "User lookup failed"
         assert user['id'] == user_id, "User ID mismatch"
         assert user['username'] == username, "Username mismatch"
-        assert user['is_admin'] == True, "Admin status mismatch"
+        assert user['is_admin'], "Admin status mismatch"
 
         # Test 6: Balance operations
         print("  ✓ Testing balance operations...")

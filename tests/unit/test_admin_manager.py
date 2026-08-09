@@ -48,22 +48,22 @@ class TestAdminManager:
         """Test admin verification using AdminSystem"""
         # Test admin user (not fallback admin)
         self.mock_admin_system.is_admin.return_value = True
-        assert self.admin_manager.is_admin(123456) == True
+        assert self.admin_manager.is_admin(123456)
         self.mock_admin_system.is_admin.assert_called_with(123456)
 
         # Test non-admin user (not fallback admin)
         self.mock_admin_system.is_admin.return_value = False
-        assert self.admin_manager.is_admin(789012) == False
+        assert not self.admin_manager.is_admin(789012)
         self.mock_admin_system.is_admin.assert_called_with(789012)
 
     def test_is_admin_fallback(self):
         """Test admin verification with fallback admin IDs"""
         # Test with fallback admin ID (should return True regardless of AdminSystem)
-        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID) == True
+        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID)
 
         # Test with non-admin ID (AdminSystem returns False)
         self.mock_admin_system.is_admin.return_value = False
-        assert self.admin_manager.is_admin(999999) == False
+        assert not self.admin_manager.is_admin(999999)
 
     def test_is_admin_database_fallback(self):
         """Test admin verification falling back to database when AdminSystem is None"""
@@ -79,7 +79,7 @@ class TestAdminManager:
         mock_user.is_admin = True
         self.mock_db.query.return_value.filter.return_value.first.return_value = mock_user
 
-        assert admin_manager.is_admin(123456) == True
+        assert admin_manager.is_admin(123456)
 
     def test_is_admin_error_handling(self):
         """Test admin verification error handling"""
@@ -87,8 +87,8 @@ class TestAdminManager:
         self.mock_admin_system.is_admin.side_effect = Exception("Database error")
 
         # Should fall back to hardcoded admin IDs
-        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID) == True
-        assert self.admin_manager.is_admin(999999) == False
+        assert self.admin_manager.is_admin(settings.ADMIN_TELEGRAM_ID)
+        assert not self.admin_manager.is_admin(999999)
 
     @pytest.mark.asyncio
     async def test_get_user_stats_success(self):
@@ -320,8 +320,8 @@ class TestAdminManager:
 
         result = self.admin_manager.add_admin_user(123456)
 
-        assert result == True
-        assert mock_user.is_admin == True
+        assert result
+        assert mock_user.is_admin
         self.mock_db.commit.assert_called_once()
 
     def test_add_admin_user_already_admin(self):
@@ -333,7 +333,7 @@ class TestAdminManager:
 
         result = self.admin_manager.add_admin_user(123456)
 
-        assert result == True
+        assert result
         self.mock_db.commit.assert_not_called()
 
     def test_add_admin_user_not_found(self):
@@ -343,7 +343,7 @@ class TestAdminManager:
 
         result = self.admin_manager.add_admin_user(999999)
 
-        assert result == False
+        assert not result
 
     def test_remove_admin_user_success(self):
         """Test successfully removing admin user"""
@@ -354,8 +354,8 @@ class TestAdminManager:
 
         result = self.admin_manager.remove_admin_user(123456)
 
-        assert result == True
-        assert mock_user.is_admin == False
+        assert result
+        assert not mock_user.is_admin
         self.mock_db.commit.assert_called_once()
 
     def test_remove_admin_user_not_admin(self):
@@ -367,7 +367,7 @@ class TestAdminManager:
 
         result = self.admin_manager.remove_admin_user(123456)
 
-        assert result == True
+        assert result
         self.mock_db.commit.assert_not_called()
 
     def test_get_system_stats(self):

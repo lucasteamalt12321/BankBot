@@ -113,10 +113,10 @@ class TestTransactionAtomicity:
 
         try:
             # Create balance manager
-            balance_manager = create_balance_manager(repository)
+            create_balance_manager(repository)
 
             # Create parsed accrual
-            parsed = ParsedAccrual(
+            ParsedAccrual(
                 player_name=user_name,
                 points=points,
                 game="GD Cards"
@@ -184,7 +184,7 @@ class TestTransactionAtomicity:
 
         try:
             # Create balance manager
-            balance_manager = create_balance_manager(repository)
+            create_balance_manager(repository)
 
             # Initialize user with first profile
             user = repository.get_or_create_user(user_name)
@@ -305,10 +305,10 @@ class TestTransactionAtomicity:
 
         try:
             # Create balance manager
-            balance_manager = create_balance_manager(repository)
+            create_balance_manager(repository)
 
             # Create parsed accrual
-            parsed = ParsedAccrual(
+            ParsedAccrual(
                 player_name=user_name,
                 points=points,
                 game="GD Cards"
@@ -349,7 +349,7 @@ class TestTransactionAtomicity:
                 # Commit transaction
                 repository.commit_transaction()
 
-            except Exception as e:
+            except Exception:
                 repository.rollback_transaction()
                 raise
 

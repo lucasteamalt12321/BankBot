@@ -58,7 +58,7 @@ class TestRaceConditionPrevention:
             )
             return results
 
-        results = asyncio.run(run_test())
+        asyncio.run(run_test())
 
         in_memory_db.expire_all()
         final_user = in_memory_db.query(User).filter(User.id == user.id).first()

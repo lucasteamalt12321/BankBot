@@ -108,6 +108,10 @@ def _make_engine():
         content TEXT DEFAULT '',
         status VARCHAR(16) NOT NULL DEFAULT 'approved',
         submitted_by INTEGER,
+        audio_data BLOB,
+        audio_name VARCHAR(255),
+        audio_mime VARCHAR(100),
+        audio_size INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );

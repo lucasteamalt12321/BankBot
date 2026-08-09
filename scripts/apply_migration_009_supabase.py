@@ -34,7 +34,7 @@ def apply_migration():
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
     
-    print(f"🔗 Connecting to Supabase...")
+    print("🔗 Connecting to Supabase...")
     print(f"   Host: {database_url.split('@')[1].split('/')[0] if '@' in database_url else 'hidden'}")
     
     try:

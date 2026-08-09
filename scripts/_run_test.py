@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 sys.path.insert(0, 'api')
 os.environ['WEBHOOK_SECRET'] = 'test'
 os.environ['BOT_TOKEN'] = 'test'

@@ -135,9 +135,6 @@ class TestSIGTERMHandling:
         # Create manager with error-prone stop
         manager = MockBackgroundTaskManager()
 
-        # Override stop to raise exception
-        original_stop = manager.stop_periodic_cleanup
-
         async def error_stop():
             raise Exception("Test error")
 

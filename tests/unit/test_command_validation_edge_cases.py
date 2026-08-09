@@ -327,7 +327,7 @@ class TestCommandValidationEdgeCases(unittest.TestCase):
                 # Test parameter validation logic
                 try:
                     # Try to parse as amount first
-                    amount = float(amount_param)
+                    float(amount_param)
                     # If successful, username_param should be username
                     clean_username = username_param.lstrip('@')
 
@@ -341,7 +341,7 @@ class TestCommandValidationEdgeCases(unittest.TestCase):
                     # amount_param is not a valid number
                     # Try to parse username_param as amount
                     try:
-                        amount = float(username_param)
+                        float(username_param)
                         # If successful, amount_param should be username
                         clean_username = amount_param.lstrip('@')
                         # This would indicate reversed parameters

@@ -47,11 +47,9 @@ class BotMessageFormatVerification(unittest.TestCase):
             "Всего пользователей:"
         ]
 
-        found_format = False
         for match in matches:
             for part in expected_format_parts:
                 if part in match or part in self.bot_content:
-                    found_format = True
                     break
 
         # More specific search for the exact format
@@ -78,10 +76,9 @@ class BotMessageFormatVerification(unittest.TestCase):
         ]
 
         # Check for exact format or components
-        shop_format_found = False
         for part in expected_format_parts:
             if part in self.bot_content:
-                shop_format_found = True
+                continue
             else:
                 # If exact part not found, check if shop command exists
                 if "shop_command" in self.bot_content or "async def shop" in self.bot_content:

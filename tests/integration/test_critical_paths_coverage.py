@@ -311,20 +311,20 @@ class TestUserRepositoryCriticalPaths:
         user_repo = UserRepository(User, session)
 
         # Create mixed users
-        admin = user_repo.create(
+        user_repo.create(
             telegram_id=2001,
             username="admin",
             is_admin=True,
             balance=1000
         )
-        vip = user_repo.create(
+        user_repo.create(
             telegram_id=2002,
             username="vip",
             is_vip=True,
             vip_until=datetime.utcnow() + timedelta(days=30),
             balance=500
         )
-        regular = user_repo.create(
+        user_repo.create(
             telegram_id=2003,
             username="regular",
             balance=100

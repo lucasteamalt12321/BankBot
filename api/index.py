@@ -848,6 +848,19 @@ def _html_escape(s: str) -> str:
     return html.escape(s or "", quote=True)
 
 
+def format_bytes(size) -> str:
+    """Human-readable размер в байтах."""
+    try:
+        size = int(size or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if size < 1024:
+        return f"{size} Б"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} КБ"
+    return f"{size / (1024 * 1024):.1f} МБ"
+
+
 def _canon_work_to_dict(work) -> dict:
     """Сериализация CanonWork / строки canon_works в JSON-словарь."""
     if hasattr(work, "items"):
@@ -861,6 +874,10 @@ def _canon_work_to_dict(work) -> dict:
         "canon_level": getattr(work, "canon_level", "") or "",
         "url": getattr(work, "url", "") or "",
         "content": getattr(work, "content", "") or "",
+        "audio_name": getattr(work, "audio_name", None) or None,
+        "audio_mime": getattr(work, "audio_mime", None) or None,
+        "audio_size": getattr(work, "audio_size", None) or None,
+        "has_audio": bool(getattr(work, "audio_data", None)),
     }
 
 
@@ -879,10 +896,25 @@ def _ensure_canon_tables(engine):
                 content TEXT DEFAULT '',
                 status VARCHAR(16) NOT NULL DEFAULT 'approved',
                 submitted_by INTEGER,
+                audio_data BYTEA,
+                audio_name VARCHAR(255),
+                audio_mime VARCHAR(100),
+                audio_size INTEGER,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         """))
+        # ALTER-дополнения для уже существующей прод-таблицы (Supabase).
+        for column_sql in (
+            "ADD COLUMN IF NOT EXISTS audio_data BYTEA",
+            "ADD COLUMN IF NOT EXISTS audio_name VARCHAR(255)",
+            "ADD COLUMN IF NOT EXISTS audio_mime VARCHAR(100)",
+            "ADD COLUMN IF NOT EXISTS audio_size INTEGER",
+        ):
+            try:
+                conn.execute(text(f"ALTER TABLE canon_works {column_sql}"))
+            except Exception as exc:
+                print(f"[CANON] alter canon_works ({column_sql[:30]}...) skipped: {exc}")
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS canon_requests (
                 id SERIAL PRIMARY KEY,
@@ -7994,9 +8026,13 @@ def canon_page():
                 var card = document.createElement('div');
                 card.className = 'work-card';
                 var readLink = '<a class="btn btn-primary" style="padding:4px 12px;font-size:12px;" href="/canon/work/' + w.id + '">📖 Читать</a>';
+                var audioLink = '';
+                if (w.kind === 'track' && w.has_audio) {{
+                    audioLink = '<a class="btn btn-secondary" style="padding:4px 12px;font-size:12px;" href="/canon/work/' + w.id + '#audio">🎧 Слушать</a>';
+                }}
                 card.innerHTML = '<h4>' + badge[0] + ' ' + w.title + '<span class="badge ' + badge[2] + '">' + badge[1] + '</span></h4>' +
                     '<div class="work-meta">' + meta + link + '</div>' +
-                    '<div class="work-actions">' + readLink + '</div>';
+                    '<div class="work-actions">' + readLink + audioLink + '</div>';
                 grid.appendChild(card);
             }});
         }}
@@ -8055,7 +8091,9 @@ def api_canon_works():
     # Пытаемся читать из БД (approved-произведения, включая content).
     try:
         with get_db_engine().connect() as conn:
-            sql = "SELECT id, title, kind, author, date, canon_level, url, content FROM canon_works WHERE status = 'approved'"
+            sql = ("SELECT id, title, kind, author, date, canon_level, url, content, "
+                   "audio_name, audio_mime, audio_size, (audio_data IS NOT NULL) AS has_audio "
+                   "FROM canon_works WHERE status = 'approved'")
             params: dict = {}
             if level != "all":
                 sql += " AND canon_level = :level"
@@ -8066,6 +8104,8 @@ def api_canon_works():
             sql += " ORDER BY id"
             rows = conn.execute(text(sql), params).mappings().all()
         works = [dict(r) for r in rows]
+        for w in works:
+            w["has_audio"] = bool(w.get("has_audio"))
         return jsonify({"works": works, "total": len(works)})
     except Exception as exc:
         print(f"[CANON] works db fallback: {exc}")
@@ -8081,6 +8121,10 @@ def api_canon_works():
             "canon_level": w.canon_level,
             "url": w.url,
             "content": "",
+            "audio_name": None,
+            "audio_mime": None,
+            "audio_size": None,
+            "has_audio": False,
         }
         for idx, w in enumerate(CANON_WORKS)
         if (level == "all" or w.canon_level == level)
@@ -8096,14 +8140,18 @@ def api_canon_work_detail(work_id):
         with get_db_engine().connect() as conn:
             row = conn.execute(
                 text("""
-                    SELECT id, title, kind, author, date, canon_level, url, content, status
+                    SELECT id, title, kind, author, date, canon_level, url, content, status,
+                           audio_name, audio_mime, audio_size,
+                           (audio_data IS NOT NULL) AS has_audio
                     FROM canon_works WHERE id = :wid
                 """),
                 {"wid": work_id},
             ).mappings().first()
         if not row or row["status"] != "approved":
             return jsonify({"error": "Произведение не найдено"}), 404
-        return jsonify(dict(row))
+        detail = dict(row)
+        detail["has_audio"] = bool(detail.get("has_audio"))
+        return jsonify(detail)
     except Exception as exc:
         print(f"[CANON] work detail error: {exc}")
 
@@ -8122,6 +8170,10 @@ def api_canon_work_detail(work_id):
         "url": work.url,
         "content": "",
         "status": "approved",
+        "audio_name": None,
+        "audio_mime": None,
+        "audio_size": None,
+        "has_audio": False,
     })
 
 
@@ -8357,6 +8409,117 @@ def api_admin_canon_work_update(work_id):
     return jsonify({"ok": True})
 
 
+# ── Canon Audio (upload / delete / stream) ──────────────────────────────────
+
+_MAX_AUDIO_BYTES = 4 * 1024 * 1024  # ~лимит тела запроса Vercel (4.5MB)
+_ALLOWED_AUDIO_MIME = {"audio/mpeg", "audio/mp3", "audio/ogg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac"}
+
+
+def _canon_audio_mime(filename: str) -> str | None:
+    """Guess audio MIME by extension; None for unsupported files."""
+    ext = (filename or "").rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
+    return {
+        "mp3": "audio/mpeg",
+        "ogg": "audio/ogg",
+        "oga": "audio/ogg",
+        "wav": "audio/wav",
+        "m4a": "audio/mp4",
+        "aac": "audio/aac",
+    }.get(ext)
+
+
+@app.route("/api/admin/canon/works/<int:work_id>/audio", methods=["POST"])
+def api_admin_canon_work_audio_upload(work_id):
+    """Загрузка аудиофайла для трека (multipart/form-data, только админ)."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    upload = request.files.get("audio") or request.files.get("file")
+    if not upload:
+        return jsonify({"error": "Файл не передан (поле audio)"}), 400
+    filename = (upload.filename or "").strip()
+    mime = _canon_audio_mime(filename) or (upload.mimetype or "")
+    if mime not in _ALLOWED_AUDIO_MIME:
+        return jsonify({"error": "Недопустимый формат аудио (mp3/ogg/wav/m4a/aac)"}), 400
+    data = upload.read()
+    if not data:
+        return jsonify({"error": "Пустой файл"}), 400
+    if len(data) > _MAX_AUDIO_BYTES:
+        return jsonify({"error": "Файл слишком большой (макс. 4 МБ)"}), 400
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE canon_works
+                    SET audio_data = :a, audio_name = :n, audio_mime = :m, audio_size = :s, updated_at = NOW()
+                    WHERE id = :id
+                """),
+                {
+                    "a": data,
+                    "n": filename[:255] or "audio",
+                    "m": mime,
+                    "s": len(data),
+                    "id": work_id,
+                },
+            )
+            conn.commit()
+            if result.rowcount == 0:
+                return jsonify({"error": "Произведение не найдено"}), 404
+    except Exception as exc:
+        print(f"[CANON] audio upload error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True, "audio_name": filename[:255] or "audio", "audio_mime": mime, "audio_size": len(data)})
+
+
+@app.route("/api/admin/canon/works/<int:work_id>/audio", methods=["DELETE"])
+def api_admin_canon_work_audio_delete(work_id):
+    """Удаление аудиофайла трека (только админ)."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE canon_works
+                    SET audio_data = NULL, audio_name = NULL, audio_mime = NULL, audio_size = NULL, updated_at = NOW()
+                    WHERE id = :id
+                """),
+                {"id": work_id},
+            )
+            conn.commit()
+            if result.rowcount == 0:
+                return jsonify({"error": "Произведение не найдено"}), 404
+    except Exception as exc:
+        print(f"[CANON] audio delete error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/canon/work/<int:work_id>/audio")
+def api_canon_work_audio(work_id):
+    """Потоковая отдача аудиофайла трека."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT audio_data, audio_mime, audio_name, status
+                    FROM canon_works WHERE id = :wid
+                """),
+                {"wid": work_id},
+            ).mappings().first()
+    except Exception as exc:
+        print(f"[CANON] audio stream error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    if not row or row["status"] != "approved" or not row["audio_data"]:
+        return jsonify({"error": "Аудио не найдено"}), 404
+    mime = row["audio_mime"] or "audio/mpeg"
+    name = row["audio_name"] or "audio"
+    return (row["audio_data"], 200, {
+        "Content-Type": mime,
+        "Content-Disposition": f'inline; filename="{_html_escape(name)}"',
+        "Cache-Control": "public, max-age=86400",
+    })
+
+
 @app.route("/api/admin/canon/works", methods=["GET"])
 def api_admin_canon_works_list():
     """Список всех произведений (включая pending/rejected) для редактора."""
@@ -8469,7 +8632,8 @@ def canon_work_page(work_id):
         with get_db_engine().connect() as conn:
             row = conn.execute(
                 text("""
-                    SELECT id, title, kind, author, date, canon_level, url, content, status
+                    SELECT id, title, kind, author, date, canon_level, url, content, status,
+                           audio_name, audio_mime, audio_size
                     FROM canon_works WHERE id = :wid
                 """),
                 {"wid": work_id},
@@ -8493,9 +8657,14 @@ def canon_work_page(work_id):
             "canon_level": w.canon_level,
             "url": w.url,
             "content": "",
+            "audio_name": None,
+            "audio_mime": None,
+            "audio_size": None,
         }
     else:
         work = dict(row)
+        work["has_audio"] = True if work.get("audio_size") or work.get("audio_name") else False
+    has_audio = bool(work.get("has_audio")) and work["kind"] == "track"
 
     level_label = {
         "high": ("🔵", "Высокий канон"),
@@ -8512,6 +8681,14 @@ def canon_work_page(work_id):
         "<p><em>Текст произведения пока не добавлен. "
         "Ссылка на оригинал открывается ниже, если доступна.</em></p>"
     )
+    audio_html = ""
+    if has_audio:
+        audio_html = f"""
+        <div class="audio-card" id="audio">
+            <h3>🎧 Аудиозапись трека</h3>
+            <audio controls preload="metadata" src="/api/canon/work/{work['id']}/audio"></audio>
+            <div class="audio-meta">{_html_escape(work.get('audio_name') or 'audio')} · {format_bytes(work.get('audio_size') or 0)}</div>
+        </div>"""
     meta = [work["author"], work["date"]]
     meta = " · ".join(x for x in meta if x)
 
@@ -8557,6 +8734,11 @@ def canon_work_page(work_id):
         .meta {{ color: #8b949e; font-size: 14px; margin-bottom: 24px; }}
         .content {{ background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 28px; line-height: 1.7; font-size: 15px; overflow-wrap: anywhere; white-space: pre-wrap; }}
         .content p {{ margin: 8px 0; }}
+        .audio-card {{ background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 20px; margin-bottom: 20px; }}
+        .audio-card h3 {{ color: #e6edf3; font-size: 16px; margin-bottom: 12px; }}
+        .audio-card audio {{ width: 100%; }}
+        .audio-card .audio-meta {{ color: #8b949e; font-size: 12px; margin-top: 10px; }}
+        .section-title {{ color: #58a6ff; font-size: 15px; margin: 24px 0 8px; }}
         .source-link {{ display: inline-block; margin-top: 20px; color: #58a6ff; text-decoration: none; font-size: 14px; }}
         .source-link:hover {{ text-decoration: underline; }}
         .nav {{ margin-top: 24px; display: flex; gap: 8px; flex-wrap: wrap; }}
@@ -8574,6 +8756,8 @@ def canon_work_page(work_id):
             {kind_label} · {meta or 'Автор неизвестен'}
             <span class="badge badge-{work['canon_level']}">{level_label[1]}</span>
         </div>
+        {audio_html}
+        {('<div class="section-title">📜 Текст</div>' if work['kind'] == 'article' and not has_audio else '')}
         <div class="content">{content_html}</div>
         {"<a class='source-link' href='" + _html_escape(work['url']) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") else ""}
         <div class="nav">{nav_html}</div>
@@ -8861,6 +9045,17 @@ def admin_canon_page():
         function editWork(id) {
             var div = document.getElementById('work-' + id);
             fetch('/api/canon/work/' + id, { headers: authH() }).then(function(r) { return r.json(); }).then(function(w) {
+                var audioHtml = '';
+                if (w.kind === 'track') {
+                    audioHtml = '<div class="card" style="margin-top:10px;padding:10px;border:1px solid #30363d;border-radius:8px;">' +
+                        '<strong>🎧 Аудио трека</strong>' +
+                        (w.has_audio ? ' <span class="badge badge-approved" style="margin-left:6px;">загружено: ' + esc(w.audio_name || '') + '</span>' : '') +
+                        '<div style="margin-top:8px;">' +
+                        '<input type="file" id="we-audio-file" accept="audio/*"> ' +
+                        '<button class="btn btn-success" onclick="uploadAudio(' + id + ')">⬆️ Загрузить</button> ' +
+                        (w.has_audio ? '<button class="btn btn-danger" onclick="removeAudio(' + id + ')">🗑 Удалить</button>' : '') +
+                        '</div></div>';
+                }
                 div.innerHTML = '<h3>✏️ ' + esc(w.title) + '</h3>' +
                     '<label>Название</label><input id="we-title" value="' + esc(w.title) + '">' +
                     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
@@ -8871,10 +9066,33 @@ def admin_canon_page():
                     '<label>Дата</label><input id="we-date" value="' + esc(w.date || '') + '">' +
                     '<label>Ссылка</label><input id="we-url" value="' + esc(w.url || '') + '">' +
                     '<label>Полный текст</label><textarea id="we-content" rows="10">' + esc(w.content || '') + '</textarea>' +
+                    audioHtml +
                     '<button class="btn btn-success" onclick="saveWork(' + id + ')">💾 Сохранить</button>' +
                     '<button class="btn btn-secondary" onclick="loadWorks()">Отмена</button>' +
                     '<div class="msg" id="work-msg"></div>';
             });
+        }
+
+        function uploadAudio(id) {
+            var fileInput = document.getElementById('we-audio-file');
+            var file = fileInput && fileInput.files && fileInput.files[0];
+            if (!file) { alert('Выберите файл'); return; }
+            var fd = new FormData();
+            fd.append('audio', file);
+            fetch('/api/admin/canon/works/' + id + '/audio', { method: 'POST', headers: authH(), body: fd })
+              .then(function(r) { return r.json(); }).then(function(j) {
+                  var msg = document.getElementById('work-msg');
+                  if (j.ok) { msg.textContent = '✅ Аудио загружено'; loadWorks(); } else { msg.textContent = j.error || 'Ошибка'; msg.className = 'msg error'; }
+              });
+        }
+
+        function removeAudio(id) {
+            if (!confirm('Удалить аудио трека?')) return;
+            fetch('/api/admin/canon/works/' + id + '/audio', { method: 'DELETE', headers: authH() })
+              .then(function(r) { return r.json(); }).then(function(j) {
+                  var msg = document.getElementById('work-msg');
+                  if (j.ok) { msg.textContent = '✅ Аудио удалено'; loadWorks(); } else { msg.textContent = j.error || 'Ошибка'; msg.className = 'msg error'; }
+              });
         }
 
         function saveWork(id) {

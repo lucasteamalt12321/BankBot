@@ -168,7 +168,7 @@ class TestBunkerRPE2E(unittest.TestCase):
         print("\n🔄 Testing BunkerRP coefficient application (coefficient=20)...")
 
         # Game end: 30 money * 20 = 600 bank coins
-        parsed_game = self.game_end_parser.parse(self.game_end_message)
+        self.game_end_parser.parse(self.game_end_message)
         self.balance_manager.process_game_winners(
             winners=["TestWinner"],
             game="Bunker RP",

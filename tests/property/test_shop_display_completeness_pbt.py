@@ -81,7 +81,7 @@ class TestableShopHandler:
 
             return "\n".join(message_lines)
 
-        except Exception as e:
+        except Exception:
             return "🛒 МАГАЗИН\n\n❌ Произошла ошибка при загрузке магазина. Попробуйте позже."
 
 
@@ -404,7 +404,7 @@ class TestShopDisplayCompletenessPBT(unittest.TestCase):
         ]
 
         # Create items in database
-        shop_items = self.create_shop_items(default_items)
+        self.create_shop_items(default_items)
 
         # Generate display
         display = self.shop_handler.display_shop(12345)

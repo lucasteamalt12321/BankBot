@@ -172,7 +172,7 @@ Player4 - Мирный житель
         print("\n🔄 Testing True Mafia coefficient application (coefficient=15)...")
 
         # Game end: 10 money * 15 = 150 bank coins
-        parsed_game = self.game_end_parser.parse(self.game_end_message)
+        self.game_end_parser.parse(self.game_end_message)
         self.balance_manager.process_game_winners(
             winners=["TestWinner"],
             game="True Mafia",
