@@ -2,9 +2,24 @@
 
 ## Статус проекта
 **Процент выполнения:** 96% (Phase 2) по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal завершён (123/123), Phase 4 Canon Module завершён (CANON01: 100/100), пост-фаза: фиксы багов + новые функции
+**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal завершён (123/123), Phase 4 Canon Module завершён (CANON01: 100/100, CANON02: готов и задеплоен), пост-фаза: фиксы багов + новые функции
 
 ## Changelog
+
+### 2026-08-08 (Session: CANON-02 — произведения + заявки + модерация)
+
+**CANON02 completed.** Канон стал живым: на `/canon` появились сами произведения, зарегистрированные пользователи подают заявки на канонизацию, админ модерует их и правит тексты (произведения + основной документ канона через БД-overlay).
+
+**Сделано (всё в `api/index.py`):**
+- **БД-слой:** `_ensure_canon_tables()` (вызывается из `get_db_engine()` в try/except — сбой БД не роняет старт) — таблицы `canon_works` (status approved/pending/rejected, content), `canon_requests`, `canon_doc` (overlay документа); сид метаданных 16 произведений из `core.canon.works` при пустой таблице.
+- **Публичные API:** `GET /api/canon/works` (фильтры + content, БД→фолбэк статика), `GET /api/canon/work/<id>` (полный текст, автору/url/canon_level), `GET /api/canon/documents` (overlay БД → файл, поле `source`), `POST /api/canon/request` (только залогиненный: title/author/content обязательны, title≤200, content≤5000, валидация kind/canon_level).
+- **Admin API (`_admin_require` → 403):** `GET /api/admin/canon/requests?status=`, `POST …/requests/<id>/approve|reject` (approve переносит в `canon_works` со статусом approved + reviewer_id/review_note), `PUT /api/admin/canon/works/<id>` (метаданные + полный текст), `GET/PUT/DELETE /api/admin/canon/doc` (overlay документа; PUT обновляет/создаёт, DELETE сбрасывает к `canon.md`).
+- **Страницы:** `/canon` — add-to-bar «📩 Отправить заявку на канонизацию» + карточки произведений с «📖 Читать» (рендер из БД); `/canon/work/<id>` (мета-бейджи, оригинал в Telegram, prev/next-навигация, `_html_escape`); `/canon/request` (форма для зарегистрированных, без токена → подсказка); `/admin/canon` (вкладки Заявки/Произведения/Документ, JS-паттерн как в `/admin` — доступ контролируют API).
+- **Баг-фиксы по ходу:** декоратор `@app.route("/canon")` случайно висел на `_canon_doc_effective()` вместо `canon_page()` (страница отдавала голый текст) — исправлен; добавлен недостающий хелпер `_html_escape`; JS `saveWork` читал несуществующие id (`title`/`author` → `we-*`); `loadRequests` искал `#reqs` вместо `#requests-list`.
+
+**Тесты:** `tests/unit/test_web_portal_e2e.py::_make_engine()` — добавлены DDL-зеркала `canon_works`/`canon_requests`/`canon_doc` + сид-произведение; `now_impl` возвращает ISO-строку (sqlite не умеет datetime в UDF). Новый `tests/unit/test_canon_requests_e2e.py`: 7 тестов — страницы работ/API, 404 для отсутствующего id, submit требует auth, валидация полей, полный модерационный флоу (submit→approve→works→edit→403 не-админу), reject + doc overlay PUT/DELETE roundtrip, рендер `/admin/canon` и `/canon/request`.
+
+**Проверки:** полный `tests/unit` **971 passed / 10 skipped** (было 964/10); всё зелёное. Деплой на Vercel: https://bank-bot-ruby.vercel.app — `/canon`, `/canon/work/1`, `/canon/request`, `/admin/canon` → 200; `/api/canon/works` отдаёт 16 сид-произведений из БД; `/api/admin/canon/requests` без токена → 403.
 
 ### 2026-08-07 (Session: CANON01 — модуль хранения канона)
 
@@ -820,7 +835,7 @@
 - **Pre-existing падения тестов (подтверждено git stash — падают и на чистом HEAD, не связаны с QUALITY-правками):** `tests/property/test_error_handler_properties.py` (9), `test_process_manager_properties.py` (2 fail + 3 error), `test_base_repository_pbt.py`, `test_bunker_profile_parser_properties.py`, `test_mafia_profile_parser_properties.py`, `tests/integration/test_admin_manager_integration.py` (2), `test_background_integration.py` (1), `test_system_architecture_integration.py`. Итого ~30 failed + 3 errors. Требуют отдельной сессии починки (вне scope QUALITY A/B).
 
 ## last_checked_commit
-c77502c (2026-08-01) — Family Circle prod-фиксы (NOT NULL без DEFAULT) + деплой
+aca55c0 (2026-08-08) — CANON02: заявки/модерация/произведения задеплоены; полный tests/unit 971 passed
 
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)

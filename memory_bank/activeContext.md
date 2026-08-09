@@ -1,10 +1,50 @@
 # Active Context
 
-**Последнее обновление:** 2026-08-07  
+**Последнее обновление:** 2026-08-08  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** CANON01 — модуль хранения канона (единый source of truth + страница /canon)
+**Последнее действие:** CANON02 завершён и задеплоен — произведения, заявки на канонизацию, админ-модерация
 
 ## Текущий фокус
+
+### CANON02 — Произведения на сайте, заявки на канонизацию, админ-модерация ✅ (завершён, 2026-08-08)
+
+**Цель:** На `/canon` должны отображаться сами канонические произведения (полный текст), любой зарегистрированный пользователь может подать «заявку на канонизацию», админ модерирует заявки и имеет право редактировать тексты произведений и основной документ канона (canon.md через БД-overlay).
+
+**Решения пользователя (2026-08-07):**
+- Тексты произведений админ вносит через интерфейс (в репо полных текстов нет, только метаданные + ссылки t.me). Сид из `core.canon.works.py` (метаданные), полный текст — админ-редактор.
+- «Право изменения текста канона» = и произведения, И основной документ (canon.md через БД-overlay).
+- Полный текст произведения — на отдельной странице `/canon/work/<id>`.
+
+**План (утверждён пользователем):**
+
+**Фаза 1 — БД-слой (`_ensure_canon_tables` в api/index.py):**
+- `canon_works` — id, title, kind, author, date, canon_level, url, `content TEXT`, status (approved/pending/rejected), submitted_by, created_at/updated_at. Сид из `CANON_WORKS` при пустой таблице (status='approved', content='').
+- `canon_requests` — id, user_id, title, kind, author, date, canon_level, url, content, status (pending/approved/rejected), reviewer_id, review_note, timestamps.
+- `canon_doc` — overlay большого документа: id, content TEXT, updated_by, updated_at. Нет записи → каноном остаётся canon.md.
+- Правило: БД-запросы обёрнуты в try/except; при недоступности БД публичные эндпоинты фолбэкуют на статику (CANON_WORKS / load_canon_text).
+
+**Фаза 2 — Публичные API:** `GET /api/canon/works` (approved + content, фолбэк статика), `GET /api/canon/work/<id>`, `GET /api/canon/documents` (эффективный текст), `POST /api/canon/request` (auth-токен).
+
+**Фаза 3 — Админ API (`_admin_require`):** `GET /api/admin/canon/requests?status=`, `POST /api/admin/canon/requests/<id>/approve|reject`, `PUT /api/admin/canon/works/<id>`, `GET/PUT/DELETE /api/admin/canon/doc`.
+
+**Фаза 4 — Страницы:** `/canon` (кнопка «Читать» → `/canon/work/<id>`, кнопка «Отправить заявку», админ-кнопки), `/canon/work/<id>`, `/canon/request`, `/admin/canon`.
+
+**Фаза 5 — Тесты:** расширить `_make_engine()` DDL, новый `tests/unit/test_canon_requests_e2e.py`, ruff + pytest, существующие тесты не должны сломаться.
+
+**После:** деплой на Vercel, финальный memory bank, коммит.
+
+**ИТОГ (2026-08-08):** все 5 фаз выполнены и задеплоены на https://bank-bot-ruby.vercel.app.
+- БД-слой: `_ensure_canon_tables()` + вызов из `get_db_engine()` (try/except — сбой БД не роняет старт). Таблицы `canon_works`/`canon_requests`/`canon_doc` + сид 16 метаданных-произведений из `CANON_WORKS`.
+- Публичные API: `/api/canon/works` (`?level=&kind=`, content), `/api/canon/work/<id>` (фолбэк статика), `/api/canon/documents` (`source: db|file`), `POST /api/canon/request` (auth, валидация title/author/content, canon_level/kind).
+- Админ API (`_admin_require` → 403): requests list/approve/reject (approve → INSERT в canon_works + reviewer_id/review_note/reviewed_at), `PUT works/<id>`, `GET/PUT/DELETE /admin/canon/doc` (PUT upsert, DELETE сброс к `canon.md`).
+- Страницы: `/canon` — кнопки «📩 Отправить заявку» + admin-actions, «📖 Читать» на карточках; `/canon/work/<id>` (бейджи, ссылка на t.me, prev/next); `/canon/request` (для зарегистрированных); `/admin/canon` (вкладки Заявки/Произведения/Документ, доступ через JS+API как в `/admin` — страница рендерится, API защищены).
+- Фаза 5: `tests/unit/test_canon_requests_e2e.py` (7 тестов) + расширение `_make_engine()` (DDL-зеркала + сид-work, `now_impl`→ISO-строка). Полный `tests/unit` **971 passed / 10 skipped**.
+- Прод: `/canon`, `/canon/work/1`, `/canon/request`, `/admin/canon` → 200; `/api/canon/works` → 16 сид-произведений; `/api/admin/canon/requests` без токена → 403.
+
+**Баг-фиксы, найденные по ходу (полезно помнить):**
+- `@app.route("/canon")` висел на `_canon_doc_effective()` вместо `canon_page()` → страница отдавала голый текст (исправлен). Проверять, что декоратор стоит над правильной функцией.
+- `_html_escape` отсутствовал — добавлен (html.escape).
+- SQLite UDF не умеет возвращать `datetime` → теперь ISO-строка.
 
 ### CANON01 — Модуль хранения канона ✅ (завершён, 2026-08-07)
 
