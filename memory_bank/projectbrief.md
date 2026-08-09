@@ -449,6 +449,24 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+### Phase 4.3: Canon Audio & Article View (CANON-03)
+
+**Цель:** У треков канона появляется аудиозапись (админ загружает в админке, сайт показывает плеер и стримит файл), у статей — читаемый полный текст.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| CA-01 | БД: колонки audio_data (BYTEA), audio_name, audio_mime, audio_size в canon_works (CREATE + ALTER для прод-таблицы) | completed | 20 |
+| CA-02 | Admin API: POST/DELETE `/api/admin/canon/works/<id>/audio` (multipart, лимит 4 МБ, whitelist mime mp3/ogg/wav/m4a/aac) | completed | 25 |
+| CA-03 | Публичный стрим `GET /api/canon/work/<id>/audio` + поля has_audio/audio_* в works/work API | completed | 25 |
+| CA-04 | Страницы: аудиоплеер `#audio` на `/canon/work/<id>`, кнопка «🎧 Слушать» на `/canon`, кнопки загрузки/удаления в `/admin/canon` | completed | 20 |
+| CA-TEST | Тест test_audio_upload_stream_delete в test_canon_requests_e2e.py, ruff clean, полный tests/unit зелёный | completed | 10 |
+
+**CANON-03: 100/100**
+
+**Факт (2026-08-09):** всё реализовано в `api/index.py`, закоммичено (`75fe269`) и задеплоено на Vercel. Полный `tests/unit` **972 passed / 10 skipped / 0 failed**, ruff clean. Прод: `/admin/canon` 200 + JS uploadAudio, `/api/canon/works` возвращает has_audio, `/canon/work/<id>` содержит audio-card, стрим 404 для трека без аудио (корректно).
+
+---
+
 ## Next Tasks (Post-Review Cleanup)
 
 | ID | Task | Priority | Status |
@@ -465,7 +483,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| PARSE01 | Production E2E парсинг игровых сообщений по ответам | in_progress | P0 |
+| PARSE01 | Production E2E парсинг игровых сообщений по ответам | completed | P0 |
 | TRIVIA01 | Мини-игра: Брейн-Ринг по Канону Олеговируса | completed | P0 |
 | GD-02 | Команда /submit (заявка на прохождение) | pending | 4 |
 | GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
@@ -490,6 +508,8 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 **HF01 notes:** Flask-сервер на `7860` (`/health`, `/metrics`, `/logs`), Dockerfile `python:3.12-slim`, IP-based proxy (`195.201.225.248`) с `Host: tgproxy.me` + `verify=False`, safe `http_client` builder fallback, `SPACE_ID` detection, Alembic-first startup, config manager resilience к отсутствующим таблицам.
 
 **PARSE01 notes:** Это главный продуктовый фокус после стабилизации runtime/DB/UX. Требуется довести парсинг реальных игровых сообщений по ответам до production E2E: fixtures реальных сообщений, правила по поддерживаемым играм, мониторинг successful/failed parses, понятные админские diagnostics и защита от ложных начислений. Текущий инфраструктурный контур не считать полноценным завершением этого результата.
+
+**PARSE01 (STATUS: completed, 2026-08-03):** все части закрыты — мониторинг (`parsed_transactions` с status в `_ensure_parsing_tables`, `_log_parsed_transaction`/`_record_parsing_result`, `admin_manager.get_parsing_stats()` считает failed_parses), idempotency (`uq_parsed_transactions_msg` частичный unique-индекс на chat_id/message_id, повторный парсинг блокируется), защита от ложных начислений (reply только на сообщение игрового бота, иначе `not_bot`/failed), единый source of truth курсов (`core/rates.py`, `_sync_conversion_rates` сохраняет админ-правки), E2E PTB-тест `tests/unit/test_manual_parsing_handler_e2e.py` (5 тестов) + фикс бага `balance_repository.add_balance()` (NULL total_earned → TypeError).
 
 **FB01 notes:** реализованы команды `/feedback <предложение или жалоба>` с алиасами `/suggest` и `/complaint`; обращения сохраняются в SQLite-таблицу `feedback_entries` с JSONL fallback/debug mirror (`data/feedback.jsonl`): текст, Telegram ID, username, chat ID, chat type и UTC timestamp. Админ может читать последние обращения через `/feedback_list [limit]` (до 20 записей). Для внешнего чтения с HF добавлен защищённый endpoint `GET /feedback?limit=N` с `Authorization: Bearer <FEEDBACK_READ_TOKEN|HF_TOKEN|BOT_TOKEN>`; при сохранении пишется structured log `Feedback saved` с полным текстом обращения.
 
