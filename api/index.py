@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import html
 import io
 import json
 import os
@@ -298,6 +299,10 @@ def get_db_engine():
     _ensure_family_tables(DB_ENGINE)
     _ensure_web_auth_tables(DB_ENGINE)
     _ensure_parsing_tables(DB_ENGINE)
+    try:
+        _ensure_canon_tables(DB_ENGINE)
+    except Exception as exc:
+        print(f"[CANON] table init skipped: {exc}")
     return DB_ENGINE
 
 
@@ -836,6 +841,99 @@ def _ensure_web_auth_tables(engine):
         print("[AUTH] Tables ensured")
     except Exception as exc:
         print(f"[AUTH] Table init error: {exc}")
+
+
+def _html_escape(s: str) -> str:
+    """Escape user/DB text for safe embedding in HTML."""
+    return html.escape(s or "", quote=True)
+
+
+def _canon_work_to_dict(work) -> dict:
+    """Сериализация CanonWork / строки canon_works в JSON-словарь."""
+    if hasattr(work, "items"):
+        return dict(work)
+    return {
+        "id": getattr(work, "id", None) or 0,
+        "title": getattr(work, "title", "") or "",
+        "kind": getattr(work, "kind", "") or "",
+        "author": getattr(work, "author", "") or "",
+        "date": getattr(work, "date", "") or "",
+        "canon_level": getattr(work, "canon_level", "") or "",
+        "url": getattr(work, "url", "") or "",
+        "content": getattr(work, "content", "") or "",
+    }
+
+
+def _ensure_canon_tables(engine):
+    """Create canon DB tables (works, requests, doc overlay) and seed metadata."""
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS canon_works (
+                id SERIAL PRIMARY KEY,
+                title VARCHAR(200) NOT NULL,
+                kind VARCHAR(16) NOT NULL DEFAULT 'track',
+                author VARCHAR(100),
+                date VARCHAR(50),
+                canon_level VARCHAR(16) NOT NULL DEFAULT 'medium',
+                url TEXT,
+                content TEXT DEFAULT '',
+                status VARCHAR(16) NOT NULL DEFAULT 'approved',
+                submitted_by INTEGER,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS canon_requests (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                title VARCHAR(200) NOT NULL,
+                kind VARCHAR(16) NOT NULL DEFAULT 'track',
+                author VARCHAR(100),
+                date VARCHAR(50),
+                canon_level VARCHAR(16) NOT NULL DEFAULT 'medium',
+                url TEXT,
+                content TEXT DEFAULT '',
+                status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                reviewer_id INTEGER,
+                review_note TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                reviewed_at TIMESTAMPTZ
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS canon_doc (
+                id SERIAL PRIMARY KEY,
+                content TEXT NOT NULL,
+                updated_by INTEGER,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_canon_works_status ON canon_works(status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_canon_requests_status ON canon_requests(status)"))
+        # Сид: если canon_works пуста — влить базовые произведения из core.canon.
+        count_row = conn.execute(
+            text("SELECT COUNT(*) AS c FROM canon_works")
+        ).mappings().first()
+        if int(count_row["c"] or 0) == 0:
+            for work in CANON_WORKS:
+                conn.execute(
+                    text("""
+                        INSERT INTO canon_works
+                            (title, kind, author, date, canon_level, url, content, status)
+                        VALUES (:t, :k, :a, :d, :l, :u, '', 'approved')
+                    """),
+                    {
+                        "t": work.title,
+                        "k": work.kind,
+                        "a": work.author,
+                        "d": work.date,
+                        "l": work.canon_level,
+                        "u": work.url,
+                    },
+                )
+            print("[CANON] Seeded canon_works from core.canon.works")
+        conn.commit()
 
 
 def _ensure_parsing_tables(engine):
@@ -7698,25 +7796,54 @@ def api_daily_prayer():
 # ── Canon Module ──────────────────────────────────────────────────────────
 # Полный текст канона и структурированные данные из core.canon (source of truth).
 
+def _canon_doc_effective() -> str:
+    """Текст канона: БД-overlay (canon_doc) или файл canon.md."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT content FROM canon_doc ORDER BY id DESC LIMIT 1")
+            ).mappings().first()
+            if row:
+                return row["content"]
+    except Exception as exc:
+        print(f"[CANON] doc effective fallback: {exc}")
+    return load_canon_text()
+
+
 @app.route("/canon")
 def canon_page():
-    canon_text = load_canon_text()
+    canon_text = _canon_doc_effective()
     version = CANON_VERSION
     body_html = render_markdown(canon_text) if canon_text else "<p>Текст канона недоступен.</p>"
-    works_json = json.dumps(
-        [
+
+    # Произведения: пробуем БД (approved + content + id), фолбэк — статика.
+    _db_works: list[dict] = []
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, title, kind, author, date, canon_level, url, content
+                    FROM canon_works WHERE status = 'approved' ORDER BY id
+                """),
+            ).mappings().all()
+            _db_works = [dict(r) for r in rows]
+    except Exception as exc:
+        print(f"[CANON] page works db fallback: {exc}")
+    if not _db_works:
+        _db_works = [
             {
+                "id": idx,
                 "title": w.title,
                 "kind": w.kind,
                 "author": w.author,
                 "date": w.date,
                 "canon_level": w.canon_level,
                 "url": w.url,
+                "content": "",
             }
-            for w in CANON_WORKS
-        ],
-        ensure_ascii=False,
-    )
+            for idx, w in enumerate(CANON_WORKS)
+        ]
+    works_json = json.dumps(_db_works, ensure_ascii=False)
     terms_json = json.dumps(
         [
             {"term": t.term, "definition": t.definition, "source": t.source}
@@ -7778,6 +7905,17 @@ def canon_page():
         .count {{ color: #8b949e; font-size: 13px; margin-bottom: 12px; }}
         .back-link {{ display: inline-block; color: #8b949e; text-decoration: none; font-size: 14px; margin-top: 24px; }}
         .back-link:hover {{ color: #58a6ff; }}
+        .action-bar {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }}
+        .btn {{ display: inline-block; padding: 8px 16px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; text-decoration: none; font-family: inherit; }}
+        .btn-primary {{ background: #1f6feb; color: #fff; }}
+        .btn-primary:hover {{ background: #388bfd; }}
+        .btn-secondary {{ background: #21262d; color: #c9d1d9; }}
+        .btn-secondary:hover {{ background: #30363d; }}
+        .btn-success {{ background: #238636; color: #fff; }}
+        .btn-success:hover {{ background: #2ea043; }}
+        .work-actions {{ margin-top: 10px; }}
+        .work-actions a {{ margin-right: 10px; }}
+        .empty {{ color: #8b949e; text-align: center; padding: 24px; }}
     </style>
 </head>
 <body>
@@ -7787,6 +7925,10 @@ def canon_page():
             <a href="/">← На главную</a>
         </div>
         <div class="meta">Версия: {version}</div>
+        <div class="action-bar">
+            <a class="btn btn-primary" href="/canon/request">📩 Отправить заявку на канонизацию</a>
+            <span id="admin-actions"></span>
+        </div>
         <div class="tabs">
             <button class="tab active" data-tab="text">📜 Полный текст</button>
             <button class="tab" data-tab="works">🎵 Произведения</button>
@@ -7851,8 +7993,10 @@ def canon_page():
                 var link = w.url ? ' <a href="' + w.url + '" target="_blank" rel="noopener noreferrer">открыть ↗</a>' : '';
                 var card = document.createElement('div');
                 card.className = 'work-card';
+                var readLink = '<a class="btn btn-primary" style="padding:4px 12px;font-size:12px;" href="/canon/work/' + w.id + '">📖 Читать</a>';
                 card.innerHTML = '<h4>' + badge[0] + ' ' + w.title + '<span class="badge ' + badge[2] + '">' + badge[1] + '</span></h4>' +
-                    '<div class="work-meta">' + meta + link + '</div>';
+                    '<div class="work-meta">' + meta + link + '</div>' +
+                    '<div class="work-actions">' + readLink + '</div>';
                 grid.appendChild(card);
             }});
         }}
@@ -7875,6 +8019,20 @@ def canon_page():
             }});
         }}
         renderGlossary('');
+
+        function loadAdminActions() {{
+            var token = localStorage.getItem('auth_token');
+            if (!token) return;
+            fetch('/api/auth/me', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }})
+                .then(function(r) {{ return r.json(); }})
+                .then(function(u) {{
+                    if (u && u.is_admin) {{
+                        var box = document.getElementById('admin-actions');
+                        box.innerHTML = '<a class="btn btn-secondary" href="/admin/canon">🛠 Модерация и редактирование канона</a>';
+                    }}
+                }}).catch(function() {{}});
+        }}
+        loadAdminActions();
     </script>
 </body>
 </html>"""
@@ -7893,20 +8051,393 @@ def api_canon_text():
 def api_canon_works():
     level = request.args.get("level", "all")
     kind = request.args.get("kind", "all")
+
+    # Пытаемся читать из БД (approved-произведения, включая content).
+    try:
+        with get_db_engine().connect() as conn:
+            sql = "SELECT id, title, kind, author, date, canon_level, url, content FROM canon_works WHERE status = 'approved'"
+            params: dict = {}
+            if level != "all":
+                sql += " AND canon_level = :level"
+                params["level"] = level
+            if kind != "all":
+                sql += " AND kind = :kind"
+                params["kind"] = kind
+            sql += " ORDER BY id"
+            rows = conn.execute(text(sql), params).mappings().all()
+        works = [dict(r) for r in rows]
+        return jsonify({"works": works, "total": len(works)})
+    except Exception as exc:
+        print(f"[CANON] works db fallback: {exc}")
+
+    # Фолбэк — статический перечень из core.canon (без content).
     works = [
         {
+            "id": idx,
             "title": w.title,
             "kind": w.kind,
             "author": w.author,
             "date": w.date,
             "canon_level": w.canon_level,
             "url": w.url,
+            "content": "",
         }
-        for w in CANON_WORKS
+        for idx, w in enumerate(CANON_WORKS)
         if (level == "all" or w.canon_level == level)
         and (kind == "all" or w.kind == kind)
     ]
     return jsonify({"works": works, "total": len(works)})
+
+
+@app.route("/api/canon/work/<int:work_id>")
+def api_canon_work_detail(work_id):
+    """Полный текст одной канонической работы."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT id, title, kind, author, date, canon_level, url, content, status
+                    FROM canon_works WHERE id = :wid
+                """),
+                {"wid": work_id},
+            ).mappings().first()
+        if not row or row["status"] != "approved":
+            return jsonify({"error": "Произведение не найдено"}), 404
+        return jsonify(dict(row))
+    except Exception as exc:
+        print(f"[CANON] work detail error: {exc}")
+
+    # Фолбэк на статику (id совпадает с порядковым номером из core.canon).
+    try:
+        work = CANON_WORKS[work_id]
+    except IndexError:
+        return jsonify({"error": "Произведение не найдено"}), 404
+    return jsonify({
+        "id": work_id,
+        "title": work.title,
+        "kind": work.kind,
+        "author": work.author,
+        "date": work.date,
+        "canon_level": work.canon_level,
+        "url": work.url,
+        "content": "",
+        "status": "approved",
+    })
+
+
+@app.route("/api/canon/documents")
+def api_canon_documents():
+    """Эффективный текст канона: БД-overlay (canon_doc) или файл canon.md."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT content, updated_at FROM canon_doc ORDER BY id DESC LIMIT 1")
+            ).mappings().first()
+        if row:
+            return jsonify({
+                "text": row["content"],
+                "version": CANON_VERSION,
+                "source": "db",
+                "updated_at": str(row["updated_at"]) if row["updated_at"] else None,
+            })
+    except Exception as exc:
+        print(f"[CANON] doc overlay error: {exc}")
+    return jsonify({
+        "text": load_canon_text(),
+        "version": CANON_VERSION,
+        "source": "file",
+        "updated_at": None,
+    })
+
+
+@app.route("/api/canon/request", methods=["POST"])
+def api_canon_request_submit():
+    """Подать заявку на канонизацию (только зарегистрированный пользователь)."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    author = (data.get("author") or "").strip()
+    content = (data.get("content") or "").strip()
+    canon_level = (data.get("canon_level") or "").strip() or "medium"
+    kind = (data.get("kind") or "").strip() or "track"
+    url = (data.get("url") or "").strip()
+    date = (data.get("date") or "").strip()
+
+    if not title or not author:
+        return jsonify({"error": "Укажите название и автора произведения"}), 400
+    if len(title) > 200:
+        return jsonify({"error": "Название слишком длинное"}), 400
+    if not content:
+        return jsonify({"error": "Вставьте полный текст произведения"}), 400
+    if len(content) > 5000:
+        return jsonify({"error": "Текст слишком длинный (макс. 5000 символов)"}), 400
+    if canon_level not in ("high", "medium", "low", "archive"):
+        return jsonify({"error": "Некорректный уровень канонизации"}), 400
+    if kind not in ("track", "article", "archive"):
+        return jsonify({"error": "Некорректный тип произведения"}), 400
+
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO canon_requests
+                        (user_id, title, kind, author, date, canon_level, url, content)
+                    VALUES (:uid, :t, :k, :a, :d, :l, :u, :c)
+                """),
+                {
+                    "uid": user.get("id"),
+                    "t": title,
+                    "k": kind,
+                    "a": author,
+                    "d": date or None,
+                    "l": canon_level,
+                    "u": url or None,
+                    "c": content,
+                },
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[CANON] request submit error: {exc}")
+        return jsonify({"error": "Не удалось отправить заявку"}), 500
+    return jsonify({"ok": True})
+
+
+# ── Admin Canon Moderation ────────────────────────────────────────────────
+
+@app.route("/api/admin/canon/requests")
+def api_admin_canon_requests():
+    """Список заявок на канонизацию (только админ)."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    status = (request.args.get("status") or "").strip()
+    try:
+        with get_db_engine().connect() as conn:
+            if status:
+                rows = conn.execute(
+                    text("""
+                        SELECT r.*, w.login AS requester
+                        FROM canon_requests r
+                        LEFT JOIN web_users w ON w.id = r.user_id
+                        WHERE r.status = :s
+                        ORDER BY r.created_at DESC LIMIT 200
+                    """),
+                    {"s": status},
+                ).mappings().all()
+            else:
+                rows = conn.execute(
+                    text("""
+                        SELECT r.*, w.login AS requester
+                        FROM canon_requests r
+                        LEFT JOIN web_users w ON w.id = r.user_id
+                        ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200
+                    """),
+                ).mappings().all()
+        items = []
+        for r in rows:
+            d = dict(r)
+            for key in ("created_at", "reviewed_at"):
+                if d.get(key):
+                    d[key] = str(d[key])[:19]
+            items.append(d)
+        return jsonify({"count": len(items), "items": items})
+    except Exception as exc:
+        print(f"[CANON] admin requests error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/canon/requests/<int:req_id>/approve", methods=["POST"])
+def api_admin_canon_request_approve(req_id):
+    """Одобрить заявку → произведение попадает в canon_works (approved)."""
+    user = _admin_require()
+    if not user:
+        return jsonify({"error": "Нет доступа"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT * FROM canon_requests WHERE id = :rid AND status = 'pending'"),
+                {"rid": req_id},
+            ).mappings().first()
+            if not row:
+                return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
+            conn.execute(
+                text("""
+                    INSERT INTO canon_works (title, kind, author, date, canon_level, url, content, status, submitted_by)
+                    VALUES (:t, :k, :a, :d, :l, :u, :c, 'approved', :sb)
+                """),
+                {
+                    "t": row["title"],
+                    "k": row["kind"],
+                    "a": row["author"],
+                    "d": row["date"],
+                    "l": row["canon_level"],
+                    "u": row["url"],
+                    "c": row["content"],
+                    "sb": row["user_id"],
+                },
+            )
+            conn.execute(
+                text("""
+                    UPDATE canon_requests
+                    SET status = 'approved', reviewer_id = :rv, review_note = :note, reviewed_at = NOW()
+                    WHERE id = :id
+                """),
+                {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[CANON] approve error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/canon/requests/<int:req_id>/reject", methods=["POST"])
+def api_admin_canon_request_reject(req_id):
+    """Отклонить заявку с комментарием."""
+    user = _admin_require()
+    if not user:
+        return jsonify({"error": "Нет доступа"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text("""
+                    UPDATE canon_requests
+                    SET status = 'rejected', reviewer_id = :rv, review_note = :note, reviewed_at = NOW()
+                    WHERE id = :id AND status = 'pending'
+                """),
+                {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[CANON] reject error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/canon/works/<int:work_id>", methods=["PUT"])
+def api_admin_canon_work_update(work_id):
+    """Редактирование произведения (метаданные + полный текст)."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    content = (data.get("content") or "").strip()
+    if not title:
+        return jsonify({"error": "Название обязательно"}), 400
+    try:
+        with get_db_engine().connect() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE canon_works
+                    SET title = :t, kind = :k, author = :a, date = :d, canon_level = :l,
+                        url = :u, content = :c, updated_at = NOW()
+                    WHERE id = :id
+                """),
+                {
+                    "id": work_id,
+                    "t": title,
+                    "k": (data.get("kind") or "").strip() or "track",
+                    "a": (data.get("author") or "").strip(),
+                    "d": (data.get("date") or "").strip() or None,
+                    "l": (data.get("canon_level") or "").strip() or "medium",
+                    "u": (data.get("url") or "").strip() or None,
+                    "c": content,
+                },
+            )
+            conn.commit()
+            if result.rowcount == 0:
+                return jsonify({"error": "Произведение не найдено"}), 404
+    except Exception as exc:
+        print(f"[CANON] update work error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/canon/works", methods=["GET"])
+def api_admin_canon_works_list():
+    """Список всех произведений (включая pending/rejected) для редактора."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, title, kind, author, date, canon_level, url, status
+                    FROM canon_works ORDER BY id
+                """),
+            ).mappings().all()
+        return jsonify({"count": len(rows), "items": [dict(r) for r in rows]})
+    except Exception as exc:
+        print(f"[CANON] admin works list error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/canon/doc", methods=["GET"])
+def api_admin_canon_doc_get():
+    """Текущий текст канона для редактирования admin-ом."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT content FROM canon_doc ORDER BY id DESC LIMIT 1")
+            ).mappings().first()
+        content = row["content"] if row else load_canon_text()
+        return jsonify({"content": content, "source": "db" if row else "file"})
+    except Exception as exc:
+        print(f"[CANON] admin doc get error: {exc}")
+        return jsonify({"content": load_canon_text(), "source": "file"})
+
+
+@app.route("/api/admin/canon/doc", methods=["PUT"])
+def api_admin_canon_doc_put():
+    """Сохранить административную правку текста канона (БД-overlay)."""
+    user = _admin_require()
+    if not user:
+        return jsonify({"error": "Нет доступа"}), 403
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "Контент пуст"}), 400
+    if len(content) > 60000:
+        return jsonify({"error": "Текст слишком длинный"}), 400
+    try:
+        with get_db_engine().connect() as conn:
+            existing = conn.execute(text("SELECT id FROM canon_doc ORDER BY id DESC LIMIT 1")).mappings().first()
+            if existing:
+                conn.execute(
+                    text("UPDATE canon_doc SET content = :c, updated_by = :u, updated_at = NOW() WHERE id = :id"),
+                    {"c": content, "u": user.get("id"), "id": existing["id"]},
+                )
+            else:
+                conn.execute(
+                    text("INSERT INTO canon_doc (content, updated_by) VALUES (:c, :u)"),
+                    {"c": content, "u": user.get("id")},
+                )
+            conn.commit()
+    except Exception as exc:
+        print(f"[CANON] admin doc put error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/canon/doc", methods=["DELETE"])
+def api_admin_canon_doc_delete():
+    """Сбросить overlay — каноном снова становится файл canon.md."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(text("DELETE FROM canon_doc"))
+            conn.commit()
+    except Exception as exc:
+        print(f"[CANON] admin doc delete error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True})
 
 
 @app.route("/api/canon/glossary")
@@ -7927,6 +8458,465 @@ def api_canon_search():
         return jsonify({"results": [], "total": 0})
     results = find_canon(query, limit=5)
     return jsonify({"results": results, "total": len(results)})
+
+
+# ── Canon Work Page ──────────────────────────────────────────────────────
+
+@app.route("/canon/work/<int:work_id>")
+def canon_work_page(work_id):
+    """Страница с полным текстом одного канонического произведения."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT id, title, kind, author, date, canon_level, url, content, status
+                    FROM canon_works WHERE id = :wid
+                """),
+                {"wid": work_id},
+            ).mappings().first()
+    except Exception as exc:
+        print(f"[CANON] work page db error: {exc}")
+        row = None
+
+    if not row or row["status"] != "approved":
+        # Фолбэк на статику.
+        try:
+            w = CANON_WORKS[work_id]
+        except IndexError:
+            return "Произведение не найдено", 404
+        work = {
+            "id": work_id,
+            "title": w.title,
+            "kind": w.kind,
+            "author": w.author,
+            "date": w.date,
+            "canon_level": w.canon_level,
+            "url": w.url,
+            "content": "",
+        }
+    else:
+        work = dict(row)
+
+    level_label = {
+        "high": ("🔵", "Высокий канон"),
+        "medium": ("🟡", "Средний канон"),
+        "low": ("🔴", "Неканон"),
+        "archive": ("🗄", "Архив"),
+    }.get(work["canon_level"], ("", work["canon_level"]))
+    kind_label = {
+        "track": "🎵 Трек",
+        "article": "📜 Статья",
+        "archive": "🗄 Архив",
+    }.get(work["kind"], work["kind"])
+    content_html = render_markdown(work["content"]) if work["content"] else (
+        "<p><em>Текст произведения пока не добавлен. "
+        "Ссылка на оригинал открывается ниже, если доступна.</em></p>"
+    )
+    meta = [work["author"], work["date"]]
+    meta = " · ".join(x for x in meta if x)
+
+    # Следующее/предыдущее произведение.
+    nav_html = ""
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, title FROM canon_works WHERE status = 'approved' ORDER BY id")
+            ).mappings().all()
+        ids = [r["id"] for r in rows]
+    except Exception:
+        ids = list(range(len(CANON_WORKS)))
+    if work_id in ids:
+        idx = ids.index(work_id)
+        prev_id = ids[idx - 1] if idx > 0 else None
+        next_id = ids[idx + 1] if idx + 1 < len(ids) else None
+        if prev_id is not None:
+            nav_html += f'<a class="btn btn-secondary" href="/canon/work/{prev_id}">← Назад</a> '
+        nav_html += '<a class="btn btn-secondary" href="/canon">← К списку</a> '
+        if next_id is not None:
+            nav_html += f'<a class="btn btn-secondary" href="/canon/work/{next_id}">Вперёд →</a>'
+
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{_html_escape(work['title'])} — Канон — LTHub</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; min-height: 100vh; color: #e6edf3; padding: 24px; }}
+        .container {{ max-width: 860px; width: 100%; margin: 0 auto; }}
+        .header {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }}
+        .header h1 {{ font-size: 24px; color: #58a6ff; }}
+        .header a {{ color: #8b949e; text-decoration: none; font-size: 14px; }}
+        .header a:hover {{ color: #58a6ff; }}
+        .badge {{ display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; }}
+        .badge-high {{ color: #58a6ff; background: #0d419d; }}
+        .badge-medium {{ color: #d29922; background: #3a2f07; }}
+        .badge-low {{ color: #f85149; background: #5c0f12; }}
+        .badge-archive {{ color: #8b949e; background: #21262d; }}
+        .meta {{ color: #8b949e; font-size: 14px; margin-bottom: 24px; }}
+        .content {{ background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 28px; line-height: 1.7; font-size: 15px; overflow-wrap: anywhere; white-space: pre-wrap; }}
+        .content p {{ margin: 8px 0; }}
+        .source-link {{ display: inline-block; margin-top: 20px; color: #58a6ff; text-decoration: none; font-size: 14px; }}
+        .source-link:hover {{ text-decoration: underline; }}
+        .nav {{ margin-top: 24px; display: flex; gap: 8px; flex-wrap: wrap; }}
+        .back-link {{ display: inline-block; color: #8b949e; text-decoration: none; font-size: 14px; margin-top: 24px; }}
+        .back-link:hover {{ color: #58a6ff; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📖 {_html_escape(work['title'])}</h1>
+            <a href="/canon">← Канон</a>
+        </div>
+        <div class="meta">
+            {kind_label} · {meta or 'Автор неизвестен'}
+            <span class="badge badge-{work['canon_level']}">{level_label[1]}</span>
+        </div>
+        <div class="content">{content_html}</div>
+        {"<a class='source-link' href='" + _html_escape(work['url']) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") else ""}
+        <div class="nav">{nav_html}</div>
+    </div>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# ── Canon Request Page ───────────────────────────────────────────────────
+
+@app.route("/canon/request")
+def canon_request_page():
+    """Форма заявки на канонизацию (требуется авторизация)."""
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заявка на канонизацию — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; min-height: 100vh; color: #e6edf3; padding: 24px; }
+        .container { max-width: 760px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #58a6ff; }
+        .header a { color: #8b949e; text-decoration: none; font-size: 14px; }
+        .field { margin-bottom: 16px; }
+        .field label { display: block; color: #8b949e; font-size: 13px; margin-bottom: 6px; }
+        .field input, .field select, .field textarea {
+            width: 100%; padding: 12px; border: 1px solid #30363d; border-radius: 8px;
+            background: #161b22; color: #e6edf3; font-size: 15px; font-family: inherit; box-sizing: border-box;
+        }
+        .field textarea { min-height: 200px; resize: vertical; }
+        .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: #58a6ff; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .btn { padding: 12px 24px; border: none; border-radius: 8px; background: #238636; color: #fff; font-size: 15px; font-family: inherit; cursor: pointer; }
+        .btn:hover { background: #2ea043; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .msg { margin-top: 12px; font-size: 14px; }
+        .msg.error { color: #f85149; }
+        .msg.ok { color: #3fb950; }
+        .hint { color: #8b949e; font-size: 12px; margin-top: 4px; }
+        .login-required { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 24px; text-align: center; }
+        .login-required a { color: #58a6ff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📩 Заявка на канонизацию</h1>
+            <a href="/canon">← Канон</a>
+        </div>
+        <div id="guest">
+            <div class="login-required">
+                <p>Чтобы отправить заявку, войдите в аккаунт.</p>
+                <p style="margin-top:12px;"><a href="/login">Войти</a> · <a href="/register">Зарегистрироваться</a></p>
+            </div>
+        </div>
+        <form id="req-form" style="display:none;">
+            <div class="row">
+                <div class="field">
+                    <label for="f-title">Название произведения *</label>
+                    <input id="f-title" maxlength="200" placeholder="Например: Тень агента (V.2)">
+                </div>
+                <div class="field">
+                    <label for="f-author">Автор (участник/ник) *</label>
+                    <input id="f-author" placeholder="LucasTeam, Рома, Олег...">
+                </div>
+            </div>
+            <div class="row">
+                <div class="field">
+                    <label for="f-kind">Тип</label>
+                    <select id="f-kind">
+                        <option value="track">🎵 Трек</option>
+                        <option value="article">📜 Статья</option>
+                        <option value="archive">🗄 Архив</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="f-level">Предлагаемый уровень</label>
+                    <select id="f-level">
+                        <option value="high">🔵 Высокий</option>
+                        <option value="medium" selected>🟡 Средний</option>
+                        <option value="low">🔴 Низкий (неканон)</option>
+                        <option value="archive">🗄 Архив</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div class="field">
+                    <label for="f-date">Дата</label>
+                    <input id="f-date" placeholder="напр. 24.04.2026">
+                </div>
+                <div class="field">
+                    <label for="f-url">Ссылка (t.me)</label>
+                    <input id="f-url" placeholder="https://t.me/lucasteamgroup/...">
+                </div>
+            </div>
+            <div class="field">
+                <label for="f-content">Полный текст *</label>
+                <textarea id="f-content" maxlength="5000" placeholder="Вставьте текст трека или статьи..."></textarea>
+                <div class="hint">Максимум 5000 символов. Текст должен соответствовать правилам канона (Блок 1).</div>
+            </div>
+            <button class="btn" id="send-btn" type="button" onclick="sendRequest()">📩 Отправить заявку</button>
+            <div class="msg" id="req-msg"></div>
+        </form>
+    </div>
+    <script>
+        (function() {
+            var token = localStorage.getItem('auth_token');
+            if (token) {
+                document.getElementById('req-form').style.display = 'block';
+                document.getElementById('guest').style.display = 'none';
+            }
+        })();
+        function sendRequest() {
+            var token = localStorage.getItem('auth_token');
+            if (!token) { document.getElementById('req-msg').className = 'msg error'; document.getElementById('req-msg').textContent = 'Не авторизован — войдите.'; return; }
+            var data = {
+                title: document.getElementById('f-title').value.trim(),
+                author: document.getElementById('f-author').value.trim(),
+                kind: document.getElementById('f-kind').value,
+                canon_level: document.getElementById('f-level').value,
+                date: document.getElementById('f-date').value.trim(),
+                url: document.getElementById('f-url').value.trim(),
+                content: document.getElementById('f-content').value.trim()
+            };
+            var btn = document.getElementById('send-btn');
+            btn.disabled = true;
+            fetch('/api/canon/request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(data)
+            }).then(function(r) { return r.json().then(function(j) { return {ok: r.ok, j: j}; }); })
+              .then(function(r) {
+                var msg = document.getElementById('req-msg');
+                msg.className = r.ok ? 'msg ok' : 'msg error';
+                msg.textContent = r.ok ? '✅ Заявка отправлена! Администратор рассмотрит её.' : (r.j.error || 'Ошибка');
+                if (r.ok) { document.getElementById('req-form').reset(); }
+                btn.disabled = false;
+              }).catch(function() { var msg = document.getElementById('req-msg'); msg.className = 'msg error'; msg.textContent = 'Ошибка сети'; btn.disabled = false; });
+        }
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# ── Admin Canon Page ─────────────────────────────────────────────────────
+
+@app.route("/admin/canon")
+def admin_canon_page():
+    """Панель модерации заявок и редактирования канона (доступ — через API)."""
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Модерация канона — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; min-height: 100vh; color: #c9d1d9; padding: 20px; }
+        .container { max-width: 1000px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: #58a6ff; }
+        .header a { color: #8b949e; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab { padding: 10px 16px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; color: #8b949e; font-size: 14px; font-family: inherit; cursor: pointer; }
+        .tab:hover { border-color: #58a6ff; color: #c9d1d9; }
+        .tab.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        .card h3 { color: #e6edf3; margin-bottom: 8px; }
+        .meta { color: #8b949e; font-size: 13px; margin-bottom: 8px; }
+        .content-preview { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 12px; font-size: 13px; white-space: pre-wrap; max-height: 140px; overflow-y: auto; margin-bottom: 12px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-family: inherit; cursor: pointer; margin-right: 8px; }
+        .btn-success { background: #238636; color: #fff; }
+        .btn-danger { background: #da3633; color: #fff; }
+        .btn-secondary { background: #21262d; color: #c9d1d9; }
+        textarea, input, select { width: 100%; padding: 10px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; color: #c9d1d9; font-size: 14px; font-family: inherit; box-sizing: border-box; margin-bottom: 10px; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+        .badge-pending { background: #d2992222; color: #d29922; }
+        .badge-approved { background: #3fb95022; color: #3fb950; }
+        .badge-rejected { background: #f8514922; color: #f85149; }
+        .msg { color: #3fb950; margin-top: 8px; }
+        .msg.error { color: #f85149; }
+        .empty { color: #8b949e; text-align: center; padding: 24px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛠 Модерация канона</h1>
+            <a href="/canon">← Канон</a>
+        </div>
+        <div class="tabs">
+            <button class="tab active" data-tab="requests">📩 Заявки</button>
+            <button class="tab" data-tab="works">📚 Произведения</button>
+            <button class="tab" data-tab="doc">📄 Документ канона</button>
+        </div>
+        <div class="panel active" id="panel-requests">
+            <div class="card" id="requests-list"><div class="empty">Загрузка...</div></div>
+        </div>
+        <div class="panel" id="panel-works">
+            <div class="card" id="works-list"><div class="empty">Загрузка...</div></div>
+        </div>
+        <div class="panel" id="panel-doc">
+            <div class="card">
+                <h3>Текст канона (перезаписывает файл canon.md)</h3>
+                <textarea id="doc-content" rows="20"></textarea>
+                <button class="btn btn-success" onclick="saveDoc()">Сохранить</button>
+                <button class="btn btn-danger" onclick="resetDoc()">Сбросить к файлу</button>
+                <div class="msg" id="doc-msg"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var TOKEN = localStorage.getItem('auth_token');
+        function authH() { return { 'Authorization': 'Bearer ' + (TOKEN || ''), 'Content-Type': 'application/json' }; }
+
+        var tabs = document.querySelectorAll('.tab');
+        var panels = { 'requests': document.getElementById('panel-requests'), 'works': document.getElementById('panel-works'), 'doc': document.getElementById('panel-doc') };
+        tabs.forEach(function(t) { t.addEventListener('click', function() {
+            tabs.forEach(function(x) { x.classList.remove('active'); });
+            Object.keys(panels).forEach(function(k) { panels[k].classList.remove('active'); });
+            t.classList.add('active'); panels[t.dataset.tab].classList.add('active');
+        }); });
+
+        function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+        function loadRequests() {
+            fetch('/api/admin/canon/requests', { headers: authH() }).then(function(r) { return r.json(); }).then(function(d) {
+                var box = document.getElementById('requests-list');
+                if (d.error) { box.innerHTML = '<div class="empty" style="color:#f85149">Нет доступа: ' + esc(d.error) + '</div>'; return; }
+                if (!d.items || !d.items.length) { box.innerHTML = '<div class="empty">Заявок нет.</div>'; return; }
+                box.innerHTML = '';
+                d.items.forEach(function(rr) {
+                    var div = document.createElement('div');
+                    div.className = 'card';
+                    div.innerHTML = '<div class="meta">#' + rr.id + ' · ' + esc(rr.requester || '?') + ' · ' +
+                        '<span class="badge badge-' + rr.status + '">' + rr.status + '</span></div>' +
+                        '<h3>' + esc(rr.title) + '</h3>' +
+                        '<div class="meta">' + esc(rr.author || '') + ' · ' + esc(rr.canon_level || '') + ' · ' + esc(rr.kind || '') + '</div>' +
+                        '<div class="content-preview">' + esc(rr.content || '').substring(0, 600) + '</div>' +
+                        (rr.url ? '<div class="meta">🔗 ' + esc(rr.url) + '</div>' : '') +
+                        (rr.review_note ? '<div class="meta">📝 ' + esc(rr.review_note) + '</div>' : '') +
+                        (rr.status === 'pending' ?
+                            '<button class="btn btn-success" onclick="decide(' + rr.id + ", 'approve'" + ')">✅ Одобрить</button>' +
+                            '<button class="btn btn-danger" onclick="decide(' + rr.id + ", 'reject'" + ')">❌ Отклонить</button>' : '');
+                    box.appendChild(div);
+                });
+            });
+        }
+
+        function decide(id, action) {
+            fetch('/api/admin/canon/requests/' + id + '/' + action, { method: 'POST', headers: authH(), body: '{}' })
+              .then(function(r) { return r.json(); }).then(function(j) {
+                if (j.error) { alert(j.error); } else { loadRequests(); }
+              });
+        }
+
+        function loadWorks() {
+            fetch('/api/admin/canon/works', { headers: authH() }).then(function(r) { return r.json(); }).then(function(d) {
+                var box = document.getElementById('works-list');
+                if (d.error) { box.innerHTML = '<div class="empty" style="color:#f85149">Нет доступа: ' + esc(d.error) + '</div>'; return; }
+                if (!d.items || !d.items.length) { box.innerHTML = '<div class="empty">Нет произведений.</div>'; return; }
+                box.innerHTML = '';
+                d.items.forEach(function(w) {
+                    var div = document.createElement('div');
+                    div.className = 'card';
+                    div.id = 'work-' + w.id;
+                    div.innerHTML = '<h3>' + esc(w.title) + ' <span class="badge badge-' + w.status + '">' + w.status + '</span></h3>' +
+                        '<div class="meta">' + esc(w.author || '') + ' · ' + esc(w.canon_level || '') + ' · ' + esc(w.kind || '') + '</div>' +
+                        '<button class="btn btn-secondary" onclick="editWork(' + w.id + ')">✏️ Редактировать</button>' +
+                        '<button class="btn btn-secondary" onclick="viewWork(' + w.id + ')">👁 Посмотреть</button>';
+                    box.appendChild(div);
+                });
+            });
+        }
+
+        function viewWork(id) { window.open('/canon/work/' + id, '_blank'); }
+
+        function editWork(id) {
+            var div = document.getElementById('work-' + id);
+            fetch('/api/canon/work/' + id, { headers: authH() }).then(function(r) { return r.json(); }).then(function(w) {
+                div.innerHTML = '<h3>✏️ ' + esc(w.title) + '</h3>' +
+                    '<label>Название</label><input id="we-title" value="' + esc(w.title) + '">' +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+                    '<div><label>Автор</label><input id="we-author" value="' + esc(w.author || '') + '"></div>' +
+                    '<div><label>Уровень</label><select id="we-level"><option value="high"' + (w.canon_level=='high'?' selected':'') + '>Высокий</option><option value="medium"' + (w.canon_level=='medium'?' selected':'') + '>Средний</option><option value="low"' + (w.canon_level=='low'?' selected':'') + '>Неканон</option><option value="archive"' + (w.canon_level=='archive'?' selected':'') + '>Архив</option></select></div>' +
+                    '</div>' +
+                    '<label>Тип</label><select id="we-kind"><option value="track"' + (w.kind=='track'?' selected':'') + '>Трек</option><option value="article"' + (w.kind=='article'?' selected':'') + '>Статья</option><option value="archive"' + (w.kind=='archive'?' selected':'') + '>Архив</option></select>' +
+                    '<label>Дата</label><input id="we-date" value="' + esc(w.date || '') + '">' +
+                    '<label>Ссылка</label><input id="we-url" value="' + esc(w.url || '') + '">' +
+                    '<label>Полный текст</label><textarea id="we-content" rows="10">' + esc(w.content || '') + '</textarea>' +
+                    '<button class="btn btn-success" onclick="saveWork(' + id + ')">💾 Сохранить</button>' +
+                    '<button class="btn btn-secondary" onclick="loadWorks()">Отмена</button>' +
+                    '<div class="msg" id="work-msg"></div>';
+            });
+        }
+
+        function saveWork(id) {
+            var payload = { title: document.getElementById('we-title').value, author: document.getElementById('we-author').value,
+                canon_level: document.getElementById('we-level').value, kind: document.getElementById('we-kind').value,
+                date: document.getElementById('we-date').value, url: document.getElementById('we-url').value,
+                content: document.getElementById('we-content').value };
+            fetch('/api/admin/canon/works/' + id, { method: 'PUT', headers: authH(), body: JSON.stringify(payload) })
+              .then(function(r) { return r.json(); }).then(function(j) {
+                  var msg = document.getElementById('work-msg');
+                  if (j.ok) { msg.textContent = '✅ Сохранено'; loadWorks(); } else { msg.textContent = j.error || 'Ошибка'; msg.className = 'msg error'; }
+              });
+        }
+
+        function saveDoc() {
+            var content = document.getElementById('doc-content').value;
+            fetch('/api/admin/canon/doc', { method: 'PUT', headers: authH(), body: JSON.stringify({ content: content }) })
+              .then(function(r) { return r.json(); }).then(function(j) {
+                  var msg = document.getElementById('doc-msg'); msg.className = j.ok ? 'msg' : 'msg error';
+                  msg.textContent = j.ok ? '✅ Сохранено' : (j.error || 'Ошибка');
+              });
+        }
+
+        function resetDoc() {
+            if (!confirm('Сбросить правку текста канона к файлу canon.md?')) return;
+            fetch('/api/admin/canon/doc', { method: 'DELETE', headers: authH() }).then(function(r) { return r.json(); }).then(function(j) {
+                if (j.ok) { loadDoc(); } else { alert(j.error || 'Ошибка'); }
+            });
+        }
+
+        function loadDoc() {
+            fetch('/api/admin/canon/doc', { headers: authH() }).then(function(r) { return r.json(); }).then(function(d) {
+                if (d.error) { alert('Нет доступа: ' + d.error); return; }
+                document.getElementById('doc-content').value = d.content || '';
+            });
+        }
+
+        loadRequests(); loadWorks(); loadDoc();
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 # ── Irregular Verbs Module ──────────────────────────────────────────────

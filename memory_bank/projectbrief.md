@@ -430,6 +430,25 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+### Phase 4.2: Canon Works & Requests (CANON02)
+
+**Цель:** Отображение полных текстов канонических произведений на `/canon`, заявки на канонизацию от зарегистрированных пользователей, админ-модерация заявок и право админа редактировать тексты произведений + основной документ канона (БД-overlay поверх canon.md).
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| CW-01 | `_ensure_canon_tables` — таблицы canon_works (сид из CANON_WORKS), canon_requests, canon_doc + фолбэк на статику | completed | 15 |
+| CW-02 | Публичные API: `/api/canon/works` (approved+content), `/api/canon/work/<id>`, `/api/canon/documents`, `POST /api/canon/request` | completed | 20 |
+| CW-03 | Админ API: `/api/admin/canon/requests` (list/approve/reject), `PUT /api/admin/canon/works/<id>`, `GET/PUT/DELETE /api/admin/canon/doc` | completed | 20 |
+| CW-04 | Страница `/canon`: кнопка «Читать», «Отправить заявку на канонизацию», админ-кнопки модерации/редактирования | completed | 15 |
+| CW-05 | Страницы `/canon/work/<id>`, `/canon/request`, `/admin/canon` | completed | 20 |
+| CW-TEST | Тесты test_canon_requests_e2e.py + расширенный _make_engine DDL, ruff clean, существующие тесты не ломаются | completed | 10 |
+
+**CANON02: 100/100**
+
+**Факт (2026-08-08):** всё реализовано в `api/index.py` и задеплоено. БД-слой `_ensure_canon_tables` + автокалибровка из `core.canon.works`; публичные API с фолбэком на статику при недоступности БД; админ-модерация (approve переносит заявку в `canon_works`, reject с заметкой, PUT works, overlay док-та с DELETE-сбросом); страницы `/canon` (+ «📖 Читать»/заявка), `/canon/work/<id>`, `/canon/request`, `/admin/canon` (паттерн доступа как в `/admin`). Тесты: `tests/unit/test_canon_requests_e2e.py` (7), расширен `_make_engine`; полный `tests/unit` **971 passed / 10 skipped**. Прод: все страницы 200, `/api/canon/works` отдаёт 16 си-произведений из БД, admin API 403 без токена.
+
+---
+
 ## Next Tasks (Post-Review Cleanup)
 
 | ID | Task | Priority | Status |
