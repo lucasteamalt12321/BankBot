@@ -6,6 +6,16 @@
 
 ## Changelog
 
+### 2026-08-08 (Hotfix: CANON-02 auth_token → web_token)
+
+**Баг:** залогиненный пользователь на `/canon/request` видел «Чтобы отправить заявку, войдите в аккаунт» — форма не показывалась.
+
+**Причина:** новые CANON-страницы читали `localStorage.getItem('auth_token')`, но весь остальной портал сохраняет сессионный токен под ключом **`web_token`** (`login_page`/`register_page`: `localStorage.setItem('web_token', r.token)`, строка ~6323). Ключа `auth_token` во фронтенде не существовало никогда → токен не находился.
+
+**Фикс:** заменил `auth_token` → `web_token` в 4 местах `api/index.py`: `canon_page` (loadAdminActions, строка ~8024), `canon_request_page` (init + sendRequest, ~8687/8694), `admin_canon_page` (TOKEN, ~8796). Серверная часть (`_auth_token_from_request`) не менялась — читает `Authorization: Bearer` корректно.
+
+**Тесты:** `test_canon_requests_e2e.py::test_admin_pages_render` теперь проверяет маркер `web_token` на страницах `/admin/canon` и `/canon/request`. Полный `tests/unit`: **971 passed / 10 skipped**, ruff clean. Задеплоено на Vercel — страница `/canon/request` отдаёт `web_token` (проверено на проде).
+
 ### 2026-08-08 (Session: CANON-02 — произведения + заявки + модерация)
 
 **CANON02 completed.** Канон стал живым: на `/canon` появились сами произведения, зарегистрированные пользователи подают заявки на канонизацию, админ модерует их и правит тексты (произведения + основной документ канона через БД-overlay).

@@ -8021,7 +8021,7 @@ def canon_page():
         renderGlossary('');
 
         function loadAdminActions() {{
-            var token = localStorage.getItem('auth_token');
+            var token = localStorage.getItem('web_token');
             if (!token) return;
             fetch('/api/auth/me', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }})
                 .then(function(r) {{ return r.json(); }})
@@ -8684,14 +8684,14 @@ def canon_request_page():
     </div>
     <script>
         (function() {
-            var token = localStorage.getItem('auth_token');
+            var token = localStorage.getItem('web_token');
             if (token) {
                 document.getElementById('req-form').style.display = 'block';
                 document.getElementById('guest').style.display = 'none';
             }
         })();
         function sendRequest() {
-            var token = localStorage.getItem('auth_token');
+            var token = localStorage.getItem('web_token');
             if (!token) { document.getElementById('req-msg').className = 'msg error'; document.getElementById('req-msg').textContent = 'Не авторизован — войдите.'; return; }
             var data = {
                 title: document.getElementById('f-title').value.trim(),
@@ -8793,7 +8793,7 @@ def admin_canon_page():
         </div>
     </div>
     <script>
-        var TOKEN = localStorage.getItem('auth_token');
+        var TOKEN = localStorage.getItem('web_token');
         function authH() { return { 'Authorization': 'Bearer ' + (TOKEN || ''), 'Content-Type': 'application/json' }; }
 
         var tabs = document.querySelectorAll('.tab');

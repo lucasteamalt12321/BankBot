@@ -197,7 +197,10 @@ def test_admin_pages_render(mock_engine):
     page = c.get("/admin/canon")
     assert page.status_code == 200
     assert "Заявки" in page.get_data(as_text=True)
+    assert "web_token" in page.get_data(as_text=True)
 
     req_page = c.get("/canon/request")
     assert req_page.status_code == 200
-    assert "заявк" in req_page.get_data(as_text=True)
+    body = req_page.get_data(as_text=True)
+    assert "заявк" in body
+    assert "web_token" in body
