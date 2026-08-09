@@ -845,7 +845,7 @@
 - **Pre-existing падения тестов (подтверждено git stash — падают и на чистом HEAD, не связаны с QUALITY-правками):** `tests/property/test_error_handler_properties.py` (9), `test_process_manager_properties.py` (2 fail + 3 error), `test_base_repository_pbt.py`, `test_bunker_profile_parser_properties.py`, `test_mafia_profile_parser_properties.py`, `tests/integration/test_admin_manager_integration.py` (2), `test_background_integration.py` (1), `test_system_architecture_integration.py`. Итого ~30 failed + 3 errors. Требуют отдельной сессии починки (вне scope QUALITY A/B).
 
 ## last_checked_commit
-054455d (2026-08-08) — CANON02 закоммичен и задеплоен; полный tests/unit 971 passed / 10 skipped
+257e1a2 (2026-08-08) — hotfix web_token (CANON02 залогиненным видно форму)
 
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
