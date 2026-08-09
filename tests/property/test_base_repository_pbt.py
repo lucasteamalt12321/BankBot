@@ -50,6 +50,12 @@ def repository(session):
     return BaseRepository(UserModel, session)
 
 
+def _clear_users(repository):
+    """Delete all rows so each Hypothesis example starts from an empty table."""
+    repository.session.query(UserModel).delete()
+    repository.session.commit()
+
+
 # Hypothesis strategies for generating test data
 username_strategy = st.text(
     alphabet=st.characters(whitelist_categories=('Lu', 'Ll', 'Nd'), min_codepoint=65),
@@ -188,6 +194,9 @@ class TestRepositoryDeleteProperties:
         
         **Validates: Requirements 5.1**
         """
+        # Start from an empty table (Hypothesis reuses the fixture across examples)
+        _clear_users(repository)
+
         # Create multiple users
         for username in usernames:
             repository.create(username=username)
@@ -230,6 +239,8 @@ class TestRepositoryFilterProperties:
         """
         assume(len(usernames) > max(active_indices, default=0))
 
+        _clear_users(repository)
+
         # Create users with different active states
         for i, username in enumerate(usernames):
             is_active = i in active_indices
@@ -270,6 +281,8 @@ class TestRepositoryCountProperties:
         
         **Validates: Requirements 5.1**
         """
+        _clear_users(repository)
+
         for username in usernames:
             repository.create(username=username)
 
@@ -289,7 +302,9 @@ class TestRepositoryCountProperties:
         
         **Validates: Requirements 5.1**
         """
-        # Create half with specific balance, half with 0
+        _clear_users(repository)
+
+        # Create users with different active states
         for i, username in enumerate(usernames):
             user_balance = balance if i % 2 == 0 else 0
             repository.create(username=username, balance=user_balance)
@@ -352,6 +367,8 @@ class TestRepositoryBulkCreateProperties:
         
         **Validates: Requirements 5.1**
         """
+        _clear_users(repository)
+
         items = [{"username": username} for username in usernames]
         created = repository.bulk_create(items)
 
@@ -369,6 +386,8 @@ class TestRepositoryBulkCreateProperties:
         
         **Validates: Requirements 5.1**
         """
+        _clear_users(repository)
+
         items = [{"username": username, "balance": balance} for username in usernames]
         repository.bulk_create(items)
 
@@ -390,6 +409,8 @@ class TestRepositoryGetAllPaginationProperties:
         
         **Validates: Requirements 5.1**
         """
+        _clear_users(repository)
+
         # Create records
         for i in range(total):
             repository.create(username=f"user_{i}")
@@ -409,6 +430,8 @@ class TestRepositoryGetAllPaginationProperties:
         **Validates: Requirements 5.1**
         """
         assume(offset < total)
+
+        _clear_users(repository)
 
         # Create records
         for i in range(total):

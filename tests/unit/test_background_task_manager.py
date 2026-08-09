@@ -176,7 +176,7 @@ class TestBackgroundTaskManager:
         """Test cleanup of expired VIP access"""
         # Verify there's a user with expired VIP access
         expired_vip_user = db_session.query(User).filter(
-            User.is_vip == True,
+            User.is_vip,
             User.vip_until < datetime.utcnow()
         ).first()
         assert expired_vip_user is not None

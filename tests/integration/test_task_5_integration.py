@@ -118,10 +118,6 @@ class TestTask5Integration(unittest.TestCase):
         # Register user
         self.admin_system.register_user(user_id, username, first_name)
 
-        # Get user
-        user = self.admin_system.get_user_by_username(username)
-        initial_balance = user['balance']
-
         # Add points
         new_balance = self.admin_system.update_balance(user_id, amount)
 

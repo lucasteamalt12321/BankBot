@@ -35,8 +35,8 @@ class TestMainStartupValidation:
 
         with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
              patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid') as mock_write_pid, \
-             patch('bot.main.ProcessManager.remove_pid') as mock_remove_pid, \
+             patch('bot.main.ProcessManager.write_pid'), \
+             patch('bot.main.ProcessManager.remove_pid'), \
              patch('bot.main.create_tables'), \
              patch('bot.main.TelegramBot') as mock_bot:
 
@@ -81,9 +81,9 @@ class TestMainStartupValidation:
 
         with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
              patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid') as mock_write_pid, \
-             patch('bot.main.ProcessManager.remove_pid') as mock_remove_pid, \
-             patch('bot.main.create_tables') as mock_create, \
+             patch('bot.main.ProcessManager.write_pid'), \
+             patch('bot.main.ProcessManager.remove_pid'), \
+             patch('bot.main.create_tables'), \
              patch('bot.main.TelegramBot') as mock_bot:
 
             # Simulate validation failure
@@ -374,7 +374,7 @@ class TestProcessManagerIntegration:
 
         with patch('bot.main.StartupValidator.validate_all'), \
              patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid') as mock_write_pid, \
+             patch('bot.main.ProcessManager.write_pid'), \
              patch('bot.main.ProcessManager.remove_pid'), \
              patch('bot.main.create_tables'), \
              patch('bot.main.TelegramBot') as mock_bot:

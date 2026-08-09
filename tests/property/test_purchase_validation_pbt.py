@@ -167,10 +167,10 @@ class TestPurchaseValidationPBT(unittest.TestCase):
         self._cleanup_test_data()
 
         # Create test user with specified balance
-        user = self._create_test_user(user_id, user_balance)
+        self._create_test_user(user_id, user_balance)
 
         # Get the shop item to determine its price
-        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active == True).all()
+        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active).all()
         if not shop_items or item_number > len(shop_items):
             self.skipTest(f"Item number {item_number} not available")
 
@@ -269,7 +269,7 @@ class TestPurchaseValidationPBT(unittest.TestCase):
         user = self._create_test_user(user_id, user_balance)
 
         # Get all shop items and find the cheapest one (to ensure success)
-        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active == True).all()
+        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active).all()
         if not shop_items:
             self.skipTest("No shop items available")
 
@@ -324,7 +324,7 @@ class TestPurchaseValidationPBT(unittest.TestCase):
         user = self._create_test_user(user_id, user_balance)
 
         # Get all shop items and find the cheapest one
-        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active == True).all()
+        shop_items = self.session.query(ShopItem).filter(ShopItem.is_active).all()
         if not shop_items:
             self.skipTest("No shop items available")
 
@@ -375,7 +375,7 @@ class TestPurchaseValidationPBT(unittest.TestCase):
         for user_id, balance, item_number, expected_success in test_cases:
             with self.subTest(user_id=user_id, balance=balance, item_number=item_number):
                 # Create test user
-                user = self._create_test_user(user_id, balance)
+                self._create_test_user(user_id, balance)
 
                 # Execute purchase
                 result = asyncio.run(self.shop_manager.process_purchase(user_id, item_number))

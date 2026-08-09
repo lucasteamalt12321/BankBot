@@ -182,7 +182,7 @@ class TestAtomicDecorator:
             session.add(user)
             return user
 
-        user = create_user(telegram_id=333, username="user3", balance=150)
+        create_user(telegram_id=333, username="user3", balance=150)
 
         # Verify user was created
         Session = sessionmaker(bind=engine)
@@ -245,7 +245,6 @@ class TestTransactionManager:
     def test_nested_transactions(self, session, test_user):
         """Test nested transactions with savepoints."""
         user_id = test_user.id
-        original_balance = test_user.balance
 
         tm = TransactionManager(session=session)
         with tm:

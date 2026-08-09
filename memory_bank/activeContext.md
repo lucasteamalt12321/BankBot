@@ -1,12 +1,24 @@
 # Active Context
 
-**Последнее обновление:** 2026-08-08  
+**Последнее обновление:** 2026-08-09  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** CANON02 завершён и задеплоен — произведения, заявки на канонизацию, админ-модерация
+**Последнее действие:** CANON-03 — аудио для треков (загрузка админом + плеер + стриминг) и просмотр текста для статей
 
 ## Текущий фокус
 
-### CANON02 — Произведения на сайте, заявки на канонизацию, админ-модерация ✅ (завершён, 2026-08-08)
+### CANON-03 — Аудио для треков + просмотр текста для статей ✅ (завершён, 2026-08-09)
+
+**Цель:** У треков канона должна быть аудиозапись (админ загружает, сайт показывает плеер), у статей — читаемый полный текст.
+
+**Сделано (всё в `api/index.py` + тесты):**
+- **БД:** `_ensure_canon_tables()` — колонки `audio_data BYTEA`, `audio_name`, `audio_mime`, `audio_size` (CREATE + ALTER `ADD COLUMN IF NOT EXISTS` для прод-таблицы Supabase); SQLite-зеркало в `tests/unit/test_web_portal_e2e.py::_make_engine()`.
+- **Admin API (`_admin_require` → 403):** `POST /api/admin/canon/works/<id>/audio` (multipart `audio`, лимит 4 МБ `_MAX_AUDIO_BYTES`, whitelist `_ALLOWED_AUDIO_MIME` mp3/ogg/wav/m4a/aac через `_canon_audio_mime()`), `DELETE /api/admin/canon/works/<id>/audio`.
+- **Публичное API:** `GET /api/canon/work/<id>/audio` — бинарный стрим (Content-Type из БД, inline, Cache-Control 1 день, 404 не-approve/без аудио). `/api/canon/works` и `/api/canon/work/<id>` возвращают `audio_name`/`audio_mime`/`audio_size`/`has_audio` (нормализация `bool()` — SQLite отдаёт 0/1).
+- **Страницы:** `/canon/work/<id>` — блок `#audio` с плеером (имя + размер через новый хелпер `format_bytes()`) для треков; `/canon` — кнопка «🎧 Слушать» на карточке; `/admin/canon` — в редакторе трека поле загрузки + кнопки «⬆️ Загрузить»/«🗑 Удалить» (JS `uploadAudio`/`removeAudio`).
+- **Тесты:** `tests/unit/test_canon_requests_e2e.py::test_audio_upload_stream_delete` — полный цикл загрузка→has_audio→плеер→стрим→403/400→удаление→404. Полный `tests/unit`: **972 passed / 10 skipped / 0 failed**; ruff All checks passed.
+
+**Не закоммичено** — изменения в рабочей копии (правила AGENTS.md: коммит после подтверждения/большого блока).
+
 
 **Цель:** На `/canon` должны отображаться сами канонические произведения (полный текст), любой зарегистрированный пользователь может подать «заявку на канонизацию», админ модерирует заявки и имеет право редактировать тексты произведений и основной документ канона (canon.md через БД-overlay).
 

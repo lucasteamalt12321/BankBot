@@ -14,7 +14,6 @@ class TestGracefulShutdownIntegration:
     def test_shutdown_with_signals(self, monkeypatch):
         """Проверка graceful shutdown через сигналы."""
         mock_remove_pid = MagicMock()
-        mock_close_resources = MagicMock()
 
         with patch('src.process_manager.ProcessManager.remove_pid', mock_remove_pid):
             with patch('src.process_manager.sys.exit') as mock_exit:
@@ -27,7 +26,6 @@ class TestGracefulShutdownIntegration:
     def test_shutdown_with_sigint(self, monkeypatch):
         """Проверка graceful shutdown через SIGINT."""
         mock_remove_pid = MagicMock()
-        mock_close_resources = MagicMock()
 
         with patch('src.process_manager.ProcessManager.remove_pid', mock_remove_pid):
             with patch('src.process_manager.sys.exit') as mock_exit:
@@ -40,8 +38,6 @@ class TestGracefulShutdownIntegration:
     def test_shutdown_cleans_up_resources(self, monkeypatch):
         """Проверка очистки ресурсов при shutdown."""
         mock_remove_pid = MagicMock()
-        mock_close_db = MagicMock()
-        mock_close_bot = MagicMock()
 
         with patch('src.process_manager.ProcessManager.remove_pid', mock_remove_pid):
             with patch('src.process_manager.sys.exit') as mock_exit:

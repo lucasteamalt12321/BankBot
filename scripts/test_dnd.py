@@ -54,8 +54,8 @@ r = api("POST", "/api/dnd/act", {"action": "I enter the ancient temple and light
 print(f"   reply={r.get('reply','')[:100]}")
 
 # 3. Check log for P1
-print(f"\n=== 3. Log after P1 ===")
-r = api_get(f"/api/dnd/log", {"session_id": SESSION_ID, "user_id": "p1"})
+print("\n=== 3. Log after P1 ===")
+r = api_get("/api/dnd/log", {"session_id": SESSION_ID, "user_id": "p1"})
 print(f"   entries={len(r.get('log',[]))}")
 
 # 4. P2 joins
@@ -64,13 +64,13 @@ r = api("POST", "/api/dnd/join", {"session_id": SESSION_ID, "user_id": "p2"})
 print(f"   reply={r.get('reply','')[:100]}")
 
 # 5. P2 acts
-print(f"\n=== 5. P2 acts ===")
+print("\n=== 5. P2 acts ===")
 r = api("POST", "/api/dnd/act", {"action": "I follow P1 and look for traps", "user_id": "p2"})
 print(f"   reply={r.get('reply','')[:100]}")
 
 # 6. Final log
-print(f"\n=== 6. Final log ===")
-r = api_get(f"/api/dnd/log", {"session_id": SESSION_ID, "user_id": "p1"})
+print("\n=== 6. Final log ===")
+r = api_get("/api/dnd/log", {"session_id": SESSION_ID, "user_id": "p1"})
 print(f"   entries={len(r.get('log',[]))}")
 for i, e in enumerate(r.get("log", [])):
     print(f"   [{i}] role={e.get('role')} content={e.get('content','')[:80]}")

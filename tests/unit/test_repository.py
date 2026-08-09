@@ -135,7 +135,7 @@ class TestUserOperations:
 
     def test_user_name_uniqueness(self, repository):
         """Test that user_name is unique."""
-        user1 = repository.get_or_create_user("TestPlayer")
+        repository.get_or_create_user("TestPlayer")
 
         # Try to manually insert duplicate user_name
         cursor = repository.conn.cursor()

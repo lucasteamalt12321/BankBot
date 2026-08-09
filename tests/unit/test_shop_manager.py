@@ -251,8 +251,6 @@ class TestShopManager:
         result = asyncio.run(shop_manager.process_purchase(12345, 1))
         assert result.success is True
 
-        after_purchase = datetime.utcnow()
-
         # Check user sticker expiration
         user = db_session.query(User).filter(User.telegram_id == 12345).first()
 

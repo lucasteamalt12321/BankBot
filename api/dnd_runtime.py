@@ -493,10 +493,8 @@ def handle_free_text(user_id: int, chat_id: int, text: str) -> Optional[str]:
     if not session:
         return None  # not in D&D mode, let other handlers process it
 
-    msg_type = "action"
     parsed = parse_dice(text)
     if parsed:
-        msg_type = "dice"
         total = sum(random.randint(1, parsed["sides"]) for _ in range(parsed["count"]))
         total += parsed["modifier"]
         dice_label = f"{parsed['count']}d{parsed['sides']}"

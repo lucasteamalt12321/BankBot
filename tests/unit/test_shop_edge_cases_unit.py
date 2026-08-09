@@ -349,7 +349,7 @@ class TestShopEdgeCasesUnit(unittest.TestCase):
             self.assertTrue(can_purchase, f"Should be able to make purchase {i+1}")
 
             # Make purchase
-            new_balance = self.admin_system.update_balance(user_id, -item_price)
+            self.admin_system.update_balance(user_id, -item_price)
             transaction_id = self.admin_system.add_transaction(user_id, -item_price, 'buy')
 
             transaction_ids.append(transaction_id)
@@ -440,7 +440,7 @@ class TestShopEdgeCasesUnit(unittest.TestCase):
         self.admin_system.update_balance(user_id, item_price)
 
         # Make purchase
-        new_balance = self.admin_system.update_balance(user_id, -item_price)
+        self.admin_system.update_balance(user_id, -item_price)
 
         # Create purchase transaction (simulating admin notification)
         transaction_id = self.admin_system.add_transaction(user_id, -item_price, 'buy')

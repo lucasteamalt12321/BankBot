@@ -228,7 +228,7 @@ class TestStickerUsageControlPBT(unittest.TestCase):
         self._cleanup_test_data()
 
         # Create user without unlimited access
-        user = self._create_test_user(user_id, has_unlimited=False)
+        self._create_test_user(user_id, has_unlimited=False)
 
         # Verify user doesn't have unlimited access
         has_access = asyncio.run(self.sticker_manager.check_access(user_id))
@@ -244,7 +244,7 @@ class TestStickerUsageControlPBT(unittest.TestCase):
         before_schedule = datetime.utcnow()
 
         # Schedule auto-deletion
-        await_result = asyncio.run(self.sticker_manager.auto_delete_sticker(message_id, delay_minutes))
+        asyncio.run(self.sticker_manager.auto_delete_sticker(message_id, delay_minutes))
 
         # Record time after scheduling
         after_schedule = datetime.utcnow()
@@ -535,13 +535,13 @@ class TestStickerUsageControlPBT(unittest.TestCase):
                 # Set up user based on test case
                 if has_unlimited:
                     expiration_time = datetime.utcnow() + timedelta(minutes=minutes_offset)
-                    user = self._create_test_user(
+                    self._create_test_user(
                         user_id, 
                         has_unlimited=True, 
                         unlimited_until=expiration_time
                     )
                 else:
-                    user = self._create_test_user(user_id, has_unlimited=False)
+                    self._create_test_user(user_id, has_unlimited=False)
 
                 # Test access control
                 has_access = asyncio.run(self.sticker_manager.check_access(user_id))

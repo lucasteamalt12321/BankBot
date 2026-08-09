@@ -281,7 +281,6 @@ class TestStickerAccessLifecyclePBT(unittest.TestCase):
 
         # **Property Part 4: Access should be automatically revoked when expired (Requirement 2.4)**
         # Simulate expiration by setting the expiration time to the past
-        original_expiration = user.sticker_unlimited_until
         user.sticker_unlimited_until = datetime.utcnow() - timedelta(minutes=1)
         self.session.commit()
 

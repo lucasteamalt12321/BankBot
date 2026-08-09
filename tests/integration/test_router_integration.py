@@ -78,15 +78,6 @@ class TestRouterIntegration:
             if hasattr(handler, 'commands'):
                 registered_commands.extend(handler.commands)
 
-        # Verify key commands from each module are registered
-        expected_commands = {
-            'start',  # User commands
-            'help',   # System commands
-            'shop',   # Shop commands
-            'games',  # Game commands
-            'admin'   # Admin commands
-        }
-
         # Note: We can't easily verify exact command names with mocks,
         # but we can verify the router was called and handlers were added
         assert mock_application.add_handler.call_count >= 50, \

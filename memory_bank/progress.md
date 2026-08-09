@@ -6,6 +6,17 @@
 
 ## Changelog
 
+### 2026-08-09 (Session: CANON-03 — аудио для треков + просмотр текста для статей)
+
+**Сделано (всё в `api/index.py` + тесты):**
+- **БД:** `_ensure_canon_tables()` — колонки `audio_data BYTEA`, `audio_name VARCHAR(255)`, `audio_mime VARCHAR(100)`, `audio_size INTEGER` в CREATE + ALTER `ADD COLUMN IF NOT EXISTS` для существующей прод-таблицы (Supabase). SQLite-зеркало в `tests/unit/test_web_portal_e2e.py::_make_engine()` — `audio_data BLOB` + остальные колонки.
+- **Admin API (только админ, `_admin_require`):** `POST /api/admin/canon/works/<id>/audio` (multipart, поле `audio`, лимит 4 МБ, whitelist mime mp3/ogg/wav/m4a/aac), `DELETE /api/admin/canon/works/<id>/audio`. Константы `_MAX_AUDIO_BYTES`, `_ALLOWED_AUDIO_MIME`, хелпер `_canon_audio_mime()`.
+- **Публичное API:** `GET /api/canon/work/<id>/audio` — потоковая отдача бинарных данных (Content-Type из БД, `Content-Disposition: inline`, Cache-Control 1 день, 404 для не-approve/без аудио). `/api/canon/works` и `/api/canon/work/<id>` теперь возвращают `audio_name`/`audio_mime`/`audio_size`/`has_audio` (нормализация `bool()` — SQLite отдаёт 0/1).
+- **Страница работы `/canon/work/<id>`:** блок `#audio` (audio-player + имя/размер) для треков с аудио, `format_bytes()` (новый хелпер). Список `/canon`: кнопка «🎧 Слушать» на карточке трека с аудио (якорь `#audio`).
+- **Админ-панель `/admin/canon`:** в редакторе произведения для треков — поле загрузки файла + кнопки «⬆️ Загрузить» / «🗑 Удалить» (JS `uploadAudio`/`removeAudio`).
+
+**Тесты:** новый `test_audio_upload_stream_delete` в `tests/unit/test_canon_requests_e2e.py` — загрузка админом → has_audio/audio_name/audio_mime в API → аудиоплеер на странице → стрим с корректными mime/данными → 403 анониму / 400 bad-ext → удаление → 404. Полный `tests/unit`: **972 passed / 10 skipped / 0 failed**; ruff All checks passed.
+
 ### 2026-08-08 (Hotfix: CANON-02 auth_token → web_token)
 
 **Баг:** залогиненный пользователь на `/canon/request` видел «Чтобы отправить заявку, войдите в аккаунт» — форма не показывалась.
@@ -1377,4 +1388,4 @@
 - `api/index.py` — +6 эндпоинтов `/api/verbs/*`, +страница `/irregular_verbs`
 
 ## last_checked_commit
-7a73c3a (2026-08-07, CANON01: core/canon/ единый source of truth канона + страница /canon)
+3f28958 (2026-08-09, CANON-03: аудио для треков + просмотр текста для статей; рабочая копия с незакоммиченными правками)
