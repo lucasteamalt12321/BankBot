@@ -272,11 +272,14 @@ async def reject_submission(
 
 
 async def check_admin(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
-    """Check if user is admin."""
-    # TODO: Implement proper admin check using AdminSystem
-    # For now, check against config
-    from src.config import settings
-    return user_id == settings.ADMIN_TELEGRAM_ID
+    """Check if user is admin (DB через AdminSystem + fallback на конфиг)."""
+    from utils.admin.admin_system import AdminSystem
+    try:
+        return AdminSystem().is_admin(user_id)
+    except Exception as exc:
+        logger.warning(f"check_admin fallback to config: {exc}")
+        from src.config import settings
+        return user_id == settings.ADMIN_TELEGRAM_ID
 
 
 def get_moderate_handler():

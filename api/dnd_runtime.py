@@ -58,6 +58,8 @@ def parse_dice(text: str) -> Optional[dict]:
     mod = int(m.group(3)) if m.group(3) else 0
     if sides not in {4, 6, 8, 10, 12, 20, 100}:
         return None
+    if count < 1 or count > 100:
+        return None
     return {"count": count, "sides": sides, "modifier": mod}
 
 

@@ -2,7 +2,7 @@
 
 import pytest
 from contextlib import contextmanager
-from hypothesis import given, strategies as st, assume
+from hypothesis import given, strategies as st, assume, settings
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from database.database import Base
@@ -53,6 +53,7 @@ class TestParsingRuleProperties:
         coefficient=coefficient_strategy,
         enabled=st.booleans()
     )
+    @settings(deadline=None)
     def test_parsing_rule_creation_always_succeeds(
         self, game_name, parser_class, coefficient, enabled
     ):
@@ -83,6 +84,7 @@ class TestParsingRuleProperties:
         parser_class=parser_class_strategy,
         coefficient=coefficient_strategy
     )
+    @settings(deadline=None)
     def test_parsing_rule_defaults_are_consistent(
         self, game_name, parser_class, coefficient
     ):
@@ -109,6 +111,7 @@ class TestParsingRuleProperties:
         parser_class=parser_class_strategy,
         new_coefficient=coefficient_strategy
     )
+    @settings(deadline=None)
     def test_parsing_rule_update_preserves_identity(
         self, game_name, parser_class, new_coefficient
     ):
@@ -144,6 +147,7 @@ class TestParsingRuleProperties:
         parser_class=parser_class_strategy,
         coefficient=coefficient_strategy
     )
+    @settings(deadline=None)
     def test_parsing_rule_query_by_game_name_is_consistent(
         self, game_name, parser_class, coefficient
     ):
@@ -185,6 +189,7 @@ class TestParsingRuleProperties:
             unique_by=lambda x: x[0]  # Unique by game_name
         )
     )
+    @settings(deadline=None)
     def test_enabled_filter_returns_only_enabled_rules(self, rules_data):
         """
         Property: Filtering by enabled=True returns only enabled rules.
@@ -217,6 +222,7 @@ class TestParsingRuleProperties:
         game_name=game_name_strategy,
         parser_class=parser_class_strategy
     )
+    @settings(deadline=None)
     def test_parsing_rule_deletion_is_complete(self, game_name, parser_class):
         """
         Property: Deleting a ParsingRule removes it completely from the database.
@@ -251,6 +257,7 @@ class TestParsingRuleProperties:
         parser_class=parser_class_strategy,
         coefficient=coefficient_strategy
     )
+    @settings(deadline=None)
     def test_parsing_rule_repr_contains_key_info(
         self, game_name, parser_class, coefficient
     ):

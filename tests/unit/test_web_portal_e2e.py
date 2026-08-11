@@ -1,15 +1,15 @@
 """E2E tests for the LTHub web portal: auth, feedback, trivia, admin and pages."""
 
+import base64
+import io
 import json
 import re
 from datetime import datetime, timezone
 from unittest.mock import patch
-
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.pool import StaticPool
 
 from api.index import (
-    ADMIN_TELEGRAM_ID,
     _TRIVIA_SESSIONS,
     app,
 )
@@ -97,6 +97,18 @@ def _make_engine():
         balance INTEGER DEFAULT 0,
         last_puzzle_at TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id BIGINT NOT NULL,
+        username TEXT,
+        level_name TEXT NOT NULL,
+        media_file_id TEXT,
+        media_type TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at TIMESTAMP,
+        reviewed_by BIGINT
+    );
     CREATE TABLE IF NOT EXISTS canon_works (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title VARCHAR(200) NOT NULL,
@@ -112,6 +124,7 @@ def _make_engine():
         audio_name VARCHAR(255),
         audio_mime VARCHAR(100),
         audio_size INTEGER,
+        view_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -151,6 +164,17 @@ def _auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _promote_admin(user_id: int) -> None:
+    from api import index as index_api
+
+    engine = index_api.get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE web_users SET is_admin = 1 WHERE id = :uid"),
+            {"uid": user_id},
+        )
+
+
 def test_web_pages_render():
     """All main web pages return 200 with expected content."""
     client = app.test_client()
@@ -175,8 +199,50 @@ def test_web_pages_render():
         assert marker in resp.get_data(as_text=True), f"{url} missing {marker}"
 
 
+@patch("api.index.get_db_engine")
+def test_gd_web_submit_requires_media(mock_engine):
+    """GD web submission requires an attached video/photo and saves it."""
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+
+    # Without media -> 400 with hint to attach media.
+    resp = c.post("/api/gd/submit", data={
+        "user_id": "web_test123",
+        "level_name": "Tartarus",
+        "username": "web_test123",
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 400
+    assert "Прикрепите видео или фото" in resp.get_json()["error"]
+
+    # With a fake video file -> created, media_type=video, data-URL stored.
+    resp = c.post("/api/gd/submit", data={
+        "user_id": "web_test123",
+        "level_name": "Tartarus",
+        "username": "web_test123",
+        "media": (io.BytesIO(b"\x00\x01\x02fake-video"), "run.mp4"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+
+    engine = mock_engine.return_value
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT level_name, media_type, status, media_file_id FROM submissions WHERE id = :sid"
+        ), {"sid": data["submission_id"]}).mappings().first()
+    assert row["level_name"] == "Tartarus"
+    assert row["status"] == "pending"
+    assert row["media_type"] == "video"
+    assert row["media_file_id"].startswith("data:video/mp4;base64,")
+
+    # Web page exposes the upload field.
+    body = c.get("/gd").get_data(as_text=True)
+    assert 'id="sub-media"' in body
+    assert "sub-media" in body
+    assert "Прикрепите видео или фото" in body
+
+
 def test_reading_trainer_has_mom05_features():
-    """MOM-05: reading trainer exposes TTS, hints and stats."""
     resp = app.test_client().get("/reading_trainer.html")
     body = resp.get_data(as_text=True)
     assert "speakStory()" in body
@@ -203,14 +269,16 @@ def test_trivia_question_and_answer():
     client = app.test_client()
     q = client.post("/api/trivia/question").get_json()
     assert "id" in q
+    assert "session_id" in q
     assert len(q["options"]) == 4
     correct_index = q["correct_index"]
-    ans = client.post("/api/trivia/answer", json={"question_id": q["id"], "answer_index": correct_index}).get_json()
+    ans = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": correct_index}).get_json()
     assert ans["correct"] is True
     assert ans["explanation"]
-    wrong = client.post("/api/trivia/answer", json={"question_id": q["id"], "answer_index": (correct_index + 1) % 4}).get_json()
+    wrong = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": (correct_index + 1) % 4}).get_json()
     assert wrong["correct"] is False
-    stale = client.post("/api/trivia/answer", json={"question_id": 99999, "answer_index": 0}).get_json()
+    assert wrong["correct_text"] == q["options"][correct_index]
+    stale = client.post("/api/trivia/answer", json={"session_id": 99999, "answer_index": 0}).get_json()
     assert stale["correct"] is False
 
 
@@ -286,16 +354,25 @@ def test_feedback_submit_and_admin_flow(mock_engine):
     assert r.status_code == 403
 
     reg = client.post("/api/auth/register", json={
-        "login": "boss", "password": "secret123", "telegram_id": ADMIN_TELEGRAM_ID,
+        "login": "boss", "password": "secret123",
     })
     assert reg.status_code == 200
-    token = reg.get_json()["token"]
+    reg_data = reg.get_json()
+    _promote_admin(reg_data["user_id"])
+    token = reg_data["token"]
 
     lst = client.get("/api/admin/feedback", headers=_auth_headers(token))
     assert lst.status_code == 200
     data = lst.get_json()
     assert data["count"] >= 1
     fid = data["items"][0]["id"]
+
+    by_sugg = client.get("/api/admin/feedback?category=suggestion", headers=_auth_headers(token))
+    assert by_sugg.status_code == 200
+    assert by_sugg.get_json()["count"] >= 1
+    by_bug = client.get("/api/admin/feedback?category=bug", headers=_auth_headers(token))
+    assert by_bug.status_code == 200
+    assert by_bug.get_json()["count"] == 0
 
     d = client.delete(f"/api/admin/feedback/{fid}", headers=_auth_headers(token))
     assert d.status_code == 200
@@ -313,11 +390,13 @@ def test_admin_stats_and_users(mock_engine):
     client = app.test_client()
 
     reg = client.post("/api/auth/register", json={
-        "login": "root", "password": "secret123", "telegram_id": ADMIN_TELEGRAM_ID,
+        "login": "root", "password": "secret123",
     })
-    token = reg.get_json()["token"]
+    reg_data = reg.get_json()
+    token = reg_data["token"]
     headers = _auth_headers(token)
-    user_id = reg.get_json()["user_id"]
+    user_id = reg_data["user_id"]
+    _promote_admin(user_id)
 
     stats = client.get("/api/admin/stats", headers=headers)
     assert stats.status_code == 200

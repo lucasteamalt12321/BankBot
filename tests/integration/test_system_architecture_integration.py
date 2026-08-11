@@ -20,12 +20,16 @@ import tempfile
 import sqlite3
 import time
 import threading
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
+from unittest.mock import patch, MagicMock
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from database.database import Base
 from utils.admin.admin_system import AdminSystem
 
 
@@ -37,6 +41,28 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
         # Create temporary database for testing
         self.temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
         self.temp_db.close()
+
+        # AdminSystem ignores its db_path argument and reads/writes through the
+        # module-level engine/SessionLocal. Point those global entry points at
+        # the temporary file database so every test runs against real SQL.
+        self.engine = create_engine(
+            f"sqlite:///{self.temp_db.name}",
+            connect_args={"check_same_thread": False, "timeout": 30},
+            poolclass=NullPool,
+        )
+        Base.metadata.create_all(self.engine)
+        self._test_session = sessionmaker(bind=self.engine)
+
+        self._engine_patch = patch('database.database.engine', self.engine)
+        self._db_session_patch = patch(
+            'database.database.SessionLocal', self._test_session
+        )
+        self._admin_session_patch = patch(
+            'utils.admin.admin_system.SessionLocal', self._test_session
+        )
+        self._engine_patch.start()
+        self._db_session_patch.start()
+        self._admin_session_patch.start()
 
         # Initialize admin system with test database
         self.admin_system = AdminSystem(self.temp_db.name)
@@ -57,10 +83,20 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
 
     def tearDown(self):
         """Clean up after tests"""
+        self._admin_session_patch.stop()
+        self._db_session_patch.stop()
+        self._engine_patch.stop()
+        self.engine.dispose()
         try:
             os.unlink(self.temp_db.name)
-        except:
+        except Exception:
             pass
+
+    def _db_connection(self):
+        """Open a raw sqlite3 connection to the test database file."""
+        conn = sqlite3.connect(self.temp_db.name, timeout=30)
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def test_database_schema_compatibility(self):
         """
@@ -68,7 +104,7 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
         Requirements: System integration
         """
         # Verify admin system tables exist
-        conn = self.admin_system.get_db_connection()
+        conn = self._db_connection()
         cursor = conn.cursor()
 
         # Check users table structure
@@ -85,7 +121,7 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
         cursor.execute("PRAGMA table_info(transactions)")
         transactions_columns = cursor.fetchall()
 
-        expected_tx_columns = ['id', 'user_id', 'amount', 'type', 'admin_id', 'timestamp']
+        expected_tx_columns = ['id', 'user_id', 'amount', 'transaction_type', 'created_at']
         actual_tx_columns = [col[1] for col in transactions_columns]
 
         for expected_col in expected_tx_columns:
@@ -95,10 +131,9 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
         cursor.execute("PRAGMA foreign_key_list(transactions)")
         foreign_keys = cursor.fetchall()
 
-        # Should have foreign keys for user_id and admin_id
+        # Should have a foreign key for user_id (points to users PK)
         fk_columns = [fk[3] for fk in foreign_keys]  # Column 3 is 'from' column
         self.assertIn('user_id', fk_columns)
-        self.assertIn('admin_id', fk_columns)
 
         conn.close()
 
@@ -243,11 +278,15 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
         final_user = self.admin_system.get_user_by_id(test_user_id)
         self.assertAlmostEqual(final_user['balance'], expected_balance, places=2)
 
-        # Verify transaction count
-        conn = self.admin_system.get_db_connection()
+        # Verify transaction count (transactions.user_id holds the users PK)
+        conn = self._db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT COUNT(*) as count FROM transactions WHERE user_id = ?",
+            """
+            SELECT COUNT(*) as count FROM transactions t
+            JOIN users u ON u.id = t.user_id
+            WHERE u.telegram_id = ?
+            """,
             (test_user_id,)
         )
         transaction_count = cursor.fetchone()['count']
@@ -283,14 +322,14 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
         self.assertIsNotNone(transaction_id)
 
         # Get all admins for notification
-        conn = self.admin_system.get_db_connection()
+        conn = self._db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, username FROM users WHERE is_admin = TRUE")
+        cursor.execute("SELECT telegram_id, username FROM users WHERE is_admin = TRUE")
         admin_list = cursor.fetchall()
         conn.close()
 
         # Verify all admins are found (including original admin)
-        found_admin_ids = [admin['id'] for admin in admin_list]
+        found_admin_ids = [admin['telegram_id'] for admin in admin_list]
         self.assertIn(self.admin_user_id, found_admin_ids)
         for admin_id in admin_ids:
             self.assertIn(admin_id, found_admin_ids)
@@ -312,7 +351,7 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
             try:
                 # Mock successful notification
                 notification_results.append({
-                    'admin_id': admin['id'],
+                    'admin_id': admin['telegram_id'],
                     'success': True,
                     'message': notification_message
                 })
@@ -334,18 +373,19 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
         Requirements: 5.5 (error handling)
         """
         # Test database connection errors
-        # Simulate database file corruption/unavailability
-        invalid_admin_system = AdminSystem("/invalid/path/database.db")
+        # Simulate database unavailability: operations should fail gracefully
+        broken_session = MagicMock(side_effect=RuntimeError("database unavailable"))
+        with patch('utils.admin.admin_system.SessionLocal', broken_session):
+            invalid_admin_system = AdminSystem(self.temp_db.name)
 
-        # Operations should fail gracefully
-        result = invalid_admin_system.register_user(123, "test", "Test")
-        self.assertFalse(result)
+            result = invalid_admin_system.register_user(123, "test", "Test")
+            self.assertFalse(result)
 
-        result = invalid_admin_system.is_admin(123)
-        self.assertFalse(result)
+            result = invalid_admin_system.is_admin(123)
+            self.assertFalse(result)
 
-        result = invalid_admin_system.get_user_by_id(123)
-        self.assertIsNone(result)
+            result = invalid_admin_system.get_user_by_id(123)
+            self.assertIsNone(result)
 
         # Test recovery after errors
         # Valid system should still work
@@ -493,28 +533,32 @@ class TestSystemArchitectureIntegration(unittest.TestCase):
             self.assertEqual(user['balance'], expected_balance)
 
         # Verify transaction history integrity
-        conn = self.admin_system.get_db_connection()
+        # (transactions.user_id holds the users PK, not the telegram_id)
+        conn = self._db_connection()
         cursor = conn.cursor()
 
         for user_id in [300001, 300002, 300003]:
             cursor.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE user_id = ?",
+                """
+                SELECT COUNT(*) as count FROM transactions t
+                JOIN users u ON u.id = t.user_id
+                WHERE u.telegram_id = ?
+                """,
                 (user_id,)
             )
             tx_count = cursor.fetchone()['count']
             self.assertEqual(tx_count, 2)  # One add, one buy
 
-        # Verify admin transaction attribution
+        # Verify admin transactions are recorded as 'add'
         cursor.execute(
-            "SELECT COUNT(*) as count FROM transactions WHERE admin_id = ? AND type = 'add'",
-            (self.admin_user_id,)
+            "SELECT COUNT(*) as count FROM transactions WHERE transaction_type = 'add'"
         )
         admin_tx_count = cursor.fetchone()['count']
         self.assertEqual(admin_tx_count, 3)  # Three add transactions by admin
 
-        # Verify purchase transactions have no admin_id
+        # Verify purchase transactions are recorded as 'buy'
         cursor.execute(
-            "SELECT COUNT(*) as count FROM transactions WHERE admin_id IS NULL AND type = 'buy'"
+            "SELECT COUNT(*) as count FROM transactions WHERE transaction_type = 'buy'"
         )
         buy_tx_count = cursor.fetchone()['count']
         self.assertEqual(buy_tx_count, 3)  # Three buy transactions

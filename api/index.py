@@ -163,8 +163,7 @@ def _web_admin_session() -> dict | None:
     user = _get_session_user(_auth_token_from_request())
     if not user:
         return None
-    is_admin = user.get("is_admin") or user.get("telegram_id") == ADMIN_TELEGRAM_ID
-    if not is_admin:
+    if not user.get("is_admin"):
         return None
     return user
 
@@ -258,6 +257,7 @@ _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, usern
 _ERROR_LOG: list[dict] = []
 _ERROR_LOG_LIMIT = 50
 _PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
+_PENDING_PUZZLE_TTL = 1800  # seconds; stale entries are lazily pruned
 _ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
 _ADDE_LOG: list[dict] = []  # recent /addexpense callers for debugging
 
@@ -291,20 +291,20 @@ def get_db_engine():
             pool_timeout=5,
             connect_args={"connect_timeout": 10},
         )
-    _ensure_gd_tables(DB_ENGINE)
-    _ensure_budget_tables(DB_ENGINE)
-    _ensure_universe_tables(DB_ENGINE)
-    _ensure_dnd_tables(DB_ENGINE)
-    _ensure_verb_tables(DB_ENGINE)
-    _ensure_family_tables(DB_ENGINE)
-    _ensure_web_auth_tables(DB_ENGINE)
-    _ensure_parsing_tables(DB_ENGINE)
-    try:
-        _ensure_canon_tables(DB_ENGINE)
-    except Exception as exc:
-        print(f"[CANON] table init skipped: {exc}")
+        _ensure_gd_tables(DB_ENGINE)
+        _ensure_budget_tables(DB_ENGINE)
+        _ensure_universe_tables(DB_ENGINE)
+        _ensure_dnd_tables(DB_ENGINE)
+        _ensure_verb_tables(DB_ENGINE)
+        _ensure_family_tables(DB_ENGINE)
+        _ensure_web_auth_tables(DB_ENGINE)
+        _ensure_parsing_tables(DB_ENGINE)
+        _ensure_chess_games_table(DB_ENGINE)
+        try:
+            _ensure_canon_tables(DB_ENGINE)
+        except Exception as exc:
+            print(f"[CANON] table init skipped: {exc}")
     return DB_ENGINE
-
 
 def _ensure_gd_tables(engine):
     """Create GD module tables if they don't exist (preserves existing data)."""
@@ -583,10 +583,21 @@ def _ensure_universe_tables(engine):
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS daily_prayer_log (
                     user_id BIGINT NOT NULL,
-                    prayer_date DATE NOT NULL
+                    prayer_date DATE NOT NULL,
+                    UNIQUE (user_id, prayer_date)
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"))
+            try:
+                conn.execute(text(
+                    "DELETE FROM daily_prayer_log a USING daily_prayer_log b "
+                    "WHERE a.user_id = b.user_id AND a.prayer_date = b.prayer_date AND a.rowid > b.rowid"
+                ))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_prayer_log_user_date ON daily_prayer_log(user_id, prayer_date)"
+                ))
+            except Exception as exc:
+                print(f"[UNIVERSE] daily_prayer_log unique index warn: {exc}")
             conn.commit()
         print("[UNIVERSE] Tables ensured successfully")
     except Exception as exc:
@@ -900,6 +911,7 @@ def _ensure_canon_tables(engine):
                 audio_name VARCHAR(255),
                 audio_mime VARCHAR(100),
                 audio_size INTEGER,
+                view_count INTEGER DEFAULT 0,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
@@ -910,6 +922,7 @@ def _ensure_canon_tables(engine):
             "ADD COLUMN IF NOT EXISTS audio_name VARCHAR(255)",
             "ADD COLUMN IF NOT EXISTS audio_mime VARCHAR(100)",
             "ADD COLUMN IF NOT EXISTS audio_size INTEGER",
+            "ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0",
         ):
             try:
                 conn.execute(text(f"ALTER TABLE canon_works {column_sql}"))
@@ -2414,6 +2427,32 @@ def update_user_coins(user_id: int, balance_delta: int, puzzle_time: datetime) -
         return False
 
 
+_PUZZLE_COOLDOWN_HOURS = 24
+
+
+def _puzzle_cooldown_remaining_hours(user_id: int) -> float | None:
+    """Оставшиеся часы до следующего пазла (None = можно решать).
+
+    Cooldown 1 пазл в сутки: отсчитывается от последнего решённого пазла
+    (last_puzzle_at обновляется при верном ответе).
+    """
+    try:
+        coins_data = get_user_coins(user_id)
+    except Exception as exc:
+        print(f"Error checking puzzle cooldown: {exc}")
+        return None
+    if not coins_data or not coins_data.get("last_puzzle_at"):
+        return None
+    last_puzzle = coins_data["last_puzzle_at"]
+    if hasattr(last_puzzle, "tzinfo") and last_puzzle.tzinfo is not None:
+        last_puzzle = last_puzzle.replace(tzinfo=None)
+    now = datetime.utcnow()
+    elapsed = now - last_puzzle
+    if elapsed >= timedelta(hours=_PUZZLE_COOLDOWN_HOURS):
+        return None
+    return _PUZZLE_COOLDOWN_HOURS - elapsed.total_seconds() / 3600
+
+
 def log_chess_game(user_id: int, lichess_username: str, puzzle_id: str, puzzle_rating: int | None, puzzle_themes: str | None) -> int:
     """Log a chess game/puzzle attempt to history."""
     try:
@@ -3396,7 +3435,11 @@ def gd_page():
         .input-row { display: flex; gap: 10px; margin-bottom: 16px; }
         .input-row input { flex: 1; padding: 12px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; color: #c9d1d9; font-size: 15px; font-family: inherit; }
         .input-row input:focus { outline: none; border-color: #58a6ff; }
+        .file-label { display: block; flex: 1; padding: 12px; border: 1px dashed #30363d; border-radius: 8px; background: #0d1117; color: #8b949e; font-size: 14px; font-family: inherit; cursor: pointer; text-align: center; }
+        .file-label.has-file { border-color: #58a6ff; color: #58a6ff; }
+        .input-row input[type="file"] { display: none; }
         .btn { padding: 12px 20px; border: none; border-radius: 8px; background: #238636; color: #fff; font-size: 15px; font-family: inherit; cursor: pointer; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .btn:hover { background: #2ea043; }
         .btn:disabled { opacity: 0.6; cursor: default; }
         .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; }
@@ -3461,6 +3504,10 @@ def gd_page():
                 </div>
                 <div class="input-row">
                     <input type="text" id="sub-name" placeholder="Ваше имя (необязательно)">
+                </div>
+                <div class="input-row">
+                    <label class="file-label" for="sub-media">📎 Видео или фото с прохождением</label>
+                    <input type="file" id="sub-media" accept="video/*,image/*,.mp4,.mov,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif">
                 </div>
                 <button class="btn" id="sub-btn" onclick="submitRecord()">📨 Отправить рекорд</button>
                 <div id="sub-result"></div>
@@ -3579,15 +3626,24 @@ def gd_page():
         function submitRecord() {
             var level = document.getElementById('sub-level').value.trim();
             var name = document.getElementById('sub-name').value.trim();
+            var mediaInput = document.getElementById('sub-media');
+            var mediaFile = mediaInput && mediaInput.files && mediaInput.files.length ? mediaInput.files[0] : null;
             var out = document.getElementById('sub-result');
             if (!level) { out.innerHTML = '<p class="error">Укажите название уровня</p>'; return; }
+            if (!mediaFile) { out.innerHTML = '<p class="error">Прикрепите видео или фото с прохождением</p>'; return; }
             var btn = document.getElementById('sub-btn');
             btn.disabled = true;
             out.innerHTML = '<p class="hint">📨 Отправка...</p>';
             var doSubmit = function(finalName) {
+                var fd = new FormData();
+                fd.append('user_id', USER_ID);
+                fd.append('level_name', level);
+                fd.append('username', finalName || '');
+                fd.append('token', localStorage.getItem('web_token') || '');
+                fd.append('media', mediaFile, mediaFile.name);
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/gd/submit');
-                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.timeout = 30000;
                 xhr.onload = function() {
                     btn.disabled = false;
                     try {
@@ -3596,10 +3652,12 @@ def gd_page():
                         out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
                         document.getElementById('sub-level').value = '';
                         document.getElementById('sub-name').value = '';
+                        if (mediaInput) { mediaInput.value = ''; updateMediaLabel(); }
                     } catch(e) { out.innerHTML = '<p class="error">Ошибка отправки.</p>'; }
                 };
                 xhr.onerror = function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
-                xhr.send(JSON.stringify({user_id: USER_ID, level_name: level, username: finalName, token: localStorage.getItem('web_token') || ''}));
+                xhr.ontimeout = function() { btn.disabled = false; out.innerHTML = '<p class="error">Сервер не ответил. Попробуйте ещё раз.</p>'; };
+                xhr.send(fd);
             };
             if (name) { doSubmit(name); return; }
             var token = localStorage.getItem('web_token');
@@ -3613,11 +3671,26 @@ def gd_page():
                 .catch(function() { doSubmit(''); });
         }
 
+        function updateMediaLabel() {
+            var input = document.getElementById('sub-media');
+            var label = document.querySelector('.file-label');
+            if (!input || !label) return;
+            if (input.files && input.files.length) {
+                label.textContent = '📎 ' + input.files[0].name;
+                label.classList.add('has-file');
+            } else {
+                label.textContent = '📎 Видео или фото с прохождением';
+                label.classList.remove('has-file');
+            }
+        }
+        document.getElementById('sub-media').addEventListener('change', updateMediaLabel);
+
         function renderModeration(page) {
             var out = document.getElementById('mod-result');
             out.innerHTML = '<p class="hint">Загрузка...</p>';
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/api/gd/moderate?user_id=' + encodeURIComponent(USER_ID) + '&page=' + page);
+            xhr.open('GET', '/api/gd/moderate?page=' + page);
+            if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
@@ -3632,6 +3705,11 @@ def gd_page():
                             + '<div style="color:#8b949e;font-size:13px">Заявка #' + s.id + ' · ' + (s.username || s.user_id) + '</div>'
                             + '<div style="color:#c9d1d9;font-size:15px;margin:6px 0">🎮 ' + s.level_name + '</div>'
                             + '<div class="hint" style="margin-top:0">📅 ' + (s.submitted_at || '—') + ' · ' + (s.media_type || 'без медиа') + '</div>'
+                            + '<div class="hint" style="margin-top:0">'
+                            + ((s.media_file_id && s.media_file_id.indexOf('data:') === 0)
+                                ? '<a href="' + s.media_file_id + '" target="_blank" rel="noopener noreferrer">🎬 Смотреть медиа</a>'
+                                : '')
+                            + '</div>'
                             + '<div class="mod-btns">'
                             + '<button class="btn btn-approve" onclick="approveSub(' + s.id + ')">✅ Подтвердить</button>'
                             + '<button class="btn btn-reject" onclick="rejectSub(' + s.id + ')">❌ Отклонить</button>'
@@ -3658,6 +3736,7 @@ def gd_page():
             var xhr = new XMLHttpRequest();
             xhr.open('POST', '/api/gd/moderate/approve');
             xhr.setRequestHeader('Content-Type', 'application/json');
+            if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
@@ -3674,6 +3753,7 @@ def gd_page():
             var xhr = new XMLHttpRequest();
             xhr.open('POST', '/api/gd/moderate/reject');
             xhr.setRequestHeader('Content-Type', 'application/json');
+            if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
@@ -3750,40 +3830,45 @@ def _gd_web_uid(user_id_raw: str | None) -> int | None:
     return _web_user_id(user_id_raw)
 
 
-def _gd_web_is_admin(user_id_raw: str | None) -> bool:
-    """Check admin rights for a web request."""
-    uid = _gd_web_uid(user_id_raw)
-    if not uid:
-        return False
-    if uid == ADMIN_TELEGRAM_ID:
-        return True
-    return check_admin(uid)
-
-
 @app.route("/api/gd/me")
 def api_gd_me():
-    user_id_raw = request.args.get("user_id", "")
-    return jsonify({"is_admin": _gd_web_is_admin(user_id_raw)})
+    return jsonify({"is_admin": _web_admin_session() is not None})
 
 
 @app.route("/api/gd/submit", methods=["POST"])
 def api_gd_submit():
-    data = request.get_json(silent=True) or {}
-    uid = _gd_web_uid(data.get("user_id", ""))
-    level_name = (data.get("level_name") or "").strip()
+    uid = _gd_web_uid((request.form.get("user_id") or "").strip() or "")
+    level_name = (request.form.get("level_name") or "").strip()
     if uid is None:
         return jsonify({"error": "Нет user_id"}), 400
     if not level_name:
         return jsonify({"error": "Укажите название уровня"}), 400
-    username = (data.get("username") or "").strip()
+    username = (request.form.get("username") or "").strip()
     if not username:
-        token = (data.get("token") or "").strip()
+        token = (request.form.get("token") or "").strip()
         web_user = _get_session_user(token or None)
         if web_user and web_user.get("gd_nickname"):
             username = web_user["gd_nickname"]
     if not username:
         username = f"web_{uid}"
-    sub_id = create_gd_submission(uid, username, level_name, "", "", status="pending")
+
+    # Медиа (видео/фото с прохождением) — обязательно, как в Telegram-флоу.
+    media_file = request.files.get("media")
+    media_data = media_file.read() if media_file and media_file.filename else None
+    if not media_data:
+        return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
+    filename = (media_file.filename or "").lower()
+    media_mime = (media_file.mimetype or "").lower()
+    if media_mime.startswith("video/") or any(filename.endswith(ext) for ext in (".mp4", ".mov", ".webm", ".mkv")):
+        media_type = "video"
+    elif media_mime.startswith("image/") or any(filename.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif")):
+        media_type = "photo"
+    else:
+        media_type = "document"
+    # Храним файл как data-URL (веб не имеет Telegram file_id).
+    media_ref = f"data:{media_mime or 'application/octet-stream'};base64,{base64.b64encode(media_data).decode('ascii')}"
+
+    sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending")
     if not sub_id:
         return jsonify({"error": "Ошибка создания заявки"}), 500
     return jsonify({"ok": True, "submission_id": sub_id})
@@ -3791,8 +3876,7 @@ def api_gd_submit():
 
 @app.route("/api/gd/moderate")
 def api_gd_moderate():
-    user_id_raw = request.args.get("user_id", "")
-    if not _gd_web_is_admin(user_id_raw):
+    if _web_admin_session() is None:
         return jsonify({"error": "Нет прав администратора"}), 403
     page = max(request.args.get("page", default=0, type=int), 0)
     per_page = 5
@@ -3812,10 +3896,11 @@ def api_gd_moderate():
 @app.route("/api/gd/moderate/reject", methods=["POST"])
 def api_gd_moderate_reject():
     data = request.get_json(silent=True) or {}
-    if not _gd_web_is_admin(data.get("user_id", "")):
+    admin = _web_admin_session()
+    if admin is None:
         return jsonify({"error": "Нет прав администратора"}), 403
     sub_id = int(data.get("submission_id") or 0)
-    admin_id = _gd_web_uid(data.get("user_id", "")) or 0
+    admin_id = admin.get("id") or 0
     if not sub_id:
         return jsonify({"error": "Нет submission_id"}), 400
     if reject_gd_submission_db(sub_id, admin_id):
@@ -3826,11 +3911,12 @@ def api_gd_moderate_reject():
 @app.route("/api/gd/moderate/approve", methods=["POST"])
 def api_gd_moderate_approve():
     data = request.get_json(silent=True) or {}
-    if not _gd_web_is_admin(data.get("user_id", "")):
+    admin = _web_admin_session()
+    if admin is None:
         return jsonify({"error": "Нет прав администратора"}), 403
     sub_id = int(data.get("submission_id") or 0)
     position = int(data.get("position") or 0)
-    admin_id = _gd_web_uid(data.get("user_id", "")) or 0
+    admin_id = admin.get("id") or 0
     if not sub_id:
         return jsonify({"error": "Нет submission_id"}), 400
     if position < 1:
@@ -4077,6 +4163,8 @@ def dnd_page():
             var xhr = new XMLHttpRequest();
             xhr.open('POST', url);
             xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.timeout = 60000;
+            xhr.ontimeout = function() { cb({error: 'Сервер не ответил. Попробуйте ещё раз.'}); };
             xhr.onload = function() { try { cb(JSON.parse(xhr.responseText)); } catch(e) { cb({error: 'Ошибка ответа сервера.'}); } };
             xhr.onerror = function() { cb({error: 'Ошибка сети.'}); };
             xhr.send(JSON.stringify(body));
@@ -4119,6 +4207,8 @@ def dnd_page():
         function refreshStatus() {
             var xhr = new XMLHttpRequest();
             xhr.open('GET', '/api/dnd/status?user_id=' + encodeURIComponent(USER_ID));
+            xhr.timeout = 30000;
+            xhr.ontimeout = function() { showStart('Сервер не ответил. Попробуйте ещё раз.'); };
             xhr.onload = function() {
                 if (xhr.status !== 200) { showStart('Не удалось загрузить статус сессии. Проверьте подключение.'); return; }
                 try {
@@ -5997,7 +6087,8 @@ def chess_page():
             x.setRequestHeader('Content-Type', 'application/json');
             x.onload = function() {
                 checkBtn.disabled = false;
-                var r = JSON.parse(x.responseText);
+                var r;
+                try { r = JSON.parse(x.responseText); } catch(e) { msg.innerHTML = '<div class="msg err">Ошибка сервера.</div>'; return; }
                 if (r.correct) {
                     msg.innerHTML = '<div class="msg ok">✅ Правильно! Ход: ' + esc(r.move) + '<br>💰 +5 монет</div>';
                 } else {
@@ -6095,9 +6186,20 @@ def api_chess_puzzle():
     if not user_id_raw:
         return jsonify({"error": "Нет user_id"}), 400
     uid = _web_user_id(user_id_raw)
+    now_ts = time.time()
+    stale = [k for k, v in _PENDING_PUZZLES.items() if now_ts - v.get("created_at", 0) > _PENDING_PUZZLE_TTL]
+    for k in stale:
+        _PENDING_PUZZLES.pop(k, None)
     account = get_chess_account(uid)
     if not account:
         return jsonify({"error": "Сначала привяжите Lichess аккаунт в разделе «Моя статистика»"}), 400
+    remaining = _puzzle_cooldown_remaining_hours(uid)
+    if remaining is not None:
+        return jsonify({
+            "error": f"Следующая задача доступна через {remaining:.1f} ч.",
+            "cooldown": True,
+            "cooldown_hours": round(remaining, 1),
+        }), 429
     puzzle = _fetch_lichess_puzzle()
     if not puzzle:
         return jsonify({"error": "Не удалось загрузить задачу. Попробуйте позже."}), 502
@@ -6109,6 +6211,7 @@ def api_chess_puzzle():
         "username": account["lichess_username"],
         "initial_ply": puzzle["initial_ply"],
         "web": True,
+        "created_at": time.time(),
     }
     return jsonify({
         "puzzle_id": puzzle["puzzle_id"],
@@ -6128,9 +6231,11 @@ def api_chess_puzzle_check():
     if not user_id_raw:
         return jsonify({"error": "Нет user_id"}), 400
     uid = _web_user_id(user_id_raw)
-    pending = _PENDING_PUZZLES.get(uid)
+    pending = _PENDING_PUZZLES.pop(uid, None)
     if not pending or not pending.get("web"):
         return jsonify({"error": "Задача не найдена или устарела. Загрузите новую."}), 400
+    if time.time() - pending.get("created_at", 0) > _PENDING_PUZZLE_TTL:
+        return jsonify({"error": "Задача устарела. Загрузите новую."}), 400
     if not move or not pending["solution"]:
         return jsonify({"error": "Некорректный ход"}), 400
     first_move = pending["solution"][0]
@@ -6141,7 +6246,6 @@ def api_chess_puzzle_check():
         except Exception as exc:
             print(f"Error awarding coins: {exc}")
         log_chess_game(uid, pending.get("username", ""), pending["puzzle_id"], pending.get("rating"), pending.get("themes"))
-    del _PENDING_PUZZLES[uid]
     return jsonify({"correct": correct, "move": first_move})
 
 
@@ -6243,13 +6347,18 @@ def register_page():
         var password = document.getElementById('reg-password').value;
         if (!login || !password) { showToast('Логин и пароль обязательны', true); return; }
         if (password.length < 6) { showToast('Пароль минимум 6 символов', true); return; }
+        var nameVal = document.getElementById('reg-name').value.trim();
+        var gdVal = document.getElementById('reg-gd').value.trim();
+        var lichessVal = document.getElementById('reg-lichess').value.trim();
+        if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
+        if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
+        if (lichessVal.length > 50) { showToast('Lichess ник слишком длинный (макс. 50 символов)', true); return; }
         var payload = {
             login: login,
             password: password,
-            display_name: document.getElementById('reg-name').value.trim() || null,
-            gd_nickname: document.getElementById('reg-gd').value.trim() || null,
-            telegram_id: document.getElementById('reg-tg').value.trim() ? parseInt(document.getElementById('reg-tg').value.trim()) : null,
-            lichess_nickname: document.getElementById('reg-lichess').value.trim() || null
+            display_name: nameVal || null,
+            gd_nickname: gdVal || null,
+            lichess_nickname: lichessVal || null
         };
         document.querySelector('.btn').disabled = true;
         fetch('/api/auth/register', {
@@ -6791,7 +6900,8 @@ def settings_page():
     }
     function loadFeedback(kind) {
         var url = '/api/admin/feedback';
-        if (kind && kind !== 'open') url += '?status=' + kind;
+        if (kind === 'bug' || kind === 'suggestion') url += '?category=' + kind;
+        else if (kind === 'open') url += '?status=open';
         adminFetch(url, {}, function(j) {
             var list = j.items || [];
             var el = document.getElementById('feedback-list');
@@ -6884,11 +6994,16 @@ def settings_page():
         box.innerHTML = '<b>Рекомендуем заполнить:</b> ' + missing.join(', ') + '.<br>Это позволит автоматически подставлять данные в GD, шахматы и бюджет.';
     }
     function saveSettings() {
+        var nameVal = document.getElementById('set-name').value.trim();
+        var gdVal = document.getElementById('set-gd').value.trim();
+        var lichessVal = document.getElementById('set-lichess').value.trim();
+        if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
+        if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
+        if (lichessVal.length > 50) { showToast('Lichess ник слишком длинный (макс. 50 символов)', true); return; }
         var payload = {
-            display_name: document.getElementById('set-name').value.trim() || null,
-            gd_nickname: document.getElementById('set-gd').value.trim() || null,
-            telegram_id: document.getElementById('set-tg').value.trim() ? parseInt(document.getElementById('set-tg').value.trim()) : null,
-            lichess_nickname: document.getElementById('set-lichess').value.trim() || null
+            display_name: nameVal || null,
+            gd_nickname: gdVal || null,
+            lichess_nickname: lichessVal || null
         };
         document.querySelector('.btn').disabled = true;
         fetch('/api/auth/update', {
@@ -6926,11 +7041,12 @@ def api_auth_register():
     display_name = (data.get("display_name") or "").strip() or login
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
     lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
-    telegram_id = data.get("telegram_id")
-    try:
-        telegram_id = int(telegram_id) if telegram_id else None
-    except (TypeError, ValueError):
-        telegram_id = None
+    if len(display_name) > 100:
+        return jsonify({"error": "Имя слишком длинное (макс. 100 символов)"}), 400
+    if gd_nickname and len(gd_nickname) > 50:
+        return jsonify({"error": "GD ник слишком длинный (макс. 50 символов)"}), 400
+    if lichess_nickname and len(lichess_nickname) > 50:
+        return jsonify({"error": "Lichess ник слишком длинный (макс. 50 символов)"}), 400
 
     try:
         engine = get_db_engine()
@@ -6943,7 +7059,7 @@ def api_auth_register():
             result = conn.execute(
                 text("""
                     INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, is_admin)
-                    VALUES (:login, :hash, :name, :gd, :tg, :lichess, :is_admin)
+                    VALUES (:login, :hash, :name, :gd, :tg, :lichess, FALSE)
                     RETURNING id
                 """),
                 {
@@ -6951,9 +7067,8 @@ def api_auth_register():
                     "hash": _hash_password(password),
                     "name": display_name,
                     "gd": gd_nickname,
-                    "tg": telegram_id,
+                    "tg": None,
                     "lichess": lichess_nickname,
-                    "is_admin": telegram_id == ADMIN_TELEGRAM_ID,
                 },
             )
             user_id = result.scalar()
@@ -7021,11 +7136,12 @@ def api_auth_update():
     display_name = (data.get("display_name") or "").strip() or None
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
     lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
-    telegram_id = data.get("telegram_id")
-    try:
-        telegram_id = int(telegram_id) if telegram_id else None
-    except (TypeError, ValueError):
-        telegram_id = None
+    if display_name and len(display_name) > 100:
+        return jsonify({"error": "Имя слишком длинное (макс. 100 символов)"}), 400
+    if gd_nickname and len(gd_nickname) > 50:
+        return jsonify({"error": "GD ник слишком длинный (макс. 50 символов)"}), 400
+    if lichess_nickname and len(lichess_nickname) > 50:
+        return jsonify({"error": "Lichess ник слишком длинный (макс. 50 символов)"}), 400
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -7034,17 +7150,13 @@ def api_auth_update():
                     UPDATE web_users
                     SET display_name = COALESCE(:name, login),
                         gd_nickname = :gd,
-                        telegram_id = :tg,
-                        lichess_nickname = :lichess,
-                        is_admin = CASE WHEN :tg = :admin_tg THEN TRUE ELSE is_admin END
+                        lichess_nickname = :lichess
                     WHERE id = :uid
                 """),
                 {
                     "name": display_name,
                     "gd": gd_nickname,
-                    "tg": telegram_id,
                     "lichess": lichess_nickname,
-                    "admin_tg": ADMIN_TELEGRAM_ID,
                     "uid": user["id"],
                 },
             )
@@ -7292,6 +7404,7 @@ def api_admin_feedback():
     if not _admin_require():
         return jsonify({"error": "Нет доступа"}), 403
     status = (request.args.get("status") or "").strip()
+    category = (request.args.get("category") or "").strip()
     try:
         with get_db_engine().connect() as conn:
             if status:
@@ -7299,6 +7412,11 @@ def api_admin_feedback():
                     SELECT id, login, author_name, category, module, message, status, created_at
                     FROM web_feedback WHERE status = :s ORDER BY created_at DESC LIMIT 200
                 """), {"s": status}).mappings().all()
+            elif category:
+                rows = conn.execute(text("""
+                    SELECT id, login, author_name, category, module, message, status, created_at
+                    FROM web_feedback WHERE category = :c ORDER BY created_at DESC LIMIT 200
+                """), {"c": category}).mappings().all()
             else:
                 rows = conn.execute(text("""
                     SELECT id, login, author_name, category, module, message, status, created_at
@@ -7619,6 +7737,7 @@ def trivia_page():
                 document.getElementById('next-btn').style.display = 'none';
                 document.getElementById('question').textContent = '\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...';
                 document.getElementById('options').innerHTML = '';
+                var currentSession = null;
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/trivia/question');
                 xhr.setRequestHeader('Content-Type', 'application/json');
@@ -7627,6 +7746,7 @@ def trivia_page():
                         var q = JSON.parse(xhr.responseText);
                         if (q.error) { document.getElementById('question').textContent = '\u041e\u0448\u0438\u0431\u043a\u0430: ' + q.error; return; }
                         document.getElementById('question').textContent = q.text;
+                        currentSession = q.session_id || q.id;
                         var opts = document.getElementById('options');
                         opts.innerHTML = '';
                         q.options.forEach(function(opt, i) {
@@ -7640,8 +7760,18 @@ def trivia_page():
                         });
                     } catch(e) { document.getElementById('question').textContent = '\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0432\u043e\u043f\u0440\u043e\u0441\u0430.'; }
                 };
-                xhr.onerror = function() { document.getElementById('question').textContent = '\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0442\u0438.'; };
+                xhr.onerror = function() { showRetryQuestion(); };
+                xhr.ontimeout = function() { showRetryQuestion(); };
+                xhr.timeout = 20000;
                 xhr.send(JSON.stringify({}));
+            }
+            function showRetryQuestion() {
+                var q = document.getElementById('question');
+                q.textContent = '\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0442\u0438.';
+                var retry = document.getElementById('next-btn');
+                retry.textContent = '\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c';
+                retry.style.display = 'block';
+                retry.onclick = loadQuestion;
             }
             function answerClick(qid, idx) {
                 var btns = document.querySelectorAll('.opt-btn');
@@ -7663,11 +7793,16 @@ def trivia_page():
                         var expl = document.getElementById('explanation');
                         expl.textContent = r.explanation;
                         expl.style.display = 'block';
-                        document.getElementById('next-btn').style.display = 'block';
+                        var nextBtn = document.getElementById('next-btn');
+                        nextBtn.textContent = '\u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0432\u043e\u043f\u0440\u043e\u0441';
+                        nextBtn.onclick = loadQuestion;
+                        nextBtn.style.display = 'block';
                     } catch(e) { btns.forEach(function(b) { b.disabled = false; }); }
                 };
-                xhr.onerror = function() { btns.forEach(function(b) { b.disabled = false; }); };
-                xhr.send(JSON.stringify({question_id: qid, answer_index: idx}));
+                xhr.onerror = function() { btns.forEach(function(b) { b.disabled = false; }); document.getElementById('explanation').textContent = '\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0442\u0438. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0451 \u0440\u0430\u0437.'; document.getElementById('explanation').style.display = 'block'; };
+                xhr.ontimeout = function() { btns.forEach(function(b) { b.disabled = false; }); document.getElementById('explanation').textContent = '\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u043e\u0442\u0432\u0435\u0442\u0438\u043b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0451 \u0440\u0430\u0437.'; document.getElementById('explanation').style.display = 'block'; };
+                xhr.timeout = 20000;
+                xhr.send(JSON.stringify({session_id: currentSession, answer_index: idx}));
             }
             document.getElementById('next-btn').addEventListener('click', loadQuestion);
             loadQuestion();
@@ -7695,22 +7830,27 @@ def api_trivia_question():
     random.shuffle(options)
     correct_index = options.index(correct)
     session = {"options": options, "correct_index": correct_index, "explanation": q["explanation"]}
-    _TRIVIA_SESSIONS[q["id"]] = session
-    return jsonify({"id": q["id"], "text": q["text"], "options": options, "correct_index": correct_index})
+    session_id = secrets.token_hex(6)
+    _TRIVIA_SESSIONS[session_id] = session
+    return jsonify({"id": q["id"], "session_id": session_id, "text": q["text"], "options": options, "correct_index": correct_index})
 
 
 @app.route("/api/trivia/answer", methods=["POST"])
 def api_trivia_answer():
     data = request.get_json(silent=True) or {}
-    qid = data.get("question_id")
+    session_id = data.get("session_id") or data.get("question_id")
     answer_idx = data.get("answer_index")
-    session = _TRIVIA_SESSIONS.get(qid)
+    session = _TRIVIA_SESSIONS.get(session_id)
     if not session:
         return jsonify({"correct": False, "correct_text": "", "explanation": "Вопрос не найден или устарел."})
     correct_index = session["correct_index"]
-    is_correct = answer_idx is not None and 0 <= answer_idx < 4 and answer_idx == correct_index
-    correct_text = session["options"][correct_index] if is_correct else session["options"][answer_idx] if answer_idx is not None and 0 <= answer_idx < 4 else ""
-    return jsonify({"correct": is_correct, "correct_text": correct_text, "explanation": session["explanation"]})
+    is_correct = (
+        isinstance(answer_idx, int)
+        and not isinstance(answer_idx, bool)
+        and 0 <= answer_idx < len(session["options"])
+        and answer_idx == correct_index
+    )
+    return jsonify({"correct": is_correct, "correct_text": session["options"][correct_index], "explanation": session["explanation"]})
 
 
 # ── Daily Prayer ──────────────────────────────────────────────────────────
@@ -7798,6 +7938,13 @@ def daily_prayer_page():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+def _prayer_for_day(user_key, day: str) -> str:
+    """Deterministic prayer choice per user+date (stable for the whole day)."""
+    if not _PRAYERS:
+        return ""
+    return _PRAYERS[hash((str(user_key or ""), day)) % len(_PRAYERS)]
+
+
 @app.route("/api/daily_prayer", methods=["POST"])
 def api_daily_prayer():
     data = request.get_json(silent=True) or {}
@@ -7821,8 +7968,7 @@ def api_daily_prayer():
                 already = True
     except Exception as exc:
         print(f"[DAILY_PRAYER] error: {exc}")
-    prayer = random.choice(_PRAYERS)
-    return jsonify({"prayer": prayer, "already": already})
+    return jsonify({"prayer": _prayer_for_day(uid, today), "already": already})
 
 
 # ── Canon Module ──────────────────────────────────────────────────────────
@@ -7854,11 +8000,14 @@ def canon_page():
         with get_db_engine().connect() as conn:
             rows = conn.execute(
                 text("""
-                    SELECT id, title, kind, author, date, canon_level, url, content
+                    SELECT id, title, kind, author, date, canon_level, url, content,
+                           (audio_data IS NOT NULL) AS has_audio, COALESCE(view_count, 0) AS view_count
                     FROM canon_works WHERE status = 'approved' ORDER BY id
                 """),
             ).mappings().all()
             _db_works = [dict(r) for r in rows]
+            for w in _db_works:
+                w["has_audio"] = bool(w.get("has_audio"))
     except Exception as exc:
         print(f"[CANON] page works db fallback: {exc}")
     if not _db_works:
@@ -7872,17 +8021,19 @@ def canon_page():
                 "canon_level": w.canon_level,
                 "url": w.url,
                 "content": "",
+                "has_audio": False,
+                "view_count": 0,
             }
             for idx, w in enumerate(CANON_WORKS)
         ]
-    works_json = json.dumps(_db_works, ensure_ascii=False)
+    works_json = json.dumps(_db_works, ensure_ascii=False).replace("</", "<\\/")
     terms_json = json.dumps(
         [
             {"term": t.term, "definition": t.definition, "source": t.source}
             for t in GLOSSARY_TERMS
         ],
         ensure_ascii=False,
-    )
+    ).replace("</", "<\\/")
     html = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -7970,6 +8121,7 @@ def canon_page():
             <div class="canon-body">{body_html}</div>
         </div>
         <div class="panel" id="panel-works">
+            <input class="search" id="works-search" type="text" placeholder="Поиск по названию или автору..." oninput="renderWorks()">
             <div class="filters">
                 <label for="level-filter">Уровень:</label>
                 <select id="level-filter" onchange="renderWorks()">
@@ -8003,6 +8155,10 @@ def canon_page():
 
         var tabs = document.querySelectorAll('.tab');
         var panels = {{ 'text': document.getElementById('panel-text'), 'works': document.getElementById('panel-works'), 'glossary': document.getElementById('panel-glossary') }};
+
+        function esc(s) {{ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {{ return {{ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }}[c]; }}); }}
+
+        function safeUrl(u) {{ try {{ var x = new URL(u, window.location.origin); return (x.protocol === 'http:' || x.protocol === 'https:' || x.protocol === 'tg:') ? x.href : '#'; }} catch(e) {{ return '#'; }} }}
         tabs.forEach(function(t) {{ t.addEventListener('click', function() {{
             tabs.forEach(function(x) {{ x.classList.remove('active'); }});
             Object.keys(panels).forEach(function(k) {{ panels[k].classList.remove('active'); }});
@@ -8013,16 +8169,28 @@ def canon_page():
         function renderWorks() {{
             var level = document.getElementById('level-filter').value;
             var kind = document.getElementById('kind-filter').value;
+            var q = (document.getElementById('works-search').value || '').toLowerCase().trim();
             var list = ALL_WORKS.filter(function(w) {{
-                return (level === 'all' || w.canon_level === level) && (kind === 'all' || w.kind === kind);
+                if (level !== 'all' && w.canon_level !== level) return false;
+                if (kind !== 'all' && w.kind !== kind) return false;
+                if (q) {{
+                    var hay = ((w.title || '') + ' ' + (w.author || '')).toLowerCase();
+                    if (hay.indexOf(q) === -1) return false;
+                }}
+                return true;
             }});
             document.getElementById('works-count').textContent = list.length + ' из ' + ALL_WORKS.length;
             var grid = document.getElementById('works-grid');
             grid.innerHTML = '';
+            if (list.length === 0) {{
+                grid.innerHTML = '<div class="empty">Ничего не найдено</div>';
+                return;
+            }}
             list.forEach(function(w) {{
                 var meta = [w.author, w.date].filter(Boolean).join(', ');
+                var views = (w.view_count || 0) > 0 ? ' · 👁 ' + w.view_count : '';
                 var badge = LEVEL_LABELS[w.canon_level] || ['', w.canon_level, ''];
-                var link = w.url ? ' <a href="' + w.url + '" target="_blank" rel="noopener noreferrer">открыть ↗</a>' : '';
+                var link = w.url ? ' <a href="' + safeUrl(w.url) + '" target="_blank" rel="noopener noreferrer">открыть ↗</a>' : '';
                 var card = document.createElement('div');
                 card.className = 'work-card';
                 var readLink = '<a class="btn btn-primary" style="padding:4px 12px;font-size:12px;" href="/canon/work/' + w.id + '">📖 Читать</a>';
@@ -8030,8 +8198,8 @@ def canon_page():
                 if (w.kind === 'track' && w.has_audio) {{
                     audioLink = '<a class="btn btn-secondary" style="padding:4px 12px;font-size:12px;" href="/canon/work/' + w.id + '#audio">🎧 Слушать</a>';
                 }}
-                card.innerHTML = '<h4>' + badge[0] + ' ' + w.title + '<span class="badge ' + badge[2] + '">' + badge[1] + '</span></h4>' +
-                    '<div class="work-meta">' + meta + link + '</div>' +
+                card.innerHTML = '<h4>' + badge[0] + ' ' + esc(w.title) + '<span class="badge ' + badge[2] + '">' + badge[1] + '</span></h4>' +
+                    '<div class="work-meta">' + esc(meta) + views + link + '</div>' +
                     '<div class="work-actions">' + readLink + audioLink + '</div>';
                 grid.appendChild(card);
             }});
@@ -8049,8 +8217,8 @@ def canon_page():
             list.forEach(function(t) {{
                 var div = document.createElement('div');
                 div.className = 'term';
-                div.innerHTML = '<h4>' + t.term + '</h4><p>' + t.definition + '</p>' +
-                    (t.source ? '<div class="term-source">Источник: ' + t.source + '</div>' : '');
+                div.innerHTML = '<h4>' + esc(t.term) + '</h4><p>' + esc(t.definition) + '</p>' +
+                    (t.source ? '<div class="term-source">Источник: ' + esc(t.source) + '</div>' : '');
                 container.appendChild(div);
             }});
         }}
@@ -8092,7 +8260,8 @@ def api_canon_works():
     try:
         with get_db_engine().connect() as conn:
             sql = ("SELECT id, title, kind, author, date, canon_level, url, content, "
-                   "audio_name, audio_mime, audio_size, (audio_data IS NOT NULL) AS has_audio "
+                   "audio_name, audio_mime, audio_size, COALESCE(view_count, 0) AS view_count, "
+                   "(audio_data IS NOT NULL) AS has_audio "
                    "FROM canon_works WHERE status = 'approved'")
             params: dict = {}
             if level != "all":
@@ -8124,6 +8293,7 @@ def api_canon_works():
             "audio_name": None,
             "audio_mime": None,
             "audio_size": None,
+            "view_count": 0,
             "has_audio": False,
         }
         for idx, w in enumerate(CANON_WORKS)
@@ -8137,16 +8307,22 @@ def api_canon_works():
 def api_canon_work_detail(work_id):
     """Полный текст одной канонической работы."""
     try:
-        with get_db_engine().connect() as conn:
+        with get_db_engine().begin() as conn:
             row = conn.execute(
                 text("""
                     SELECT id, title, kind, author, date, canon_level, url, content, status,
                            audio_name, audio_mime, audio_size,
+                           COALESCE(view_count, 0) AS view_count,
                            (audio_data IS NOT NULL) AS has_audio
                     FROM canon_works WHERE id = :wid
                 """),
                 {"wid": work_id},
             ).mappings().first()
+            if row and row["status"] == "approved":
+                conn.execute(
+                    text("UPDATE canon_works SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :wid"),
+                    {"wid": work_id},
+                )
         if not row or row["status"] != "approved":
             return jsonify({"error": "Произведение не найдено"}), 404
         detail = dict(row)
@@ -8173,6 +8349,7 @@ def api_canon_work_detail(work_id):
         "audio_name": None,
         "audio_mime": None,
         "audio_size": None,
+        "view_count": 0,
         "has_audio": False,
     })
 
@@ -8222,6 +8399,10 @@ def api_canon_request_submit():
         return jsonify({"error": "Укажите название и автора произведения"}), 400
     if len(title) > 200:
         return jsonify({"error": "Название слишком длинное"}), 400
+    if len(author) > 100:
+        return jsonify({"error": "Автор слишком длинный (макс. 100 символов)"}), 400
+    if len(url) > 500:
+        return jsonify({"error": "Ссылка слишком длинная (макс. 500 символов)"}), 400
     if not content:
         return jsonify({"error": "Вставьте полный текст произведения"}), 400
     if len(content) > 5000:
@@ -8380,6 +8561,12 @@ def api_admin_canon_work_update(work_id):
     content = (data.get("content") or "").strip()
     if not title:
         return jsonify({"error": "Название обязательно"}), 400
+    if len(title) > 300:
+        return jsonify({"error": "Название слишком длинное (макс. 300 символов)"}), 400
+    if len(author := (data.get("author") or "").strip()) > 100:
+        return jsonify({"error": "Автор слишком длинный (макс. 100 символов)"}), 400
+    if len(url := (data.get("url") or "").strip()) > 500:
+        return jsonify({"error": "Ссылка слишком длинная (макс. 500 символов)"}), 400
     try:
         with get_db_engine().connect() as conn:
             result = conn.execute(
@@ -8393,10 +8580,10 @@ def api_admin_canon_work_update(work_id):
                     "id": work_id,
                     "t": title,
                     "k": (data.get("kind") or "").strip() or "track",
-                    "a": (data.get("author") or "").strip(),
+                    "a": author,
                     "d": (data.get("date") or "").strip() or None,
                     "l": (data.get("canon_level") or "").strip() or "medium",
-                    "u": (data.get("url") or "").strip() or None,
+                    "u": url or None,
                     "c": content,
                 },
             )
@@ -8629,15 +8816,20 @@ def api_canon_search():
 def canon_work_page(work_id):
     """Страница с полным текстом одного канонического произведения."""
     try:
-        with get_db_engine().connect() as conn:
+        with get_db_engine().begin() as conn:
             row = conn.execute(
                 text("""
                     SELECT id, title, kind, author, date, canon_level, url, content, status,
-                           audio_name, audio_mime, audio_size
+                           audio_name, audio_mime, audio_size, COALESCE(view_count, 0) AS view_count
                     FROM canon_works WHERE id = :wid
                 """),
                 {"wid": work_id},
             ).mappings().first()
+            if row and row["status"] == "approved":
+                conn.execute(
+                    text("UPDATE canon_works SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :wid"),
+                    {"wid": work_id},
+                )
     except Exception as exc:
         print(f"[CANON] work page db error: {exc}")
         row = None
@@ -8660,6 +8852,7 @@ def canon_work_page(work_id):
             "audio_name": None,
             "audio_mime": None,
             "audio_size": None,
+            "view_count": 0,
         }
     else:
         work = dict(row)
@@ -8755,6 +8948,7 @@ def canon_work_page(work_id):
         <div class="meta">
             {kind_label} · {meta or 'Автор неизвестен'}
             <span class="badge badge-{work['canon_level']}">{level_label[1]}</span>
+            {('<span style="color:#8b949e;">👁 ' + str(work.get('view_count') or 0) + '</span>') if (work.get('view_count') or 0) > 0 else ''}
         </div>
         {audio_html}
         {('<div class="section-title">📜 Текст</div>' if work['kind'] == 'article' and not has_audio else '')}
@@ -9079,7 +9273,7 @@ def admin_canon_page():
             if (!file) { alert('Выберите файл'); return; }
             var fd = new FormData();
             fd.append('audio', file);
-            fetch('/api/admin/canon/works/' + id + '/audio', { method: 'POST', headers: authH(), body: fd })
+            fetch('/api/admin/canon/works/' + id + '/audio', { method: 'POST', headers: { 'Authorization': 'Bearer ' + (TOKEN || '') }, body: fd })
               .then(function(r) { return r.json(); }).then(function(j) {
                   var msg = document.getElementById('work-msg');
                   if (j.ok) { msg.textContent = '✅ Аудио загружено'; loadWorks(); } else { msg.textContent = j.error || 'Ошибка'; msg.className = 'msg error'; }
@@ -9274,6 +9468,8 @@ def irregular_verbs_page():
 
             function render(html) { content.innerHTML = html; }
 
+            function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
             window.copyUrl = function(btn) {
                 var url = btn.getAttribute('data-url');
                 if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -9337,16 +9533,18 @@ def irregular_verbs_page():
                     var xhr = new XMLHttpRequest();
                     xhr.open('POST', '/api/verbs/generate');
                     xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.timeout = 30000;
+                    xhr.ontimeout = function() { render('<div class="card error-text">\\u0421\\u0435\\u0440\\u0432\\u0435\\u0440 \\u043d\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u0438\\u043b. \\u041f\\u043e\\u043f\\u0440\\u043e\\u0431\\u0443\\u0439\\u0442\\u0435 \\u0435\\u0449\\u0451.</div><button class="back-link" onclick="app.createExercise()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); };
                     xhr.onload = function() {
                         try {
                             var r = JSON.parse(xhr.responseText);
-                            if (r.error) { render('<div class="card error-text">'+r.error+'</div><button class="back-link" onclick="app.createExercise()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                            if (r.error) { render('<div class="card error-text">'+esc(r.error)+'</div><button class="back-link" onclick="app.createExercise()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
                             // show preview with tasks
                             var h = '<div class="card"><h2>\\ud83d\\udccb \\u041f\\u0440\\u0435\\u0434\\u043f\\u0440\\u043e\\u0441\\u043c\\u043e\\u0442\\u0440</h2>';
                             h += '<p style="color:#888;font-size:13px;margin-bottom:8px">\\u041f\\u0440\\u0430\\u0432\\u0438\\u043b\\u044c\\u043d\\u044b\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u044b (\\u043f\\u0440\\u043e\\u0432\\u0435\\u0440\\u044c\\u0442\\u0435 AI):</p>';
                             h += '<table class="verbs-table preview-table"><tr><th>Infinitive</th><th>Past Simple</th><th>Past Participle</th></tr>';
                             (r.tasks || []).forEach(function(t) {
-                                h += '<tr><td>'+(t.inf||'')+'</td><td>'+(t.past||'')+'</td><td>'+(t.pp||'')+'</td></tr>';
+                                h += '<tr><td>'+esc(t.inf||'')+'</td><td>'+esc(t.past||'')+'</td><td>'+esc(t.pp||'')+'</td></tr>';
                             });
                             h += '</table>';
                             h += '<p style="color:#888;font-size:13px;margin-top:8px">\\u0423\\u0447\\u0435\\u043d\\u0438\\u043a\\u0438 \\u0443\\u0432\\u0438\\u0434\\u044f\\u0442: '+(mode==2?'\\u043f\\u0435\\u0440\\u0432\\u0443\\u044e \\u0438 \\u0432\\u0442\\u043e\\u0440\\u0443\\u044e \\u0444\\u043e\\u0440\\u043c\\u0443 (\\u0437\\u0430\\u043f\\u043e\\u043b\\u043d\\u0438\\u0442\\u044c Past Participle)':'\\u043e\\u0434\\u043d\\u0443 \\u0444\\u043e\\u0440\\u043c\\u0443 \\u043a\\u0430\\u043a \\u043f\\u043e\\u0434\\u0441\\u043a\\u0430\\u0437\\u043a\\u0443, \\u0434\\u0432\\u0435 \\u0434\\u0440\\u0443\\u0433\\u0438\\u0435 \\u0437\\u0430\\u043f\\u043e\\u043b\\u043d\\u0438\\u0442\\u044c')+'.</p>';
@@ -9373,6 +9571,8 @@ def irregular_verbs_page():
                     render('<div class="card" style="text-align:center"><p>\\ud83d\\udd0d \\u0417\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0430...</p></div>');
                     var xhr = new XMLHttpRequest();
                     xhr.open('GET', '/api/verbs/exercises?user_id=' + encodeURIComponent(USER_ID));
+                    xhr.timeout = 20000;
+                    xhr.ontimeout = function() { render('<div class="card error-text">\\u0421\\u0435\\u0440\\u0432\\u0435\\u0440 \\u043d\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u0438\\u043b.</div>'); };
                     xhr.onload = function() {
                         try {
                             var list = JSON.parse(xhr.responseText);
@@ -9392,17 +9592,19 @@ def irregular_verbs_page():
                     render('<div class="card" style="text-align:center"><p>\\ud83d\\udd0d \\u0417\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0430...</p></div>');
                     var xhr = new XMLHttpRequest();
                     xhr.open('GET', '/api/verbs/exercise/'+exId+'/results?teacher_id=' + encodeURIComponent(USER_ID));
+                    xhr.timeout = 20000;
+                    xhr.ontimeout = function() { render('<div class="card error-text">\\u0421\\u0435\\u0440\\u0432\\u0435\\u0440 \\u043d\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u0438\\u043b.</div><button class="back-link" onclick="app.myExercises()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); };
                     xhr.onload = function() {
                         try {
                             var r = JSON.parse(xhr.responseText);
-                            if (r.error) { render('<div class="card error-text">'+r.error+'</div><button class="back-link" onclick="app.myExercises()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
-                            var h = '<div class="card"><h2>\\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 #'+exId+'</h2>';
+                            if (r.error) { render('<div class="card error-text">'+esc(r.error)+'</div><button class="back-link" onclick="app.myExercises()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                            var h = '<div class="card"><h2>\\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 #'+esc(exId)+'</h2>';
                             if (!r.submissions || !r.submissions.length) { h += '<p style="color:#888">\\u041f\\u043e\\u043a\\u0430 \\u043d\\u0435\\u0442 \\u0440\\u0435\\u0448\\u0435\\u043d\\u0438\\u0439.</p>'; }
                             else {
                                 r.submissions.forEach(function(s) {
-                                    h += '<div class="student-row"><span class="student-name">'+s.name+'</span><span class="student-score">'+s.score+'/'+s.total+'</span></div>';
+                                    h += '<div class="student-row"><span class="student-name">'+esc(s.name)+'</span><span class="student-score">'+esc(s.score)+'/'+esc(s.total)+'</span></div>';
                                     s.errors.forEach(function(e) {
-                                        h += '<div style="font-size:13px;color:#e94560;padding:2px 0 2px 20px;">\\u2716 '+e+'</div>';
+                                        h += '<div style="font-size:13px;color:#e94560;padding:2px 0 2px 20px;">\\u2716 '+esc(e)+'</div>';
                                     });
                                 });
                             }
@@ -9442,15 +9644,17 @@ def irregular_verbs_page():
                     render('<div class="card" style="text-align:center"><p>\\ud83d\\udd0d \\u0417\\u0430\\u0433\\u0440\\u0443\\u0437\\u043a\\u0430...</p></div>');
                     var xhr = new XMLHttpRequest();
                     xhr.open('GET', '/api/verbs/exercise/'+exId);
+                    xhr.timeout = 20000;
+                    xhr.ontimeout = function() { render('<div class="card error-text">\\u0421\\u0435\\u0440\\u0432\\u0435\\u0440 \\u043d\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u0438\\u043b.</div><button class="back-link" onclick="app.studentEnterId()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); };
                     xhr.onload = function() {
                         try {
                             var ex = JSON.parse(xhr.responseText);
-                            if (ex.error) { render('<div class="card error-text">'+ex.error+'</div><button class="back-link" onclick="app.studentEnterId()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
-                            var h = '<div class="card"><h2>\\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 #'+ex.id+'</h2><table class="verbs-table"><tr><th>Infinitive</th><th>Past Simple</th><th>Past Participle</th></tr>';
+                            if (ex.error) { render('<div class="card error-text">'+esc(ex.error)+'</div><button class="back-link" onclick="app.studentEnterId()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button>'); return; }
+                            var h = '<div class="card"><h2>\\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 #'+esc(ex.id)+'</h2><table class="verbs-table"><tr><th>Infinitive</th><th>Past Simple</th><th>Past Participle</th></tr>';
                             ex.tasks.forEach(function(t, i) {
-                                h += '<tr><td>'+(t.inf ? '<span class="filled">'+t.inf+'</span>' : '<input id="i'+i+'i" placeholder="..." data-idx="'+i+'" data-field="inf">')+'</td>';
-                                h += '<td>'+(t.past ? '<span class="filled">'+t.past+'</span>' : '<input id="i'+i+'p" placeholder="..." data-idx="'+i+'" data-field="past">')+'</td>';
-                                h += '<td>'+(t.pp ? '<span class="filled">'+t.pp+'</span>' : '<input id="i'+i+'pp" placeholder="..." data-idx="'+i+'" data-field="pp">')+'</td></tr>';
+                                h += '<tr><td>'+(t.inf ? '<span class="filled">'+esc(t.inf)+'</span>' : '<input id="i'+i+'i" placeholder="..." data-idx="'+i+'" data-field="inf">')+'</td>';
+                                h += '<td>'+(t.past ? '<span class="filled">'+esc(t.past)+'</span>' : '<input id="i'+i+'p" placeholder="..." data-idx="'+i+'" data-field="past">')+'</td>';
+                                h += '<td>'+(t.pp ? '<span class="filled">'+esc(t.pp)+'</span>' : '<input id="i'+i+'pp" placeholder="..." data-idx="'+i+'" data-field="pp">')+'</td></tr>';
                             });
                             h += '</table><button class="btn btn-primary btn-full" onclick="app.submitExercise('+ex.id+')">\\u2705 \\u041f\\u0440\\u043e\\u0432\\u0435\\u0440\\u0438\\u0442\\u044c</button></div>';
                             render(h);
@@ -9473,14 +9677,16 @@ def irregular_verbs_page():
                     var xhr = new XMLHttpRequest();
                     xhr.open('POST', '/api/verbs/submit');
                     xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.timeout = 20000;
+                    xhr.ontimeout = function() { render('<div class="card error-text">\\u0421\\u0435\\u0440\\u0432\\u0435\\u0440 \\u043d\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u0438\\u043b.</div>'); };
                     xhr.onload = function() {
                         try {
                             var r = JSON.parse(xhr.responseText);
-                            if (r.error) { render('<div class="card error-text">'+r.error+'</div>'); return; }
-                            var h = '<div class="card"><div class="result-summary"><div class="score">'+r.score+'/'+r.total+'</div><div class="label">\\u043f\\u0440\\u0430\\u0432\\u0438\\u043b\\u044c\\u043d\\u044b\\u0445</div></div></div>';
+                            if (r.error) { render('<div class="card error-text">'+esc(r.error)+'</div>'); return; }
+                            var h = '<div class="card"><div class="result-summary"><div class="score">'+esc(r.score)+'/'+esc(r.total)+'</div><div class="label">\\u043f\\u0440\\u0430\\u0432\\u0438\\u043b\\u044c\\u043d\\u044b\\u0445</div></div></div>';
                             h += '<div class="card"><table class="verbs-table"><tr><th>Infinitive</th><th>Past Simple</th><th>Past Participle</th></tr>';
                             r.details.forEach(function(d) {
-                                h += '<tr><td class="'+(d.inf_correct?'correct':'wrong')+'">'+(d.inf||'')+'</td><td class="'+(d.past_correct?'correct':'wrong')+'">'+(d.past||'')+'</td><td class="'+(d.pp_correct?'correct':'wrong')+'">'+(d.pp||'')+'</td></tr>';
+                                h += '<tr><td class="'+(d.inf_correct?'correct':'wrong')+'">'+esc(d.inf||'')+'</td><td class="'+(d.past_correct?'correct':'wrong')+'">'+esc(d.past||'')+'</td><td class="'+(d.pp_correct?'correct':'wrong')+'">'+esc(d.pp||'')+'</td></tr>';
                             });
                             h += '</table></div><button class="btn btn-primary btn-full" onclick="app.studentEnterId()">\\ud83d\\udccb \\u041d\\u043e\\u0432\\u043e\\u0435 \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435</button>';
                             render(h);
@@ -9529,12 +9735,18 @@ def api_verbs_generate():
     VERB_GEN_LOCK[uid] = now
     tasks = _generate_verb_exercise(verbs, count, mode, wishes)
     if not tasks:
+        VERB_GEN_LOCK.pop(uid, None)
         return jsonify({"error": "AI не смог сгенерировать задание. Проверьте глаголы и попробуйте ещё раз."}), 503
     ex_id = random.randint(100000, 999999)
     while _load_verb_exercise(ex_id) is not None:
         ex_id = random.randint(100000, 999999)
-    ex_data = {"id": ex_id, "teacher_id": uid, "verbs": verbs, "task_count": count, "mode": mode, "wishes": wishes, "tasks": tasks}
-    _save_verb_exercise(ex_data)
+    try:
+        ex_data = {"id": ex_id, "teacher_id": uid, "verbs": verbs, "task_count": count, "mode": mode, "wishes": wishes, "tasks": tasks}
+        _save_verb_exercise(ex_data)
+    except Exception as exc:
+        VERB_GEN_LOCK.pop(uid, None)
+        print(f"[VERBS] save exercise error: {exc}")
+        return jsonify({"error": "Не удалось сохранить задание. Попробуйте ещё раз."}), 500
     share_url = request.host_url.rstrip("/") + "/irregular_verbs/exercise/" + str(ex_id)
     # build a display-safe preview (blank fields per mode) for the teacher
     preview = []
@@ -10750,24 +10962,14 @@ def telegram_webhook(secret: str):
                     parse_mode="Markdown",
                 )
             else:
-                # Check cooldown (max 1 puzzle per day) — REMOVED for testing
-                # TODO: re-enable after testing
-                datetime.utcnow()
-                get_user_coins(user_id)
-                
-                # Cooldown disabled — allow multiple puzzles per day
-                # if coins_data and coins_data.get("last_puzzle_at"):
-                #     last_puzzle = coins_data["last_puzzle_at"]
-                #     if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
-                #         last_puzzle = last_puzzle.replace(tzinfo=None)
-                #     from datetime import timedelta
-                #     if now - last_puzzle < timedelta(hours=24):
-                #         remaining = 24 - (now - last_puzzle).total_seconds() / 3600
-                #         send_telegram_message(
-                #             chat_id,
-                #             f"⏳ Пожалуйста, подождите {remaining:.1f} часов до следующей задачи.",
-                #         )
-                #         return jsonify({"ok": True})
+                # Check cooldown (max 1 puzzle per day)
+                remaining = _puzzle_cooldown_remaining_hours(user_id)
+                if remaining is not None:
+                    send_telegram_message(
+                        chat_id,
+                        f"⏳ Пожалуйста, подождите {remaining:.1f} ч. до следующей задачи.",
+                    )
+                    return jsonify({"ok": True})
                 
                 send_telegram_message(
                     chat_id,
@@ -10840,6 +11042,7 @@ def telegram_webhook(secret: str):
                         "chat_id": chat_id,
                         "username": account["lichess_username"],
                         "initial_ply": initial_ply,
+                        "created_at": time.time(),
                     }
                     
                     board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
@@ -10943,6 +11146,10 @@ def telegram_webhook(secret: str):
             import re
             if not re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', user_move):
                 return jsonify({"ok": True})
+            if time.time() - pending.get("created_at", 0) > 1800:
+                _PENDING_PUZZLES.pop(user_id, None)
+                send_telegram_message(chat_id, "⏰ Задача устарела. Загрузите новую: /puzzle")
+                return jsonify({"ok": True})
             solution = pending["solution"]
             # Handle both string and list formats
             if isinstance(solution, list):
@@ -10952,7 +11159,7 @@ def telegram_webhook(secret: str):
             
             if solution_moves and user_move == solution_moves[0].lower():
                 # Correct move — award coins
-                del _PENDING_PUZZLES[user_id]
+                _PENDING_PUZZLES.pop(user_id, None)
                 update_user_coins(user_id, 5, datetime.utcnow())
                 send_telegram_message(
                     chat_id,
@@ -10962,7 +11169,7 @@ def telegram_webhook(secret: str):
             else:
                 # Wrong move — show correct solution
                 correct = solution_moves[0] if solution_moves else "?"
-                del _PENDING_PUZZLES[user_id]
+                _PENDING_PUZZLES.pop(user_id, None)
                 send_telegram_message(
                     chat_id,
                     f"❌ **Неверно.**\n\nПравильный ход: `{correct}`\nПопробуйте следующую задачу: /puzzle",
@@ -11419,7 +11626,7 @@ def telegram_webhook(secret: str):
                             "🙏 Вы уже получали сегодняшнюю молитву!\nВозвращайтесь завтра.",
                         )
                         return jsonify({"ok": True})
-                    prayer = random.choice(_PRAYERS)
+                    prayer = _prayer_for_day(user_id, today)
                     conn.execute(
                         text("""
                             INSERT INTO daily_prayer_log (user_id, prayer_date)
@@ -12173,31 +12380,8 @@ def debug_last_error():
     return jsonify({"last_error": _last_error})
 
 
-# Initialize database tables on cold start
-try:
-    engine = get_db_engine()
-    _ensure_gd_tables(engine)
-    print("[INIT] GD tables initialized successfully")
-except Exception as init_exc:
-    print(f"[INIT] GD table init failed: {init_exc}")
-
-# Load bot ID at startup for reply/mention detection
-try:
-    _load_bot_id()
-except Exception as bot_id_exc:
-    print(f"[INIT] BOT_ID load failed (will retry on first request): {bot_id_exc}")
-
-# Ensure user_preferences table exists
-try:
-    _ensure_user_preferences_table(get_db_engine())
-except Exception as pref_exc:
-    print(f"[INIT] user_preferences table init failed: {pref_exc}")
-
-# Ensure chess_games table exists
-try:
-    _ensure_chess_games_table(get_db_engine())
-except Exception as chess_exc:
-    print(f"[INIT] chess_games table init failed: {chess_exc}")
+# Lazy DB/BOT_ID init: get_db_engine() creates tables on first call;
+# _load_bot_id() is called on demand in the webhook handler.
 
 # Debug endpoint to test submissions table
 @app.route("/api/debug_db", methods=["GET"])
@@ -12821,7 +13005,20 @@ def api_family_rooms_get(room_id):
 
 @app.route("/api/family/rooms/<room_id>", methods=["DELETE"])
 def api_family_rooms_delete(room_id):
+    data = request.get_json(silent=True) or {}
+    member_name = (data.get("member_name") or "").strip()
+    password = (data.get("password") or "").strip()
+    member = _family_verify_member(room_id, member_name, password)
+    if not member:
+        return jsonify({"error": "Неверное имя участника или пароль"}), 403
     engine = get_db_engine()
+    with engine.connect() as conn:
+        creator = conn.execute(
+            text("SELECT id FROM members WHERE room_id = :rid ORDER BY created_at ASC LIMIT 1"),
+            {"rid": room_id},
+        ).fetchone()
+    if not creator or creator["id"] != member["id"]:
+        return jsonify({"error": "Удалить комнату может только её создатель"}), 403
     with engine.begin() as conn:
         result = conn.execute(text("DELETE FROM rooms WHERE id = :rid"), {"rid": room_id})
     if result.rowcount == 0:
@@ -12977,21 +13174,30 @@ button.danger:hover { background: #c0392b; }
 """
 
 _FAMILY_JS_UTILS = """
-const API = window.location.origin + '/api/family';
+var API = window.location.origin + '/api/family';
 function $(id) { return document.getElementById(id); }
-function showError(id, msg) { const el = $(id); if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; } }
+function showError(id, msg) { var el = $(id); if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; } }
 function hide(el) { if (el) el.style.display = 'none'; }
 function show(el, display) { if (el) el.style.display = display || 'block'; }
 function store(key, val) { try { sessionStorage.setItem('fc_' + key, val); } catch(e) {} }
 function load(key) { try { return sessionStorage.getItem('fc_' + key); } catch(e) { return null; } }
-async function api(method, path, body) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
-    if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(API + path, opts);
-    let data = {};
-    try { data = await resp.json(); } catch(e) {}
-    if (!resp.ok) throw new Error(data.error || data.detail || 'Ошибка сервера');
-    return data;
+function api(method, path, body) {
+    return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open(method, API + path);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.timeout = 20000;
+        xhr.ontimeout = function() { reject(new Error('Сервер не ответил. Попробуйте ещё раз.')); };
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4) return;
+            var data = {};
+            try { data = JSON.parse(xhr.responseText); } catch(e) {}
+            if (xhr.status >= 200 && xhr.status < 300) { resolve(data); }
+            else { reject(new Error(data.error || data.detail || 'Ошибка сервера')); }
+        };
+        xhr.onerror = function() { reject(new Error('Сетевая ошибка')); };
+        xhr.send(body ? JSON.stringify(body) : null);
+    });
 }
 """
 
@@ -13037,29 +13243,31 @@ def family_page():
     <script>
 {_FAMILY_JS_UTILS}
     (function() {{
-        const createBtn = $('createBtn');
+        var createBtn = $('createBtn');
         if (!createBtn) return;
-        createBtn.addEventListener('click', async () => {{
-            const name = $('roomName').value.trim() || 'Семейный совет';
-            const creator = $('creatorName').value.trim() || 'Я';
+        createBtn.addEventListener('click', function() {{
+            var name = $('roomName').value.trim() || 'Семейный совет';
+            var creator = $('creatorName').value.trim() || 'Я';
             showError('createError', '');
             createBtn.disabled = true;
             createBtn.textContent = 'Создаём...';
-            try {{
-                const data = await api('POST', '/rooms', {{ name, creator_name: creator }});
-                $('roomIdDisplay').textContent = 'ID комнаты: ' + data.room_id;
-                $('inviteLink').innerHTML = 'Ссылка: <a href="' + data.invite_link + '">' + window.location.origin + data.invite_link + '</a>';
-                const passDiv = $('passwordDisplay');
-                passDiv.innerHTML = '<h3 style="font-size:14px;margin-bottom:8px;">Ваш пароль (сохраните его!):</h3>';
-                passDiv.innerHTML += '<div class="entry"><span class="name">' + data.your_name + '</span><span class="pass">' + data.your_password + '</span></div>';
-                show($('resultCard'));
-                $('goToRoomBtn').onclick = () => {{ window.location.href = '/family/room?room_id=' + data.room_id; }};
-            }} catch (err) {{
-                showError('createError', err.message);
-            }} finally {{
-                createBtn.disabled = false;
-                createBtn.textContent = 'Создать комнату';
-            }}
+            api('POST', '/rooms', {{ name: name, creator_name: creator }})
+                .then(function(data) {{
+                    $('roomIdDisplay').textContent = 'ID комнаты: ' + data.room_id;
+                    $('inviteLink').innerHTML = 'Ссылка: <a href="' + data.invite_link + '">' + window.location.origin + data.invite_link + '</a>';
+                    var passDiv = $('passwordDisplay');
+                    passDiv.innerHTML = '<h3 style="font-size:14px;margin-bottom:8px;">Ваш пароль (сохраните его!):</h3>';
+                    passDiv.innerHTML += '<div class="entry"><span class="name">' + data.your_name + '</span><span class="pass">' + data.your_password + '</span></div>';
+                    show($('resultCard'));
+                    $('goToRoomBtn').onclick = function() {{ window.location.href = '/family/room?room_id=' + data.room_id; }};
+                }})
+                .catch(function(err) {{
+                    showError('createError', err.message);
+                }})
+                .then(function() {{
+                    createBtn.disabled = false;
+                    createBtn.textContent = 'Создать комнату';
+                }});
         }});
     }})();
     </script>
@@ -13132,156 +13340,164 @@ def family_room_page():
     <script>
 {_FAMILY_JS_UTILS}
     (function() {{
-        const loginBtn = $('loginBtn');
+        var loginBtn = $('loginBtn');
         if (!loginBtn) return;
 
-        const urlParams = new URLSearchParams(window.location.search);
+        var urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('room_id')) {{
             $('roomIdInput').value = urlParams.get('room_id');
             loadRoomInfo(urlParams.get('room_id'));
         }}
 
-        $('roomIdInput').addEventListener('change', () => {{
-            const rid = $('roomIdInput').value.trim();
+        $('roomIdInput').addEventListener('change', function() {{
+            var rid = $('roomIdInput').value.trim();
             if (rid) loadRoomInfo(rid);
         }});
 
-        const savedRoom = load('room_id');
-        const savedName = load('member_name');
-        const savedPass = load('password');
+        var savedRoom = load('room_id');
+        var savedName = load('member_name');
+        var savedPass = load('password');
         if (savedRoom && savedName && savedPass) {{
             $('roomIdInput').value = savedRoom;
             loadRoomInfo(savedRoom, savedName, savedPass);
         }}
 
-        async function loadRoomInfo(roomId, autoName, autoPass) {{
-            try {{
-                const data = await api('GET', '/rooms/' + roomId);
-                $('roomSubtitle').textContent = 'Комната: ' + data.name;
-                const sel = $('memberSelect');
-                sel.innerHTML = '';
-                data.members.forEach(m => {{
-                    const opt = document.createElement('option');
-                    opt.value = m;
-                    opt.textContent = m;
-                    sel.appendChild(opt);
+        function loadRoomInfo(roomId, autoName, autoPass) {{
+            api('GET', '/rooms/' + roomId)
+                .then(function(data) {{
+                    $('roomSubtitle').textContent = 'Комната: ' + data.name;
+                    var sel = $('memberSelect');
+                    sel.innerHTML = '';
+                    data.members.forEach(function(m) {{
+                        var opt = document.createElement('option');
+                        opt.value = m;
+                        opt.textContent = m;
+                        sel.appendChild(opt);
+                    }});
+                    if (autoName && data.members.indexOf(autoName) !== -1) {{
+                        sel.value = autoName;
+                        $('passwordInput').value = autoPass || '';
+                        tryLogin();
+                    }}
+                }})
+                .catch(function(err) {{
+                    showError('loginError', 'Не удалось загрузить комнату: ' + err.message);
                 }});
-                if (autoName && data.members.includes(autoName)) {{
-                    sel.value = autoName;
-                    $('passwordInput').value = autoPass || '';
-                    tryLogin();
-                }}
-            }} catch (err) {{
-                showError('loginError', 'Не удалось загрузить комнату: ' + err.message);
-            }}
         }}
 
         loginBtn.addEventListener('click', tryLogin);
 
-        async function tryLogin() {{
-            const roomId = $('roomIdInput').value.trim();
-            const memberName = $('memberSelect').value;
-            const password = $('passwordInput').value.trim();
+        function tryLogin() {{
+            var roomId = $('roomIdInput').value.trim();
+            var memberName = $('memberSelect').value;
+            var password = $('passwordInput').value.trim();
             if (!roomId || !memberName || !password) {{
                 showError('loginError', 'Заполните все поля');
                 return;
             }}
             showError('loginError', '');
             loginBtn.disabled = true;
-            try {{
-                const data = await api('GET', '/rooms/' + roomId);
-                if (!data.members.includes(memberName)) throw new Error('Участник не найден в этой комнате');
-                store('room_id', roomId);
-                store('member_name', memberName);
-                store('password', password);
-                $('roomSubtitle').textContent = 'Комната: ' + data.name;
-                $('roomInfo').innerHTML = '';
-                var infoHtml = ''
-                    + '<div class="info-row"><span class="info-label">Статус</span><span class="info-value">' + (data.status === 'active' ? 'Активна' : data.status) + '</span></div>'
-                    + '<div class="info-row"><span class="info-label">Высказалось</span><span class="info-value">' + data.spoke_count + '/' + data.participants_total + '</span></div>'
-                    + '<div class="info-row"><span class="info-label">Участники</span><span class="info-value">' + data.members.join(', ') + '</span></div>';
-                $('roomInfo').innerHTML = infoHtml;
-                hide($('loginCard'));
-                show($('chatCard'));
-                $('messageInput').focus();
-            }} catch (err) {{
-                showError('loginError', err.message);
-            }} finally {{
-                loginBtn.disabled = false;
-            }}
+            api('GET', '/rooms/' + roomId)
+                .then(function(data) {{
+                    if (data.members.indexOf(memberName) === -1) throw new Error('Участник не найден в этой комнате');
+                    store('room_id', roomId);
+                    store('member_name', memberName);
+                    store('password', password);
+                    $('roomSubtitle').textContent = 'Комната: ' + data.name;
+                    $('roomInfo').innerHTML = '';
+                    var infoHtml = ''
+                        + '<div class="info-row"><span class="info-label">Статус</span><span class="info-value">' + (data.status === 'active' ? 'Активна' : data.status) + '</span></div>'
+                        + '<div class="info-row"><span class="info-label">Высказалось</span><span class="info-value">' + data.spoke_count + '/' + data.participants_total + '</span></div>'
+                        + '<div class="info-row"><span class="info-label">Участники</span><span class="info-value">' + data.members.map(escapeHtml).join(', ') + '</span></div>';
+                    $('roomInfo').innerHTML = infoHtml;
+                    hide($('loginCard'));
+                    show($('chatCard'));
+                    $('messageInput').focus();
+                }})
+                .catch(function(err) {{
+                    showError('loginError', err.message);
+                }})
+                .then(function() {{
+                    loginBtn.disabled = false;
+                }});
         }}
 
-        $('joinBtn').addEventListener('click', async () => {{
-            const roomId = $('roomIdInput').value.trim();
-            const name = $('joinName').value.trim();
+        $('joinBtn').addEventListener('click', function() {{
+            var roomId = $('roomIdInput').value.trim();
+            var name = $('joinName').value.trim();
             if (!roomId || !name) {{ showError('loginError', 'Введите ID комнаты и имя'); return; }}
             showError('loginError', '');
             $('joinBtn').disabled = true;
-            try {{
-                const data = await api('POST', '/rooms/join', {{ room_id: roomId, member_name: name }});
-                $('joinInfo').textContent = data.is_new ? ('Вы вошли! Пароль: ' + data.your_password) : 'Участник уже есть. Введите пароль ниже.';
-                loadRoomInfo(roomId);
-            }} catch (err) {{
-                showError('loginError', err.message);
-            }} finally {{
-                $('joinBtn').disabled = false;
-            }}
+            api('POST', '/rooms/join', {{ room_id: roomId, member_name: name }})
+                .then(function(data) {{
+                    $('joinInfo').textContent = data.is_new ? ('Вы вошли! Пароль: ' + data.your_password) : 'Участник уже есть. Введите пароль ниже.';
+                    loadRoomInfo(roomId);
+                }})
+                .catch(function(err) {{
+                    showError('loginError', err.message);
+                }})
+                .then(function() {{
+                    $('joinBtn').disabled = false;
+                }});
         }});
 
-        const sendBtn = $('sendBtn');
-        const msgInput = $('messageInput');
-        const chatLog = $('chatLog');
-        const typing = $('typing');
+        var sendBtn = $('sendBtn');
+        var msgInput = $('messageInput');
+        var chatLog = $('chatLog');
+        var typing = $('typing');
 
-        msgInput.addEventListener('keydown', (e) => {{
+        msgInput.addEventListener('keydown', function(e) {{
             if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); sendBtn.click(); }}
         }});
 
-        sendBtn.addEventListener('click', async () => {{
-            const text = msgInput.value.trim();
+        sendBtn.addEventListener('click', function() {{
+            var text = msgInput.value.trim();
             if (!text) return;
-            const roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+            var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
             if (!roomId || !memberName || !password) {{ showError('chatError', 'Сессия потеряна. Войдите заново.'); return; }}
             showError('chatError', '');
             sendBtn.disabled = true; msgInput.disabled = true;
             addMessage('user', memberName, text);
             msgInput.value = '';
             show(typing);
-            try {{
-                const data = await api('POST', '/chat/send', {{ room_id: roomId, member_name: memberName, password: password, message: text }});
-                hide(typing);
-                addMessage('ai', 'Медиатор', data.response);
-            }} catch (err) {{
-                hide(typing);
-                showError('chatError', err.message);
-            }} finally {{
-                sendBtn.disabled = false; msgInput.disabled = false; msgInput.focus();
-            }}
+            api('POST', '/chat/send', {{ room_id: roomId, member_name: memberName, password: password, message: text }})
+                .then(function(data) {{
+                    hide(typing);
+                    addMessage('ai', 'Медиатор', data.response);
+                }})
+                .catch(function(err) {{
+                    hide(typing);
+                    showError('chatError', err.message);
+                }})
+                .then(function() {{
+                    sendBtn.disabled = false; msgInput.disabled = false; msgInput.focus();
+                }});
         }});
 
         function addMessage(type, label, text) {{
-            const div = document.createElement('div');
+            var div = document.createElement('div');
             div.className = 'msg ' + type;
-            div.innerHTML = '<div class="label">' + label + '</div>' + escapeHtml(text);
+            div.innerHTML = '<div class="label">' + escapeHtml(label) + '</div>' + escapeHtml(text);
             chatLog.appendChild(div);
             chatLog.scrollTop = chatLog.scrollHeight;
         }}
-        function escapeHtml(text) {{ const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }}
+        function escapeHtml(text) {{ var d = document.createElement('div'); d.textContent = text; return d.innerHTML; }}
 
-        $('finishBtn').addEventListener('click', async () => {{
+        $('finishBtn').addEventListener('click', function() {{
             if (!confirm('Вы уверены, что хотите завершить диалог? После этого вы не сможете писать в этой комнате.')) return;
-            const roomId = load('room_id'), memberName = load('member_name'), password = load('password');
-            try {{
-                await api('POST', '/chat/finish', {{ room_id: roomId, member_name: memberName, password: password }});
-                sendBtn.disabled = true; msgInput.disabled = true;
-                $('finishBtn').disabled = true; $('finishBtn').textContent = '✓ Диалог завершён';
-                showError('chatError', '');
-                show($('reportReady'));
-            }} catch (err) {{ showError('chatError', err.message); }}
+            var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+            api('POST', '/chat/finish', {{ room_id: roomId, member_name: memberName, password: password }})
+                .then(function() {{
+                    sendBtn.disabled = true; msgInput.disabled = true;
+                    $('finishBtn').disabled = true; $('finishBtn').textContent = '✓ Диалог завершён';
+                    showError('chatError', '');
+                    show($('reportReady'));
+                }})
+                .catch(function(err) {{ showError('chatError', err.message); }});
         }});
 
-        $('reportBtn').addEventListener('click', () => {{
-            const roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+        $('reportBtn').addEventListener('click', function() {{
+            var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
             window.location.href = '/family/result?room_id=' + roomId + '&name=' + encodeURIComponent(memberName) + '&pass=' + encodeURIComponent(password);
         }});
     }})();
@@ -13333,60 +13549,64 @@ def family_result_page():
     <script>
 {_FAMILY_JS_UTILS}
     (function() {{
-        const getReportBtn = $('getReportBtn');
+        var getReportBtn = $('getReportBtn');
         if (!getReportBtn) return;
 
-        const urlParams = new URLSearchParams(window.location.search);
+        var urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('room_id') && urlParams.get('name') && urlParams.get('pass')) {{
             $('roomIdInput').value = urlParams.get('room_id');
             loadMembers(urlParams.get('room_id'), urlParams.get('name'), urlParams.get('pass'));
         }}
 
-        $('roomIdInput').addEventListener('change', () => {{
-            const rid = $('roomIdInput').value.trim();
+        $('roomIdInput').addEventListener('change', function() {{
+            var rid = $('roomIdInput').value.trim();
             if (rid) loadMembers(rid);
         }});
 
-        async function loadMembers(roomId, autoName, autoPass) {{
-            try {{
-                const data = await api('GET', '/rooms/' + roomId);
-                const sel = $('memberSelect');
-                sel.innerHTML = '';
-                data.members.forEach(m => {{
-                    const opt = document.createElement('option');
-                    opt.value = m;
-                    opt.textContent = m;
-                    sel.appendChild(opt);
-                }});
-                if (autoName) {{
-                    sel.value = autoName;
-                    $('passwordInput').value = autoPass || '';
-                    fetchReport();
-                }}
-            }} catch (err) {{ showError('reportError', err.message); }}
+        function loadMembers(roomId, autoName, autoPass) {{
+            api('GET', '/rooms/' + roomId)
+                .then(function(data) {{
+                    var sel = $('memberSelect');
+                    sel.innerHTML = '';
+                    data.members.forEach(function(m) {{
+                        var opt = document.createElement('option');
+                        opt.value = m;
+                        opt.textContent = m;
+                        sel.appendChild(opt);
+                    }});
+                    if (autoName) {{
+                        sel.value = autoName;
+                        $('passwordInput').value = autoPass || '';
+                        fetchReport();
+                    }}
+                }})
+                .catch(function(err) {{ showError('reportError', err.message); }});
         }}
 
         getReportBtn.addEventListener('click', fetchReport);
 
-        async function fetchReport() {{
-            const roomId = $('roomIdInput').value.trim();
-            const memberName = $('memberSelect').value;
-            const password = $('passwordInput').value.trim();
+        function fetchReport() {{
+            var roomId = $('roomIdInput').value.trim();
+            var memberName = $('memberSelect').value;
+            var password = $('passwordInput').value.trim();
             if (!roomId || !memberName || !password) {{ showError('reportError', 'Заполните все поля'); return; }}
             showError('reportError', '');
             getReportBtn.disabled = true;
             getReportBtn.textContent = 'Генерируем...';
-            try {{
-                const data = await api('POST', '/report/generate', {{ room_id: roomId, member_name: memberName, password: password }});
-                $('reportTitle').textContent = 'Отчёт по комнате';
-                $('reportContent').innerHTML = formatReport(data.report_text);
-                show($('reportCard'));
-            }} catch (err) {{ showError('reportError', err.message); }}
-            finally {{ getReportBtn.disabled = false; getReportBtn.textContent = 'Получить отчёт'; }}
+            api('POST', '/report/generate', {{ room_id: roomId, member_name: memberName, password: password }})
+                .then(function(data) {{
+                    $('reportTitle').textContent = 'Отчёт по комнате';
+                    $('reportContent').innerHTML = formatReport(data.report_text);
+                    show($('reportCard'));
+                }})
+                .catch(function(err) {{ showError('reportError', err.message); }})
+                .then(function() {{ getReportBtn.disabled = false; getReportBtn.textContent = 'Получить отчёт'; }});
         }}
 
+        function escapeHtml(text) {{ var d = document.createElement('div'); d.textContent = text; return d.innerHTML; }}
+
         function formatReport(text) {{
-            let html = text
+            var html = escapeHtml(text)
                 .replace(/### \\d+\\.\\s+(.+)/g, '</div><div class="report-section"><h3>$1</h3>')
                 .replace(/- (.+)/g, '<li>$1</li>')
                 .replace(/\\n\\n/g, '</p><p>')
@@ -13396,7 +13616,7 @@ def family_result_page():
             return '<div class="report-section" style="margin-top:0;">' + html + '</div>';
         }}
 
-        $('printBtn').addEventListener('click', () => {{ window.print(); }});
+        $('printBtn').addEventListener('click', function() {{ window.print(); }});
     }})();
     </script>
 </body>
