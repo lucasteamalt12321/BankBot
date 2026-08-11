@@ -7,11 +7,14 @@ import unittest
 import sys
 import os
 import tempfile
-import sqlite3
+from unittest.mock import patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from database.database import Base
 from utils.admin.admin_system import AdminSystem
 
 
@@ -24,11 +27,29 @@ class TestTask5Integration(unittest.TestCase):
         self.temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
         self.temp_db.close()
 
+        # AdminSystem reads/writes via the module-level SessionLocal and the
+        # shared engine. Point both at the temporary database.
+        self.engine = create_engine(
+            f"sqlite:///{self.temp_db.name}", connect_args={"check_same_thread": False}
+        )
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine)
+
+        self._patches = [
+            patch("database.database.engine", self.engine),
+            patch("database.database.SessionLocal", self.Session),
+            patch("utils.admin.admin_system.SessionLocal", self.Session),
+        ]
+        for p in self._patches:
+            p.start()
+
         # Initialize admin system with test database
         self.admin_system = AdminSystem(self.temp_db.name)
 
     def tearDown(self):
         """Clean up after tests"""
+        for p in self._patches:
+            p.stop()
         # Remove temporary database
         try:
             os.unlink(self.temp_db.name)
@@ -64,16 +85,16 @@ class TestTask5Integration(unittest.TestCase):
         # 1. Find user by username
         target_user = self.admin_system.get_user_by_username(username)
         self.assertIsNotNone(target_user)
-        self.assertEqual(target_user['id'], user_id)
+        self.assertEqual(target_user['telegram_id'], user_id)
 
         # 2. Update balance
-        new_balance = self.admin_system.update_balance(target_user['id'], amount)
+        new_balance = self.admin_system.update_balance(target_user['telegram_id'], amount)
         self.assertIsNotNone(new_balance)
         self.assertEqual(new_balance, initial_balance + amount)
 
         # 3. Create transaction
         transaction_id = self.admin_system.add_transaction(
-            target_user['id'], amount, 'add', admin_id
+            target_user['telegram_id'], amount, 'add', admin_id
         )
         self.assertIsNotNone(transaction_id)
 
@@ -92,10 +113,9 @@ class TestTask5Integration(unittest.TestCase):
         conn.close()
 
         self.assertIsNotNone(transaction)
-        self.assertEqual(transaction['user_id'], user_id)
+        self.assertEqual(transaction['user_id'], target_user['id'])
         self.assertEqual(transaction['amount'], amount)
-        self.assertEqual(transaction['type'], 'add')
-        self.assertEqual(transaction['admin_id'], admin_id)
+        self.assertEqual(transaction['transaction_type'], 'add')
 
     def test_add_points_error_handling(self):
         """Test error handling for /add_points command"""

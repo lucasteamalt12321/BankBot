@@ -603,7 +603,9 @@ class TelegramBot:
 
         for handler in handlers:
             self.application.add_handler(handler)
-            logger.info(f"Added handler: {handler.callback.__name__}")
+            callback = getattr(handler, "callback", None)
+            handler_name = getattr(callback, "__name__", type(handler).__name__)
+            logger.info(f"Added handler: {handler_name}")
 
         # Обработка опросов и колбэков
         from telegram.ext import PollAnswerHandler

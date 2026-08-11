@@ -155,7 +155,7 @@ class TestProcessManagerProperties:
                 def fake_pid_exists(pid, error=error):
                     return error is None
 
-                with patch('src.process_manager.psutil.pid_exists', side_effect=fake_pid_exists) as mock_pid_exists, \
+                with patch('src.process_manager.psutil.pid_exists', side_effect=fake_pid_exists), \
                      patch('src.process_manager.psutil.Process') as mock_process:
                     if error is None:
                         mock_process.return_value.terminate.return_value = None

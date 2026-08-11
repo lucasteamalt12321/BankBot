@@ -10,6 +10,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -45,11 +46,20 @@ class TestAdminManagerIntegration:
             admin_system=self.admin_system
         )
 
+        # AdminSystem reads/writes via the module-level SessionLocal, not the
+        # db_path passed to its constructor. Point it at the test database so
+        # the integration tests exercise the real SQL query path.
+        self._admin_session_patch = patch(
+            'utils.admin.admin_system.SessionLocal', sessionmaker(bind=self.engine)
+        )
+        self._admin_session_patch.start()
+
         # Create test data
         self._create_test_data()
 
     def teardown_method(self):
         """Clean up test database"""
+        self._admin_session_patch.stop()
         self.session.close()
         self.engine.dispose()
         os.unlink(self.db_file.name)

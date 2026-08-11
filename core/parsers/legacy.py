@@ -342,12 +342,14 @@ class MafiaProfileParser(MessageParser):
                 after = stripped.split("👤", 1)[1].strip()
                 if after:
                     player_name = after
-            if stripped.startswith("💵 Деньги:"):
+            if stripped.startswith("💵 Деньги:") and money is None:
                 raw = stripped.split(":", 1)[1].strip()
                 num_str = raw.split()[0] if raw.split() else ""
                 try:
                     money = Decimal(num_str)
                 except (InvalidOperation, IndexError):
+                    raise ParserError(f"Invalid money value: {num_str!r}")
+                if not money.is_finite():
                     raise ParserError(f"Invalid money value: {num_str!r}")
 
         if player_name is None:
@@ -407,12 +409,14 @@ class BunkerProfileParser(MessageParser):
                 after = stripped.split("👤", 1)[1].strip()
                 if after:
                     player_name = after
-            if stripped.startswith("💵 Деньги:"):
+            if stripped.startswith("💵 Деньги:") and money is None:
                 raw = stripped.split(":", 1)[1].strip()
                 num_str = raw.split()[0] if raw.split() else ""
                 try:
                     money = Decimal(num_str)
                 except (InvalidOperation, IndexError):
+                    raise ParserError(f"Invalid money value: {num_str!r}")
+                if not money.is_finite():
                     raise ParserError(f"Invalid money value: {num_str!r}")
 
         if player_name is None:

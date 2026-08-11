@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 import pytest
 
-from api.index import ADMIN_TELEGRAM_ID, app
+from api import index as index_api
+from api.index import app
+from sqlalchemy import text
 from tests.unit.test_web_portal_e2e import _auth_headers, _make_engine
 
 
@@ -16,10 +18,16 @@ def _admin_token(client):
     resp = client.post("/api/auth/register", json={
         "login": "canonroot",
         "password": "secret123",
-        "telegram_id": ADMIN_TELEGRAM_ID,
     })
     assert resp.status_code == 200
-    return resp.get_json()["token"]
+    data = resp.get_json()
+    engine = index_api.get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE web_users SET is_admin = 1 WHERE id = :uid"),
+            {"uid": data["user_id"]},
+        )
+    return data["token"]
 
 
 def _user_token(client, login="canonuser"):

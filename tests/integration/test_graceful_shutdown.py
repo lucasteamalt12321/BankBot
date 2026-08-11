@@ -52,12 +52,10 @@ class TestProcessManagerShutdown:
 
     def test_shutdown_with_running_process(self, tmp_path, monkeypatch):
         """Проверка shutdown с запущенным процессом."""
-        monkeypatch.chdir(tmp_path)
-
-        # Создаем PID файл
         pid_file = tmp_path / "data" / "bot.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text("99999")
+        monkeypatch.setattr(ProcessManager, "PID_FILE", pid_file)
 
         # Мокаем процесс
         mock_proc = MagicMock()

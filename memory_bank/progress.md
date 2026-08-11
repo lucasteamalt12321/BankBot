@@ -6,6 +6,49 @@
 
 ## Changelog
 
+### 2026-08-11 (Session: производительность + фидбек в админке)
+
+Два бага от пользователя:
+
+**Баг 1 — «сайт думает пол минуты» (везде, включая страницы).** Root cause: `get_db_engine()` на **каждый** вызов выполнял 9 функций `_ensure_*`, которые шлют 69 DDL-запросов (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN`, `CREATE INDEX`) в удалённую Postgres — десятки сетевых round-trip'ов на каждый запрос страницы/API. **Фикс (`api/index.py`):** все `_ensure_*` перенесены внутрь блока `if DB_ENGINE is None:` — DDL-миграции выполняются один раз при создании движка, а не на каждый запрос.
+
+**Баг 2 — фидбек с `/suggest` не виден в админке.** Root cause: фильтры «Баг»/«Предложения» в `/admin` слали `?status=bug`/`?status=suggestion`, но API фильтрует по колонке `status` (`open`/`closed`), а категория лежит в `category` → отфильтрованные списки всегда пустые. **Фикс:** JS `loadFeedback` теперь шлёт `?category=bug`/`?category=suggestion`, `?status=open` — только для «Открытые»; эндпоинт `/api/admin/feedback` принимает параметр `category`.
+
+**Доп. оптимизация cold start (после деплоя выяснилось):** страницы без БД (`/`, `/health`) всё равно открывались ~21s — при импорте модуля выполнялся import-time блок инициализации (`get_db_engine()` + `_load_bot_id()` + 2 `_ensure_*`, строки ~12378). **Фикс:** блок удалён — `get_db_engine()` и `_load_bot_id()` теперь вызываются лениво (первый запрос к БД / webhook). Результат на проде: `/health` 21s → **0.6s**, `/` → **0.4s**; первый запрос к БД на новом инстансе ~10s (DDL один раз), последующие 0.4-1.3s.
+
+**Тесты:** добавлена проверка фильтра по категории в `test_feedback_submit_and_admin_flow`; полный `tests/unit` **973 passed / 10 skipped**; ruff clean. Задеплоено на прод.
+
+### 2026-08-11 (Session: аудит бета-модулей — фикс последних 3 багов)
+
+- Повторный аудит подтвердил: все баги бета-аудита 2026-08-10 уже исправлены в рабочей копии (валидация кубиков D&D, медиа/таймаут GD, ключи `_TRIVIA_SESSIONS` по session_id, валидация `answer_index`, атомарный `pop` перед начислением монет в шахматах, XSS в глаголах, `VERB_GEN_LOCK` cleanup, авторизация DELETE комнат Family, детерминированная молитва дня + UNIQUE-индекс, XSS/`</`/лимиты в Каноне, privilege escalation и валидация длин в админке).
+- Закрыты 3 остававшихся бага в `api/index.py`:
+  - **Family stored XSS:** список участников в `/family/room` теперь проходит `escapeHtml` (`data.members.map(escapeHtml).join(', ')`).
+  - **Chess JSON.parse:** в `checkMove` добавлен try/catch — при не-JSON ответе показывается «Ошибка сервера.», кнопка «Проверить» не залипает.
+  - **Chess TTL `_PENDING_PUZZLES`:** константа `_PENDING_PUZZLE_TTL = 1800` + ленивая чистка протухших записей при выдаче нового пазла; проверка устаревания в check переведена на константу.
+- Проверки: ruff All checks passed; `py_compile` OK (только pre-existing SyntaxWarnings); тесты — 19 passed (web_portal_e2e + canon_requests_e2e), 9 passed (chess/family/trivia/verbs/puzzle).
+
+### 2026-08-10 (Session: бета-аудит 9 модулей — запись + начало фиксов)
+
+Пользователь провёл аудит всех бета-модулей. Полный план фиксов зафиксирован в `activeContext.md` («Бета-аудит 2026-08-10»). Начата работа по приоритету №1 (privilege escalation в `/settings`/`/admin`), затем остальные критические (XSS, авторизация DELETE, DoS dice, монеты пазлов).
+
+### 2026-08-10 (Session: фикс GD-BUG-1 — веб-заявка GD с медиа)
+
+**Баг:** на `/gd` заявка отправлялась без видео/фото (сразу `pending`, без `media_file_id`), и кнопка «Отправить рекорд» зависала на минуту при медленном XHR.
+
+**Фикс (всё в `api/index.py` + тест):**
+- `POST /api/gd/submit` переведён с JSON на **multipart/form-data** и теперь **требует** файл `media` (видео/фото с прохождением); 400 «Прикрепите видео или фото с прохождением» без файла. `media_type` определяется по MIME (`video/*`/`image/*`) или расширению; файл сохраняется как **data-URL** в `media_file_id` (веб не имеет Telegram file_id).
+- `/gd`: добавлено `<input type="file" id="sub-media" accept="video/*,image/*,...">` с лейблом `.file-label` (подсветка при выборе файла), JS `submitRecord()` переписан на FormData + `xhr.timeout = 30000` + `ontimeout` (возвращает кнопку), после успеха поля очищаются.
+- Модерация `/gd`: для заявок с data-URL-медиа показывается ссылка «🎬 Смотреть медиа».
+- Тест `test_gd_web_submit_requires_media` (`tests/unit/test_web_portal_e2e.py`): 400 без файла → создание с `.mp4` → status=pending, media_type=video, `media_file_id` = data-URL; страница `/gd` содержит `#sub-media`. Таблица `submissions` добавлена в `_make_engine`.
+- Итог: unit **973 passed / 10 skipped**, ruff clean.
+
+### 2026-08-10 (Session: деплой + режим тестирования бета-модулей)
+
+- Задеплоено на прод (Vercel, alias `bank-bot-ruby.vercel.app`): Family Circle JS переведён на ES5/XHR (фикс кнопки «Создать» в старом Telegram WebView — ранее весь скрипт падал на `async/await`/стрелках/`fetch`), доработка канона (поиск по произведениям, `view_count`, `has_audio` в каталоге), cooldown пазлов, админ-проверка GD через AdminSystem.
+- Прод проверен: `/`, `/family`, `/family/room`, `/family/result`, `/canon`, `/api/canon/works` — все 200.
+- **Новый режим:** пользователь вручную тестирует бета-модули; рабочие → перенос в основной раздел, баги → запись в memory bank (не фиксятся на месте). Список бета-модулей и зафиксированные баги — в `activeContext.md`.
+- **Зафиксирован баг [GD-BUG-1]** — веб-заявка GD без медиа (см. `activeContext.md`).
+
 ### 2026-08-09 (Session: CANON-03 — аудио для треков + просмотр текста для статей)
 
 **Сделано (всё в `api/index.py` + тесты):**
@@ -851,13 +894,15 @@
   - Unknown commands now receive a `/commands` fallback response instead of silence.
 
 ## Known Issues
-- User сообщает что кнопка "Создать" на экране создания семьи не реагирует на нажатие в Telegram WebView (возможно не видит toast об ошибке "already in a family" или браузер кеширует старую версию)
-- После ES5-фикса и Playwright-верификации JS работает корректно
-- **Pre-existing падения тестов (подтверждено git stash — падают и на чистом HEAD, не связаны с QUALITY-правками):** `tests/property/test_error_handler_properties.py` (9), `test_process_manager_properties.py` (2 fail + 3 error), `test_base_repository_pbt.py`, `test_bunker_profile_parser_properties.py`, `test_mafia_profile_parser_properties.py`, `tests/integration/test_admin_manager_integration.py` (2), `test_background_integration.py` (1), `test_system_architecture_integration.py`. Итого ~30 failed + 3 errors. Требуют отдельной сессии починки (вне scope QUALITY A/B).
+- ~~**Производительность: сайт «думает» пол минуты везде (2026-08-11)**~~ → **ПОЧИНЕНО:** `get_db_engine()` выполнял 69 DDL-запросов на каждый вызов; `_ensure_*` перенесены в блок создания движка. Дополнительно убран import-time init (cold start 21s → 0.5s). Задеплоено.
+- ~~**Фидбек с /suggest не виден в админке (2026-08-11)**~~ → **ПОЧИНЕНО:** фильтры админки слали `?status=bug/suggestion` вместо `?category=`; API теперь принимает `category`. Задеплоено.
+- ~~**[GD-BUG-1] Веб-заявка GD без медиа (2026-08-10)**~~ → **ПОЧИНЕНО (2026-08-10):** `/api/gd/submit` требует multipart-файл видео/фото (хранится data-URL в `media_file_id`), в `/gd` добавлено поле загрузки, `submitRecord()` → FormData + `xhr.timeout=30000`, модератор видит «🎬 Смотреть медиа». Тест `test_gd_web_submit_requires_media`. Задеплоено.
+- **Бета-аудит 2026-08-10 (9 модулей, 18+ пунктов):** полный список улучшений и багов зафиксирован в `activeContext.md` → «Бета-аудит 2026-08-10». Приоритет №1: **privilege escalation** в `/settings`/`/admin` (is_admin из клиентского telegram_id). Также критичные: DELETE family-комнаты без авторизации, Stored XSS (глаголы/канон/family), двойное начисление монет в пазлах, DoS через `/api/dnd/roll`.
+- ~~User сообщает что кнопка "Создать" на экране создания семьи не реагирует на нажатие в Telegram WebView~~ → **ПОЧИНЕНО (2026-08-10):** JS Family Circle переписан на ES5 + XHR Promise (старый WebView падал на async/await/стрелках/fetch). Деплой сделан.
+- ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-257e1a2 (2026-08-08) — hotfix web_token (CANON02 залогиненным видно форму)
-
+d3b5594 (2026-08-11) — docs: sync projectbrief (PARSE01 completed, CANON-03 added)
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
 - **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
