@@ -7655,8 +7655,9 @@ def emperors_page():
         .info .info-label { color: #e94560; font-weight: 600; }
         .next-btn { display: none; width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; font-family: inherit; }
         .next-btn:hover { background: #d63851; }
-        .mode-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center; }
+        .mode-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center; flex-wrap: wrap; }
         .mode-row label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #e0e0e0; cursor: pointer; }
+        .algo-select { background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: inherit; cursor: pointer; }
         .status { text-align: center; color: #888; margin-top: 24px; font-size: 13px; }
         .reset-btn { background: none; border: 1px solid #1a5276; color: #888; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: inherit; }
         .reset-btn:hover { border-color: #e94560; color: #e94560; }
@@ -7677,6 +7678,12 @@ def emperors_page():
         <div class="panel" id="panel-quiz">
             <div class="score" id="quiz-score"></div>
             <div class="mode-row">
+                <label>Алгоритм:
+                    <select class="algo-select" id="algo-select" onchange="app.toggleAlgo()">
+                        <option value="deck">Классика (колода)</option>
+                        <option value="flash">Флешки (интервалы)</option>
+                    </select>
+                </label>
                 <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
                 <button class="reset-btn" onclick="app.resetScore()">Сбросить счёт</button>
             </div>
@@ -7720,9 +7727,44 @@ def emperors_page():
             var onlyErrors = false;
             var currentItem = null;
             var pending = [];
+            var algo = localStorage.getItem('emperors_algo') || 'deck';
+            document.getElementById('algo-select').value = algo;
 
             function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
             function shuffleArray(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+            function flashKey(it) { return it.type + '::' + it.text; }
+            function loadFlash() { try { return JSON.parse(localStorage.getItem('emperors_flash') || '{}'); } catch(e) { return {}; } }
+            function saveFlash(f) { localStorage.setItem('emperors_flash', JSON.stringify(f)); }
+            function flashDueCount() {
+                var f = loadFlash(); var now = Date.now(); var n = 0;
+                allItems.forEach(function(it) { var rec = f[flashKey(it)]; if (!rec || rec.due <= now) n++; });
+                return n;
+            }
+            function flashCorrect(it) {
+                var f = loadFlash(); var key = flashKey(it);
+                var rec = f[key] || { reps: 0, interval: 0, ease: 2.5 };
+                rec.reps = (rec.reps || 0) + 1;
+                if (rec.reps === 1) rec.interval = 1;
+                else if (rec.reps === 2) rec.interval = 3;
+                else if (rec.reps === 3) rec.interval = 7;
+                else rec.interval = Math.round((rec.interval || 7) * rec.ease);
+                rec.due = Date.now() + rec.interval * 86400000;
+                f[key] = rec; saveFlash(f);
+            }
+            function flashMiss(it) {
+                var f = loadFlash(); var key = flashKey(it);
+                f[key] = { reps: 0, interval: 0, ease: 2.5, due: Date.now() };
+                saveFlash(f);
+            }
+            function pickFlash() {
+                var f = loadFlash(); var now = Date.now(); var due = [];
+                allItems.forEach(function(it) {
+                    var rec = f[flashKey(it)];
+                    if (!rec || rec.due <= now) due.push(it);
+                });
+                if (!due.length) return null;
+                return due[Math.floor(Math.random() * due.length)];
+            }
             var deck = [];
             function buildDeck() {
                 deck = shuffleArray(allItems.slice());
@@ -7732,7 +7774,12 @@ def emperors_page():
             }
             function saveScore() { localStorage.setItem('emperors_score', quizScore + '/' + quizTotal); }
             function saveWrong() { localStorage.setItem('emperors_wrong', JSON.stringify(wrongItems)); }
-            function updateScore() { document.getElementById('quiz-score').textContent = 'Счёт: ' + quizScore + ' / ' + quizTotal + (onlyErrors ? ' · режим: только ошибки (' + wrongItems.length + ')' : ''); }
+            function updateScore() {
+                var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
+                if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
+                if (onlyErrors) s += ' · режим: только ошибки (' + wrongItems.length + ')';
+                document.getElementById('quiz-score').textContent = s;
+            }
 
             function studyPanel() {
                 var html = '';
@@ -7761,6 +7808,7 @@ def emperors_page():
                 if (onlyErrors && wrongItems.length) {
                     return wrongItems[Math.floor(Math.random() * wrongItems.length)];
                 }
+                if (algo === 'flash') return pickFlash();
                 if (!deck.length) buildDeck();
                 return deck.pop();
             }
@@ -7769,6 +7817,12 @@ def emperors_page():
                 document.getElementById('info').style.display = 'none';
                 document.getElementById('next-btn').style.display = 'none';
                 currentItem = pickItem();
+                if (!currentItem) {
+                    document.getElementById('question').textContent = 'Все карточки изучены на сегодня! 🎉 Переключитесь на «Классика» или нажмите «Сбросить счёт».';
+                    document.getElementById('options').innerHTML = '';
+                    updateScore();
+                    return;
+                }
                 document.getElementById('question').textContent = 'К какому императору относится?\\n' + currentItem.label + ': ' + currentItem.text;
                 var opts = document.getElementById('options');
                 opts.innerHTML = '';
@@ -7808,8 +7862,10 @@ def emperors_page():
                 info.style.display = 'block';
                 if (isCorrect) {
                     wrongItems = wrongItems.filter(function(it) { return it.text !== currentItem.text; });
+                    if (algo === 'flash') flashCorrect(currentItem);
                 } else {
                     if (!wrongItems.some(function(it) { return it.text === currentItem.text; })) wrongItems.push(currentItem);
+                    if (algo === 'flash') flashMiss(currentItem);
                     if (deck.indexOf(currentItem) === -1) deck.push(currentItem);
                     shuffleArray(deck);
                 }
@@ -7833,8 +7889,15 @@ def emperors_page():
                     updateScore();
                     loadQuestion();
                 },
+                toggleAlgo: function() {
+                    algo = document.getElementById('algo-select').value;
+                    localStorage.setItem('emperors_algo', algo);
+                    updateScore();
+                    loadQuestion();
+                },
                 resetScore: function() {
                     quizScore = 0; quizTotal = 0; wrongItems = [];
+                    localStorage.removeItem('emperors_flash');
                     saveScore(); saveWrong(); updateScore(); loadQuestion();
                 }
             };
