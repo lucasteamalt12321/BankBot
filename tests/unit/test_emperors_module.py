@@ -78,6 +78,20 @@ def test_emperors_page_renders(client=None):
     assert "__DATA__" not in body, "data placeholder not substituted"
 
 
+def test_emperors_page_has_two_algorithms():
+    from api.index import app
+
+    c = app.test_client()
+    body = c.get("/emperors").get_data(as_text=True)
+    assert 'id="algo-select"' in body
+    assert 'value="deck"' in body
+    assert 'value="flash"' in body
+    assert "function pickFlash" in body
+    assert "function flashCorrect" in body
+    assert "function flashMiss" in body
+    assert "emperors_flash" in body
+
+
 def test_emperors_page_contains_data():
     from api.index import app
 
