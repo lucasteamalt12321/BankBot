@@ -949,9 +949,9 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-78fa282 (2026-08-13) — FEAT: модуль «Императоры России» (/emperors) — шпаргалка + тренажёр с колодой ошибок
+f71575f (2026-08-13) — FEAT: тренажёр императоров — 2 алгоритма подбора карточек (Классика / Флешки SM-2)
 
-*(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен 78fa282 и задеплоен.)*
+*(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
 - **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
