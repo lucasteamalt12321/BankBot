@@ -192,6 +192,7 @@ def test_web_pages_render():
         ("/gd", "Geometry Dash"),
         ("/chess", "Шахматы"),
         ("/irregular_verbs", "Практика глаголов"),
+        ("/emperors", "Императоры России"),
         ("/canon", "Канон вселенной Олеговируса"),
     ]:
         resp = client.get(url)

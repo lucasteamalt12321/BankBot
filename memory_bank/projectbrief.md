@@ -467,6 +467,23 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+### Phase 4.4: Emperors Module — «Императоры России» (EMPERORS01)
+
+**Цель:** Тренажёр + шпаргалка для подготовки к игре «сопоставь имена/события с императорами России» по данным, которые прислал пользователь (хронологическая лента событий и список личностей).
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| EM-01 | `core/history/emperors.py` — EMPERORS (5) + EVENTS (48) + PERSONS (42) с краткими описаниями | completed | 40 |
+| EM-02 | Страница `/emperors` (шпаргалка + тренажёр с описанием при проверке, localStorage-счёт, режим «только ошибки») | completed | 35 |
+| EM-03 | Карточка «Императоры России» в бета-блоке хаба `/` | completed | 10 |
+| EM-TEST | Тесты test_emperors_module.py + `/emperors` в e2e, ruff clean, JS `node --check` | completed | 15 |
+
+**EMPERORS01: 100/100**
+
+**Факт (2026-08-13):** всё реализовано. `core/history/` (лёгкий пакет, паттерн core/canon): данные + описания; `/emperors` — 2 вкладки (Изучить/Тренажёр), маппинг личностей по источникам (согласован пользователем); карточка в бета-блоке; тесты `test_emperors_module.py` (11), полный `tests/unit` **984 passed / 10 skipped**, ruff clean, `node --check` ок. Не закоммичено, не задеплоено.
+
+---
+
 ## Next Tasks (Post-Review Cleanup)
 
 | ID | Task | Priority | Status |
