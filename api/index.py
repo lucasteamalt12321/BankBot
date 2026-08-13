@@ -20,7 +20,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, redirect, request
 from sqlalchemy import bindparam, create_engine, text
 
 from core.canon import (
@@ -33,6 +33,9 @@ from core.canon.glossary import GLOSSARY_TERMS
 from core.canon.prayers import PRAYERS as _PRAYERS
 from core.canon.questions import TRIVIA_QUESTIONS as _TRIVIA_QUESTIONS
 from core.canon.works import CANON_WORKS
+from core.history import EMPERORS as _EMPERORS
+from core.history import EVENTS as _HISTORY_EVENTS
+from core.history import PERSONS as _HISTORY_PERSONS
 
 
 # === Web Auth Helpers ===
@@ -3300,6 +3303,13 @@ def index():
                         <p>Практика неправильных глаголов с AI</p>
                     </div>
                 </a>
+                <a class="card" href="/emperors">
+                    <div class="card-icon">👑</div>
+                    <div class="card-content">
+                        <h2>Императоры России <span class="beta-tag">Бета</span></h2>
+                        <p>Шпаргалка и тренажёр: имена и события к императорам</p>
+                    </div>
+                </a>
                 <a class="card" href="/family">
                     <div class="card-icon">🫂</div>
                     <div class="card-content">
@@ -3321,7 +3331,7 @@ def index():
                         <p>Полный текст канона, произведения и глоссарий</p>
                     </div>
                 </a>
-                <a class="card" href="/settings">
+                <a class="card" href="/admin">
                     <div class="card-icon">👨‍💼</div>
                     <div class="card-content">
                         <h2>Администрирование <span class="beta-tag">Бета</span></h2>
@@ -4965,16 +4975,18 @@ def _vercel_trivia_question() -> dict | None:
     correct_text = question["correct_text"]
     q_group = question.get("group", "")
 
-    same_group = [q for q in _TRIVIA_QUESTIONS if q.get("group") == q_group and q["correct_text"] != correct_text]
-    other = [q for q in _TRIVIA_QUESTIONS if q.get("group") != q_group and q["correct_text"] != correct_text]
+    manual = question.get("distractors") or []
+    if len(manual) >= 3:
+        distractors_pool = random.sample(manual, 3)
+    else:
+        same_group = [q for q in _TRIVIA_QUESTIONS if q.get("group") == q_group and q["correct_text"] != correct_text]
+        other = [q for q in _TRIVIA_QUESTIONS if q.get("group") != q_group and q["correct_text"] != correct_text]
+        distractors_pool = [q["correct_text"] for q in same_group]
+        if len(distractors_pool) < 3:
+            distractors_pool += [q["correct_text"] for q in other]
+        distractors_pool = random.sample(distractors_pool, min(3, len(distractors_pool)))
 
-    distractors_pool = [q["correct_text"] for q in same_group]
-    if len(distractors_pool) < 3:
-        distractors_pool += [q["correct_text"] for q in other]
-
-    fake_answers = random.sample(distractors_pool, min(3, len(distractors_pool)))
-
-    options = [correct_text] + fake_answers
+    options = [correct_text] + distractors_pool
     random.shuffle(options)
     correct_index = options.index(correct_text)
 
@@ -6327,7 +6339,7 @@ def register_page():
             <strong>Уже есть аккаунт?</strong>
             <a class="link" href="/login">Войти</a>
             <br><br>
-            Опциональные поля можно заполнить позже в <a class="link" href="/settings">настройках</a>.
+            Опциональные поля можно заполнить позже в <a class="link" href="/account">личном кабинете</a>.
             Анонимный режим по-прежнему работает без регистрации.
         </div>
         <a href="/" class="back-link">← На главную</a>
@@ -6484,12 +6496,13 @@ def account_page():
     <title>Личный кабинет — LTHub</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .container { max-width: 480px; width: 100%; }
-        .header { text-align: center; margin-bottom: 24px; }
-        .header h1 { font-size: 24px; color: #e94560; }
-        .header p { color: #888; font-size: 14px; margin-top: 8px; }
-        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 28px; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 480px; width: 100%; margin: 0 auto; padding-top: 20px; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: #e94560; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 28px; margin-bottom: 20px; }
         .profile-top { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
         .avatar { width: 64px; height: 64px; border-radius: 50%; background: #e94560; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; color: white; flex-shrink: 0; }
         .profile-top .who h2 { font-size: 20px; }
@@ -6497,19 +6510,23 @@ def account_page():
         .coins-row { display: flex; align-items: center; justify-content: space-between; background: #0a1628; border: 1px solid #1a5276; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
         .coins-row .lbl { font-size: 13px; color: #aaa; }
         .coins-row .val { font-size: 22px; font-weight: 700; color: #e3b341; }
-        .field { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #12294a; font-size: 14px; }
-        .field:last-of-type { border-bottom: none; }
-        .field .k { color: #888; }
-        .field .v { color: #e0e0e0; max-width: 60%; text-align: right; word-break: break-word; }
+        .missing { background: #3e2723; border: 1px solid #b71c1c; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #ef9a9a; line-height: 1.5; }
+        .missing b { color: #ffcdd2; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+        .form-group label .opt { color: #888; font-weight: 400; }
+        .form-group input { width: 100%; padding: 12px 14px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; }
+        .form-group input:focus { outline: none; border-color: #e94560; }
         .btn { width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; text-align: center; text-decoration: none; display: block; }
         .btn:hover { background: #d63851; }
+        .btn:disabled { background: #555; cursor: not-allowed; }
         .btn-secondary { background: #0f3460; color: #e0e0e0; margin-top: 10px; }
         .btn-secondary:hover { background: #1a5276; }
         .btn-gray { background: #33415e; color: #e0e0e0; margin-top: 10px; }
         .btn-gray:hover { background: #42547a; }
         .link { color: #e94560; text-decoration: none; }
         .link:hover { text-decoration: underline; }
-        .back-link { display: inline-block; margin-top: 20px; color: #888; text-decoration: none; font-size: 14px; }
+        .back-link { display: inline-block; margin-top: 4px; color: #888; text-decoration: none; font-size: 14px; }
         .back-link:hover { color: #e94560; }
         .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1b5e20; color: white; padding: 12px 24px; border-radius: 10px; display: none; z-index: 100; }
         .toast.error { background: #b71c1c; }
@@ -6519,13 +6536,12 @@ def account_page():
 <body>
 <div class="container">
     <div class="header">
-        <h1>LTHub</h1>
-        <p>Личный кабинет</p>
+        <h1>Личный кабинет</h1>
+        <a href="/">На главную</a>
     </div>
     <div class="card" id="card">
         <p style="color:#888;text-align:center;padding:20px 0">Загрузка...</p>
     </div>
-    <a href="/" class="back-link">← На главную</a>
 </div>
 <div class="toast" id="toast"></div>
 <script>
@@ -6541,23 +6557,64 @@ def account_page():
     function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function render(p) {
         var name = p.display_name || p.login || 'Пользователь';
-        var fields = [];
-        fields.push({k: 'Логин', v: '@' + esc(p.login || '')});
-        fields.push({k: 'Имя', v: esc(p.display_name || '—')});
-        fields.push({k: 'Geometry Dash', v: esc(p.gd_nickname || '—')});
-        fields.push({k: 'Telegram ID', v: p.telegram_id ? esc(p.telegram_id) : '—'});
-        fields.push({k: 'Lichess', v: esc(p.lichess_nickname || '—')});
-        fields.push({k: 'Статус', v: p.is_admin ? '👨‍💼 Админ' : 'Пользователь'});
+        var adminLink = p.is_admin ? '<a class="btn btn-secondary" href="/admin">🛠 Админ-панель</a>' : '';
         var html = '<div class="profile-top">' +
             '<div class="avatar">' + esc(name.charAt(0).toUpperCase()) + '</div>' +
-            '<div class="who"><h2>' + esc(name) + '</h2><div class="login">@' + esc(p.login || '') + '</div></div>' +
+            '<div class="who"><h2>' + esc(name) + '</h2><div class="login">@' + esc(p.login || '') + ' · ' + (p.is_admin ? '👨‍💼 Админ' : 'Пользователь') + '</div></div>' +
             '</div>' +
             '<div class="coins-row"><div class="lbl">💎 Монеты</div><div class="val">' + (p.coins != null ? p.coins : 0) + '</div></div>' +
-            fields.map(function(f) { return '<div class="field"><div class="k">' + f.k + '</div><div class="v">' + f.v + '</div></div>'; }).join('') +
-            '<a class="btn" href="/settings">Редактировать профиль</a>' +
-            '<a class="btn btn-secondary" href="/">На главную</a>' +
+            '<div id="missing-box"></div>' +
+            '<div class="form-group"><label>Логин</label><input type="text" id="set-login" disabled style="opacity:0.6"></div>' +
+            '<div class="form-group"><label>Имя <span class="opt">(если пусто — будет логин)</span></label><input type="text" id="set-name" placeholder="ваше имя"></div>' +
+            '<div class="form-group"><label>Geometry Dash nickname</label><input type="text" id="set-gd" placeholder="например: lucasGD"></div>' +
+            '<div class="form-group"><label>Telegram ID</label><input type="number" id="set-tg" placeholder="123456789"></div>' +
+            '<div class="form-group"><label>Lichess nickname</label><input type="text" id="set-lichess" placeholder="например: lucas_chess"></div>' +
+            '<button class="btn" id="save-btn" onclick="saveSettings()">Сохранить</button>' +
+            adminLink +
             '<button class="btn btn-gray" onclick="logout()">Выйти</button>';
         document.getElementById('card').innerHTML = html;
+        fillForm(p);
+    }
+    function fillForm(p) {
+        document.getElementById('set-login').value = p.login || '';
+        document.getElementById('set-name').value = p.display_name || '';
+        document.getElementById('set-gd').value = p.gd_nickname || '';
+        document.getElementById('set-tg').value = p.telegram_id || '';
+        document.getElementById('set-lichess').value = p.lichess_nickname || '';
+        renderMissing(p);
+    }
+    function renderMissing(p) {
+        var box = document.getElementById('missing-box');
+        var missing = [];
+        if (!p.gd_nickname) missing.push('Geometry Dash nickname');
+        if (!p.lichess_nickname) missing.push('Lichess nickname');
+        if (!p.telegram_id) missing.push('Telegram ID');
+        if (!missing.length) { box.style.display = 'none'; return; }
+        box.style.display = 'block';
+        box.innerHTML = '<b>Рекомендуем заполнить:</b> ' + missing.join(', ') + '.<br>Это позволит автоматически подставлять данные в GD, шахматы и бюджет.';
+    }
+    function saveSettings() {
+        var nameVal = document.getElementById('set-name').value.trim();
+        var gdVal = document.getElementById('set-gd').value.trim();
+        var lichessVal = document.getElementById('set-lichess').value.trim();
+        if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
+        if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
+        if (lichessVal.length > 50) { showToast('Lichess ник слишком длинный (макс. 50 символов)', true); return; }
+        var payload = {
+            display_name: nameVal || null,
+            gd_nickname: gdVal || null,
+            lichess_nickname: lichessVal || null
+        };
+        document.getElementById('save-btn').disabled = true;
+        fetch('/api/auth/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-Auth-Token': token},
+            body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); }).then(function(r) {
+            document.getElementById('save-btn').disabled = false;
+            if (r.error) { showToast(r.error, true); }
+            else { showToast('Сохранено!'); setTimeout(function() { window.location.href = '/'; }, 800); }
+        }).catch(function() { document.getElementById('save-btn').disabled = false; showToast('Ошибка сети', true); });
     }
     function logout() {
         if (token) {
@@ -6711,316 +6768,7 @@ def suggest_page():
 
 @app.route("/settings")
 def settings_page():
-    html = """<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Настройки — LTHub</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; }
-        .container { max-width: 460px; width: 100%; margin: 0 auto; padding-top: 20px; }
-        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-        .header h1 { font-size: 22px; color: #e94560; }
-        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
-        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 28px; margin-bottom: 20px; }
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
-        .form-group label .opt { color: #888; font-weight: 400; }
-        .form-group input, .form-group select { width: 100%; padding: 12px 14px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; color: #e0e0e0; }
-        .form-group input:focus { outline: none; border-color: #e94560; }
-        .btn { width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
-        .btn:hover { background: #d63851; }
-        .btn:disabled { background: #555; cursor: not-allowed; }
-        .btn.small { width: auto; padding: 8px 14px; font-size: 13px; margin-top: 0; }
-        .btn.gray { background: #33415e; }
-        .btn.gray:hover { background: #42547a; }
-        .btn.green { background: #1b5e20; }
-        .btn.green:hover { background: #216926; }
-        .missing { background: #3e2723; border: 1px solid #b71c1c; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #ef9a9a; line-height: 1.5; }
-        .missing b { color: #ffcdd2; }
-        .admin-title { font-size: 20px; color: #e94560; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-        .admin-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-        .admin-tabs button { flex: 1; min-width: 130px; padding: 10px; background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; color: #e0e0e0; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .admin-tabs button.on { background: #e94560; border-color: #e94560; color: white; }
-        .admin-panel { display: none; }
-        .admin-panel.on { display: block; }
-        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
-        .stat-box { background: #0a1628; border: 1px solid #1a5276; border-radius: 12px; padding: 16px; text-align: center; }
-        .stat-box .num { font-size: 26px; font-weight: 700; color: #e94560; }
-        .stat-box .lbl { font-size: 12px; color: #aaa; margin-top: 4px; }
-        .table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
-        .table th, .table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #1a5276; }
-        .table th { color: #aaa; font-weight: 600; }
-        .search-row { display: flex; gap: 8px; margin-bottom: 12px; }
-        .search-row input { flex: 1; }
-        .err-list { max-height: 260px; overflow-y: auto; }
-        .err-item { background: #0a1628; border: 1px solid #1a5276; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 12px; }
-        .err-item .t { color: #e94560; font-weight: 600; margin-bottom: 3px; }
-        .err-item .d { color: #aaa; line-height: 1.4; word-break: break-word; }
-        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1b5e20; color: white; padding: 12px 24px; border-radius: 10px; display: none; z-index: 100; }
-        .toast.error { background: #b71c1c; }
-        @media (max-width: 480px) { .card { padding: 20px; } .stat-grid { grid-template-columns: 1fr; } }
-    </style>
-</head>
-<body>
-<div class="container">
-    <div class="header">
-        <h1>Настройки</h1>
-        <a href="/">На главную</a>
-    </div>
-    <div class="card">
-        <div id="missing-box"></div>
-        <div class="form-group">
-            <label>Логин</label>
-            <input type="text" id="set-login" disabled style="opacity:0.6">
-        </div>
-        <div class="form-group">
-            <label>Имя <span class="opt">(если пусто — будет логин)</span></label>
-            <input type="text" id="set-name" placeholder="ваше имя">
-        </div>
-        <div class="form-group">
-            <label>Geometry Dash nickname</label>
-            <input type="text" id="set-gd" placeholder="например: lucasGD">
-        </div>
-        <div class="form-group">
-            <label>Telegram ID</label>
-            <input type="number" id="set-tg" placeholder="123456789">
-        </div>
-        <div class="form-group">
-            <label>Lichess nickname</label>
-            <input type="text" id="set-lichess" placeholder="например: lucas_chess">
-        </div>
-        <button class="btn" onclick="saveSettings()">Сохранить</button>
-    </div>
-    <div class="card" id="admin-card" style="display:none">
-        <div class="admin-title">Администрирование</div>
-        <div class="admin-tabs">
-            <button id="tab-stats" class="on" onclick="showTab('stats')">Статистика</button>
-            <button id="tab-users" onclick="showTab('users')">Пользователи</button>
-            <button id="tab-coins" onclick="showTab('coins')">Начислить монеты</button>
-            <button id="tab-errors" onclick="showTab('errors')">Ошибки</button>
-            <button id="tab-feedback" onclick="showTab('feedback')">Предложения</button>
-        </div>
-        <div id="panel-stats" class="admin-panel on">
-            <div class="stat-grid">
-                <div class="stat-box"><div class="num" id="st-users">–</div><div class="lbl">Пользователей</div></div>
-                <div class="stat-box"><div class="num" id="st-admins">–</div><div class="lbl">Админов</div></div>
-                <div class="stat-box"><div class="num" id="st-errors">–</div><div class="lbl">Ошибок</div></div>
-                <div class="stat-box"><div class="num" id="st-coins">–</div><div class="lbl">Монет в системе</div></div>
-            </div>
-            <p style="font-size:12px;color:#aaa;margin-top:8px">Последние ошибки появятся на вкладке «Ошибки».</p>
-        </div>
-        <div id="panel-users" class="admin-panel">
-            <div class="search-row">
-                <input type="text" id="user-search" placeholder="Поиск по логину/имени..." oninput="searchUsers()">
-            </div>
-            <table class="table">
-                <thead><tr><th>Логин</th><th>Имя</th><th>Монеты</th><th>Админ</th></tr></thead>
-                <tbody id="users-tbody"></tbody>
-            </table>
-        </div>
-        <div id="panel-coins" class="admin-panel">
-            <div class="form-group">
-                <label>Пользователь</label>
-                <select id="coin-user"></select>
-            </div>
-            <div class="form-group">
-                <label>Количество монет</label>
-                <input type="number" id="coin-amount" value="10" min="1">
-            </div>
-            <div class="form-group">
-                <label>Описание</label>
-                <input type="text" id="coin-desc" placeholder="например: бонус за активность">
-            </div>
-            <button class="btn green" onclick="awardCoins()">Начислить</button>
-        </div>
-        <div id="panel-errors" class="admin-panel">
-            <div class="err-list" id="errors-list"></div>
-            <button class="btn gray" style="margin-top:12px" onclick="clearErrors()">Очистить ошибки</button>
-        </div>
-        <div id="panel-feedback" class="admin-panel">
-            <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-                <button class="btn small green" onclick="loadFeedback()">Все</button>
-                <button class="btn small gray" onclick="loadFeedback('bug')">Баг</button>
-                <button class="btn small gray" onclick="loadFeedback('suggestion')">Предложения</button>
-                <button class="btn small gray" onclick="loadFeedback('open')">Открытые</button>
-            </div>
-            <div id="feedback-list" class="err-list"></div>
-        </div>
-    </div>
-</div>
-<div class="toast" id="toast"></div>
-<script>
-    var token = localStorage.getItem('web_token');
-    var uid = localStorage.getItem('web_user_id');
-    function showToast(msg, error) {
-        var t = document.getElementById('toast');
-        t.textContent = msg;
-        t.className = 'toast' + (error ? ' error' : '');
-        t.style.display = 'block';
-        setTimeout(function() { t.style.display = 'none'; }, 3000);
-    }
-    function loadProfile() {
-        if (!token) {
-            showToast('Вы не вошли в аккаунт', true);
-            setTimeout(function() { window.location.href = '/login'; }, 1200);
-            return;
-        }
-        fetch('/api/auth/me', {headers: {'X-Auth-Token': token}})
-            .then(function(r) { return r.json(); })
-            .then(function(p) {
-                if (p.error) { showToast(p.error, true); setTimeout(function() { window.location.href = '/login'; }, 1200); return; }
-                document.getElementById('set-login').value = p.login || '';
-                document.getElementById('set-name').value = p.display_name || '';
-                document.getElementById('set-gd').value = p.gd_nickname || '';
-                document.getElementById('set-tg').value = p.telegram_id || '';
-                document.getElementById('set-lichess').value = p.lichess_nickname || '';
-                renderMissing(p);
-                renderAdmin(p);
-            })
-            .catch(function() { showToast('Ошибка сети', true); });
-    }
-    function renderAdmin(p) {
-        var card = document.getElementById('admin-card');
-        if (!p.is_admin) { card.style.display = 'none'; return; }
-        card.style.display = 'block';
-        loadStats();
-        loadUsers();
-        loadErrors();
-    }
-    function showTab(name) {
-        ['stats','users','coins','errors','feedback'].forEach(function(t) {
-            document.getElementById('tab-' + t).className = (t === name) ? 'on' : '';
-            document.getElementById('panel-' + t).className = 'admin-panel' + (t === name ? ' on' : '');
-        });
-        if (name === 'coins' && !document.getElementById('coin-user').options.length) loadCoinUsers();
-        if (name === 'feedback') loadFeedback();
-    }
-    function loadFeedback(kind) {
-        var url = '/api/admin/feedback';
-        if (kind === 'bug' || kind === 'suggestion') url += '?category=' + kind;
-        else if (kind === 'open') url += '?status=open';
-        adminFetch(url, {}, function(j) {
-            var list = j.items || [];
-            var el = document.getElementById('feedback-list');
-            if (!list.length) { el.innerHTML = '<p style="color:#888;font-size:13px">Пусто</p>'; return; }
-            el.innerHTML = list.map(function(f) {
-                var tag = f.category === 'bug' ? '<span style="color:#e94560">🐛 Баг</span>' : '<span style="color:#58a6ff">💡 Предложение</span>';
-                var status = f.status === 'open' ? '<span style="color:#e3b341"> (открыт)</span>' : '';
-                var author = f.author_name || f.login || 'аноним';
-                return '<div class="err-item"><div class="t">' + tag + status + ' · ' + esc(author) + (f.module ? ' · ' + esc(f.module) : '') + '</div>' +
-                    '<div class="d">' + esc(f.message) + '</div>' +
-                    '<button class="btn small gray" style="margin-top:6px" onclick="deleteFeedback(' + f.id + ')">Удалить</button></div>';
-            }).join('');
-        });
-    }
-    function deleteFeedback(id) {
-        adminFetch('/api/admin/feedback/' + id, {method: 'DELETE'}, function() { showToast('Удалено'); loadFeedback(); });
-    }
-    function adminFetch(url, opts, ok, fail) {
-        opts = opts || {};
-        (opts.headers = opts.headers || {})['X-Auth-Token'] = token;
-        fetch(url, opts).then(function(r) { return r.json(); }).then(function(j) {
-            if (j.error) { showToast(j.error, true); if (fail) fail(j); }
-            else ok(j);
-        }).catch(function() { showToast('Ошибка сети', true); });
-    }
-    function loadStats() {
-        adminFetch('/api/admin/stats', {}, function(s) {
-            document.getElementById('st-users').textContent = s.web_users != null ? s.web_users : '–';
-            document.getElementById('st-admins').textContent = s.web_admins != null ? s.web_admins : '–';
-            document.getElementById('st-errors').textContent = s.error_count != null ? s.error_count : '–';
-            document.getElementById('st-coins').textContent = s.total_coins != null ? s.total_coins : '–';
-        });
-    }
-    function searchUsers() {
-        var q = document.getElementById('user-search').value.trim();
-        adminFetch('/api/admin/users?q=' + encodeURIComponent(q), {}, function(j) { renderUsers(j.users || []); });
-    }
-    function renderUsers(list) {
-        var tbody = document.getElementById('users-tbody');
-        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" style="color:#888">Никого не найдено</td></tr>'; return; }
-        tbody.innerHTML = list.map(function(u) {
-            return '<tr><td>' + esc(u.login) + '</td><td>' + esc(u.display_name || '') + '</td><td>' + (u.coins || 0) + '</td>' +
-                '<td><button class="btn small ' + (u.is_admin ? 'gray' : 'green') + '" onclick="toggleAdmin(' + u.id + ')">' + (u.is_admin ? 'Снять' : 'Дать') + '</button></td></tr>';
-        }).join('');
-    }
-    function loadUsers() {
-        adminFetch('/api/admin/users?q=', function(j) { renderUsers(j.users || []); });
-    }
-    function loadCoinUsers() {
-        adminFetch('/api/admin/users?q=', function(j) {
-            var sel = document.getElementById('coin-user');
-            sel.innerHTML = (j.users || []).map(function(u) { return '<option value="' + u.id + '">' + esc(u.login) + ' (' + (u.coins || 0) + ' монет)</option>'; }).join('');
-        });
-    }
-    function toggleAdmin(id) {
-        adminFetch('/api/admin/set_admin', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: id})},
-            function() { showToast('Права обновлены'); loadUsers(); loadStats(); });
-    }
-    function awardCoins() {
-        var uid = document.getElementById('coin-user').value;
-        var amount = parseInt(document.getElementById('coin-amount').value);
-        var desc = document.getElementById('coin-desc').value.trim();
-        if (!uid || !amount || amount < 1) { showToast('Выберите пользователя и количество', true); return; }
-        adminFetch('/api/admin/coins/award', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: parseInt(uid), amount: amount, description: desc})},
-            function() { showToast('Монеты начислены'); loadStats(); loadCoinUsers(); });
-    }
-    function loadErrors() {
-        adminFetch('/api/admin/errors', {}, function(j) {
-            var list = j.errors || [];
-            var el = document.getElementById('errors-list');
-            if (!list.length) { el.innerHTML = '<p style="color:#888;font-size:13px">Ошибок нет</p>'; return; }
-            el.innerHTML = list.map(function(e) {
-                var name = e.name || 'ошибка'; var msg = e.message || e.error || ''; var time = e.time || '';
-                return '<div class="err-item"><div class="t">' + esc(name) + (time ? ' · ' + esc(time) : '') + '</div><div class="d">' + esc(msg) + '</div></div>';
-            }).join('');
-        });
-    }
-    function clearErrors() {
-        adminFetch('/api/admin/errors/clear', {method: 'POST'}, function() { showToast('Ошибки очищены'); loadErrors(); loadStats(); });
-    }
-    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-    function renderMissing(p) {
-        var box = document.getElementById('missing-box');
-        var missing = [];
-        if (!p.gd_nickname) missing.push('Geometry Dash nickname');
-        if (!p.lichess_nickname) missing.push('Lichess nickname');
-        if (!p.telegram_id) missing.push('Telegram ID');
-        if (!missing.length) { box.style.display = 'none'; return; }
-        box.style.display = 'block';
-        box.innerHTML = '<b>Рекомендуем заполнить:</b> ' + missing.join(', ') + '.<br>Это позволит автоматически подставлять данные в GD, шахматы и бюджет.';
-    }
-    function saveSettings() {
-        var nameVal = document.getElementById('set-name').value.trim();
-        var gdVal = document.getElementById('set-gd').value.trim();
-        var lichessVal = document.getElementById('set-lichess').value.trim();
-        if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
-        if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
-        if (lichessVal.length > 50) { showToast('Lichess ник слишком длинный (макс. 50 символов)', true); return; }
-        var payload = {
-            display_name: nameVal || null,
-            gd_nickname: gdVal || null,
-            lichess_nickname: lichessVal || null
-        };
-        document.querySelector('.btn').disabled = true;
-        fetch('/api/auth/update', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-Auth-Token': token},
-            body: JSON.stringify(payload)
-        }).then(function(r) { return r.json(); }).then(function(r) {
-            document.querySelector('.btn').disabled = false;
-            if (r.error) { showToast(r.error, true); }
-            else { showToast('Сохранено!'); setTimeout(function() { window.location.href = '/'; }, 800); }
-        }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
-    }
-    loadProfile();
-</script>
-</body>
-</html>"""
-    return html
+    return redirect("/account", code=301)
 
 
 @app.route("/api/auth/register", methods=["POST"])
@@ -7484,6 +7232,7 @@ def admin_page():
         .btn-small { padding: 6px 12px; font-size: 13px; }
         .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
         .badge-admin { background: #1f6feb33; color: #58a6ff; }
+        .badge-danger { background: #da363333; color: #f85149; }
         .badge-user { background: #30363d; color: #8b949e; }
         .error { color: #f85149; margin-top: 8px; }
         .ok { color: #3fb950; margin-top: 8px; }
@@ -7512,11 +7261,13 @@ def admin_page():
             <button class="tab" data-tab="users" onclick="showTab('users')">👤 Пользователи</button>
             <button class="tab" data-tab="coins" onclick="showTab('coins')">💰 Начисление монет</button>
             <button class="tab" data-tab="errors" onclick="showTab('errors')">📋 Ошибки</button>
+            <button class="tab" data-tab="feedback" onclick="showTab('feedback')">💡 Предложения</button>
         </div>
         <div class="panel active" id="panel-stats"></div>
         <div class="panel" id="panel-users"></div>
         <div class="panel" id="panel-coins"></div>
         <div class="panel" id="panel-errors"></div>
+        <div class="panel" id="panel-feedback"></div>
     </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -7542,6 +7293,7 @@ def admin_page():
         if (name === 'stats') loadStats();
         if (name === 'users') loadUsers();
         if (name === 'errors') loadErrors();
+        if (name === 'feedback') loadFeedback();
     }
     function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
@@ -7565,7 +7317,7 @@ def admin_page():
         api(url).then(function(res) {
             if (!res.ok) { document.getElementById('panel-users').innerHTML = '<div class="error">' + esc(res.j.error) + '</div>'; return; }
             var users = res.j;
-            var h = '<div class="input-row"><input id="user-search" placeholder="Поиск по логину, имени, GD никнейму..." value="' + esc(q || '') + '" onkeydown="if(event.key===\'Enter\'){loadUsers(this.value);}"><button class="btn btn-secondary" onclick="loadUsers(document.getElementById(\'user-search\').value)">Найти</button></div>';
+            var h = '<div class="input-row"><input id="user-search" placeholder="Поиск по логину, имени, GD никнейму..." value="' + esc(q || '') + '" onkeydown="if(event.key===\\\'Enter\\\'){loadUsers(this.value);}"><button class="btn btn-secondary" onclick="loadUsers(document.getElementById(\\\'user-search\\\').value)">Найти</button></div>';
             h += '<table><tr><th>ID</th><th>Логин</th><th>Имя</th><th>Баланс</th><th>Статус</th><th>Действия</th></tr>';
             if (!users.length) h += '<tr><td colspan="6" class="empty">Пользователи не найдены</td></tr>';
             users.forEach(function(u) {
@@ -7575,7 +7327,7 @@ def admin_page():
                     '<td>' + esc(u.display_name) + '</td>' +
                     '<td>' + u.balance + ' 💰</td>' +
                     '<td>' + (u.is_admin ? '<span class="badge badge-admin">Админ</span>' : '<span class="badge badge-user">Пользователь</span>') + '</td>' +
-                    '<td><button class="btn btn-secondary btn-small" onclick="viewCoins(' + u.id + ',\'' + esc(u.login) + '\')">Монеты</button> ' +
+                    '<td><button class="btn btn-secondary btn-small" onclick="viewCoins(' + u.id + ',\\\'' + esc(u.login) + '\\\')">Монеты</button> ' +
                     (u.is_admin
                         ? '<button class="btn btn-danger btn-small" onclick="toggleAdmin(' + u.id + ',false)">Снять админа</button>'
                         : '<button class="btn btn-small" onclick="toggleAdmin(' + u.id + ',true)">Сделать админом</button>') +
@@ -7647,6 +7399,37 @@ def admin_page():
     function clearErrors() {
         api('/api/admin/errors/clear', {method: 'POST'}).then(function(res) {
             if (res.ok) { toast('Ошибки очищены'); loadErrors(); }
+            else toast(res.j.error || 'Ошибка', true);
+        });
+    }
+
+    function loadFeedback(kind) {
+        var url = '/api/admin/feedback';
+        if (kind === 'bug' || kind === 'suggestion') url += '?category=' + kind;
+        else if (kind === 'open') url += '?status=open';
+        api(url).then(function(res) {
+            if (!res.ok) { document.getElementById('panel-feedback').innerHTML = '<div class="error">' + esc(res.j.error) + '</div>'; return; }
+            var list = res.j.items || [];
+            var h = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">' +
+                '<button class="btn btn-secondary btn-small" onclick="loadFeedback()">Все</button>' +
+                '<button class="btn btn-secondary btn-small" onclick="loadFeedback(\\\'bug\\\')">🐛 Баги</button>' +
+                '<button class="btn btn-secondary btn-small" onclick="loadFeedback(\\\'suggestion\\\')">💡 Предложения</button>' +
+                '<button class="btn btn-secondary btn-small" onclick="loadFeedback(\\\'open\\\')">Открытые</button></div>';
+            if (!list.length) h += '<div class="empty">Пусто</div>';
+            list.forEach(function(f) {
+                var tag = f.category === 'bug' ? '<span class="badge badge-danger">🐛 Баг</span>' : '<span class="badge badge-admin">💡 Предложение</span>';
+                var status = f.status === 'open' ? ' · <span style="color:#d29922">открыт</span>' : '';
+                h += '<div class="card"><div>' + tag + status + ' · ' + esc(f.author_name || f.login || 'аноним') + (f.module ? ' · ' + esc(f.module) : '') + '</div>' +
+                    '<div style="margin-top:6px">' + esc(f.message) + '</div>' +
+                    '<button class="btn btn-danger btn-small" style="margin-top:10px" onclick="deleteFeedback(' + f.id + ')">Удалить</button></div>';
+            });
+            document.getElementById('panel-feedback').innerHTML = h;
+        });
+    }
+
+    function deleteFeedback(id) {
+        api('/api/admin/feedback/' + id, {method: 'DELETE'}).then(function(res) {
+            if (res.ok) { toast('Удалено'); loadFeedback(); }
             else toast(res.j.error || 'Ошибка', true);
         });
     }
@@ -7810,6 +7593,258 @@ def trivia_page():
     </script>
 </body>
 </html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/emperors")
+def emperors_page():
+    history_data = json.dumps(
+        {
+            "emperors": [
+                {"id": e.id, "name": e.name, "reign": e.reign, "emoji": e.emoji}
+                for e in _EMPERORS
+            ],
+            "events": [
+                {"year": ev.year, "title": ev.title, "emperor": ev.emperor_id, "note": ev.note}
+                for ev in _HISTORY_EVENTS
+            ],
+            "persons": [
+                {"name": p.name, "emperor": p.emperor_id, "description": p.description}
+                for p in _HISTORY_PERSONS
+            ],
+        },
+        ensure_ascii=False,
+    )
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Императоры России — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 720px; width: 100%; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: #e94560; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+        .tab-btn { flex: 1; padding: 12px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; cursor: pointer; font-family: inherit; transition: background 0.15s; }
+        .tab-btn:hover { background: #1a5276; }
+        .tab-btn.active { background: #e94560; border-color: #e94560; color: white; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .score { text-align: center; color: #888; font-size: 14px; margin-bottom: 16px; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+        .emperor-card { border-left: 5px solid; padding: 18px 20px; }
+        .emperor-card h2 { font-size: 18px; margin-bottom: 2px; }
+        .emperor-card .reign { font-size: 13px; color: #888; margin-bottom: 12px; }
+        .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        .chip { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 13px; background: #0f3460; border: 1px solid #1a5276; cursor: default; line-height: 1.4; }
+        .chip small { color: #999; }
+        .chip-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
+        .question { font-size: 18px; line-height: 1.6; margin-bottom: 20px; min-height: 24px; }
+        .options { display: flex; flex-direction: column; gap: 10px; }
+        .opt-btn { display: block; width: 100%; padding: 14px 18px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 12px; font-size: 15px; cursor: pointer; text-align: left; transition: all 0.15s; }
+        .opt-btn:hover:not(:disabled) { background: #1a5276; }
+        .opt-btn:disabled { cursor: default; opacity: 0.85; }
+        .opt-btn.correct { background: #1b5e20; border-color: #2e7d32; }
+        .opt-btn.wrong { background: #b71c1c; border-color: #c62828; }
+        .info { background: #0f3460; border-radius: 12px; padding: 16px; margin-top: 16px; font-size: 14px; line-height: 1.5; color: #aaa; display: none; }
+        .info .info-label { color: #e94560; font-weight: 600; }
+        .next-btn { display: none; width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; font-family: inherit; }
+        .next-btn:hover { background: #d63851; }
+        .mode-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center; }
+        .mode-row label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #e0e0e0; cursor: pointer; }
+        .status { text-align: center; color: #888; margin-top: 24px; font-size: 13px; }
+        .reset-btn { background: none; border: 1px solid #1a5276; color: #888; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: inherit; }
+        .reset-btn:hover { border-color: #e94560; color: #e94560; }
+        @media (max-width: 600px) { .card { padding: 16px; } .question { font-size: 16px; } .chip { font-size: 12px; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👑 Императоры России</h1>
+            <a href="/">← Назад</a>
+        </div>
+        <div class="tabs">
+            <button class="tab-btn active" id="tab-study" onclick="app.showTab('study')">📚 Изучить</button>
+            <button class="tab-btn" id="tab-quiz" onclick="app.showTab('quiz')">🧠 Тренажёр</button>
+        </div>
+        <div class="panel active" id="panel-study"></div>
+        <div class="panel" id="panel-quiz">
+            <div class="score" id="quiz-score"></div>
+            <div class="mode-row">
+                <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
+                <button class="reset-btn" onclick="app.resetScore()">Сбросить счёт</button>
+            </div>
+            <div class="card">
+                <div class="question" id="question">Загрузка...</div>
+                <div class="options" id="options"></div>
+                <div class="info" id="info"></div>
+                <button class="next-btn" id="next-btn">Следующий →</button>
+            </div>
+        </div>
+        <div class="status">модуль подготовки к игре «Имена и события»</div>
+    </div>
+    <script>
+        (function() {
+            var DATA = __DATA__;
+            var COLORS = {
+                alexander_i: '#e94560',
+                nicholas_i: '#f0c040',
+                alexander_ii: '#4caf50',
+                alexander_iii: '#42a5f5',
+                nicholas_ii: '#ab47bc'
+            };
+            var emName = {};
+            DATA.emperors.forEach(function(e) { emName[e.id] = e.name; });
+            var allItems = [];
+            DATA.events.forEach(function(ev) {
+                allItems.push({type: 'event', text: ev.title, emperor: ev.emperor, info: ev.note, label: 'Событие'});
+            });
+            DATA.persons.forEach(function(p) {
+                allItems.push({type: 'person', text: p.name, emperor: p.emperor, info: p.description, label: 'Личность'});
+            });
+            var quizScore = 0, quizTotal = 0;
+            (function() {
+                var s = localStorage.getItem('emperors_score');
+                if (s) { var p = s.split('/'); quizScore = parseInt(p[0]) || 0; quizTotal = parseInt(p[1]) || 0; }
+            })();
+            var wrongItems = [];
+            (function() {
+                try { wrongItems = JSON.parse(localStorage.getItem('emperors_wrong') || '[]'); } catch(e) { wrongItems = []; }
+            })();
+            var onlyErrors = false;
+            var currentItem = null;
+            var pending = [];
+
+            function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+            function shuffleArray(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+            var deck = [];
+            function buildDeck() {
+                deck = shuffleArray(allItems.slice());
+                if (wrongItems.length) {
+                    deck = shuffleArray(wrongItems.slice()).concat(deck);
+                }
+            }
+            function saveScore() { localStorage.setItem('emperors_score', quizScore + '/' + quizTotal); }
+            function saveWrong() { localStorage.setItem('emperors_wrong', JSON.stringify(wrongItems)); }
+            function updateScore() { document.getElementById('quiz-score').textContent = 'Счёт: ' + quizScore + ' / ' + quizTotal + (onlyErrors ? ' · режим: только ошибки (' + wrongItems.length + ')' : ''); }
+
+            function studyPanel() {
+                var html = '';
+                DATA.emperors.forEach(function(e) {
+                    html += '<div class="card emperor-card" style="border-left-color:' + COLORS[e.id] + '">';
+                    html += '<h2>' + e.emoji + ' ' + esc(e.name) + '</h2>';
+                    html += '<div class="reign">Правил: ' + esc(e.reign) + '</div>';
+                    var events = DATA.events.filter(function(ev) { return ev.emperor === e.id; });
+                    var persons = DATA.persons.filter(function(p) { return p.emperor === e.id; });
+                    if (events.length) {
+                        html += '<div class="chip-title">События</div><div class="chip-row">';
+                        events.forEach(function(ev) { html += '<span class="chip" title="' + esc(ev.note) + '"><small>' + esc(ev.year) + '</small> ' + esc(ev.title) + '</span>'; });
+                        html += '</div>';
+                    }
+                    if (persons.length) {
+                        html += '<div class="chip-title">Личности</div><div class="chip-row">';
+                        persons.forEach(function(p) { html += '<span class="chip" title="' + esc(p.description) + '">' + esc(p.name) + '</span>'; });
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                });
+                document.getElementById('panel-study').innerHTML = html;
+            }
+
+            function pickItem() {
+                if (onlyErrors && wrongItems.length) {
+                    return wrongItems[Math.floor(Math.random() * wrongItems.length)];
+                }
+                if (!deck.length) buildDeck();
+                return deck.pop();
+            }
+
+            function loadQuestion() {
+                document.getElementById('info').style.display = 'none';
+                document.getElementById('next-btn').style.display = 'none';
+                currentItem = pickItem();
+                document.getElementById('question').textContent = 'К какому императору относится?\\n' + currentItem.label + ': ' + currentItem.text;
+                var opts = document.getElementById('options');
+                opts.innerHTML = '';
+                var correct = currentItem.emperor;
+                var list = DATA.emperors.slice();
+                for (var i = list.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = list[i]; list[i] = list[j]; list[j] = t; }
+                list.forEach(function(e) {
+                    var btn = document.createElement('button');
+                    btn.className = 'opt-btn';
+                    btn.textContent = e.name + ' (' + e.reign + ')';
+                    btn.dataset.emperor = e.id;
+                    btn.dataset.correct = (e.id === correct) ? '1' : '0';
+                    btn.addEventListener('click', function() { answerClick(btn); });
+                    opts.appendChild(btn);
+                });
+            }
+
+            function answerClick(btn) {
+                var btns = document.querySelectorAll('.opt-btn');
+                btns.forEach(function(b) { b.disabled = true; });
+                var isCorrect = btn.dataset.correct === '1';
+                btns.forEach(function(b) {
+                    if (b.dataset.correct === '1') b.classList.add('correct');
+                    else if (b === btn) b.classList.add('wrong');
+                });
+                quizTotal++;
+                if (isCorrect) { quizScore++; }
+                saveScore();
+                updateScore();
+                var info = document.getElementById('info');
+                var lines = [];
+                lines.push('<span class="info-label">' + (isCorrect ? '✅ Верно' : '❌ Неверно') + '</span>');
+                lines.push('<div><b>' + esc(currentItem.label) + ':</b> ' + esc(currentItem.text) + '</div>');
+                if (currentItem.info) lines.push('<div>📎 ' + esc(currentItem.info) + '</div>');
+                lines.push('<div>👑 Император: <b>' + esc(emName[currentItem.emperor]) + '</b></div>');
+                info.innerHTML = lines.join('');
+                info.style.display = 'block';
+                if (isCorrect) {
+                    wrongItems = wrongItems.filter(function(it) { return it.text !== currentItem.text; });
+                } else {
+                    if (!wrongItems.some(function(it) { return it.text === currentItem.text; })) wrongItems.push(currentItem);
+                    if (deck.indexOf(currentItem) === -1) deck.push(currentItem);
+                    shuffleArray(deck);
+                }
+                saveWrong();
+                updateScore();
+                var nextBtn = document.getElementById('next-btn');
+                nextBtn.style.display = 'block';
+                nextBtn.onclick = loadQuestion;
+            }
+
+            window.app = {
+                showTab: function(tab) {
+                    document.getElementById('tab-study').classList.toggle('active', tab === 'study');
+                    document.getElementById('tab-quiz').classList.toggle('active', tab === 'quiz');
+                    document.getElementById('panel-study').classList.toggle('active', tab === 'study');
+                    document.getElementById('panel-quiz').classList.toggle('active', tab === 'quiz');
+                    if (tab === 'quiz') { loadQuestion(); }
+                },
+                toggleMode: function() {
+                    onlyErrors = document.getElementById('mode-errors').checked;
+                    updateScore();
+                    loadQuestion();
+                },
+                resetScore: function() {
+                    quizScore = 0; quizTotal = 0; wrongItems = [];
+                    saveScore(); saveWrong(); updateScore(); loadQuestion();
+                }
+            };
+            studyPanel();
+            updateScore();
+            loadQuestion();
+        })();
+    </script>
+</body>
+</html>""".replace("__DATA__", history_data)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
