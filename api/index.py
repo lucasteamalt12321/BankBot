@@ -302,6 +302,7 @@ def get_db_engine():
         _ensure_family_tables(DB_ENGINE)
         _ensure_web_auth_tables(DB_ENGINE)
         _ensure_parsing_tables(DB_ENGINE)
+        _ensure_emperors_tables(DB_ENGINE)
         _ensure_chess_games_table(DB_ENGINE)
         try:
             _ensure_canon_tables(DB_ENGINE)
@@ -1025,6 +1026,32 @@ def _ensure_parsing_tables(engine):
         print("[PARSING] Tables ensured")
     except Exception as exc:
         print(f"[PARSING] Table init error: {exc}")
+
+
+def _ensure_emperors_tables(engine):
+    """Create Emperors module tables if they don't exist (preserves existing data)."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS emperors_progress (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    card_key TEXT NOT NULL,
+                    reps INTEGER NOT NULL DEFAULT 0,
+                    interval_days INTEGER NOT NULL DEFAULT 0,
+                    ease REAL NOT NULL DEFAULT 2.5,
+                    due REAL NOT NULL DEFAULT 0,
+                    correct_count INTEGER NOT NULL DEFAULT 0,
+                    wrong_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
+            conn.commit()
+        print("[EMPERORS] Tables ensured")
+    except Exception as exc:
+        print(f"[EMPERORS] Table init error: {exc}")
 
 
 def _sync_conversion_rates(conn):
@@ -7661,6 +7688,26 @@ def emperors_page():
         .status { text-align: center; color: #888; margin-top: 24px; font-size: 13px; }
         .reset-btn { background: none; border: 1px solid #1a5276; color: #888; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: inherit; }
         .reset-btn:hover { border-color: #e94560; color: #e94560; }
+        .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .progress-bar { flex: 1; height: 8px; background: #0f3460; border-radius: 6px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #e94560; width: 0%; transition: width 0.25s; }
+        .progress-label { font-size: 12px; color: #888; white-space: nowrap; }
+        .hint-box { background: #0f3460; border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 14px; color: #aaa; line-height: 1.5; display: none; }
+        .hint-btn { display: block; width: 100%; padding: 10px; background: none; border: 1px dashed #1a5276; color: #888; border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10px; font-family: inherit; }
+        .hint-btn:hover { border-color: #f0c040; color: #f0c040; }
+        .stats-card { font-size: 13px; color: #aaa; }
+        .stats-card .stat-line { margin: 4px 0; }
+        .match-items { margin-bottom: 16px; }
+        .match-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 10px; }
+        .match-col { background: #0f3460; border: 2px solid #1a5276; border-radius: 12px; padding: 10px; min-height: 90px; cursor: pointer; }
+        .match-col:hover { border-color: #4a90d9; }
+        .match-col-head { font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+        .match-chip { cursor: pointer; user-select: none; }
+        .match-chip.sel { outline: 2px solid #e94560; }
+        .match-chip.placed { cursor: default; display: block; margin: 4px 0; }
+        .match-chip.ok { background: #1b5e20; border-color: #2e7d32; }
+        .match-chip.bad { background: #b71c1c; border-color: #c62828; }
+        .match-chip .x { margin-left: 6px; color: #888; border: none; background: none; cursor: pointer; font-size: 12px; }
         @media (max-width: 600px) { .card { padding: 16px; } .question { font-size: 16px; } .chip { font-size: 12px; } }
     </style>
 </head>
@@ -7673,9 +7720,14 @@ def emperors_page():
         <div class="tabs">
             <button class="tab-btn active" id="tab-study" onclick="app.showTab('study')">📚 Изучить</button>
             <button class="tab-btn" id="tab-quiz" onclick="app.showTab('quiz')">🧠 Тренажёр</button>
+            <button class="tab-btn" id="tab-match" onclick="app.showTab('match')">🎯 Сопоставление</button>
         </div>
         <div class="panel active" id="panel-study"></div>
         <div class="panel" id="panel-quiz">
+            <div class="progress-row">
+                <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                <span class="progress-label" id="progress-label"></span>
+            </div>
             <div class="score" id="quiz-score"></div>
             <div class="mode-row">
                 <label>Алгоритм:
@@ -7689,10 +7741,23 @@ def emperors_page():
             </div>
             <div class="card">
                 <div class="question" id="question">Загрузка...</div>
+                <div class="hint-box" id="hint-box"></div>
                 <div class="options" id="options"></div>
                 <div class="info" id="info"></div>
                 <button class="next-btn" id="next-btn">Следующий →</button>
+                <button class="hint-btn" id="hint-btn" onclick="app.showHint()">💡 Подсказка</button>
             </div>
+            <div class="card stats-card" id="stats-card"></div>
+        </div>
+        <div class="panel" id="panel-match">
+            <div class="mode-row">
+                <button class="reset-btn" onclick="app.startMatch()">🔄 Новый раунд</button>
+                <button class="reset-btn" onclick="app.checkMatch()">✅ Проверить</button>
+                <span class="progress-label" id="match-count"></span>
+            </div>
+            <div class="match-items" id="match-items"></div>
+            <div class="match-grid" id="match-columns"></div>
+            <div class="info" id="match-info"></div>
         </div>
         <div class="status">модуль подготовки к игре «Имена и события»</div>
     </div>
@@ -7729,42 +7794,81 @@ def emperors_page():
             var pending = [];
             var algo = localStorage.getItem('emperors_algo') || 'deck';
             document.getElementById('algo-select').value = algo;
+            var uid = localStorage.getItem('web_user_id') || ('web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10));
+            localStorage.setItem('web_user_id', uid);
 
             function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
             function shuffleArray(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
             function flashKey(it) { return it.type + '::' + it.text; }
-            function loadFlash() { try { return JSON.parse(localStorage.getItem('emperors_flash') || '{}'); } catch(e) { return {}; } }
-            function saveFlash(f) { localStorage.setItem('emperors_flash', JSON.stringify(f)); }
+            var flash = {};
+            (function() {
+                try { flash = JSON.parse(localStorage.getItem('emperors_flash') || '{}'); } catch(e) { flash = {}; }
+            })();
+            function saveFlashLocal() { localStorage.setItem('emperors_flash', JSON.stringify(flash)); }
+            var saveTimer = null;
+            function pushFlash() {
+                saveFlashLocal();
+                if (saveTimer) clearTimeout(saveTimer);
+                saveTimer = setTimeout(function() {
+                    fetch('/api/emperors/progress', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: uid, cards: flash })
+                    }).catch(function() {});
+                }, 600);
+            }
             function flashDueCount() {
-                var f = loadFlash(); var now = Date.now(); var n = 0;
-                allItems.forEach(function(it) { var rec = f[flashKey(it)]; if (!rec || rec.due <= now) n++; });
+                var now = Date.now(); var n = 0;
+                allItems.forEach(function(it) { var rec = flash[flashKey(it)]; if (!rec || rec.due <= now) n++; });
                 return n;
             }
             function flashCorrect(it) {
-                var f = loadFlash(); var key = flashKey(it);
-                var rec = f[key] || { reps: 0, interval: 0, ease: 2.5 };
+                var key = flashKey(it);
+                var rec = flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0 };
                 rec.reps = (rec.reps || 0) + 1;
+                rec.correct = (rec.correct || 0) + 1;
                 if (rec.reps === 1) rec.interval = 1;
                 else if (rec.reps === 2) rec.interval = 3;
                 else if (rec.reps === 3) rec.interval = 7;
                 else rec.interval = Math.round((rec.interval || 7) * rec.ease);
                 rec.due = Date.now() + rec.interval * 86400000;
-                f[key] = rec; saveFlash(f);
+                flash[key] = rec; pushFlash();
             }
             function flashMiss(it) {
-                var f = loadFlash(); var key = flashKey(it);
-                f[key] = { reps: 0, interval: 0, ease: 2.5, due: Date.now() };
-                saveFlash(f);
+                var key = flashKey(it);
+                var rec = flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0 };
+                rec.reps = 0; rec.interval = 0; rec.due = Date.now(); rec.wrong = (rec.wrong || 0) + 1;
+                flash[key] = rec; pushFlash();
             }
             function pickFlash() {
-                var f = loadFlash(); var now = Date.now(); var due = [];
+                var now = Date.now(); var due = [];
                 allItems.forEach(function(it) {
-                    var rec = f[flashKey(it)];
-                    if (!rec || rec.due <= now) due.push(it);
+                    var rec = flash[flashKey(it)];
+                    if (!rec || rec.due <= now) due.push({ it: it, due: rec ? rec.due : 0 });
                 });
                 if (!due.length) return null;
-                return due[Math.floor(Math.random() * due.length)];
+                due.sort(function(a, b) { return a.due - b.due; });
+                var prevType = currentItem ? currentItem.type : null;
+                var prevEmperor = currentItem ? currentItem.emperor : null;
+                for (var i = 0; i < due.length; i++) {
+                    if (due[i].it.type !== prevType) return due[i].it;
+                }
+                for (var j = 0; j < due.length; j++) {
+                    if (due[j].it.emperor !== prevEmperor) return due[j].it;
+                }
+                return due[0].it;
             }
+            fetch('/api/emperors/progress?user_id=' + encodeURIComponent(uid))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d && d.cards) {
+                        var merged = false;
+                        for (var k in d.cards) {
+                            if (!flash[k] || d.cards[k].due > (flash[k].due || 0)) { flash[k] = d.cards[k]; merged = true; }
+                        }
+                        if (merged) { saveFlashLocal(); updateScore(); }
+                    }
+                }).catch(function() {});
             var deck = [];
             function buildDeck() {
                 deck = shuffleArray(allItems.slice());
@@ -7774,11 +7878,49 @@ def emperors_page():
             }
             function saveScore() { localStorage.setItem('emperors_score', quizScore + '/' + quizTotal); }
             function saveWrong() { localStorage.setItem('emperors_wrong', JSON.stringify(wrongItems)); }
+            function updateProgressBar() {
+                var total = allItems.length;
+                var mastered = 0;
+                Object.keys(flash).forEach(function(k) { var r = flash[k]; if (r && (r.reps || 0) >= 3) mastered++; });
+                var el = document.getElementById('progress-fill');
+                var lab = document.getElementById('progress-label');
+                if (el) { el.style.width = (total ? (mastered / total * 100) : 0) + '%'; }
+                if (lab) { lab.textContent = 'освоено ' + mastered + '/' + total; }
+            }
+            function renderStats() {
+                var byEmperor = {};
+                DATA.emperors.forEach(function(e) { byEmperor[e.id] = { wrong: 0, correct: 0 }; });
+                Object.keys(flash).forEach(function(k) {
+                    var r = flash[k];
+                    if (!r) return;
+                    var parts = k.split('::');
+                    var text = parts.slice(1).join('::');
+                    for (var i = 0; i < allItems.length; i++) {
+                        if (allItems[i].type === parts[0] && allItems[i].text === text) {
+                            var em = allItems[i].emperor;
+                            if (byEmperor[em]) { byEmperor[em].wrong += r.wrong || 0; byEmperor[em].correct += r.correct || 0; }
+                            break;
+                        }
+                    }
+                });
+                var html = '<div class="chip-title">Статистика</div>';
+                html += '<div class="stat-line">Освоено карточек: <b>' + Object.keys(flash).filter(function(k){return (flash[k]||{}).reps>=3;}).length + ' / ' + allItems.length + '</b></div>';
+                html += '<div class="stat-line">В очереди к повторению: <b>' + flashDueCount() + '</b></div>';
+                html += '<div class="chip-title">Топ ошибок по императорам</div>';
+                var arr = DATA.emperors.map(function(e) { return { id: e.id, wrong: byEmperor[e.id].wrong }; });
+                arr.sort(function(a, b) { return b.wrong - a.wrong; });
+                arr.forEach(function(a) {
+                    html += '<div class="stat-line"><span style="color:' + COLORS[a.id] + '">●</span> ' + esc(emName[a.id]) + ': <b>' + a.wrong + '</b> ошибок</div>';
+                });
+                document.getElementById('stats-card').innerHTML = html;
+            }
             function updateScore() {
                 var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
                 if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
                 if (onlyErrors) s += ' · режим: только ошибки (' + wrongItems.length + ')';
                 document.getElementById('quiz-score').textContent = s;
+                updateProgressBar();
+                renderStats();
             }
 
             function studyPanel() {
@@ -7815,6 +7957,8 @@ def emperors_page():
 
             function loadQuestion() {
                 document.getElementById('info').style.display = 'none';
+                document.getElementById('hint-box').style.display = 'none';
+                document.getElementById('hint-btn').style.display = 'block';
                 document.getElementById('next-btn').style.display = 'none';
                 currentItem = pickItem();
                 if (!currentItem) {
@@ -7871,18 +8015,101 @@ def emperors_page():
                 }
                 saveWrong();
                 updateScore();
+                document.getElementById('hint-btn').style.display = 'none';
                 var nextBtn = document.getElementById('next-btn');
                 nextBtn.style.display = 'block';
                 nextBtn.onclick = loadQuestion;
             }
 
+            var matchState = { pool: [], sel: null };
+
+            function startMatch() {
+                matchState.sel = null;
+                matchState.pool = shuffleArray(allItems.slice()).slice(0, 10);
+                var items = document.getElementById('match-items');
+                items.innerHTML = '';
+                matchState.pool.forEach(function(it) {
+                    var chip = document.createElement('span');
+                    chip.className = 'chip match-chip';
+                    chip.textContent = it.text;
+                    chip.dataset.key = flashKey(it);
+                    chip.onclick = function() { selectMatchChip(chip); };
+                    items.appendChild(chip);
+                });
+                var grid = document.getElementById('match-columns');
+                grid.innerHTML = '';
+                DATA.emperors.forEach(function(e) {
+                    var col = document.createElement('div');
+                    col.className = 'match-col';
+                    col.dataset.emperor = e.id;
+                    col.innerHTML = '<div class="match-col-head" style="color:' + COLORS[e.id] + '">' + esc(e.name) + '</div>';
+                    col.onclick = function() { placeMatchChip(col); };
+                    grid.appendChild(col);
+                });
+                document.getElementById('match-count').textContent = 'Карточек: ' + matchState.pool.length;
+                document.getElementById('match-info').style.display = 'none';
+            }
+            function selectMatchChip(chip) {
+                if (chip.classList.contains('placed')) return;
+                if (matchState.sel) matchState.sel.classList.remove('sel');
+                chip.classList.add('sel');
+                matchState.sel = chip;
+            }
+            function placeMatchChip(col) {
+                if (!matchState.sel) return;
+                var chip = matchState.sel;
+                var it = matchState.pool.filter(function(p) { return flashKey(p) === chip.dataset.key; })[0];
+                var correct = (it.emperor === col.dataset.emperor);
+                var span = document.createElement('span');
+                span.className = 'chip match-chip placed' + (correct ? ' ok' : ' bad');
+                span.textContent = it.text;
+                span.title = it.info || '';
+                var x = document.createElement('button');
+                x.className = 'x';
+                x.textContent = '✕';
+                x.onclick = function() { span.remove(); chip.classList.remove('placed'); chip.style.display = 'inline-block'; chip.textContent = it.text; };
+                span.appendChild(x);
+                if (correct) {
+                    chip.classList.add('placed');
+                    chip.style.display = 'none';
+                } else {
+                    chip.classList.remove('sel');
+                    chip.textContent = it.text;
+                    matchState.sel = null;
+                }
+                col.appendChild(span);
+                checkMatchDone();
+            }
+            function checkMatchDone() {
+                var remaining = matchState.pool.filter(function(p) {
+                    return !document.querySelector('.match-chip[data-key="' + CSS.escape(flashKey(p)) + '"].placed');
+                });
+                if (remaining.length === 0) {
+                    var placedOk = document.querySelectorAll('.match-chip.placed.ok').length;
+                    var info = document.getElementById('match-info');
+                    info.innerHTML = '<span class="info-label">🎉 Готово!</span> Все ' + matchState.pool.length + ' разложены верно.';
+                    info.style.display = 'block';
+                }
+            }
+            function checkMatch() {
+                var info = document.getElementById('match-info');
+                var placedOk = document.querySelectorAll('.match-chip.placed.ok').length;
+                var placedBad = document.querySelectorAll('.match-chip.placed.bad').length;
+                var left = matchState.pool.length - (placedOk + placedBad);
+                info.innerHTML = '<span class="info-label">Результат:</span> верно ' + placedOk + ', ошибок ' + placedBad + ', осталось ' + left + '.';
+                info.style.display = 'block';
+            }
+
             window.app = {
                 showTab: function(tab) {
-                    document.getElementById('tab-study').classList.toggle('active', tab === 'study');
-                    document.getElementById('tab-quiz').classList.toggle('active', tab === 'quiz');
-                    document.getElementById('panel-study').classList.toggle('active', tab === 'study');
-                    document.getElementById('panel-quiz').classList.toggle('active', tab === 'quiz');
+                    var tabs = ['study', 'quiz', 'match'];
+                    var ids = { study: ['tab-study', 'panel-study'], quiz: ['tab-quiz', 'panel-quiz'], match: ['tab-match', 'panel-match'] };
+                    tabs.forEach(function(t) {
+                        document.getElementById(ids[t][0]).classList.toggle('active', t === tab);
+                        document.getElementById(ids[t][1]).classList.toggle('active', t === tab);
+                    });
                     if (tab === 'quiz') { loadQuestion(); }
+                    if (tab === 'match') { startMatch(); }
                 },
                 toggleMode: function() {
                     onlyErrors = document.getElementById('mode-errors').checked;
@@ -7897,10 +8124,35 @@ def emperors_page():
                 },
                 resetScore: function() {
                     quizScore = 0; quizTotal = 0; wrongItems = [];
+                    flash = {}; saveFlashLocal();
                     localStorage.removeItem('emperors_flash');
+                    fetch('/api/emperors/progress', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: uid, cards: {}, reset: true })
+                    }).catch(function() {});
                     saveScore(); saveWrong(); updateScore(); loadQuestion();
-                }
+                },
+                showHint: function() {
+                    if (!currentItem) return;
+                    var box = document.getElementById('hint-box');
+                    box.style.display = 'block';
+                    box.textContent = '💡 ' + (currentItem.info || 'Подсказка: вспомни, при каком императоре происходило это событие / жила эта личность.');
+                },
+                startMatch: startMatch,
+                checkMatch: checkMatch
             };
+            document.addEventListener('keydown', function(e) {
+                if (!document.getElementById('panel-quiz').classList.contains('active')) return;
+                if (e.key >= '1' && e.key <= '5') {
+                    var btns = document.querySelectorAll('.opt-btn');
+                    var idx = parseInt(e.key, 10) - 1;
+                    if (btns[idx] && !btns[idx].disabled) btns[idx].click();
+                } else if (e.key === 'Enter') {
+                    var nb = document.getElementById('next-btn');
+                    if (nb.style.display === 'block') { nb.click(); }
+                }
+            });
             studyPanel();
             updateScore();
             loadQuestion();
@@ -7909,6 +8161,80 @@ def emperors_page():
 </body>
 </html>""".replace("__DATA__", history_data)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/emperors/progress", methods=["GET"])
+def api_emperors_progress():
+    """Load the Emperors module SM-2 progress for the current web user."""
+    uid_raw = request.args.get("user_id", "") or ""
+    uid = _web_user_id(uid_raw.strip())
+    cards = {}
+    if uid:
+        try:
+            engine = get_db_engine()
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text("SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count FROM emperors_progress WHERE user_id = :uid"),
+                    {"uid": uid},
+                ).mappings()
+                for r in rows:
+                    cards[r["card_key"]] = {
+                        "reps": r["reps"],
+                        "interval": r["interval_days"],
+                        "ease": r["ease"],
+                        "due": r["due"],
+                        "correct": r["correct_count"],
+                        "wrong": r["wrong_count"],
+                    }
+        except Exception as exc:
+            print(f"[EMPERORS] progress GET error: {exc}")
+    return jsonify({"cards": cards, "uid": uid})
+
+
+@app.route("/api/emperors/progress", methods=["POST"])
+def api_emperors_progress_save():
+    """Save the Emperors module SM-2 progress for the current web user."""
+    data = request.get_json(silent=True) or {}
+    uid_raw = (data.get("user_id") or "").strip()
+    uid = _web_user_id(uid_raw)
+    cards = data.get("cards") or {}
+    if not uid:
+        return jsonify({"ok": False, "error": "user_id required"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            if data.get("reset"):
+                conn.execute(text("DELETE FROM emperors_progress WHERE user_id = :uid"), {"uid": uid})
+            else:
+                for key, rec in cards.items():
+                    conn.execute(text(
+                        """
+                        INSERT INTO emperors_progress (user_id, card_key, reps, interval_days, ease, due, correct_count, wrong_count, updated_at)
+                        VALUES (:uid, :key, :reps, :interval, :ease, :due, :correct, :wrong, :ts)
+                        ON CONFLICT (user_id, card_key) DO UPDATE SET
+                            reps = EXCLUDED.reps,
+                            interval_days = EXCLUDED.interval_days,
+                            ease = EXCLUDED.ease,
+                            due = EXCLUDED.due,
+                            correct_count = EXCLUDED.correct_count,
+                            wrong_count = EXCLUDED.wrong_count,
+                            updated_at = EXCLUDED.updated_at
+                        """
+                    ), {
+                        "uid": uid,
+                        "key": key,
+                        "reps": int(rec.get("reps", 0)),
+                        "interval": int(rec.get("interval", 0)),
+                        "ease": float(rec.get("ease", 2.5)),
+                        "due": float(rec.get("due", 0)),
+                        "correct": int(rec.get("correct", 0)),
+                        "wrong": int(rec.get("wrong", 0)),
+                        "ts": time.time(),
+                    })
+        return jsonify({"ok": True, "uid": uid, "saved": len(cards)})
+    except Exception as exc:
+        print(f"[EMPERORS] progress POST error: {exc}")
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/trivia/question", methods=["POST"])
