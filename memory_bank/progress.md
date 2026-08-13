@@ -33,6 +33,7 @@
   - **Тесты:** `test_emperors_progress_api_save_and_get` (mock SQLite + patch get_db_engine, upsert/reset), `test_emperors_page_has_new_features`. Полный `tests/unit` → **987 passed / 10 skipped**; ruff clean; `node --check` ок. Задеплоено на прод (Ready), API проверен на проде (POST/GET/reset).
 
 - **Итерация 4.1 (дебаг-режим):** кнопка «🔧 Дебаг» в тренажёре — полупрозрачная панель в правом верхнем углу (`#debug-panel`, `position:fixed`, rgba-фон) со списком всех карточек: тип, имя, император, reps, interval, ease, correct/wrong, due (⏰ для просроченных), сортировка — просроченные первыми. Обновляется при каждом действии (`renderDebug` в `updateScore`). Задеплоено на прод (Ready), `node --check` ок.
+- **Итерация 4.2 (приоритет в «Флешках»):** `pickFlash` теперь сортирует кандидатов по приоритету: **1) карточки с ошибками** (wrong>0), **2) ни разу не появлявшиеся** (нет записи), **3) обычные повторы**; внутри группы — по `due` (давно просроченные раньше). Чередование типов/императоров сохраняется. Задеплоено на прод (Ready).
 
 ### 2026-08-13 (Session: запись [ADMIN-BUG-2])
 
@@ -958,7 +959,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-540d6a3 (2026-08-13) — FEAT: emperors — бэкенд-прогресс (БД+API), умные флешки, статистика, режим сопоставления, UX
+920fa11 (2026-08-13) — FEAT: emperors — кнопка дебаг-режима (полупрозрачная панель с данными карточек SM-2)
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 

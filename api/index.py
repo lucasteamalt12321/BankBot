@@ -7853,22 +7853,30 @@ def emperors_page():
                 flash[key] = rec; pushFlash();
             }
             function pickFlash() {
-                var now = Date.now(); var due = [];
+                var now = Date.now(); var candidates = [];
                 allItems.forEach(function(it) {
                     var rec = flash[flashKey(it)];
-                    if (!rec || rec.due <= now) due.push({ it: it, due: rec ? rec.due : 0 });
+                    if (rec && rec.due > now) return;
+                    var prio = 0;
+                    if (rec && rec.wrong > 0) prio = 0;
+                    else if (!rec) prio = 1;
+                    else prio = 2;
+                    candidates.push({ it: it, due: rec ? rec.due : 0, prio: prio });
                 });
-                if (!due.length) return null;
-                due.sort(function(a, b) { return a.due - b.due; });
+                if (!candidates.length) return null;
+                candidates.sort(function(a, b) {
+                    if (a.prio !== b.prio) return a.prio - b.prio;
+                    return a.due - b.due;
+                });
                 var prevType = currentItem ? currentItem.type : null;
                 var prevEmperor = currentItem ? currentItem.emperor : null;
-                for (var i = 0; i < due.length; i++) {
-                    if (due[i].it.type !== prevType) return due[i].it;
+                for (var i = 0; i < candidates.length; i++) {
+                    if (candidates[i].it.type !== prevType) return candidates[i].it;
                 }
-                for (var j = 0; j < due.length; j++) {
-                    if (due[j].it.emperor !== prevEmperor) return due[j].it;
+                for (var j = 0; j < candidates.length; j++) {
+                    if (candidates[j].it.emperor !== prevEmperor) return candidates[j].it;
                 }
-                return due[0].it;
+                return candidates[0].it;
             }
             fetch('/api/emperors/progress?user_id=' + encodeURIComponent(uid))
                 .then(function(r) { return r.json(); })
