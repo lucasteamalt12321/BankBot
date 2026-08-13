@@ -115,6 +115,9 @@ def test_emperors_page_has_new_features():
     assert "function placeMatchChip" in body
     assert "pushFlash" in body
     assert "/api/emperors/progress" in body
+    assert 'id="debug-panel"' in body
+    assert "toggleDebug" in body
+    assert "renderDebug" in body
 
 
 def test_emperors_progress_api_save_and_get():
