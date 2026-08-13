@@ -7708,6 +7708,13 @@ def emperors_page():
         .match-chip.ok { background: #1b5e20; border-color: #2e7d32; }
         .match-chip.bad { background: #b71c1c; border-color: #c62828; }
         .match-chip .x { margin-left: 6px; color: #888; border: none; background: none; cursor: pointer; font-size: 12px; }
+        .debug-btn { background: none; border: 1px solid #333; color: #555; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: inherit; }
+        .debug-btn:hover { border-color: #f0c040; color: #f0c040; }
+        .debug-panel { position: fixed; top: 12px; right: 12px; max-height: 70vh; overflow: auto; width: 340px; background: rgba(13, 18, 34, 0.85); border: 1px solid #1a5276; border-radius: 10px; padding: 12px; font-size: 11px; line-height: 1.5; color: #9fb3c8; z-index: 1000; display: none; }
+        .debug-panel .d-title { color: #e94560; font-weight: 600; margin-bottom: 6px; }
+        .debug-panel .d-row { padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+        .debug-panel .d-row b { color: #e0e0e0; }
+        .debug-panel .d-due { color: #f0c040; }
         @media (max-width: 600px) { .card { padding: 16px; } .question { font-size: 16px; } .chip { font-size: 12px; } }
     </style>
 </head>
@@ -7738,6 +7745,11 @@ def emperors_page():
                 </label>
                 <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
                 <button class="reset-btn" onclick="app.resetScore()">Сбросить счёт</button>
+                <button class="debug-btn" onclick="app.toggleDebug()">🔧 Дебаг</button>
+            </div>
+            <div class="debug-panel" id="debug-panel">
+                <div class="d-title">Дебаг · данные карточек</div>
+                <div id="debug-list"></div>
             </div>
             <div class="card">
                 <div class="question" id="question">Загрузка...</div>
@@ -7914,6 +7926,36 @@ def emperors_page():
                 });
                 document.getElementById('stats-card').innerHTML = html;
             }
+function renderDebug() {
+                var listEl = document.getElementById('debug-list');
+                if (!listEl || document.getElementById('debug-panel').style.display !== 'block') return;
+                var rows = [];
+                allItems.forEach(function(it) {
+                    var rec = flash[flashKey(it)] || {};
+                    var due = rec.due || 0;
+                    rows.push({
+                        key: it.type.charAt(0) + '·' + it.text,
+                        emperor: it.emperor,
+                        reps: rec.reps || 0,
+                        interval: rec.interval || 0,
+                        ease: rec.ease != null ? rec.ease.toFixed(1) : '2.5',
+                        due: due ? new Date(due).toISOString().slice(0, 16) : '—',
+                        correct: rec.correct || 0,
+                        wrong: rec.wrong || 0,
+                        overdue: due ? due <= Date.now() : true
+                    });
+                });
+                rows.sort(function(a, b) { return (a.overdue ? 0 : 1) - (b.overdue ? 0 : 1); });
+                var html = '';
+                rows.forEach(function(r) {
+                    html += '<div class="d-row"><b>' + esc(r.key) + '</b>' +
+                        ' · ' + emName[r.emperor].split(' (')[0] +
+                        ' · reps=' + r.reps + ' int=' + r.interval + ' ease=' + r.ease +
+                        ' ✓' + r.correct + ' ✗' + r.wrong +
+                        ' · <span class="d-due">' + (r.overdue ? '⏰ ' : '') + r.due + '</span></div>';
+                });
+                listEl.innerHTML = html;
+            }
             function updateScore() {
                 var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
                 if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
@@ -7921,6 +7963,7 @@ def emperors_page():
                 document.getElementById('quiz-score').textContent = s;
                 updateProgressBar();
                 renderStats();
+                renderDebug();
             }
 
             function studyPanel() {
@@ -8140,7 +8183,12 @@ def emperors_page():
                     box.textContent = '💡 ' + (currentItem.info || 'Подсказка: вспомни, при каком императоре происходило это событие / жила эта личность.');
                 },
                 startMatch: startMatch,
-                checkMatch: checkMatch
+                checkMatch: checkMatch,
+                toggleDebug: function() {
+                    var panel = document.getElementById('debug-panel');
+                    panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
+                    if (panel.style.display === 'block') renderDebug();
+                }
             };
             document.addEventListener('keydown', function(e) {
                 if (!document.getElementById('panel-quiz').classList.contains('active')) return;
