@@ -956,7 +956,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-f71575f (2026-08-13) — FEAT: тренажёр императоров — 2 алгоритма подбора карточек (Классика / Флешки SM-2)
+540d6a3 (2026-08-13) — FEAT: emperors — бэкенд-прогресс (БД+API), умные флешки, статистика, режим сопоставления, UX
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 
