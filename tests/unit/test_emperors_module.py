@@ -100,3 +100,66 @@ def test_emperors_page_contains_data():
     assert "Манифест об отмене крепостного права" in body
     assert "М. И. Кутузов" in body
     assert '"alexander_ii"' in body
+
+
+def test_emperors_page_has_new_features():
+    from api.index import app
+
+    c = app.test_client()
+    body = c.get("/emperors").get_data(as_text=True)
+    assert 'id="tab-match"' in body
+    assert 'id="hint-btn"' in body
+    assert 'id="progress-fill"' in body
+    assert 'id="stats-card"' in body
+    assert "function startMatch" in body
+    assert "function placeMatchChip" in body
+    assert "pushFlash" in body
+    assert "/api/emperors/progress" in body
+
+
+def test_emperors_progress_api_save_and_get():
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.pool import StaticPool
+    from unittest.mock import patch
+    from api.index import app
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE emperors_progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                card_key TEXT NOT NULL,
+                reps INTEGER NOT NULL DEFAULT 0,
+                interval_days INTEGER NOT NULL DEFAULT 0,
+                ease REAL NOT NULL DEFAULT 2.5,
+                due REAL NOT NULL DEFAULT 0,
+                correct_count INTEGER NOT NULL DEFAULT 0,
+                wrong_count INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL
+            )
+        """))
+        conn.execute(text("CREATE UNIQUE INDEX uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
+
+    c = app.test_client()
+    with patch("api.index.get_db_engine", return_value=engine):
+        resp = c.post("/api/emperors/progress", json={
+            "user_id": "web_progress_test",
+            "cards": {"event::Отмена крепостного права": {"reps": 3, "interval": 7, "ease": 2.5, "due": 100.0, "correct": 3, "wrong": 0}},
+        })
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+        g = c.get("/api/emperors/progress?user_id=web_progress_test")
+        data = g.get_json()
+        assert "event::Отмена крепостного права" in data["cards"]
+        assert data["cards"]["event::Отмена крепостного права"]["reps"] == 3
+
+        r = c.post("/api/emperors/progress", json={"user_id": "web_progress_test", "cards": {}, "reset": True})
+        assert r.status_code == 200
+        g2 = c.get("/api/emperors/progress?user_id=web_progress_test")
+        assert g2.get_json()["cards"] == {}
