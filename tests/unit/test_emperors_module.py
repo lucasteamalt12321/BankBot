@@ -153,21 +153,28 @@ def test_emperors_progress_api_save_and_get():
         conn.execute(text("CREATE UNIQUE INDEX uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
 
     c = app.test_client()
-    with patch("api.index.get_db_engine", return_value=engine):
-        resp = c.post("/api/emperors/progress", json={
-            "user_id": "web_progress_test",
+    auth = {"X-Auth-Token": "test-token"}
+    with patch("api.index.get_db_engine", return_value=engine), \
+         patch("api.index._get_session_user", return_value={"id": 42, "login": "test"}), \
+         patch("api.index._auth_token_from_request", return_value="test-token"):
+        resp = c.post("/api/emperors/progress", headers=auth, json={
             "cards": {"event::Отмена крепостного права": {"reps": 3, "interval": 7, "ease": 2.5, "due": 100.0, "correct": 3, "wrong": 0, "counter": 3}},
         })
         assert resp.status_code == 200
         assert resp.get_json()["ok"] is True
 
-        g = c.get("/api/emperors/progress?user_id=web_progress_test")
+        g = c.get("/api/emperors/progress", headers=auth)
         data = g.get_json()
         assert "event::Отмена крепостного права" in data["cards"]
         assert data["cards"]["event::Отмена крепостного права"]["reps"] == 3
         assert data["cards"]["event::Отмена крепостного права"]["counter"] == 3
 
-        r = c.post("/api/emperors/progress", json={"user_id": "web_progress_test", "cards": {}, "reset": True})
+        r = c.post("/api/emperors/progress", headers=auth, json={"cards": {}, "reset": True})
         assert r.status_code == 200
-        g2 = c.get("/api/emperors/progress?user_id=web_progress_test")
+        g2 = c.get("/api/emperors/progress", headers=auth)
         assert g2.get_json()["cards"] == {}
+
+    anon = c.get("/api/emperors/progress")
+    assert anon.get_json()["cards"] == {}
+    anon_post = c.post("/api/emperors/progress", json={"cards": {}})
+    assert anon_post.status_code == 401
