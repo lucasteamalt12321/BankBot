@@ -962,7 +962,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-5f7eaa1 (2026-08-13) — FEAT: emperors — прогресс привязан к аккаунту (token-based), анонимные — только localStorage
+bbff381 (2026-08-13) — FEAT: emperors — кликабельные события/личности в «Изучить» с модалкой описания
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 
