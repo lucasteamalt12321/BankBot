@@ -86,9 +86,9 @@ def test_emperors_page_has_two_algorithms():
     assert 'id="algo-select"' in body
     assert 'value="deck"' in body
     assert 'value="flash"' in body
+    assert 'value="counter"' in body
     assert "function pickFlash" in body
-    assert "function flashCorrect" in body
-    assert "function flashMiss" in body
+    assert "function pickCounter" in body
     assert "emperors_flash" in body
 
 
@@ -118,6 +118,9 @@ def test_emperors_page_has_new_features():
     assert 'id="debug-panel"' in body
     assert "toggleDebug" in body
     assert "renderDebug" in body
+    assert 'value="counter"' in body
+    assert "function pickCounter" in body
+    assert "function recordAnswer" in body
 
 
 def test_emperors_progress_api_save_and_get():
@@ -143,6 +146,7 @@ def test_emperors_progress_api_save_and_get():
                 due REAL NOT NULL DEFAULT 0,
                 correct_count INTEGER NOT NULL DEFAULT 0,
                 wrong_count INTEGER NOT NULL DEFAULT 0,
+                counter INTEGER NOT NULL DEFAULT 0,
                 updated_at REAL NOT NULL
             )
         """))
@@ -152,7 +156,7 @@ def test_emperors_progress_api_save_and_get():
     with patch("api.index.get_db_engine", return_value=engine):
         resp = c.post("/api/emperors/progress", json={
             "user_id": "web_progress_test",
-            "cards": {"event::Отмена крепостного права": {"reps": 3, "interval": 7, "ease": 2.5, "due": 100.0, "correct": 3, "wrong": 0}},
+            "cards": {"event::Отмена крепостного права": {"reps": 3, "interval": 7, "ease": 2.5, "due": 100.0, "correct": 3, "wrong": 0, "counter": 3}},
         })
         assert resp.status_code == 200
         assert resp.get_json()["ok"] is True
@@ -161,6 +165,7 @@ def test_emperors_progress_api_save_and_get():
         data = g.get_json()
         assert "event::Отмена крепостного права" in data["cards"]
         assert data["cards"]["event::Отмена крепостного права"]["reps"] == 3
+        assert data["cards"]["event::Отмена крепостного права"]["counter"] == 3
 
         r = c.post("/api/emperors/progress", json={"user_id": "web_progress_test", "cards": {}, "reset": True})
         assert r.status_code == 200

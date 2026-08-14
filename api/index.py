@@ -1043,9 +1043,11 @@ def _ensure_emperors_tables(engine):
                     due REAL NOT NULL DEFAULT 0,
                     correct_count INTEGER NOT NULL DEFAULT 0,
                     wrong_count INTEGER NOT NULL DEFAULT 0,
+                    counter INTEGER NOT NULL DEFAULT 0,
                     updated_at REAL NOT NULL
                 )
             """))
+            conn.execute(text("ALTER TABLE emperors_progress ADD COLUMN IF NOT EXISTS counter INTEGER NOT NULL DEFAULT 0"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
             conn.commit()
@@ -7741,6 +7743,7 @@ def emperors_page():
                     <select class="algo-select" id="algo-select" onchange="app.toggleAlgo()">
                         <option value="deck">Классика (колода)</option>
                         <option value="flash">Флешки (интервалы)</option>
+                        <option value="counter">Счётчик (вероятности)</option>
                     </select>
                 </label>
                 <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
@@ -7829,28 +7832,32 @@ def emperors_page():
                     }).catch(function() {});
                 }, 600);
             }
+            function recFor(it) {
+                var key = flashKey(it);
+                return flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0 };
+            }
+            function recordAnswer(it, correct) {
+                var key = flashKey(it);
+                var rec = recFor(it);
+                rec.counter = (rec.counter || 0) + (correct ? 1 : -1);
+                if (correct) {
+                    rec.reps = (rec.reps || 0) + 1;
+                    rec.correct = (rec.correct || 0) + 1;
+                    if (rec.reps === 1) rec.interval = 1;
+                    else if (rec.reps === 2) rec.interval = 3;
+                    else if (rec.reps === 3) rec.interval = 7;
+                    else rec.interval = Math.round((rec.interval || 7) * rec.ease);
+                    rec.due = Date.now() + rec.interval * 86400000;
+                } else {
+                    rec.reps = 0; rec.interval = 0; rec.due = Date.now();
+                    rec.wrong = (rec.wrong || 0) + 1;
+                }
+                flash[key] = rec; pushFlash();
+            }
             function flashDueCount() {
                 var now = Date.now(); var n = 0;
                 allItems.forEach(function(it) { var rec = flash[flashKey(it)]; if (!rec || rec.due <= now) n++; });
                 return n;
-            }
-            function flashCorrect(it) {
-                var key = flashKey(it);
-                var rec = flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0 };
-                rec.reps = (rec.reps || 0) + 1;
-                rec.correct = (rec.correct || 0) + 1;
-                if (rec.reps === 1) rec.interval = 1;
-                else if (rec.reps === 2) rec.interval = 3;
-                else if (rec.reps === 3) rec.interval = 7;
-                else rec.interval = Math.round((rec.interval || 7) * rec.ease);
-                rec.due = Date.now() + rec.interval * 86400000;
-                flash[key] = rec; pushFlash();
-            }
-            function flashMiss(it) {
-                var key = flashKey(it);
-                var rec = flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0 };
-                rec.reps = 0; rec.interval = 0; rec.due = Date.now(); rec.wrong = (rec.wrong || 0) + 1;
-                flash[key] = rec; pushFlash();
             }
             function pickFlash() {
                 var now = Date.now(); var candidates = [];
@@ -7877,6 +7884,23 @@ def emperors_page():
                     if (candidates[j].it.emperor !== prevEmperor) return candidates[j].it;
                 }
                 return candidates[0].it;
+            }
+            function pickCounter() {
+                var items = allItems.slice();
+                var weights = items.map(function(it) {
+                    var rec = recFor(it);
+                    var c = rec.counter || 0;
+                    var w = (c <= 0) ? 10 : Math.max(1, 10 - c);
+                    return w;
+                });
+                var total = 0;
+                weights.forEach(function(w) { total += w; });
+                var r = Math.random() * total;
+                for (var i = 0; i < items.length; i++) {
+                    r -= weights[i];
+                    if (r <= 0) return items[i];
+                }
+                return items[items.length - 1];
             }
             fetch('/api/emperors/progress?user_id=' + encodeURIComponent(uid))
                 .then(function(r) { return r.json(); })
@@ -7950,6 +7974,7 @@ function renderDebug() {
                         due: due ? new Date(due).toISOString().slice(0, 16) : '—',
                         correct: rec.correct || 0,
                         wrong: rec.wrong || 0,
+                        counter: rec.counter || 0,
                         overdue: due ? due <= Date.now() : true
                     });
                 });
@@ -7958,15 +7983,21 @@ function renderDebug() {
                 rows.forEach(function(r) {
                     html += '<div class="d-row"><b>' + esc(r.key) + '</b>' +
                         ' · ' + emName[r.emperor].split(' (')[0] +
+                        ' · счётчик=' + r.counter +
                         ' · reps=' + r.reps + ' int=' + r.interval + ' ease=' + r.ease +
                         ' ✓' + r.correct + ' ✗' + r.wrong +
                         ' · <span class="d-due">' + (r.overdue ? '⏰ ' : '') + r.due + '</span></div>';
                 });
                 listEl.innerHTML = html;
             }
-            function updateScore() {
+function updateScore() {
                 var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
                 if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
+                if (algo === 'counter') {
+                    var weak = 0;
+                    Object.keys(flash).forEach(function(k) { var r = flash[k]; if (r && (r.counter || 0) < 0) weak++; });
+                    s += ' · слабых: ' + weak;
+                }
                 if (onlyErrors) s += ' · режим: только ошибки (' + wrongItems.length + ')';
                 document.getElementById('quiz-score').textContent = s;
                 updateProgressBar();
@@ -8002,6 +8033,7 @@ function renderDebug() {
                     return wrongItems[Math.floor(Math.random() * wrongItems.length)];
                 }
                 if (algo === 'flash') return pickFlash();
+                if (algo === 'counter') return pickCounter();
                 if (!deck.length) buildDeck();
                 return deck.pop();
             }
@@ -8057,13 +8089,12 @@ function renderDebug() {
                 info.style.display = 'block';
                 if (isCorrect) {
                     wrongItems = wrongItems.filter(function(it) { return it.text !== currentItem.text; });
-                    if (algo === 'flash') flashCorrect(currentItem);
                 } else {
                     if (!wrongItems.some(function(it) { return it.text === currentItem.text; })) wrongItems.push(currentItem);
-                    if (algo === 'flash') flashMiss(currentItem);
                     if (deck.indexOf(currentItem) === -1) deck.push(currentItem);
                     shuffleArray(deck);
                 }
+                recordAnswer(currentItem, isCorrect);
                 saveWrong();
                 updateScore();
                 document.getElementById('hint-btn').style.display = 'none';
@@ -8230,7 +8261,7 @@ def api_emperors_progress():
             engine = get_db_engine()
             with engine.connect() as conn:
                 rows = conn.execute(
-                    text("SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count FROM emperors_progress WHERE user_id = :uid"),
+                    text("SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count, counter FROM emperors_progress WHERE user_id = :uid"),
                     {"uid": uid},
                 ).mappings()
                 for r in rows:
@@ -8241,6 +8272,7 @@ def api_emperors_progress():
                         "due": r["due"],
                         "correct": r["correct_count"],
                         "wrong": r["wrong_count"],
+                        "counter": r["counter"],
                     }
         except Exception as exc:
             print(f"[EMPERORS] progress GET error: {exc}")
@@ -8265,8 +8297,8 @@ def api_emperors_progress_save():
                 for key, rec in cards.items():
                     conn.execute(text(
                         """
-                        INSERT INTO emperors_progress (user_id, card_key, reps, interval_days, ease, due, correct_count, wrong_count, updated_at)
-                        VALUES (:uid, :key, :reps, :interval, :ease, :due, :correct, :wrong, :ts)
+                        INSERT INTO emperors_progress (user_id, card_key, reps, interval_days, ease, due, correct_count, wrong_count, counter, updated_at)
+                        VALUES (:uid, :key, :reps, :interval, :ease, :due, :correct, :wrong, :counter, :ts)
                         ON CONFLICT (user_id, card_key) DO UPDATE SET
                             reps = EXCLUDED.reps,
                             interval_days = EXCLUDED.interval_days,
@@ -8274,6 +8306,7 @@ def api_emperors_progress_save():
                             due = EXCLUDED.due,
                             correct_count = EXCLUDED.correct_count,
                             wrong_count = EXCLUDED.wrong_count,
+                            counter = EXCLUDED.counter,
                             updated_at = EXCLUDED.updated_at
                         """
                     ), {
@@ -8285,6 +8318,7 @@ def api_emperors_progress_save():
                         "due": float(rec.get("due", 0)),
                         "correct": int(rec.get("correct", 0)),
                         "wrong": int(rec.get("wrong", 0)),
+                        "counter": int(rec.get("counter", 0)),
                         "ts": time.time(),
                     })
         return jsonify({"ok": True, "uid": uid, "saved": len(cards)})
