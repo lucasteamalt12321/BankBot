@@ -7673,6 +7673,18 @@ def emperors_page():
         .chip { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 13px; background: #0f3460; border: 1px solid #1a5276; cursor: default; line-height: 1.4; }
         .chip small { color: #999; }
         .chip-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
+        .chip.clickable { cursor: pointer; transition: all 0.15s; }
+        .chip.clickable:hover { background: #1a5276; border-color: #4a90d9; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 20px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: #16213e; border: 1px solid #1a5276; border-radius: 16px; max-width: 560px; width: 100%; padding: 22px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+        .modal .m-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+        .modal .m-tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #999; }
+        .modal .m-title { font-size: 18px; font-weight: 600; line-height: 1.4; margin-top: 2px; }
+        .modal .m-emperor { font-size: 13px; margin-top: 2px; }
+        .modal .m-close { margin-left: auto; background: none; border: 1px solid #333; color: #888; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 14px; flex-shrink: 0; }
+        .modal .m-close:hover { border-color: #e94560; color: #e94560; }
+        .modal .m-body { font-size: 14px; line-height: 1.6; color: #c8d2e0; }
         .question { font-size: 18px; line-height: 1.6; margin-bottom: 20px; min-height: 24px; }
         .options { display: flex; flex-direction: column; gap: 10px; }
         .opt-btn { display: block; width: 100%; padding: 14px 18px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 12px; font-size: 15px; cursor: pointer; text-align: left; transition: all 0.15s; }
@@ -7775,6 +7787,19 @@ def emperors_page():
             <div class="info" id="match-info"></div>
         </div>
         <div class="status">модуль подготовки к игре «Имена и события»</div>
+    </div>
+    <div class="modal-overlay" id="info-modal" onclick="if (event.target === this) app.closeInfo()">
+        <div class="modal">
+            <div class="m-head">
+                <div>
+                    <div class="m-tag" id="info-tag"></div>
+                    <div class="m-title" id="info-title"></div>
+                    <div class="m-emperor" id="info-emperor"></div>
+                </div>
+                <button class="m-close" onclick="app.closeInfo()">✕</button>
+            </div>
+            <div class="m-body" id="info-body"></div>
+        </div>
     </div>
     <script>
         (function() {
@@ -8019,12 +8044,12 @@ function updateScore() {
                     var persons = DATA.persons.filter(function(p) { return p.emperor === e.id; });
                     if (events.length) {
                         html += '<div class="chip-title">События</div><div class="chip-row">';
-                        events.forEach(function(ev) { html += '<span class="chip" title="' + esc(ev.note) + '"><small>' + esc(ev.year) + '</small> ' + esc(ev.title) + '</span>'; });
+                        events.forEach(function(ev) { html += '<span class="chip clickable" data-type="event" data-text="' + esc(ev.title) + '" onclick="app.showInfo(this)"><small>' + esc(ev.year) + '</small> ' + esc(ev.title) + '</span>'; });
                         html += '</div>';
                     }
                     if (persons.length) {
                         html += '<div class="chip-title">Личности</div><div class="chip-row">';
-                        persons.forEach(function(p) { html += '<span class="chip" title="' + esc(p.description) + '">' + esc(p.name) + '</span>'; });
+                        persons.forEach(function(p) { html += '<span class="chip clickable" data-type="person" data-text="' + esc(p.name) + '" onclick="app.showInfo(this)">' + esc(p.name) + '</span>'; });
                         html += '</div>';
                     }
                     html += '</div>';
@@ -8233,6 +8258,31 @@ function updateScore() {
                     var panel = document.getElementById('debug-panel');
                     panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
                     if (panel.style.display === 'block') renderDebug();
+                },
+                showInfo: function(el) {
+                    var type = el.getAttribute('data-type');
+                    var text = el.getAttribute('data-text');
+                    var item = null;
+                    if (type === 'event') {
+                        for (var i = 0; i < DATA.events.length; i++) {
+                            if (DATA.events[i].title === text) { item = DATA.events[i]; break; }
+                        }
+                    } else {
+                        for (var j = 0; j < DATA.persons.length; j++) {
+                            if (DATA.persons[j].name === text) { item = DATA.persons[j]; break; }
+                        }
+                    }
+                    if (!item) return;
+                    document.getElementById('info-tag').textContent = type === 'event' ? 'Событие' : 'Личность';
+                    document.getElementById('info-title').textContent = (type === 'event' ? (item.year ? item.year + ' — ' : '') : '') + (type === 'event' ? item.title : item.name);
+                    var emp = emName[item.emperor];
+                    document.getElementById('info-emperor').textContent = emp ? '👑 ' + emp : '';
+                    document.getElementById('info-emperor').style.color = COLORS[item.emperor];
+                    document.getElementById('info-body').textContent = type === 'event' ? (item.note || 'Описание отсутствует.') : (item.description || 'Описание отсутствует.');
+                    document.getElementById('info-modal').classList.add('show');
+                },
+                closeInfo: function() {
+                    document.getElementById('info-modal').classList.remove('show');
                 }
             };
             document.addEventListener('keydown', function(e) {
