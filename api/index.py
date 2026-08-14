@@ -7811,6 +7811,7 @@ def emperors_page():
             document.getElementById('algo-select').value = algo;
             var uid = localStorage.getItem('web_user_id') || ('web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10));
             localStorage.setItem('web_user_id', uid);
+            var authToken = localStorage.getItem('web_token') || '';
 
             function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
             function shuffleArray(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
@@ -7823,12 +7824,13 @@ def emperors_page():
             var saveTimer = null;
             function pushFlash() {
                 saveFlashLocal();
+                if (!authToken) return;
                 if (saveTimer) clearTimeout(saveTimer);
                 saveTimer = setTimeout(function() {
                     fetch('/api/emperors/progress', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ user_id: uid, cards: flash })
+                        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': authToken },
+                        body: JSON.stringify({ cards: flash })
                     }).catch(function() {});
                 }, 600);
             }
@@ -7890,7 +7892,7 @@ def emperors_page():
                 var weights = items.map(function(it) {
                     var rec = recFor(it);
                     var c = rec.counter || 0;
-                    var w = (c <= 0) ? 10 : Math.max(1, 10 - c);
+                    var w = (c <= 0) ? (1 - c) : Math.max(1, 10 - c);
                     return w;
                 });
                 var total = 0;
@@ -7902,17 +7904,19 @@ def emperors_page():
                 }
                 return items[items.length - 1];
             }
-            fetch('/api/emperors/progress?user_id=' + encodeURIComponent(uid))
-                .then(function(r) { return r.json(); })
-                .then(function(d) {
-                    if (d && d.cards) {
-                        var merged = false;
-                        for (var k in d.cards) {
-                            if (!flash[k] || d.cards[k].due > (flash[k].due || 0)) { flash[k] = d.cards[k]; merged = true; }
+            if (authToken) {
+                fetch('/api/emperors/progress', { headers: { 'X-Auth-Token': authToken } })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (d && d.cards) {
+                            var merged = false;
+                            for (var k in d.cards) {
+                                if (!flash[k] || d.cards[k].due > (flash[k].due || 0)) { flash[k] = d.cards[k]; merged = true; }
+                            }
+                            if (merged) { saveFlashLocal(); updateScore(); }
                         }
-                        if (merged) { saveFlashLocal(); updateScore(); }
-                    }
-                }).catch(function() {});
+                    }).catch(function() {});
+            }
             var deck = [];
             function buildDeck() {
                 deck = shuffleArray(allItems.slice());
@@ -8208,11 +8212,13 @@ function updateScore() {
                     quizScore = 0; quizTotal = 0; wrongItems = [];
                     flash = {}; saveFlashLocal();
                     localStorage.removeItem('emperors_flash');
-                    fetch('/api/emperors/progress', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ user_id: uid, cards: {}, reset: true })
-                    }).catch(function() {});
+                    if (authToken) {
+                        fetch('/api/emperors/progress', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': authToken },
+                            body: JSON.stringify({ cards: {}, reset: true })
+                        }).catch(function() {});
+                    }
                     saveScore(); saveWrong(); updateScore(); loadQuestion();
                 },
                 showHint: function() {
@@ -8252,9 +8258,15 @@ function updateScore() {
 
 @app.route("/api/emperors/progress", methods=["GET"])
 def api_emperors_progress():
-    """Load the Emperors module SM-2 progress for the current web user."""
-    uid_raw = request.args.get("user_id", "") or ""
-    uid = _web_user_id(uid_raw.strip())
+    """Load the Emperors module SM-2 progress for the current web user.
+
+    Progress is bound to the account: the uid is resolved from the session
+    token, so the same account sees the same progress on any device.
+    """
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"cards": {}, "uid": 0})
+    uid = _web_user_id("u" + str(user["id"]))
     cards = {}
     if uid:
         try:
@@ -8281,10 +8293,16 @@ def api_emperors_progress():
 
 @app.route("/api/emperors/progress", methods=["POST"])
 def api_emperors_progress_save():
-    """Save the Emperors module SM-2 progress for the current web user."""
+    """Save the Emperors module SM-2 progress for the current web user.
+
+    Progress is bound to the account via the session token; anonymous users
+    (no valid token) are not persisted — their progress stays on the device.
+    """
     data = request.get_json(silent=True) or {}
-    uid_raw = (data.get("user_id") or "").strip()
-    uid = _web_user_id(uid_raw)
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
     cards = data.get("cards") or {}
     if not uid:
         return jsonify({"ok": False, "error": "user_id required"}), 400
