@@ -123,6 +123,19 @@ def test_emperors_page_has_two_algorithms():
     assert "function pickFlash" in body
     assert "function pickCounter" in body
     assert "emperors_flash" in body
+    assert "|| 'flash'" in body, "flash should be the default algorithm"
+
+
+def test_emperors_page_flash_priority():
+    from api.index import app
+
+    c = app.test_client()
+    body = c.get("/emperors").get_data(as_text=True)
+    assert "function pickFlash" in body
+    assert "prio = 0" in body
+    assert "prio = 1" in body
+    assert "prio = 2" in body
+    assert "Date.now() + 60000" in body, "wrong answer should schedule a repeat in 1 minute"
 
 
 def test_emperors_page_contains_data():
