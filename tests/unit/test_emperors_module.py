@@ -246,3 +246,32 @@ def test_emperors_progress_api_save_and_get():
     assert anon.get_json()["cards"] == {}
     anon_post = c.post("/api/emperors/progress", json={"cards": {}})
     assert anon_post.status_code == 401
+
+
+def test_emperors_page_powerup_features():
+    from api.index import app
+
+    c = app.test_client()
+    body = c.get("/emperors").get_data(as_text=True)
+    assert 'id="tab-chrono"' in body, "chronology tab should exist"
+    assert 'id="panel-chrono"' in body
+    assert "function startChrono" in body
+    assert "function chronoPick" in body
+    assert "function checkChrono" in body
+    assert "chronoState" in body
+    assert 'id="qdir-select"' in body, "question-direction selector should exist"
+    assert "toggleQDir" in body
+    assert "fromRuler" in body, "reverse question mode should exist"
+    assert "emperors_qdir" in body
+    assert "function levelInfo" in body, "level system should exist"
+    assert "Знаток" in body
+    assert "function updateStreak" in body
+    assert "emperors_streak" in body
+    assert "function checkAchievements" in body
+    assert "emperors_achievements" in body
+    assert "function eraGroups" in body, "timeline era groups should exist"
+    assert "Древняя Русь" in body
+    assert "timeline" in body
+    assert "animate-correct" in body
+    assert "animate-wrong" in body
+    assert "function currentStreakCorrect" in body
