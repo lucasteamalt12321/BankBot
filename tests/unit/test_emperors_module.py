@@ -186,6 +186,9 @@ def test_emperors_page_has_extended_mode_and_importance():
     assert "toggleOptCount" in body
     assert "Все (хронологически)" in body
     assert "e.key <= '6'" in body, "keyboard handler should support up to 6 options"
+    assert "quizScore += (optCount === 'all') ? 2 : 1" in body, "score gain should depend on difficulty"
+    assert "quizScore += (optCount === 'all') ? -1 : 0" in body, "score loss should depend on difficulty"
+    assert "сложность: все варианты" in body
 
 
 def test_emperors_progress_api_save_and_get():
