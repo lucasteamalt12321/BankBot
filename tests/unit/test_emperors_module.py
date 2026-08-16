@@ -181,6 +181,11 @@ def test_emperors_page_has_extended_mode_and_importance():
     assert "starRow" in body
     assert "toggleScope" in body
     assert "itemsInScope" in body
+    assert "distractors.length < 5" in body, "5-option mode should limit distractors"
+    assert "opt-count" in body
+    assert "toggleOptCount" in body
+    assert "Все (хронологически)" in body
+    assert "e.key <= '6'" in body, "keyboard handler should support up to 6 options"
 
 
 def test_emperors_progress_api_save_and_get():
