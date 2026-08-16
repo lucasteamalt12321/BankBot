@@ -6,6 +6,18 @@
 
 ## Changelog
 
+### 2026-08-16 (Session: единая система достижений и стрика)
+
+- **Задача:** «раскидай ачивки по всему проекту и сделай стрик единым; отдельная страница со своими и будущими достижениями; в личном кабинете — кол-во достижений, календарь стрика и ссылку». План одобрен; за каждую ачивку **+10 монет**.
+- **БД-слой:** `_ensure_achievements_tables` (web_achievements / web_streak / web_activity_log), вызывается из `get_db_engine`.
+- **Реестр `ACHIEVEMENTS`: 100 достижений** (streak 18, coins 10, system 8, trivia 8, reading 8, chess 8, gd 8, emperors 7, verbs 7, prayer 7, dnd 6, canon 5). Удалены недостижимые спец-ачивки (trivia_correct_*, trivia_streak_10, emperors_master, reading_perfect, verbs_perfect) — API не собирает «правильность»; вместо них добавлены пороги 200/500.
+- **Логика:** `_record_activity` (стрик: сегодня/вчера/сброс, `total_active_days`), `_check_web_achievements` (условия по фактам: streak, active_days, modules, per-module counts, coins), `_unlock_achievements` (UNIQUE-дедуп), `_award_web_coins` (+10 за каждую новую).
+- **API:** `POST /api/achievements/activity` (module/actions → streak + unlocked), `GET /api/achievements` (реестр + unlocked + streak + calendar + modules); авторизация `_require_web_user()`, без токена 401.
+- **JS `hubTrack(module, actions)`** на каждой странице: авторизованный → POST API, аноним → localStorage `hub_activity`. Интегрированы: trivia, emperors (миграция `emperors_streak`→`hub_streak`), chess, reading (локальный), verbs, prayer, GD, D&D.
+- **UI:** страница `/achievements` (статистика, календарь 12 недель, фильтры по модулям, сетка ✅/🔒); блок «🏆 Достижения» в `/account` (счётчик, календарь, ссылка); карточка «Достижения» на хабе `/` с прогрессом.
+- **Баг найден тестом:** условие стрика было перепутано (`_prev_day(last_day) == today` → `_prev_day(today) == last_day`) — стрик не продлевался. Исправлен.
+- **Проверки:** полный `tests/unit` **999 passed / 10 skipped**; ruff All checks passed; `node --check` всех страниц с hubTrack OK. Задеплоено на прод, прод проверен (страница, карточка хаба, ach-box кабинета, hubTrack на модулях, 401 API без токена). **Не закоммичено.**
+
 ### 2026-08-13 (Session: фикс [ADMIN-BUG-2] — пустая админ-панель)
 
 - **Корень найден:** JS syntax error в странице `/admin`. Python-строки, собранные через JS-конкатенацию в одинарных кавычках, содержали `\'`, который Python превращал в голый `'` → JS-строка обрывалась → весь `<script>` не парсился → `init()` не запускался → `#gate`/`#app` оставались скрытыми → пустая панель.

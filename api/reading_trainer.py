@@ -93,6 +93,19 @@ HTML_CONTENT = """<!DOCTYPE html>
                 }
                 result.style.display = 'block';
             });
+            hubTrack('reading', 1);
+        }
+
+        function hubTrack(module, actions) {
+            actions = actions || 1;
+            try {
+                var today = new Date();
+                var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                var acts = {};
+                try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                acts[dayStr] = (acts[dayStr] || 0) + 1;
+                localStorage.setItem('hub_activity', JSON.stringify(acts));
+            } catch(e) {}
         }
 
         loadNewText();
