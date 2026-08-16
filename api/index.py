@@ -7857,7 +7857,7 @@ def emperors_page():
             var onlyErrors = false;
             var currentItem = null;
             var pending = [];
-            var algo = localStorage.getItem('emperors_algo') || 'deck';
+            var algo = localStorage.getItem('emperors_algo') || 'flash';
             document.getElementById('algo-select').value = algo;
             var uid = localStorage.getItem('web_user_id') || ('web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10));
             localStorage.setItem('web_user_id', uid);
@@ -7901,7 +7901,7 @@ def emperors_page():
                     else rec.interval = Math.round((rec.interval || 7) * rec.ease);
                     rec.due = Date.now() + rec.interval * 86400000;
                 } else {
-                    rec.reps = 0; rec.interval = 0; rec.due = Date.now();
+                    rec.reps = 0; rec.interval = 0; rec.due = Date.now() + 60000;
                     rec.wrong = (rec.wrong || 0) + 1;
                 }
                 flash[key] = rec; pushFlash();
@@ -7915,18 +7915,16 @@ def emperors_page():
                 var now = Date.now(); var candidates = [];
                 itemsInScope().forEach(function(it) {
                     var rec = flash[flashKey(it)];
-                    if (rec && rec.due > now) return;
-                    var prio = 0;
-                    if (rec && rec.wrong > 0) prio = 0;
+                    var prio;
+                    if (rec && rec.due <= now) prio = 0;
                     else if (!rec) prio = 1;
                     else prio = 2;
-                    candidates.push({ it: it, due: rec ? rec.due : 0, prio: prio });
+                    candidates.push({ it: it, due: rec ? rec.due : 0, prio: prio, importance: it.importance || 3 });
                 });
                 if (!candidates.length) return null;
                 candidates.sort(function(a, b) {
                     if (a.prio !== b.prio) return a.prio - b.prio;
-                    var wi = a.it.importance || 3, wj = b.it.importance || 3;
-                    if (wi !== wj) return wj - wi;
+                    if (a.prio === 1 && a.importance !== b.importance) return b.importance - a.importance;
                     return a.due - b.due;
                 });
                 var prevType = currentItem ? currentItem.type : null;
