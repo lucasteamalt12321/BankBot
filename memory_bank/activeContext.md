@@ -2,7 +2,22 @@
 
 **Последнее обновление:** 2026-08-16  
 **Текущая фаза:** Ребрендинг BankBot → LTHub (LucasTeam Hub)  
-**Последнее действие:** модуль «Императоры России» — важность 1–5 + расширенный режим «Все правители» (Рюрик–Путин)
+**Последнее действие:** единая система достижений и стрика по всему порталу (~100 ачивок, /achievements, блок в кабинете, карточка на хабе)
+
+## Система достижений и стрика (2026-08-16)
+
+- **Повод:** пользователь попросил «раскидай ачивки по всему проекту и сделай стрик единым», отдельную страницу со своими и будущими достижениями, в личном кабинете — кол-во достижений, календарь стрика и ссылку. План одобрен; за каждую ачивку — **+10 монет** (решение пользователя).
+- **БД-слой** (`_ensure_achievements_tables` в `api/index.py`, вызывается из `get_db_engine`): таблицы `web_achievements` (user_id, code, unlocked_at; UNIQUE user+code), `web_streak` (user_id PK, last_active_day, current_streak, longest_streak, total_active_days), `web_activity_log` (user_id, day, module, actions; UNIQUE user+day+module).
+- **Реестр `ACHIEVEMENTS`** — ровно **100** достижений (streak 18, coins 10, system 8, trivia 8, reading 8, chess 8, gd 8, emperors 7, verbs 7, prayer 7, dnd 6, canon 5). Каждая: icon, name, desc, module, weight=10.
+- **API:** `POST /api/achievements/activity` (`module`, `actions`) → `_record_activity` (стрик) + `_check_web_achievements` (проверка условий, начисление монет) + возвращает `streak` и `unlocked`. `GET /api/achievements` — реестр с unlocked-флагами, streak, calendar (список активных дней), modules. Авторизация через `_require_web_user()` (сессия), без токена → 401.
+- **Логика стрика** `_record_activity`: сегодня → сохраняет; вчера (`_prev_day(today) == last_day`) → +1; иначе сброс в 1. `total_active_days` растёт при новом дне.
+- **JS `hubTrack(module, actions)`** — дублируется в каждой странице модуля: если `localStorage.web_token` и `web_user_id` начинается с `u` → POST на `/api/achievements/activity`; иначе (аноним) — localStorage `hub_activity` `{YYYY-MM-DD: count}` (стрик живёт локально).
+- **Интегрированные модули:** trivia (`answerClick`), emperors (в `answerClick` + миграция `hubStreakKey()`: `emperors_streak` → `hub_streak`), chess (`checkMove` при верном ходе), reading (`api/reading_trainer.py::checkAnswers`, локальный hubTrack), verbs (`submitExercise`), prayer (`getPrayer` при получении), GD (`submitRecord`), D&D (`rollDice` + `sendAction`). Канон — НЕ интегрирован (нет триггера просмотра).
+- **Страница `/achievements`**: статистика (открыто/всего/текущая/макс. серия), календарь активности за 12 недель, фильтры по модулям, сетка достижений ✅ открыто / 🔒 впереди.
+- **Личный кабинет `/account`**: блок «🏆 Достижения» (открыто N из M · серия N дн., календарь, ссылка «Смотреть все достижения»).
+- **Хаб `/`**: карточка «Достижения» в разделе «Основные» с прогрессом (`🏆 N/M · 🔥 N` или `🔥 N дн.` для анонимов).
+- **Тесты:** `tests/unit/test_achievements.py` (6: реестр ≥100 и форма, рендер страницы, auth 401, стрик через activity API с патчем `_day_str`, GET список, маркеры страницы). Тест поймал и исправил баг стрика: `_prev_day(last_day) == today` → `_prev_day(today) == last_day`.
+- **Проверки:** полный `tests/unit` **999 passed / 10 skipped**; ruff clean; `node --check` всех страниц OK. Задеплоено на прод, прод проверен (/achievements, hubTrack на всех модулях, ach-box в кабинете, 401 без токена). **Не закоммичено.**
 
 ## Модуль «Императоры России» /emperors (2026-08-13)
 

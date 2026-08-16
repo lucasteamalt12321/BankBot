@@ -304,6 +304,7 @@ def get_db_engine():
         _ensure_web_auth_tables(DB_ENGINE)
         _ensure_parsing_tables(DB_ENGINE)
         _ensure_emperors_tables(DB_ENGINE)
+        _ensure_achievements_tables(DB_ENGINE)
         _ensure_chess_games_table(DB_ENGINE)
         try:
             _ensure_canon_tables(DB_ENGINE)
@@ -1055,6 +1056,554 @@ def _ensure_emperors_tables(engine):
         print("[EMPERORS] Tables ensured")
     except Exception as exc:
         print(f"[EMPERORS] Table init error: {exc}")
+
+
+def _ensure_achievements_tables(engine):
+    """Create the unified achievements/streak tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_achievements (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    code TEXT NOT NULL,
+                    unlocked_at REAL NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_web_achievements_user_code ON web_achievements(user_id, code)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_achievements_user ON web_achievements(user_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_streak (
+                    user_id INTEGER PRIMARY KEY,
+                    last_active_day TEXT NOT NULL,
+                    current_streak INTEGER NOT NULL DEFAULT 0,
+                    longest_streak INTEGER NOT NULL DEFAULT 0,
+                    total_active_days INTEGER NOT NULL DEFAULT 0
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_activity_log (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    day TEXT NOT NULL,
+                    module TEXT NOT NULL,
+                    actions INTEGER NOT NULL DEFAULT 1
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_web_activity_user_day_module ON web_activity_log(user_id, day, module)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_activity_user ON web_activity_log(user_id)"))
+            conn.commit()
+        print("[ACHIEVEMENTS] Tables ensured")
+    except Exception as exc:
+        print(f"[ACHIEVEMENTS] Table init error: {exc}")
+
+
+ACHIEVEMENTS: dict[str, dict] = {
+    # --- Первые шаги ---
+    "first_step": {"icon": "🚀", "name": "Первый шаг", "desc": "Выполнить любое действие на портале", "module": "system", "weight": 10},
+    "first_quiz": {"icon": "🎯", "name": "Первая победа", "desc": "Правильно ответить в любом тренажёре", "module": "system", "weight": 10},
+    "first_streak": {"icon": "🔥", "name": "Начало серии", "desc": "Активность 2 дня подряд", "module": "streak", "weight": 10},
+    # --- Серии дней ---
+    "streak_3": {"icon": "🔥", "name": "Серия 3 дня", "desc": "Активность 3 дня подряд", "module": "streak", "weight": 10},
+    "streak_7": {"icon": "⚡", "name": "Серия 7 дней", "desc": "Активность 7 дней подряд", "module": "streak", "weight": 10},
+    "streak_14": {"icon": "🌟", "name": "Серия 14 дней", "desc": "Активность 14 дней подряд", "module": "streak", "weight": 10},
+    "streak_30": {"icon": "💎", "name": "Серия 30 дней", "desc": "Активность 30 дней подряд", "module": "streak", "weight": 10},
+    "streak_60": {"icon": "🏆", "name": "Серия 60 дней", "desc": "Активность 60 дней подряд", "module": "streak", "weight": 10},
+    "streak_100": {"icon": "👑", "name": "Серия 100 дней", "desc": "Активность 100 дней подряд", "module": "streak", "weight": 10},
+    "streak_200": {"icon": "👑", "name": "Серия 200 дней", "desc": "Активность 200 дней подряд", "module": "streak", "weight": 10},
+    "streak_365": {"icon": "🌞", "name": "Год активности", "desc": "Активность 365 дней подряд", "module": "streak", "weight": 10},
+    "streak_500": {"icon": "🌞", "name": "Полтора года", "desc": "Активность 500 дней подряд", "module": "streak", "weight": 10},
+    # --- Активные дни (всего) ---
+    "days_3": {"icon": "📅", "name": "3 дня на портале", "desc": "Активность в 3 разных днях", "module": "streak", "weight": 10},
+    "days_7": {"icon": "📅", "name": "Неделя на портале", "desc": "Активность в 7 разных днях", "module": "streak", "weight": 10},
+    "days_14": {"icon": "📅", "name": "2 недели на портале", "desc": "Активность в 14 разных днях", "module": "streak", "weight": 10},
+    "days_30": {"icon": "🗓️", "name": "Месяц на портале", "desc": "Активность в 30 разных днях", "module": "streak", "weight": 10},
+    "days_60": {"icon": "🗓️", "name": "2 месяца на портале", "desc": "Активность в 60 разных днях", "module": "streak", "weight": 10},
+    "days_100": {"icon": "🎖️", "name": "100 дней на портале", "desc": "Активность в 100 разных днях", "module": "streak", "weight": 10},
+    "days_200": {"icon": "🎖️", "name": "200 дней на портале", "desc": "Активность в 200 разных днях", "module": "streak", "weight": 10},
+    "days_365": {"icon": "🏅", "name": "Год на портале", "desc": "Активность в 365 разных днях", "module": "streak", "weight": 10},
+    # --- Исследователь ---
+    "module_2": {"icon": "🧭", "name": "Любознательный", "desc": "Посетить 2 разных модуля", "module": "system", "weight": 10},
+    "module_5": {"icon": "🧭", "name": "Путешественник", "desc": "Посетить 5 разных модулей", "module": "system", "weight": 10},
+    "module_8": {"icon": "🌐", "name": "Полиглот портала", "desc": "Посетить 8 разных модулей", "module": "system", "weight": 10},
+    "module_11": {"icon": "🚀", "name": "Исследователь", "desc": "Посетить все 11 модулей", "module": "system", "weight": 10},
+    "first_50_actions": {"icon": "⚡", "name": "Энергичный", "desc": "Выполнить 50 действий на портале", "module": "system", "weight": 10},
+    "first_500_actions": {"icon": "🌟", "name": "Активист", "desc": "Выполнить 500 действий на портале", "module": "system", "weight": 10},
+    # --- Тривиа (Викторина) ---
+    "trivia_first": {"icon": "🧠", "name": "Первая викторина", "desc": "Ответить на вопрос викторины", "module": "trivia", "weight": 10},
+    "trivia_5": {"icon": "🧠", "name": "Начало пути", "desc": "Ответить на 5 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_10": {"icon": "🧠", "name": "Знаток викторины", "desc": "Ответить на 10 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_25": {"icon": "🧠", "name": "Викториан-25", "desc": "Ответить на 25 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_50": {"icon": "🧠", "name": "Викториан-50", "desc": "Ответить на 50 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_100": {"icon": "🎓", "name": "Мастер викторины", "desc": "Ответить на 100 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_200": {"icon": "🎓", "name": "Гуру викторины", "desc": "Ответить на 200 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_500": {"icon": "🏆", "name": "Легенда викторины", "desc": "Ответить на 500 вопросов викторины", "module": "trivia", "weight": 10},
+    # --- Императоры ---
+    "emperors_first": {"icon": "👑", "name": "Первые императоры", "desc": "Ответить на вопрос об императорах", "module": "emperors", "weight": 10},
+    "emperors_10": {"icon": "👑", "name": "Историк-новичок", "desc": "Ответить на 10 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_25": {"icon": "👑", "name": "Историк-любитель", "desc": "Ответить на 25 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_50": {"icon": "👑", "name": "Историк-профессионал", "desc": "Ответить на 50 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_100": {"icon": "🏛️", "name": "Историк-академик", "desc": "Ответить на 100 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_200": {"icon": "🏛️", "name": "Профессор истории", "desc": "Ответить на 200 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_500": {"icon": "👑", "name": "Хранитель истории", "desc": "Ответить на 500 вопросов об императорах", "module": "emperors", "weight": 10},
+    # --- Чтение ---
+    "reading_first": {"icon": "📖", "name": "Первое чтение", "desc": "Проверить первое задание по чтению", "module": "reading", "weight": 10},
+    "reading_5": {"icon": "📖", "name": "Читатель-новичок", "desc": "Проверить 5 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_10": {"icon": "📖", "name": "Читатель-любитель", "desc": "Проверить 10 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_25": {"icon": "📖", "name": "Читатель-профи", "desc": "Проверить 25 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_50": {"icon": "📚", "name": "Книжный червь", "desc": "Проверить 50 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_100": {"icon": "📚", "name": "Библиотекарь", "desc": "Проверить 100 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_200": {"icon": "📚", "name": "Книжный эксперт", "desc": "Проверить 200 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_500": {"icon": "📚", "name": "Литературовед", "desc": "Проверить 500 заданий по чтению", "module": "reading", "weight": 10},
+    # --- Глаголы ---
+    "verbs_first": {"icon": "🔤", "name": "Первый глагол", "desc": "Выполнить первое упражнение по глаголам", "module": "verbs", "weight": 10},
+    "verbs_5": {"icon": "🔤", "name": "Глаголист-новичок", "desc": "Выполнить 5 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_10": {"icon": "🔤", "name": "Глаголист-любитель", "desc": "Выполнить 10 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_25": {"icon": "🔤", "name": "Глаголист-профи", "desc": "Выполнить 25 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_50": {"icon": "🔠", "name": "Мастер глаголов", "desc": "Выполнить 50 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_100": {"icon": "🔠", "name": "Профессор глаголов", "desc": "Выполнить 100 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_200": {"icon": "🔠", "name": "Легенда глаголов", "desc": "Выполнить 200 упражнений по глаголам", "module": "verbs", "weight": 10},
+    # --- Шахматы ---
+    "chess_first": {"icon": "♟️", "name": "Первый ход", "desc": "Решить первый шахматный пазл", "module": "chess", "weight": 10},
+    "chess_5": {"icon": "♟️", "name": "Шахматист-новичок", "desc": "Решить 5 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_10": {"icon": "♟️", "name": "Шахматист-любитель", "desc": "Решить 10 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_25": {"icon": "♟️", "name": "Шахматист-профи", "desc": "Решить 25 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_50": {"icon": "♞", "name": "Мастер шахмат", "desc": "Решить 50 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_100": {"icon": "♛", "name": "Гроссмейстер", "desc": "Решить 100 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_200": {"icon": "♛", "name": "Чемпион шахмат", "desc": "Решить 200 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_500": {"icon": "♛", "name": "Гений шахмат", "desc": "Решить 500 шахматных пазлов", "module": "chess", "weight": 10},
+    # --- Канон ---
+    "canon_first": {"icon": "📜", "name": "Читатель канона", "desc": "Открыть произведение канона", "module": "canon", "weight": 10},
+    "canon_5": {"icon": "📜", "name": "Канонист-новичок", "desc": "Открыть 5 произведений канона", "module": "canon", "weight": 10},
+    "canon_10": {"icon": "📜", "name": "Канонист-любитель", "desc": "Открыть 10 произведений канона", "module": "canon", "weight": 10},
+    "canon_16": {"icon": "📖", "name": "Прочитал весь канон", "desc": "Открыть все 16 произведений канона", "module": "canon", "weight": 10},
+    "canon_20": {"icon": "📖", "name": "Канонист-профи", "desc": "Открыть 20 произведений канона", "module": "canon", "weight": 10},
+    # --- Молитва ---
+    "prayer_first": {"icon": "🙏", "name": "Первая молитва", "desc": "Прочитать молитву дня", "module": "prayer", "weight": 10},
+    "prayer_3": {"icon": "🙏", "name": "Три молитвы", "desc": "Прочитать молитву 3 дня", "module": "prayer", "weight": 10},
+    "prayer_7": {"icon": "🙏", "name": "Неделя молитвы", "desc": "Прочитать молитву 7 дней", "module": "prayer", "weight": 10},
+    "prayer_30": {"icon": "🕯️", "name": "Месяц молитвы", "desc": "Прочитать молитву 30 дней", "module": "prayer", "weight": 10},
+    "prayer_100": {"icon": "🕯️", "name": "100 молитв", "desc": "Прочитать молитву 100 дней", "module": "prayer", "weight": 10},
+    "prayer_200": {"icon": "🕯️", "name": "200 молитв", "desc": "Прочитать молитву 200 дней", "module": "prayer", "weight": 10},
+    "prayer_365": {"icon": "🕯️", "name": "Год молитвы", "desc": "Прочитать молитву 365 дней", "module": "prayer", "weight": 10},
+    # --- GD ---
+    "gd_first": {"icon": "🎮", "name": "Первый рекорд", "desc": "Отправить первый рекорд GD", "module": "gd", "weight": 10},
+    "gd_5": {"icon": "🎮", "name": "Рекордсмен-новичок", "desc": "Отправить 5 рекордов GD", "module": "gd", "weight": 10},
+    "gd_10": {"icon": "🎮", "name": "Рекордсмен-любитель", "desc": "Отправить 10 рекордов GD", "module": "gd", "weight": 10},
+    "gd_25": {"icon": "🎮", "name": "Рекордсмен-профи", "desc": "Отправить 25 рекордов GD", "module": "gd", "weight": 10},
+    "gd_50": {"icon": "🕹️", "name": "Легенда GD", "desc": "Отправить 50 рекордов GD", "module": "gd", "weight": 10},
+    "gd_100": {"icon": "🕹️", "name": "Икона GD", "desc": "Отправить 100 рекордов GD", "module": "gd", "weight": 10},
+    "gd_200": {"icon": "🏆", "name": "Мастер рекордов", "desc": "Отправить 200 рекордов GD", "module": "gd", "weight": 10},
+    "gd_500": {"icon": "🏆", "name": "Легенда GD", "desc": "Отправить 500 рекордов GD", "module": "gd", "weight": 10},
+    # --- D&D ---
+    "dnd_first": {"icon": "🎲", "name": "Первая сессия", "desc": "Начать первую D&D сессию", "module": "dnd", "weight": 10},
+    "dnd_roll_10": {"icon": "🎲", "name": "Любитель костей", "desc": "Сделать 10 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_50": {"icon": "🎲", "name": "Игрок-ветеран", "desc": "Сделать 50 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_100": {"icon": "🎲", "name": "Мастер бросков", "desc": "Сделать 100 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_200": {"icon": "🎲", "name": "Легенда бросков", "desc": "Сделать 200 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_500": {"icon": "🎲", "name": "Владыка бросков", "desc": "Сделать 500 бросков в D&D", "module": "dnd", "weight": 10},
+    # --- Монеты ---
+    "coins_10": {"icon": "💰", "name": "Первые монеты", "desc": "Заработать 10 монет", "module": "coins", "weight": 10},
+    "coins_50": {"icon": "💰", "name": "Полтинник", "desc": "Заработать 50 монет", "module": "coins", "weight": 10},
+    "coins_100": {"icon": "🪙", "name": "Сотня", "desc": "Заработать 100 монет", "module": "coins", "weight": 10},
+    "coins_500": {"icon": "💵", "name": "Полтысячи", "desc": "Заработать 500 монет", "module": "coins", "weight": 10},
+    "coins_1000": {"icon": "💎", "name": "Тысяча", "desc": "Заработать 1000 монет", "module": "coins", "weight": 10},
+    "coins_5000": {"icon": "👑", "name": "Казначей", "desc": "Заработать 5000 монет", "module": "coins", "weight": 10},
+    "coins_10000": {"icon": "🏦", "name": "Банкир", "desc": "Заработать 10000 монет", "module": "coins", "weight": 10},
+    "coins_50000": {"icon": "🏆", "name": "Миллиардер", "desc": "Заработать 50000 монет", "module": "coins", "weight": 10},
+    "coins_100000": {"icon": "👑", "name": "Легенда монет", "desc": "Заработать 100000 монет", "module": "coins", "weight": 10},
+    "coins_1000000": {"icon": "🏆", "name": "Финансовый гений", "desc": "Заработать 1000000 монет", "module": "coins", "weight": 10},
+}
+
+
+def _day_str(dt=None):
+    """Return a UTC date string YYYY-MM-DD for the given datetime (or now)."""
+    d = dt or datetime.utcnow()
+    return d.strftime("%Y-%m-%d")
+
+
+def _get_streak_row(conn, user_id):
+    row = conn.execute(
+        text("SELECT * FROM web_streak WHERE user_id = :user_id"),
+        {"user_id": user_id},
+    ).mappings().first()
+    return row
+
+
+def _unlock_achievements(conn, user_id, codes, now_ts):
+    """Insert newly unlocked codes into web_achievements and return them.
+
+    Ignores codes already unlocked (dedupe via UNIQUE index).
+    """
+    newly = []
+    for code in codes:
+        if code not in ACHIEVEMENTS:
+            continue
+        try:
+            conn.execute(
+                text("INSERT INTO web_achievements (user_id, code, unlocked_at) VALUES (:u, :c, :t)"),
+                {"u": user_id, "c": code, "t": now_ts},
+            )
+            newly.append(code)
+        except Exception:
+            # Already unlocked (or DB conflict) — skip silently
+            continue
+    return newly
+
+
+def _check_web_achievements(conn, user_id):
+    """Evaluate achievement conditions from accumulated facts and unlock new ones.
+
+    Runs inside the caller's transaction (same conn). Returns list of newly
+    unlocked achievement codes.
+    """
+    now = datetime.utcnow()
+    now_ts = now.timestamp()
+    facts = {}
+
+    # --- streak facts ---
+    streak_row = _get_streak_row(conn, user_id)
+    facts["current_streak"] = streak_row["current_streak"] if streak_row else 0
+    facts["longest_streak"] = streak_row["longest_streak"] if streak_row else 0
+    facts["total_active_days"] = streak_row["total_active_days"] if streak_row else 0
+
+    # --- active days / modules facts ---
+    day_rows = conn.execute(
+        text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :user_id"),
+        {"user_id": user_id},
+    ).mappings().all()
+    facts["active_days"] = len(day_rows)
+    module_rows = conn.execute(
+        text("SELECT DISTINCT module FROM web_activity_log WHERE user_id = :user_id"),
+        {"user_id": user_id},
+    ).mappings().all()
+    facts["modules"] = {r["module"] for r in module_rows}
+
+    # --- per-module action counts ---
+    counts = {}
+    rows = conn.execute(
+        text("""
+            SELECT module, SUM(actions) AS total
+            FROM web_activity_log WHERE user_id = :user_id
+            GROUP BY module
+        """),
+        {"user_id": user_id},
+    ).mappings().all()
+    for r in rows:
+        counts[r["module"]] = int(r["total"] or 0)
+    facts["counts"] = counts
+
+    # --- coins facts ---
+    uid = _web_user_id("u" + str(user_id))
+    coin_row = conn.execute(
+        text("SELECT balance FROM user_coins WHERE user_id = :uid"),
+        {"uid": uid},
+    ).mappings().first()
+    facts["coins"] = int(coin_row["balance"]) if coin_row else 0
+
+    # --- evaluate conditions ---
+    should = []
+    c = facts["current_streak"]
+    if facts["total_active_days"] >= 1 and facts["active_days"] >= 1:
+        should.append("first_step")
+    if facts["counts"].get("trivia") or facts["counts"].get("emperors") or facts["counts"].get("reading") or facts["counts"].get("verbs"):
+        should.append("first_quiz")
+    if c >= 2:
+        should.append("first_streak")
+    if c >= 3:
+        should.append("streak_3")
+    if c >= 7:
+        should.append("streak_7")
+    if c >= 14:
+        should.append("streak_14")
+    if c >= 30:
+        should.append("streak_30")
+    if c >= 60:
+        should.append("streak_60")
+    if c >= 100:
+        should.append("streak_100")
+    if c >= 200:
+        should.append("streak_200")
+    if c >= 365:
+        should.append("streak_365")
+    if c >= 500:
+        should.append("streak_500")
+    if facts["active_days"] >= 3:
+        should.append("days_3")
+    if facts["active_days"] >= 7:
+        should.append("days_7")
+    if facts["active_days"] >= 14:
+        should.append("days_14")
+    if facts["active_days"] >= 30:
+        should.append("days_30")
+    if facts["active_days"] >= 60:
+        should.append("days_60")
+    if facts["active_days"] >= 100:
+        should.append("days_100")
+    if facts["active_days"] >= 200:
+        should.append("days_200")
+    if facts["active_days"] >= 365:
+        should.append("days_365")
+    nm = len(facts["modules"])
+    if nm >= 2:
+        should.append("module_2")
+    if nm >= 5:
+        should.append("module_5")
+    if nm >= 8:
+        should.append("module_8")
+    if nm >= 11:
+        should.append("module_11")
+    total_actions = sum(facts["counts"].values())
+    if total_actions >= 50:
+        should.append("first_50_actions")
+    if total_actions >= 500:
+        should.append("first_500_actions")
+
+    # per-module counts
+    trivia = facts["counts"].get("trivia", 0)
+    if trivia >= 1:
+        should.append("trivia_first")
+    if trivia >= 5:
+        should.append("trivia_5")
+    if trivia >= 10:
+        should.append("trivia_10")
+    if trivia >= 25:
+        should.append("trivia_25")
+    if trivia >= 50:
+        should.append("trivia_50")
+    if trivia >= 100:
+        should.append("trivia_100")
+    if trivia >= 200:
+        should.append("trivia_200")
+    if trivia >= 500:
+        should.append("trivia_500")
+
+    emperors = facts["counts"].get("emperors", 0)
+    if emperors >= 1:
+        should.append("emperors_first")
+    if emperors >= 10:
+        should.append("emperors_10")
+    if emperors >= 25:
+        should.append("emperors_25")
+    if emperors >= 50:
+        should.append("emperors_50")
+    if emperors >= 100:
+        should.append("emperors_100")
+    if emperors >= 200:
+        should.append("emperors_200")
+    if emperors >= 500:
+        should.append("emperors_500")
+
+    reading = facts["counts"].get("reading", 0)
+    if reading >= 1:
+        should.append("reading_first")
+    if reading >= 5:
+        should.append("reading_5")
+    if reading >= 10:
+        should.append("reading_10")
+    if reading >= 25:
+        should.append("reading_25")
+    if reading >= 50:
+        should.append("reading_50")
+    if reading >= 100:
+        should.append("reading_100")
+    if reading >= 200:
+        should.append("reading_200")
+    if reading >= 500:
+        should.append("reading_500")
+
+    verbs = facts["counts"].get("verbs", 0)
+    if verbs >= 1:
+        should.append("verbs_first")
+    if verbs >= 5:
+        should.append("verbs_5")
+    if verbs >= 10:
+        should.append("verbs_10")
+    if verbs >= 25:
+        should.append("verbs_25")
+    if verbs >= 50:
+        should.append("verbs_50")
+    if verbs >= 100:
+        should.append("verbs_100")
+    if verbs >= 200:
+        should.append("verbs_200")
+
+    chess = facts["counts"].get("chess", 0)
+    if chess >= 1:
+        should.append("chess_first")
+    if chess >= 5:
+        should.append("chess_5")
+    if chess >= 10:
+        should.append("chess_10")
+    if chess >= 25:
+        should.append("chess_25")
+    if chess >= 50:
+        should.append("chess_50")
+    if chess >= 100:
+        should.append("chess_100")
+    if chess >= 200:
+        should.append("chess_200")
+    if chess >= 500:
+        should.append("chess_500")
+
+    canon = facts["counts"].get("canon", 0)
+    if canon >= 1:
+        should.append("canon_first")
+    if canon >= 5:
+        should.append("canon_5")
+    if canon >= 10:
+        should.append("canon_10")
+    if canon >= 16:
+        should.append("canon_16")
+    if canon >= 20:
+        should.append("canon_20")
+
+    prayer = facts["counts"].get("prayer", 0)
+    if prayer >= 1:
+        should.append("prayer_first")
+    if prayer >= 3:
+        should.append("prayer_3")
+    if prayer >= 7:
+        should.append("prayer_7")
+    if prayer >= 30:
+        should.append("prayer_30")
+    if prayer >= 100:
+        should.append("prayer_100")
+    if prayer >= 200:
+        should.append("prayer_200")
+    if prayer >= 365:
+        should.append("prayer_365")
+
+    gd = facts["counts"].get("gd", 0)
+    if gd >= 1:
+        should.append("gd_first")
+    if gd >= 5:
+        should.append("gd_5")
+    if gd >= 10:
+        should.append("gd_10")
+    if gd >= 25:
+        should.append("gd_25")
+    if gd >= 50:
+        should.append("gd_50")
+    if gd >= 100:
+        should.append("gd_100")
+    if gd >= 200:
+        should.append("gd_200")
+    if gd >= 500:
+        should.append("gd_500")
+
+    dnd = facts["counts"].get("dnd", 0)
+    if dnd >= 1:
+        should.append("dnd_first")
+    if dnd >= 10:
+        should.append("dnd_roll_10")
+    if dnd >= 50:
+        should.append("dnd_roll_50")
+    if dnd >= 100:
+        should.append("dnd_roll_100")
+    if dnd >= 200:
+        should.append("dnd_roll_200")
+    if dnd >= 500:
+        should.append("dnd_roll_500")
+
+    coins = facts["coins"]
+    if coins >= 10:
+        should.append("coins_10")
+    if coins >= 50:
+        should.append("coins_50")
+    if coins >= 100:
+        should.append("coins_100")
+    if coins >= 500:
+        should.append("coins_500")
+    if coins >= 1000:
+        should.append("coins_1000")
+    if coins >= 5000:
+        should.append("coins_5000")
+    if coins >= 10000:
+        should.append("coins_10000")
+    if coins >= 50000:
+        should.append("coins_50000")
+    if coins >= 100000:
+        should.append("coins_100000")
+    if coins >= 1000000:
+        should.append("coins_1000000")
+
+    newly = _unlock_achievements(conn, user_id, should, now_ts)
+    if newly:
+        conn.commit()
+        # award coins for each newly unlocked achievement
+        for code in newly:
+            _award_web_coins(user_id, ACHIEVEMENTS[code]["weight"], f"Достижение: {ACHIEVEMENTS[code]['name']}")
+    return newly
+
+
+def _record_activity(conn, user_id, module, actions):
+    """Record an activity action for a user; updates streak and activity log.
+
+    Streak logic: today's action keeps/extends the streak if the last active
+    day was today or yesterday; otherwise the streak resets to 1.
+    """
+    today = _day_str()
+    streak_row = _get_streak_row(conn, user_id)
+    last_day = streak_row["last_active_day"] if streak_row else ""
+    current = streak_row["current_streak"] if streak_row else 0
+    longest = streak_row["longest_streak"] if streak_row else 0
+    total = streak_row["total_active_days"] if streak_row else 0
+
+    if last_day == today:
+        new_streak = current if current > 0 else 1
+    elif _prev_day(today) == last_day:
+        new_streak = current + 1
+    else:
+        new_streak = 1
+
+    if last_day != today:
+        total += 1
+    longest = max(longest, new_streak)
+
+    conn.execute(
+        text("""
+            INSERT INTO web_streak (user_id, last_active_day, current_streak, longest_streak, total_active_days)
+            VALUES (:uid, :day, :cur, :long, :total)
+            ON CONFLICT (user_id) DO UPDATE SET
+                last_active_day = :day,
+                current_streak = :cur,
+                longest_streak = :long,
+                total_active_days = :total
+        """),
+        {"uid": user_id, "day": today, "cur": new_streak, "long": longest, "total": total},
+    )
+
+    try:
+        conn.execute(
+            text("""
+                INSERT INTO web_activity_log (user_id, day, module, actions)
+                VALUES (:uid, :day, :module, :actions)
+                ON CONFLICT (user_id, day, module) DO UPDATE SET
+                    actions = web_activity_log.actions + :actions
+            """),
+            {"uid": user_id, "day": today, "module": module, "actions": actions},
+        )
+    except Exception as exc:
+        print(f"[ACHIEVEMENTS] activity log error: {exc}")
+        try:
+            conn.execute(
+                text("INSERT INTO web_activity_log (user_id, day, module, actions) VALUES (:uid, :day, :module, :actions)"),
+                {"uid": user_id, "day": today, "module": module, "actions": actions},
+            )
+        except Exception:
+            pass
+    conn.commit()
+    return new_streak, longest, total
+
+
+def _prev_day(day_str):
+    """Return the previous calendar day string for a YYYY-MM-DD string."""
+    try:
+        d = datetime.strptime(day_str, "%Y-%m-%d")
+        return (d - timedelta(days=1)).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
 
 
 def _sync_conversion_rates(conn):
@@ -3230,6 +3779,7 @@ def index():
         .card-content h2 { font-size: 18px; color: #1a1a2e; margin-bottom: 4px; }
         .card-content p { font-size: 14px; color: #888; }
         .beta-tag { display: inline-block; font-size: 10px; font-weight: 600; color: #e67e22; background: #fef3e2; padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+        .card-content h2 span { font-size: 12px; font-weight: 600; color: #e67e22; margin-left: 6px; }
         .user-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #1a1a2e; color: #e0e0e0; padding: 12px 20px; border-radius: 12px; margin-bottom: 24px; font-size: 14px; }
         .user-bar .user-info { display: flex; align-items: center; gap: 10px; }
         .user-bar .user-avatar { width: 34px; height: 34px; border-radius: 50%; background: #e94560; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: white; flex-shrink: 0; }
@@ -3259,6 +3809,13 @@ def index():
         </div>
         <div class="cards">
             <div class="section-label">Основные</div>
+            <a class="card" href="/achievements">
+                <div class="card-icon">🏆</div>
+                <div class="card-content">
+                    <h2>Достижения <span id="ach-count"></span></h2>
+                    <p>Ваши награды, серия дней и календарь активности</p>
+                </div>
+            </a>
             <a class="card" href="/ai_chat">
                 <div class="card-icon">🤖</div>
                 <div class="card-content">
@@ -3433,7 +3990,27 @@ def index():
                     localStorage.removeItem('web_token');
                     window.location.reload();
                 }
+                function loadAch() {
+                    var token = localStorage.getItem('web_token');
+                    var uid = localStorage.getItem('web_user_id') || '';
+                    var el = document.getElementById('ach-count');
+                    if (!token || uid.indexOf('u') !== 0) {
+                        var acts = {};
+                        try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                        var days = Object.keys(acts).length;
+                        el.textContent = '🔥 ' + days + ' дн.';
+                        return;
+                    }
+                    fetch('/api/achievements', { headers: { 'X-Auth-Token': token } })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            if (d.error) return;
+                            el.textContent = '🏆 ' + (d.unlocked || []).length + '/' + (d.total || 0) + ' · 🔥 ' + ((d.streak || {}).current || 0);
+                        })
+                        .catch(function () {});
+                }
                 loadUser();
+                loadAch();
                 window.addEventListener('error', function() { showBugBtn(); });
                 window.addEventListener('unhandledrejection', function() { showBugBtn(); });
                 function showBugBtn() {
@@ -3690,6 +4267,7 @@ def gd_page():
                         var r = JSON.parse(xhr.responseText);
                         if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
                         out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
+                        hubTrack('gd', 1);
                         document.getElementById('sub-level').value = '';
                         document.getElementById('sub-name').value = '';
                         if (mediaInput) { mediaInput.value = ''; updateMediaLabel(); }
@@ -3803,6 +4381,27 @@ def gd_page():
             };
             xhr.onerror = function() { alert('Ошибка сети'); };
             xhr.send(JSON.stringify({user_id: USER_ID, submission_id: id}));
+        }
+        function hubTrack(module, actions) {
+            actions = actions || 1;
+            var token = localStorage.getItem('web_token') || '';
+            var uid = localStorage.getItem('web_user_id') || '';
+            try {
+                if (token && uid.indexOf('u') === 0) {
+                    fetch('/api/achievements/activity', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                        body: JSON.stringify({ module: module, actions: actions })
+                    }).catch(function() {});
+                } else {
+                    var today = new Date();
+                    var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                    var acts = {};
+                    try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                    acts[dayStr] = (acts[dayStr] || 0) + 1;
+                    localStorage.setItem('hub_activity', JSON.stringify(acts));
+                }
+            } catch(e) {}
         }
     </script>
 </body>
@@ -4317,6 +4916,7 @@ def dnd_page():
                 if (r.error) { showMsg('system', '❌ ' + r.error); return; }
                 showMsg('dice', r.reply);
                 refreshStatus();
+                hubTrack('dnd', 1);
             });
         }
 
@@ -4340,6 +4940,28 @@ def dnd_page():
         }
 
         refreshStatus();
+
+        function hubTrack(module, actions) {
+            actions = actions || 1;
+            var token = localStorage.getItem('web_token') || '';
+            var uid = localStorage.getItem('web_user_id') || '';
+            try {
+                if (token && uid.indexOf('u') === 0) {
+                    fetch('/api/achievements/activity', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                        body: JSON.stringify({ module: module, actions: actions })
+                    }).catch(function() {});
+                } else {
+                    var today = new Date();
+                    var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                    var acts = {};
+                    try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                    acts[dayStr] = (acts[dayStr] || 0) + 1;
+                    localStorage.setItem('hub_activity', JSON.stringify(acts));
+                }
+            } catch(e) {}
+        }
     </script>
 </body>
 </html>"""
@@ -6133,12 +6755,34 @@ def chess_page():
                 try { r = JSON.parse(x.responseText); } catch(e) { msg.innerHTML = '<div class="msg err">Ошибка сервера.</div>'; return; }
                 if (r.correct) {
                     msg.innerHTML = '<div class="msg ok">✅ Правильно! Ход: ' + esc(r.move) + '<br>💰 +5 монет</div>';
+                    hubTrack('chess', 1);
                 } else {
                     msg.innerHTML = '<div class="msg err">❌ Неверно. Правильный ход: ' + esc(r.move) + '</div>';
                 }
             };
             x.onerror = function() { checkBtn.disabled = false; msg.innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
             x.send(JSON.stringify({user_id: USER_ID, move: move}));
+        }
+        function hubTrack(module, actions) {
+            actions = actions || 1;
+            var token = localStorage.getItem('web_token') || '';
+            var uid = localStorage.getItem('web_user_id') || '';
+            try {
+                if (token && uid.indexOf('u') === 0) {
+                    fetch('/api/achievements/activity', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                        body: JSON.stringify({ module: module, actions: actions })
+                    }).catch(function() {});
+                } else {
+                    var today = new Date();
+                    var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                    var acts = {};
+                    try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                    acts[dayStr] = (acts[dayStr] || 0) + 1;
+                    localStorage.setItem('hub_activity', JSON.stringify(acts));
+                }
+            } catch(e) {}
         }
         checkBtn.addEventListener('click', checkMove);
         moveInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') checkMove(); });
@@ -6540,6 +7184,13 @@ def account_page():
         .coins-row { display: flex; align-items: center; justify-content: space-between; background: #0a1628; border: 1px solid #1a5276; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
         .coins-row .lbl { font-size: 13px; color: #aaa; }
         .coins-row .val { font-size: 22px; font-weight: 700; color: #e3b341; }
+        .ach-box { background: #0a1628; border: 1px solid #1a5276; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
+        .ach-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 6px; }
+        .ach-title { font-size: 15px; font-weight: 700; color: #e3b341; }
+        .ach-stats { font-size: 13px; color: #aaa; }
+        .ach-cal { display: grid; grid-template-columns: repeat(28, 1fr); gap: 3px; margin-bottom: 12px; }
+        .cal-cell { height: 12px; border-radius: 3px; background: #16263b; }
+        .cal-cell.cal-on { background: #e94560; }
         .missing { background: #3e2723; border: 1px solid #b71c1c; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #ef9a9a; line-height: 1.5; }
         .missing b { color: #ffcdd2; }
         .form-group { margin-bottom: 16px; }
@@ -6593,6 +7244,7 @@ def account_page():
             '<div class="who"><h2>' + esc(name) + '</h2><div class="login">@' + esc(p.login || '') + ' · ' + (p.is_admin ? '👨‍💼 Админ' : 'Пользователь') + '</div></div>' +
             '</div>' +
             '<div class="coins-row"><div class="lbl">💎 Монеты</div><div class="val">' + (p.coins != null ? p.coins : 0) + '</div></div>' +
+            '<div class="ach-box" id="ach-box"><div class="spinner">Загружаю достижения...</div></div>' +
             '<div id="missing-box"></div>' +
             '<div class="form-group"><label>Логин</label><input type="text" id="set-login" disabled style="opacity:0.6"></div>' +
             '<div class="form-group"><label>Имя <span class="opt">(если пусто — будет логин)</span></label><input type="text" id="set-name" placeholder="ваше имя"></div>' +
@@ -6604,6 +7256,31 @@ def account_page():
             '<button class="btn btn-gray" onclick="logout()">Выйти</button>';
         document.getElementById('card').innerHTML = html;
         fillForm(p);
+        loadAchievements();
+    }
+    function loadAchievements() {
+        var box = document.getElementById('ach-box');
+        if (!box) return;
+        fetch('/api/achievements', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) { box.innerHTML = '<b>Достижения</b><div class="hint">' + esc(d.error) + '</div>'; return; }
+                var unlocked = d.unlocked || [];
+                var cal = d.calendar || [];
+                var streak = d.streak || {};
+                var calHtml = '';
+                cal.forEach(function(day) {
+                    var active = day ? ' class="cal-on"' : '';
+                    calHtml += '<div class="cal-cell' + active + '"></div>';
+                });
+                box.innerHTML = '<div class="ach-head">' +
+                    '<div class="ach-title">🏆 Достижения</div>' +
+                    '<div class="ach-stats">открыто <b>' + unlocked.length + '</b> из ' + (d.total || 0) + ' · серия <b>' + (streak.current || 0) + '</b> дн.</div>' +
+                    '</div>' +
+                    '<div class="ach-cal">' + calHtml + '</div>' +
+                    '<a class="btn btn-secondary" href="/achievements">Смотреть все достижения</a>';
+            })
+            .catch(function() { box.innerHTML = '<b>Достижения</b><div class="hint">Не удалось загрузить.</div>'; });
     }
     function fillForm(p) {
         document.getElementById('set-login').value = p.login || '';
@@ -7603,6 +8280,7 @@ def trivia_page():
                         total++;
                         saveScore();
                         updateScore();
+                        hubTrack('trivia', 1);
                         var expl = document.getElementById('explanation');
                         expl.textContent = r.explanation;
                         expl.style.display = 'block';
@@ -7616,6 +8294,27 @@ def trivia_page():
                 xhr.ontimeout = function() { btns.forEach(function(b) { b.disabled = false; }); document.getElementById('explanation').textContent = '\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u043e\u0442\u0432\u0435\u0442\u0438\u043b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0451 \u0440\u0430\u0437.'; document.getElementById('explanation').style.display = 'block'; };
                 xhr.timeout = 20000;
                 xhr.send(JSON.stringify({session_id: currentSession, answer_index: idx}));
+            }
+            function hubTrack(module, actions) {
+                actions = actions || 1;
+                var token = localStorage.getItem('web_token') || '';
+                var uid = localStorage.getItem('web_user_id') || '';
+                try {
+                    if (token && uid.indexOf('u') === 0) {
+                        fetch('/api/achievements/activity', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                            body: JSON.stringify({ module: module, actions: actions })
+                        }).catch(function() {});
+                    } else {
+                        var today = new Date();
+                        var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                        var acts = {};
+                        try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                        acts[dayStr] = (acts[dayStr] || 0) + 1;
+                        localStorage.setItem('hub_activity', JSON.stringify(acts));
+                    }
+                } catch(e) {}
             }
             document.getElementById('next-btn').addEventListener('click', loadQuestion);
             loadQuestion();
@@ -7767,7 +8466,17 @@ def emperors_page():
             <button class="tab-btn" id="tab-match" onclick="app.showTab('match')">🎯 Сопоставление</button>
             <button class="tab-btn" id="tab-chrono" onclick="app.showTab('chrono')">📜 Хронология</button>
         </div>
-        <div class="panel active" id="panel-study"></div>
+        <div class="panel active" id="panel-study">
+            <div class="mode-row">
+                <label>Правители:
+                    <select class="algo-select scope-sel" id="scope-select-study" onchange="app.toggleScope(this)">
+                        <option value="emperors">5 императоров</option>
+                        <option value="all">Все правители (Рюрик–Путин)</option>
+                    </select>
+                </label>
+            </div>
+            <div id="study-body"></div>
+        </div>
         <div class="panel" id="panel-quiz">
             <div class="progress-row">
                 <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
@@ -7783,7 +8492,7 @@ def emperors_page():
                     </select>
                 </label>
                 <label>Правители:
-                    <select class="algo-select" id="scope-select" onchange="app.toggleScope()">
+                    <select class="algo-select scope-sel" id="scope-select" onchange="app.toggleScope(this)">
                         <option value="emperors">5 императоров</option>
                         <option value="all">Все правители (Рюрик–Путин)</option>
                     </select>
@@ -7820,6 +8529,12 @@ def emperors_page():
         </div>
         <div class="panel" id="panel-match">
             <div class="mode-row">
+                <label>Правители:
+                    <select class="algo-select scope-sel" id="scope-select-match" onchange="app.toggleScope(this)">
+                        <option value="emperors">5 императоров</option>
+                        <option value="all">Все правители (Рюрик–Путин)</option>
+                    </select>
+                </label>
                 <button class="reset-btn" onclick="app.startMatch()">🔄 Новый раунд</button>
                 <button class="reset-btn" onclick="app.checkMatch()">✅ Проверить</button>
                 <span class="progress-label" id="match-count"></span>
@@ -7845,6 +8560,12 @@ def emperors_page():
                 <div class="chip-row" id="chrono-placed"></div>
             </div>
             <div class="mode-row">
+                <label>Правители:
+                    <select class="algo-select scope-sel" id="scope-select-chrono" onchange="app.toggleScope(this)">
+                        <option value="emperors">5 императоров</option>
+                        <option value="all">Все правители (Рюрик–Путин)</option>
+                    </select>
+                </label>
                 <button class="reset-btn" onclick="app.startChrono()">🔄 Новый раунд</button>
                 <button class="reset-btn" onclick="app.checkChrono()">✅ Проверить</button>
                 <span class="progress-label" id="chrono-count"></span>
@@ -7889,7 +8610,7 @@ def emperors_page():
                 allItems.push({type: 'person', text: p.name, emperor: p.emperor, info: p.description, label: 'Личность', importance: p.importance || 3});
             });
             var scope = localStorage.getItem('emperors_scope') || 'emperors';
-            document.getElementById('scope-select').value = scope;
+            document.querySelectorAll('.scope-sel').forEach(function(s) { s.value = scope; });
             var optCount = localStorage.getItem('emperors_optcount') || '5';
             document.getElementById('opt-count').value = optCount;
             var qdir = localStorage.getItem('emperors_qdir') || 'toRuler';
@@ -8132,8 +8853,15 @@ function updateScore() {
             }
 
             var streakData = null;
+            function hubStreakKey() {
+                if (!localStorage.getItem('hub_streak') && localStorage.getItem('emperors_streak')) {
+                    localStorage.setItem('hub_streak', localStorage.getItem('emperors_streak'));
+                    localStorage.removeItem('emperors_streak');
+                }
+                return 'hub_streak';
+            }
             function getStreak() {
-                try { streakData = JSON.parse(localStorage.getItem('emperors_streak') || 'null'); } catch(e) { streakData = null; }
+                try { streakData = JSON.parse(localStorage.getItem(hubStreakKey()) || 'null'); } catch(e) { streakData = null; }
                 if (!streakData || !streakData.day) return { days: 0 };
                 var today = new Date();
                 var d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -8145,7 +8873,7 @@ function updateScore() {
             function updateStreak(correct) {
                 var today = new Date();
                 var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-                try { streakData = JSON.parse(localStorage.getItem('emperors_streak') || 'null'); } catch(e) { streakData = null; }
+                try { streakData = JSON.parse(localStorage.getItem(hubStreakKey()) || 'null'); } catch(e) { streakData = null; }
                 var days = 1;
                 if (streakData && streakData.day) {
                     var last = new Date(streakData.day + 'T00:00:00');
@@ -8155,7 +8883,7 @@ function updateScore() {
                     else if (diff === 1) days = (streakData.days || 0) + 1;
                     else days = 1;
                 }
-                localStorage.setItem('emperors_streak', JSON.stringify({ day: dayStr, days: days }));
+                localStorage.setItem(hubStreakKey(), JSON.stringify({ day: dayStr, days: days }));
             }
 
             function checkAchievements() {
@@ -8178,6 +8906,28 @@ function updateScore() {
                     renderStats();
                     alert('🏆 Новые достижения!\\n' + unlocked.join('\\n'));
                 }
+            }
+
+            function hubTrack(module, actions) {
+                actions = actions || 1;
+                var token = localStorage.getItem('web_token') || '';
+                var uid = localStorage.getItem('web_user_id') || '';
+                try {
+                    if (token && uid.indexOf('u') === 0) {
+                        fetch('/api/achievements/activity', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                            body: JSON.stringify({ module: module, actions: actions })
+                        }).catch(function() {});
+                    } else {
+                        var today = new Date();
+                        var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                        var acts = {};
+                        try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                        acts[dayStr] = (acts[dayStr] || 0) + 1;
+                        localStorage.setItem('hub_activity', JSON.stringify(acts));
+                    }
+                } catch(e) {}
             }
 
             function renderStats() {
@@ -8263,7 +9013,7 @@ function updateScore() {
                     }
                     html += '</div>';
                 });
-                document.getElementById('panel-study').innerHTML = html;
+                document.getElementById('study-body').innerHTML = html;
             }
             function starRow(imp) {
                 var s = '';
@@ -8391,6 +9141,7 @@ function updateScore() {
                 }
                 updateStreak(isCorrect);
                 checkAchievements();
+                hubTrack('emperors', 1);
                 if (isCorrect) {
                     wrongItems = wrongItems.filter(function(it) { return it.text !== currentItem.text; });
                 } else {
@@ -8584,13 +9335,16 @@ function updateScore() {
                     updateScore();
                     loadQuestion();
                 },
-                toggleScope: function() {
-                    scope = document.getElementById('scope-select').value;
+                toggleScope: function(el) {
+                    scope = el.value;
                     localStorage.setItem('emperors_scope', scope);
+                    document.querySelectorAll('.scope-sel').forEach(function(s) { s.value = scope; });
                     deck = [];
                     studyPanel();
                     updateScore();
                     loadQuestion();
+                    if (document.getElementById('panel-match').classList.contains('active')) startMatch();
+                    if (document.getElementById('panel-chrono').classList.contains('active')) startChrono();
                 },
                 toggleOptCount: function() {
                     optCount = document.getElementById('opt-count').value;
@@ -8677,6 +9431,159 @@ function updateScore() {
     </script>
 </body>
 </html>""".replace("__DATA__", history_data)
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/achievements")
+def achievements_page():
+    """Unified achievements & streak page: unlocked and upcoming badges + calendar."""
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Достижения</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #0f1524; color: #e0e0e0; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; min-height: 100vh; }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .header h1 { font-size: 24px; color: #fff; }
+        .header a { color: #4a90d9; text-decoration: none; font-size: 14px; }
+        .card { background: #16213e; border: 1px solid #1a5276; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+        .stats-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .stat-box { flex: 1; min-width: 140px; background: #0f3460; border: 1px solid #1a5276; border-radius: 12px; padding: 14px; text-align: center; }
+        .stat-box .num { font-size: 28px; font-weight: 700; color: #f0c040; }
+        .stat-box .lbl { font-size: 12px; color: #9fb3c8; margin-top: 4px; }
+        .section-title { font-size: 14px; color: #e94560; font-weight: 600; margin: 20px 0 12px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        .cal-cell { aspect-ratio: 1; border-radius: 8px; background: #0f3460; border: 1px solid #1a5276; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #7f8fa6; }
+        .cal-cell.active { background: #2e7d32; border-color: #4caf50; color: #fff; font-weight: 600; }
+        .cal-cell.today { border-color: #f0c040; }
+        .cal-cell.future { opacity: 0.35; }
+        .cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; }
+        .cal-dow span { font-size: 11px; color: #7f8fa6; text-align: center; }
+        .ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+        .ach { background: #0f3460; border: 1px solid #1a5276; border-radius: 12px; padding: 12px; display: flex; gap: 10px; align-items: flex-start; transition: all 0.15s; }
+        .ach.locked { opacity: 0.55; }
+        .ach .icon { font-size: 26px; flex-shrink: 0; }
+        .ach .name { font-weight: 600; font-size: 13px; color: #fff; }
+        .ach .desc { font-size: 12px; color: #9fb3c8; margin-top: 2px; line-height: 1.4; }
+        .ach .module-tag { display: inline-block; font-size: 10px; color: #f0c040; margin-top: 6px; }
+        .ach.unlocked { border-color: #4caf50; background: #123b23; }
+        .ach.unlocked .name::after { content: ' ✓'; color: #4caf50; }
+        .module-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+        .mf-btn { background: #0f3460; border: 1px solid #1a5276; color: #9fb3c8; border-radius: 20px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-family: inherit; }
+        .mf-btn.active { background: #1a5276; color: #fff; border-color: #4a90d9; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #16213e; border: 1px solid #4caf50; color: #fff; padding: 12px 20px; border-radius: 12px; display: none; z-index: 1000; font-size: 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
+        .empty { color: #7f8fa6; font-size: 14px; padding: 20px; text-align: center; }
+        @media (max-width: 600px) { .cal-cell { font-size: 9px; } .ach-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏆 Достижения</h1>
+            <a href="/account">← В личный кабинет</a>
+        </div>
+        <div class="card">
+            <div class="stats-row">
+                <div class="stat-box"><div class="num" id="stat-unlocked">–</div><div class="lbl">открыто</div></div>
+                <div class="stat-box"><div class="num" id="stat-total">–</div><div class="lbl">всего</div></div>
+                <div class="stat-box"><div class="num" id="stat-current">–</div><div class="lbl">текущая серия</div></div>
+                <div class="stat-box"><div class="num" id="stat-longest">–</div><div class="lbl">макс. серия</div></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="section-title">🔥 Календарь активности (последние 12 недель)</div>
+            <div class="cal-dow"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
+            <div class="cal-grid" id="calendar"></div>
+        </div>
+        <div class="card">
+            <div class="section-title">🎖️ Достижения</div>
+            <div class="module-filter" id="module-filter"></div>
+            <div class="ach-grid" id="ach-grid"></div>
+        </div>
+    </div>
+    <div class="toast" id="toast"></div>
+    <script>
+        (function() {
+            var token = localStorage.getItem('web_token') || '';
+            var uid = localStorage.getItem('web_user_id') || '';
+            var toast = document.getElementById('toast');
+            function showToast(msg) { toast.textContent = msg; toast.style.display = 'block'; setTimeout(function(){ toast.style.display = 'none'; }, 2600); }
+            function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+            if (!token || uid.indexOf('u') !== 0) {
+                document.querySelector('.container').innerHTML = '<div class="card"><div class="empty">Вы не вошли в аккаунт. <a href="/account" style="color:#4a90d9">Войдите</a>, чтобы видеть свои достижения.</div></div>';
+                return;
+            }
+            function renderCalendar(calendar) {
+                var active = {};
+                calendar.forEach(function(d) { active[d] = true; });
+                var today = new Date();
+                var start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                start.setDate(start.getDate() - 82);
+                var monday = new Date(start);
+                var dow = monday.getDay(); if (dow === 0) dow = 7;
+                monday.setDate(monday.getDate() - (dow - 1));
+                var html = '';
+                var nowStr = function(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+                for (var d = new Date(monday); d <= new Date(today); d.setDate(d.getDate() + 1)) {
+                    var ds = nowStr(d);
+                    var cls = 'cal-cell';
+                    if (active[ds]) cls += ' active';
+                    if (ds === nowStr(today)) cls += ' today';
+                    if (d > today) cls += ' future';
+                    html += '<div class="' + cls + '">' + d.getDate() + '</div>';
+                }
+                document.getElementById('calendar').innerHTML = html;
+            }
+            function render(data) {
+                document.getElementById('stat-unlocked').textContent = data.unlocked_count;
+                document.getElementById('stat-total').textContent = data.total_count;
+                document.getElementById('stat-current').textContent = data.streak.current;
+                document.getElementById('stat-longest').textContent = data.streak.longest;
+                renderCalendar(data.calendar);
+                var mods = ['all'].concat(data.modules);
+                var filter = document.getElementById('module-filter');
+                filter.innerHTML = '';
+                var modNames = { all: 'Все', trivia: '🧠 Викторина', emperors: '👑 Императоры', reading: '📖 Чтение', verbs: '🔤 Глаголы', chess: '♟️ Шахматы', canon: '📜 Канон', prayer: '🙏 Молитва', gd: '🎮 GD', dnd: '🎲 D&D', system: '⚙️ Система', streak: '🔥 Серии', coins: '💰 Монеты' };
+                mods.forEach(function(m) {
+                    var b = document.createElement('button');
+                    b.className = 'mf-btn' + (m === 'all' ? ' active' : '');
+                    b.textContent = modNames[m] || m;
+                    b.onclick = function() {
+                        document.querySelectorAll('.mf-btn').forEach(function(x){ x.classList.remove('active'); });
+                        b.classList.add('active');
+                        renderAch(data, m);
+                    };
+                    filter.appendChild(b);
+                });
+                renderAch(data, 'all');
+            }
+            function renderAch(data, module) {
+                var grid = document.getElementById('ach-grid');
+                grid.innerHTML = '';
+                var list = data.achievements.filter(function(a){ return module === 'all' || a.module === module; });
+                if (!list.length) { grid.innerHTML = '<div class="empty">Нет достижений в этой категории.</div>'; return; }
+                list.forEach(function(a) {
+                    var el = document.createElement('div');
+                    el.className = 'ach' + (a.unlocked ? ' unlocked' : ' locked');
+                    el.innerHTML = '<div class="icon">' + (a.icon || '🎖️') + '</div><div><div class="name">' + esc(a.name) + '</div><div class="desc">' + esc(a.desc) + '</div><div class="module-tag">' + (a.unlocked ? '✅ открыто' : '🔒 впереди') + '</div></div>';
+                    grid.appendChild(el);
+                });
+            }
+            fetch('/api/achievements', { headers: { 'X-Auth-Token': token } })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.error) { showToast(d.error); return; }
+                    render(d);
+                })
+                .catch(function() { showToast('Ошибка загрузки'); });
+        })();
+    </script>
+</body>
+</html>"""
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
@@ -8863,6 +9770,27 @@ def daily_prayer_page():
     <script>
         var USER_ID = localStorage.getItem('web_user_id');
         if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
+        function hubTrack(module, actions) {
+            actions = actions || 1;
+            var token = localStorage.getItem('web_token') || '';
+            var uid = localStorage.getItem('web_user_id') || '';
+            try {
+                if (token && uid.indexOf('u') === 0) {
+                    fetch('/api/achievements/activity', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                        body: JSON.stringify({ module: module, actions: actions })
+                    }).catch(function() {});
+                } else {
+                    var today = new Date();
+                    var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                    var acts = {};
+                    try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                    acts[dayStr] = (acts[dayStr] || 0) + 1;
+                    localStorage.setItem('hub_activity', JSON.stringify(acts));
+                }
+            } catch(e) {}
+        }
         function getPrayer() {
             var btn = document.getElementById('get-btn');
             btn.disabled = true;
@@ -8882,6 +9810,7 @@ def daily_prayer_page():
                         document.getElementById('subtext').textContent = 'Молитва на сегодня';
                         btn.textContent = '🙏 Ещё';
                         btn.disabled = false;
+                        hubTrack('prayer', 1);
                     }
                 } catch(e) { document.getElementById('prayer-content').innerHTML = '<p style="color:#e94560">Ошибка загрузки.</p>'; }
             };
@@ -8925,6 +9854,95 @@ def api_daily_prayer():
     except Exception as exc:
         print(f"[DAILY_PRAYER] error: {exc}")
     return jsonify({"prayer": _prayer_for_day(uid, today), "already": already})
+
+
+# ── Achievements Module ────────────────────────────────────────────────────
+# Единая система достижений и серий по всему порталу.
+
+def _require_web_user():
+    """Resolve the current web user id (web_users.id) or None."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return None
+    return user["id"]
+
+
+@app.route("/api/achievements/activity", methods=["POST"])
+def api_achievements_activity():
+    """Record a user activity in a module and return newly unlocked achievements."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    data = request.get_json(silent=True) or {}
+    module = str(data.get("module", "")).strip() or "system"
+    actions = int(data.get("actions", 1) or 1)
+    if actions < 1:
+        actions = 1
+    try:
+        with get_db_engine().connect() as conn:
+            streak, longest, total = _record_activity(conn, uid, module, actions)
+            newly = _check_web_achievements(conn, uid)
+        return jsonify({
+            "ok": True,
+            "streak": {"current": streak, "longest": longest, "total_days": total},
+            "unlocked": newly,
+        })
+    except Exception as exc:
+        print(f"[ACHIEVEMENTS] activity error: {exc}")
+        return jsonify({"ok": False, "error": "server error"}), 500
+
+
+@app.route("/api/achievements", methods=["GET"])
+def api_achievements_list():
+    """Return the full achievement registry with unlock state, streak and calendar."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    try:
+        with get_db_engine().connect() as conn:
+            streak_row = _get_streak_row(conn, uid)
+            unlocked_rows = conn.execute(
+                text("SELECT code FROM web_achievements WHERE user_id = :user_id"),
+                {"user_id": uid},
+            ).mappings().all()
+            day_rows = conn.execute(
+                text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :user_id ORDER BY day"),
+                {"user_id": uid},
+            ).mappings().all()
+            module_rows = conn.execute(
+                text("SELECT DISTINCT module FROM web_activity_log WHERE user_id = :user_id"),
+                {"user_id": uid},
+            ).mappings().all()
+        unlocked = {r["code"] for r in unlocked_rows}
+        active_days = [r["day"] for r in day_rows]
+        modules = sorted({r["module"] for r in module_rows})
+        achievements = [
+            {
+                "code": code,
+                "icon": a["icon"],
+                "name": a["name"],
+                "desc": a["desc"],
+                "module": a["module"],
+                "unlocked": code in unlocked,
+            }
+            for code, a in ACHIEVEMENTS.items()
+        ]
+        return jsonify({
+            "ok": True,
+            "achievements": achievements,
+            "unlocked_count": len(unlocked),
+            "total_count": len(ACHIEVEMENTS),
+            "streak": {
+                "current": streak_row["current_streak"] if streak_row else 0,
+                "longest": streak_row["longest_streak"] if streak_row else 0,
+                "total_days": streak_row["total_active_days"] if streak_row else 0,
+            },
+            "calendar": active_days,
+            "modules": modules,
+        })
+    except Exception as exc:
+        print(f"[ACHIEVEMENTS] list error: {exc}")
+        return jsonify({"ok": False, "error": "server error"}), 500
 
 
 # ── Canon Module ──────────────────────────────────────────────────────────
@@ -10454,6 +11472,28 @@ def irregular_verbs_page():
                 );
             }
 
+            function hubTrack(module, actions) {
+                actions = actions || 1;
+                var token = localStorage.getItem('web_token') || '';
+                var uid = localStorage.getItem('web_user_id') || '';
+                try {
+                    if (token && uid.indexOf('u') === 0) {
+                        fetch('/api/achievements/activity', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                            body: JSON.stringify({ module: module, actions: actions })
+                        }).catch(function() {});
+                    } else {
+                        var today = new Date();
+                        var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                        var acts = {};
+                        try { acts = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch(e) { acts = {}; }
+                        acts[dayStr] = (acts[dayStr] || 0) + 1;
+                        localStorage.setItem('hub_activity', JSON.stringify(acts));
+                    }
+                } catch(e) {}
+            }
+
             window.app = {
                 selectRole: function(role) {
                     if (role === 'teacher') this.teacherMenu();
@@ -10646,6 +11686,7 @@ def irregular_verbs_page():
                             });
                             h += '</table></div><button class="btn btn-primary btn-full" onclick="app.studentEnterId()">\\ud83d\\udccb \\u041d\\u043e\\u0432\\u043e\\u0435 \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435</button>';
                             render(h);
+                            hubTrack('verbs', 1);
                         } catch(e) { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u043f\\u0440\\u043e\\u0432\\u0435\\u0440\\u043a\\u0438.</div>'); }
                     };
                     xhr.onerror = function() { render('<div class="card error-text">\\u041e\\u0448\\u0438\\u0431\\u043a\\u0430 \\u0441\\u0435\\u0442\\u0438.</div>'); };
