@@ -7770,6 +7770,12 @@ def emperors_page():
                         <option value="all">Все правители (Рюрик–Путин)</option>
                     </select>
                 </label>
+                <label>Варианты:
+                    <select class="algo-select" id="opt-count" onchange="app.toggleOptCount()">
+                        <option value="5">5 вариантов</option>
+                        <option value="all">Все (хронологически)</option>
+                    </select>
+                </label>
                 <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
                 <button class="reset-btn" onclick="app.resetScore()">Сбросить счёт</button>
                 <button class="debug-btn" onclick="app.toggleDebug()">🔧 Дебаг</button>
@@ -7838,6 +7844,8 @@ def emperors_page():
             });
             var scope = localStorage.getItem('emperors_scope') || 'emperors';
             document.getElementById('scope-select').value = scope;
+            var optCount = localStorage.getItem('emperors_optcount') || '5';
+            document.getElementById('opt-count').value = optCount;
             function activeRulerIds() {
                 var ids = {};
                 (scope === 'all' ? DATA.rulers : DATA.emperors).forEach(function(r) { ids[r.id] = true; });
@@ -8117,8 +8125,23 @@ function updateScore() {
                 var opts = document.getElementById('options');
                 opts.innerHTML = '';
                 var correct = currentItem.emperor;
-                var list = (scope === 'all' ? DATA.rulers : DATA.emperors).slice();
-                for (var i = list.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = list[i]; list[i] = list[j]; list[j] = t; }
+                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                var list;
+                if (optCount === 'all') {
+                    list = rulers.slice();
+                } else {
+                    var pool = rulers.slice();
+                    shuffleArray(pool);
+                    var correctRuler = null;
+                    var distractors = [];
+                    for (var i = 0; i < pool.length; i++) {
+                        if (pool[i].id === correct) { correctRuler = pool[i]; }
+                        else if (distractors.length < 5) { distractors.push(pool[i]); }
+                    }
+                    list = distractors.slice();
+                    if (correctRuler) list.push(correctRuler);
+                    shuffleArray(list);
+                }
                 list.forEach(function(e) {
                     var btn = document.createElement('button');
                     btn.className = 'opt-btn';
@@ -8277,6 +8300,11 @@ function updateScore() {
                     updateScore();
                     loadQuestion();
                 },
+                toggleOptCount: function() {
+                    optCount = document.getElementById('opt-count').value;
+                    localStorage.setItem('emperors_optcount', optCount);
+                    loadQuestion();
+                },
                 resetScore: function() {
                     quizScore = 0; quizTotal = 0; wrongItems = [];
                     flash = {}; saveFlashLocal();
@@ -8334,7 +8362,7 @@ function updateScore() {
             };
             document.addEventListener('keydown', function(e) {
                 if (!document.getElementById('panel-quiz').classList.contains('active')) return;
-                if (e.key >= '1' && e.key <= '5') {
+                if (e.key >= '1' && e.key <= '6') {
                     var btns = document.querySelectorAll('.opt-btn');
                     var idx = parseInt(e.key, 10) - 1;
                     if (btns[idx] && !btns[idx].disabled) btns[idx].click();
