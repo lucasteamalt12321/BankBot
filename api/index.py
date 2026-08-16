@@ -8057,6 +8057,7 @@ function renderDebug() {
 function updateScore() {
                 var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
                 if (scope === 'all') s += ' · режим: все правители';
+                if (optCount === 'all') s += ' · сложность: все варианты (+2/−1)';
                 if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
                 if (algo === 'counter') {
                     var weak = 0;
@@ -8162,7 +8163,11 @@ function updateScore() {
                     else if (b === btn) b.classList.add('wrong');
                 });
                 quizTotal++;
-                if (isCorrect) { quizScore++; }
+                if (isCorrect) {
+                    quizScore += (optCount === 'all') ? 2 : 1;
+                } else {
+                    quizScore += (optCount === 'all') ? -1 : 0;
+                }
                 saveScore();
                 updateScore();
                 var info = document.getElementById('info');
