@@ -7681,6 +7681,23 @@ def emperors_page():
         .chip-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
         .chip.clickable { cursor: pointer; transition: all 0.15s; }
         .chip.clickable:hover { background: #1a5276; border-color: #4a90d9; }
+        .chip.locked { opacity: 0.5; }
+        .timeline { background: #101735; border: 1px solid #0f3460; border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+        .timeline-title { font-size: 14px; color: #e94560; font-weight: 600; margin-bottom: 14px; }
+        .era { margin-bottom: 14px; }
+        .era:last-child { margin-bottom: 0; }
+        .era-name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #888; margin-bottom: 6px; }
+        .era-row { display: flex; flex-wrap: wrap; gap: 6px; }
+        .era-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; background: #0f3460; border: 1px solid #1a5276; line-height: 1.3; cursor: pointer; transition: all 0.15s; }
+        .era-chip:hover { background: #1a5276; }
+        .era-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .era-years { color: #999; font-size: 11px; }
+        .opt-btn.animate-correct { animation: pulse-green 0.5s; }
+        .opt-btn.animate-wrong { animation: shake 0.4s; }
+        .question.animate-correct { animation: pulse-green 0.5s; }
+        .question.animate-wrong { animation: shake 0.4s; }
+        @keyframes pulse-green { 0% { transform: scale(1); } 50% { transform: scale(1.04); } 100% { transform: scale(1); } }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 20px; }
         .modal-overlay.show { display: flex; }
         .modal { background: #16213e; border: 1px solid #1a5276; border-radius: 16px; max-width: 560px; width: 100%; padding: 22px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
@@ -7748,6 +7765,7 @@ def emperors_page():
             <button class="tab-btn active" id="tab-study" onclick="app.showTab('study')">📚 Изучить</button>
             <button class="tab-btn" id="tab-quiz" onclick="app.showTab('quiz')">🧠 Тренажёр</button>
             <button class="tab-btn" id="tab-match" onclick="app.showTab('match')">🎯 Сопоставление</button>
+            <button class="tab-btn" id="tab-chrono" onclick="app.showTab('chrono')">📜 Хронология</button>
         </div>
         <div class="panel active" id="panel-study"></div>
         <div class="panel" id="panel-quiz">
@@ -7774,6 +7792,12 @@ def emperors_page():
                     <select class="algo-select" id="opt-count" onchange="app.toggleOptCount()">
                         <option value="5">5 вариантов</option>
                         <option value="all">Все (хронологически)</option>
+                    </select>
+                </label>
+                <label>Вопрос:
+                    <select class="algo-select" id="qdir-select" onchange="app.toggleQDir()">
+                        <option value="toRuler">Событие → Правитель</option>
+                        <option value="fromRuler">Правитель → Событие</option>
                     </select>
                 </label>
                 <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
@@ -7803,6 +7827,28 @@ def emperors_page():
             <div class="match-items" id="match-items"></div>
             <div class="match-grid" id="match-columns"></div>
             <div class="info" id="match-info"></div>
+        </div>
+        <div class="panel" id="panel-chrono">
+            <div class="card">
+                <div class="question" id="chrono-question">Расставь правителей в хронологическом порядке — нажимай на самого раннего из оставшихся.</div>
+                <div class="info" id="chrono-info" style="display:none"></div>
+                <div class="options" id="chrono-options"></div>
+            </div>
+            <div class="card">
+                <div class="chip-title">Правильный порядок</div>
+                <div class="chip-row" id="chrono-answer"></div>
+                <div class="chip-title">Осталось</div>
+                <div class="chip-row" id="chrono-left"></div>
+            </div>
+            <div class="card">
+                <div class="chip-title">Твоя последовательность</div>
+                <div class="chip-row" id="chrono-placed"></div>
+            </div>
+            <div class="mode-row">
+                <button class="reset-btn" onclick="app.startChrono()">🔄 Новый раунд</button>
+                <button class="reset-btn" onclick="app.checkChrono()">✅ Проверить</button>
+                <span class="progress-label" id="chrono-count"></span>
+            </div>
         </div>
         <div class="status">модуль подготовки к игре «Имена и события»</div>
     </div>
@@ -7846,6 +7892,8 @@ def emperors_page():
             document.getElementById('scope-select').value = scope;
             var optCount = localStorage.getItem('emperors_optcount') || '5';
             document.getElementById('opt-count').value = optCount;
+            var qdir = localStorage.getItem('emperors_qdir') || 'toRuler';
+            document.getElementById('qdir-select').value = qdir;
             function activeRulerIds() {
                 var ids = {};
                 (scope === 'all' ? DATA.rulers : DATA.emperors).forEach(function(r) { ids[r.id] = true; });
@@ -7993,7 +8041,7 @@ def emperors_page():
                 if (el) { el.style.width = (total ? (mastered / total * 100) : 0) + '%'; }
                 if (lab) { lab.textContent = 'освоено ' + mastered + '/' + total; }
             }
-            function renderStats() {
+            function renderStatsOld() {
                 var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
                 var byEmperor = {};
                 rulers.forEach(function(e) { byEmperor[e.id] = { wrong: 0, correct: 0 }; });
@@ -8056,6 +8104,8 @@ function renderDebug() {
             }
 function updateScore() {
                 var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
+                var lvl = levelInfo();
+                s += ' · ' + lvl.name;
                 if (scope === 'all') s += ' · режим: все правители';
                 if (optCount === 'all') s += ' · сложность: все варианты (+2/−1)';
                 if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
@@ -8065,14 +8115,135 @@ function updateScore() {
                     s += ' · слабых: ' + weak;
                 }
                 if (onlyErrors) s += ' · режим: только ошибки (' + wrongItems.length + ')';
+                var streak = getStreak();
+                if (streak.days > 0) s += ' · серия: ' + streak.days + ' дн.';
                 document.getElementById('quiz-score').textContent = s;
                 updateProgressBar();
                 renderStats();
                 renderDebug();
             }
 
+            function levelInfo() {
+                var thresholds = [['🏅 Новичок', 0], ['🥉 Знаток', 20], ['🥈 Профи', 60], ['🥇 Мастер', 120]];
+                for (var i = thresholds.length - 1; i >= 0; i--) {
+                    if (quizScore >= thresholds[i][1]) return { name: thresholds[i][0], next: thresholds[i + 1] ? thresholds[i + 1][1] : null };
+                }
+                return { name: '🏅 Новичок', next: 20 };
+            }
+
+            var streakData = null;
+            function getStreak() {
+                try { streakData = JSON.parse(localStorage.getItem('emperors_streak') || 'null'); } catch(e) { streakData = null; }
+                if (!streakData || !streakData.day) return { days: 0 };
+                var today = new Date();
+                var d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                var last = new Date(streakData.day + 'T00:00:00');
+                var diffDays = Math.round((d - last) / 86400000);
+                if (diffDays === 0) return { days: streakData.days, today: true };
+                return { days: 0 };
+            }
+            function updateStreak(correct) {
+                var today = new Date();
+                var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                try { streakData = JSON.parse(localStorage.getItem('emperors_streak') || 'null'); } catch(e) { streakData = null; }
+                var days = 1;
+                if (streakData && streakData.day) {
+                    var last = new Date(streakData.day + 'T00:00:00');
+                    var d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                    var diff = Math.round((d - last) / 86400000);
+                    if (diff === 0) days = streakData.days;
+                    else if (diff === 1) days = (streakData.days || 0) + 1;
+                    else days = 1;
+                }
+                localStorage.setItem('emperors_streak', JSON.stringify({ day: dayStr, days: days }));
+            }
+
+            function checkAchievements() {
+                var ach = [];
+                try { ach = JSON.parse(localStorage.getItem('emperors_achievements') || '[]'); } catch(e) { ach = []; }
+                var unlocked = [];
+                var has = function(id) { return ach.indexOf(id) !== -1; };
+                function add(id, label) { if (!has(id)) { ach.push(id); unlocked.push(id + ': ' + label); } }
+                if (quizTotal >= 1) add('first_answer', 'Первый ответ 🎯');
+                if (quizScore >= 20) add('score_20', '20 очков ⭐');
+                if (quizScore >= 100) add('score_100', '100 очков 💎');
+                var streak = getStreak();
+                if (streak.days >= 3) add('streak_3', 'Серия 3 дня 🔥');
+                if (streak.days >= 7) add('streak_7', 'Серия 7 дней 🌟');
+                var mastered = itemsInScope().filter(function(it) { return (recFor(it).reps || 0) >= 3; }).length;
+                var total = itemsInScope().length;
+                if (total && mastered >= total) add('master_all', 'Освоил все карточки 🏆');
+                if (unlocked.length) {
+                    localStorage.setItem('emperors_achievements', JSON.stringify(ach));
+                    renderStats();
+                    alert('🏆 Новые достижения!\\n' + unlocked.join('\\n'));
+                }
+            }
+
+            function renderStats() {
+                var el = document.getElementById('stats-card');
+                var lvl = levelInfo();
+                var html = '<div class="chip-title">Мой прогресс</div>';
+                html += '<div>Уровень: <b>' + lvl.name + '</b>' + (lvl.next ? ' · до следующего: ' + (lvl.next - quizScore) + ' очк.' : ' · максимум') + '</div>';
+                html += '<div>Правильных подряд: <b>' + (quizTotal ? currentStreakCorrect() : 0) + '</b></div>';
+                var streak = getStreak();
+                html += '<div>Серия дней: <b>' + (streak.days || 0) + '</b></div>';
+                var ach = [];
+                try { ach = JSON.parse(localStorage.getItem('emperors_achievements') || '[]'); } catch(e) { ach = []; }
+                var achLabels = {
+                    'first_answer': 'Первый ответ 🎯', 'score_20': '20 очков ⭐', 'score_100': '100 очков 💎',
+                    'streak_3': 'Серия 3 дня 🔥', 'streak_7': 'Серия 7 дней 🌟', 'master_all': 'Освоил все карточки 🏆'
+                };
+                var locked = ['first_answer', 'score_20', 'score_100', 'streak_3', 'streak_7', 'master_all'];
+                html += '<div class="chip-title">Достижения</div><div>';
+                locked.forEach(function(id) {
+                    html += '<span class="chip' + (ach.indexOf(id) !== -1 ? '' : ' locked') + '">' + (ach.indexOf(id) !== -1 ? '✅ ' : '🔒 ') + (achLabels[id] || id) + '</span>';
+                });
+                html += '</div>';
+                html += '<div class="chip-title">Статистика</div>';
+                var totalItems = itemsInScope().length;
+                var mastered = itemsInScope().filter(function(it) { return (recFor(it).reps || 0) >= 3; }).length;
+                html += '<div>Освоено карточек: <b>' + mastered + ' / ' + totalItems + '</b></div>';
+                html += '<div>В очереди к повторению: <b>' + flashDueCount() + '</b></div>';
+                var byEmperor = {};
+                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                rulers.forEach(function(e) { byEmperor[e.id] = { wrong: 0 }; });
+                Object.keys(flash).forEach(function(k) {
+                    var r = flash[k]; if (!r) return;
+                    var parts = k.split('::'); var text = parts.slice(1).join('::');
+                    for (var i = 0; i < allItems.length; i++) {
+                        if (allItems[i].type === parts[0] && allItems[i].text === text && inScope(allItems[i])) {
+                            var em = allItems[i].emperor;
+                            if (byEmperor[em]) byEmperor[em].wrong += r.wrong || 0;
+                            break;
+                        }
+                    }
+                });
+                var arr = rulers.map(function(e) { return { id: e.id, wrong: byEmperor[e.id].wrong }; });
+                arr.sort(function(a, b) { return b.wrong - a.wrong; });
+                var top = arr.slice(0, 3).filter(function(a) { return a.wrong > 0; });
+                if (top.length) {
+                    html += '<div class="chip-title">Топ ошибок</div>';
+                    top.forEach(function(a) { html += '<div><span style="color:' + COLORS[a.id] + '">●</span> ' + esc(emName[a.id]) + ': <b>' + a.wrong + '</b></div>'; });
+                }
+                el.innerHTML = html;
+            }
+            var streakCorrect = 0;
+            function currentStreakCorrect() { return streakCorrect; }
+
             function studyPanel() {
                 var html = '';
+                html += '<div class="timeline"><div class="timeline-title">🗓 Хронология по эпохам</div>';
+                eraGroups().forEach(function(g) {
+                    html += '<div class="era"><div class="era-name">' + esc(g.name) + ' <span class="era-years">' + esc(g.years) + '</span></div><div class="era-row">';
+                    g.ids.forEach(function(id) {
+                        var r = DATA.rulers.filter(function(x) { return x.id === id; })[0];
+                        if (!r || (scope === 'emperors' && !DATA.emperors.some(function(x) { return x.id === id; }))) return;
+                        html += '<span class="era-chip" style="border-color:' + COLORS[id] + '" onclick="app.showTab(\\'quiz\\')" title="' + esc(r.reign) + '"><span class="era-dot" style="background:' + COLORS[id] + '"></span>' + esc(r.name) + '</span>';
+                    });
+                    html += '</div></div>';
+                });
+                html += '</div>';
                 var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
                 rulers.forEach(function(e) {
                     html += '<div class="card emperor-card" style="border-left-color:' + COLORS[e.id] + '">';
@@ -8099,6 +8270,17 @@ function updateScore() {
                 for (var i = 0; i < 5; i++) s += (i < imp) ? '★' : '☆';
                 return ' <small class="stars">' + s + '</small>';
             }
+            function eraGroups() {
+                return [
+                    { name: 'Древняя Русь', years: '862–1125', ids: ['rurik', 'oleg', 'igor', 'olga', 'svyatoslav', 'vladimir_i', 'yaroslav', 'monomakh'] },
+                    { name: 'Удельная Русь', years: '1125–1389', ids: ['dolgoruky', 'nevsky', 'kalita', 'donskoy'] },
+                    { name: 'Московское царство', years: '1389–1613', ids: ['ivan_iii', 'ivan_iv', 'godunov'] },
+                    { name: 'Романовы', years: '1613–1721', ids: ['mikhail_romanov', 'alexey_mikhailovich'] },
+                    { name: 'Российская империя', years: '1721–1917', ids: ['peter_i', 'elizaveta', 'catherine_ii', 'paul_i', 'alexander_i', 'nicholas_i', 'alexander_ii', 'alexander_iii', 'nicholas_ii'] },
+                    { name: 'СССР', years: '1917–1991', ids: ['lenin', 'stalin', 'khrushchev', 'brezhnev', 'gorbachev'] },
+                    { name: 'Россия', years: '1991–…', ids: ['yeltsin', 'putin'] }
+                ];
+            }
 
             function pickItem() {
                 if (onlyErrors && wrongItems.length) {
@@ -8122,9 +8304,26 @@ function updateScore() {
                     updateScore();
                     return;
                 }
-                document.getElementById('question').textContent = 'К какому правителю относится?\\n' + currentItem.label + ': ' + currentItem.text;
                 var opts = document.getElementById('options');
                 opts.innerHTML = '';
+                if (qdir === 'fromRuler') {
+                    document.getElementById('question').textContent = 'Что относится к правителю «' + emName[currentItem.emperor] + '»?';
+                    var cur = currentItem;
+                    var others = allItems.filter(function(it) { return it !== cur && inScope(it); });
+                    shuffleArray(others);
+                    var list = [cur].concat(others.slice(0, 5));
+                    shuffleArray(list);
+                    list.forEach(function(it) {
+                        var btn = document.createElement('button');
+                        btn.className = 'opt-btn';
+                        btn.textContent = (it.type === 'event' ? '📅 ' : '👤 ') + it.text;
+                        btn.dataset.correct = (it === cur) ? '1' : '0';
+                        btn.addEventListener('click', function() { answerClick(btn); });
+                        opts.appendChild(btn);
+                    });
+                    return;
+                }
+                document.getElementById('question').textContent = 'К какому правителю относится?\\n' + currentItem.label + ': ' + currentItem.text;
                 var correct = currentItem.emperor;
                 var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
                 var list;
@@ -8164,8 +8363,10 @@ function updateScore() {
                 });
                 quizTotal++;
                 if (isCorrect) {
+                    streakCorrect++;
                     quizScore += (optCount === 'all') ? 2 : 1;
                 } else {
+                    streakCorrect = 0;
                     quizScore += (optCount === 'all') ? -1 : 0;
                 }
                 saveScore();
@@ -8178,6 +8379,18 @@ function updateScore() {
                 lines.push('<div>👑 Император: <b>' + esc(emName[currentItem.emperor]) + '</b></div>');
                 info.innerHTML = lines.join('');
                 info.style.display = 'block';
+                var qEl = document.getElementById('question');
+                qEl.classList.remove('animate-correct', 'animate-wrong');
+                void qEl.offsetWidth;
+                if (isCorrect) {
+                    qEl.classList.add('animate-correct');
+                    btn.classList.add('animate-correct');
+                } else {
+                    qEl.classList.add('animate-wrong');
+                    btn.classList.add('animate-wrong');
+                }
+                updateStreak(isCorrect);
+                checkAchievements();
                 if (isCorrect) {
                     wrongItems = wrongItems.filter(function(it) { return it.text !== currentItem.text; });
                 } else {
@@ -8275,16 +8488,90 @@ function updateScore() {
                 info.style.display = 'block';
             }
 
+            var chronoState = { order: [], placed: [] };
+
+            function startChrono() {
+                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                chronoState.order = rulers.slice();
+                chronoState.placed = [];
+                renderChrono();
+            }
+            function renderChrono() {
+                var opts = document.getElementById('chrono-options');
+                opts.innerHTML = '';
+                var left = chronoState.order.slice();
+                shuffleArray(left);
+                left.forEach(function(e) {
+                    var btn = document.createElement('button');
+                    btn.className = 'opt-btn';
+                    btn.textContent = e.name + ' (' + e.reign + ')';
+                    btn.style.borderLeftColor = COLORS[e.id];
+                    btn.addEventListener('click', function() { chronoPick(e); });
+                    opts.appendChild(btn);
+                });
+                var ans = document.getElementById('chrono-answer');
+                ans.innerHTML = '';
+                chronoState.order.forEach(function(e) {
+                    var chip = document.createElement('span');
+                    chip.className = 'chip';
+                    chip.style.borderColor = COLORS[e.id];
+                    chip.textContent = e.name;
+                    ans.appendChild(chip);
+                });
+                var placed = document.getElementById('chrono-placed');
+                placed.innerHTML = '';
+                chronoState.placed.forEach(function(e) {
+                    var chip = document.createElement('span');
+                    chip.className = 'chip';
+                    chip.style.borderColor = COLORS[e.id];
+                    chip.textContent = e.name;
+                    placed.appendChild(chip);
+                });
+                document.getElementById('chrono-count').textContent = 'Поставлено: ' + chronoState.placed.length + ' / ' + chronoState.order.length;
+            }
+            function chronoPick(e) {
+                var correct = chronoState.order[chronoState.placed.length];
+                if (e.id === correct.id) {
+                    chronoState.placed.push(e);
+                    var info = document.getElementById('chrono-info');
+                    info.style.display = 'block';
+                    info.innerHTML = '<span class="info-label">✅ Верно</span> ' + esc(e.name) + ' (' + esc(e.reign) + ')';
+                    if (chronoState.placed.length === chronoState.order.length) {
+                        info.innerHTML = '<span class="info-label">🎉 Готово!</span> Все правители расставлены верно.';
+                    }
+                    renderChrono();
+                } else {
+                    var q = document.getElementById('chrono-question');
+                    q.classList.remove('animate-wrong');
+                    void q.offsetWidth;
+                    q.classList.add('animate-wrong');
+                    var info = document.getElementById('chrono-info');
+                    info.style.display = 'block';
+                    info.innerHTML = '<span class="info-label">❌ Неверно</span> Сейчас правит ' + esc(correct.name) + ' (' + esc(correct.reign) + ')';
+                }
+            }
+            function checkChrono() {
+                var info = document.getElementById('chrono-info');
+                if (chronoState.placed.length === chronoState.order.length) {
+                    info.style.display = 'block';
+                    info.innerHTML = '<span class="info-label">✅</span> Всё верно, ' + chronoState.placed.length + ' / ' + chronoState.order.length + '.';
+                } else {
+                    info.style.display = 'block';
+                    info.innerHTML = '<span class="info-label">❌</span> Осталось поставить: ' + (chronoState.order.length - chronoState.placed.length) + '. Правильный следующий: ' + esc(chronoState.order[chronoState.placed.length].name) + '.';
+                }
+            }
+
             window.app = {
                 showTab: function(tab) {
-                    var tabs = ['study', 'quiz', 'match'];
-                    var ids = { study: ['tab-study', 'panel-study'], quiz: ['tab-quiz', 'panel-quiz'], match: ['tab-match', 'panel-match'] };
+                    var tabs = ['study', 'quiz', 'match', 'chrono'];
+                    var ids = { study: ['tab-study', 'panel-study'], quiz: ['tab-quiz', 'panel-quiz'], match: ['tab-match', 'panel-match'], chrono: ['tab-chrono', 'panel-chrono'] };
                     tabs.forEach(function(t) {
                         document.getElementById(ids[t][0]).classList.toggle('active', t === tab);
                         document.getElementById(ids[t][1]).classList.toggle('active', t === tab);
                     });
                     if (tab === 'quiz') { loadQuestion(); }
                     if (tab === 'match') { startMatch(); }
+                    if (tab === 'chrono') { startChrono(); }
                 },
                 toggleMode: function() {
                     onlyErrors = document.getElementById('mode-errors').checked;
@@ -8310,6 +8597,13 @@ function updateScore() {
                     localStorage.setItem('emperors_optcount', optCount);
                     loadQuestion();
                 },
+                toggleQDir: function() {
+                    qdir = document.getElementById('qdir-select').value;
+                    localStorage.setItem('emperors_qdir', qdir);
+                    loadQuestion();
+                },
+                startChrono: startChrono,
+                checkChrono: checkChrono,
                 resetScore: function() {
                     quizScore = 0; quizTotal = 0; wrongItems = [];
                     flash = {}; saveFlashLocal();
