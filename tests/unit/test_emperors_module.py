@@ -1,9 +1,15 @@
 """Unit tests for the core.history module and the /emperors web page."""
 
 from core.history import EMPERORS, EVENTS, PERSONS
-from core.history.emperors import emperor_by_id, events_for_emperor, persons_for_emperor
+from core.history.emperors import (
+    RULERS,
+    emperor_by_id,
+    events_for_emperor,
+    persons_for_emperor,
+)
 
 VALID_EMPEROR_IDS = {e.id for e in EMPERORS}
+VALID_RULER_IDS = {r.id for r in RULERS}
 
 
 def test_emperors_count_and_ids():
@@ -13,25 +19,33 @@ def test_emperors_count_and_ids():
     }
 
 
+def test_rulers_count():
+    assert len(RULERS) >= 30
+    assert "rurik" in VALID_RULER_IDS
+    assert "putin" in VALID_RULER_IDS
+
+
 def test_emperor_reigns_ordered():
     reigns = [e.reign for e in EMPERORS]
     assert reigns == ["1801–1825", "1825–1855", "1855–1881", "1881–1894", "1894–1917"]
 
 
 def test_events_have_valid_emperor_and_note():
-    assert len(EVENTS) >= 45
+    assert len(EVENTS) >= 100
     for ev in EVENTS:
-        assert ev.emperor_id in VALID_EMPEROR_IDS
+        assert ev.emperor_id in VALID_RULER_IDS
         assert ev.title
         assert ev.note, f"event {ev.title} has no note"
+        assert 1 <= ev.importance <= 5
 
 
 def test_persons_have_valid_emperor_and_description():
-    assert len(PERSONS) >= 40
+    assert len(PERSONS) >= 100
     for p in PERSONS:
-        assert p.emperor_id in VALID_EMPEROR_IDS
+        assert p.emperor_id in VALID_RULER_IDS
         assert p.name
         assert p.description, f"person {p.name} has no description"
+        assert 1 <= p.importance <= 5
 
 
 def test_no_duplicate_persons():
@@ -48,6 +62,25 @@ def test_every_emperor_has_items():
     for e in EMPERORS:
         assert events_for_emperor(e.id), f"{e.name} has no events"
         assert persons_for_emperor(e.id), f"{e.name} has no persons"
+
+
+def test_every_ruler_has_items():
+    for r in RULERS:
+        assert events_for_emperor(r.id), f"{r.name} has no events"
+        assert persons_for_emperor(r.id), f"{r.name} has no persons"
+
+
+def test_key_rulers_have_more_items_than_minor_ones():
+    def total_items(ruler_id):
+        return len(events_for_emperor(ruler_id)) + len(persons_for_emperor(ruler_id))
+
+    key_rulers = {"vladimir_i", "yaroslav", "ivan_iii", "ivan_iv", "peter_i", "catherine_ii", "stalin", "putin"}
+    minor_rulers = {"igor", "olga", "svyatoslav", "kalita", "godunov", "paul_i"}
+    key_total = sum(total_items(r) for r in key_rulers)
+    minor_total = sum(total_items(r) for r in minor_rulers)
+    assert key_total >= minor_total * 2
+    for r in key_rulers:
+        assert total_items(r) >= 6, f"{r} has too few items for a key ruler"
 
 
 def test_emperor_by_id():
@@ -121,6 +154,20 @@ def test_emperors_page_has_new_features():
     assert 'value="counter"' in body
     assert "function pickCounter" in body
     assert "function recordAnswer" in body
+
+
+def test_emperors_page_has_extended_mode_and_importance():
+    from api.index import app
+
+    c = app.test_client()
+    body = c.get("/emperors").get_data(as_text=True)
+    assert "scope-select" in body
+    assert "Все правители (Рюрик–Путин)" in body
+    assert '"rulers"' in body
+    assert '"importance"' in body
+    assert "starRow" in body
+    assert "toggleScope" in body
+    assert "itemsInScope" in body
 
 
 def test_emperors_progress_api_save_and_get():
