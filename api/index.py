@@ -34,6 +34,7 @@ from core.canon.prayers import PRAYERS as _PRAYERS
 from core.canon.questions import TRIVIA_QUESTIONS as _TRIVIA_QUESTIONS
 from core.canon.works import CANON_WORKS
 from core.history import EMPERORS as _EMPERORS
+from core.history import RULERS as _RULERS
 from core.history import EVENTS as _HISTORY_EVENTS
 from core.history import PERSONS as _HISTORY_PERSONS
 
@@ -7633,12 +7634,16 @@ def emperors_page():
                 {"id": e.id, "name": e.name, "reign": e.reign, "emoji": e.emoji}
                 for e in _EMPERORS
             ],
+            "rulers": [
+                {"id": r.id, "name": r.name, "reign": r.reign, "emoji": r.emoji}
+                for r in _RULERS
+            ],
             "events": [
-                {"year": ev.year, "title": ev.title, "emperor": ev.emperor_id, "note": ev.note}
+                {"year": ev.year, "title": ev.title, "emperor": ev.emperor_id, "note": ev.note, "importance": ev.importance}
                 for ev in _HISTORY_EVENTS
             ],
             "persons": [
-                {"name": p.name, "emperor": p.emperor_id, "description": p.description}
+                {"name": p.name, "emperor": p.emperor_id, "description": p.description, "importance": p.importance}
                 for p in _HISTORY_PERSONS
             ],
         },
@@ -7672,6 +7677,7 @@ def emperors_page():
         .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
         .chip { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 13px; background: #0f3460; border: 1px solid #1a5276; cursor: default; line-height: 1.4; }
         .chip small { color: #999; }
+        .stars { color: #f0c040; letter-spacing: 1px; }
         .chip-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
         .chip.clickable { cursor: pointer; transition: all 0.15s; }
         .chip.clickable:hover { background: #1a5276; border-color: #4a90d9; }
@@ -7758,6 +7764,12 @@ def emperors_page():
                         <option value="counter">Счётчик (вероятности)</option>
                     </select>
                 </label>
+                <label>Правители:
+                    <select class="algo-select" id="scope-select" onchange="app.toggleScope()">
+                        <option value="emperors">5 императоров</option>
+                        <option value="all">Все правители (Рюрик–Путин)</option>
+                    </select>
+                </label>
                 <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
                 <button class="reset-btn" onclick="app.resetScore()">Сбросить счёт</button>
                 <button class="debug-btn" onclick="app.toggleDebug()">🔧 Дебаг</button>
@@ -7804,22 +7816,35 @@ def emperors_page():
     <script>
         (function() {
             var DATA = __DATA__;
-            var COLORS = {
-                alexander_i: '#e94560',
-                nicholas_i: '#f0c040',
-                alexander_ii: '#4caf50',
-                alexander_iii: '#42a5f5',
-                nicholas_ii: '#ab47bc'
-            };
+            var PALETTE = [
+                '#e94560', '#f0c040', '#4caf50', '#42a5f5', '#ab47bc',
+                '#26a69a', '#ff7043', '#8d6e63', '#ec407a', '#7e57c2',
+                '#5c6bc0', '#66bb6a', '#ffa726', '#ef5350', '#29b6f6',
+                '#9ccc65', '#f06292', '#ba68c8', '#ff8a65', '#4dd0e1',
+                '#a1887f', '#d4e157', '#7986cb', '#ffb74d', '#90a4ae',
+                '#e57373', '#64b5f6', '#f48fb1', '#81c784', '#ce93d8',
+                '#4fc3f7', '#ffd54f', '#b0bec5'
+            ];
+            var COLORS = {};
+            DATA.rulers.forEach(function(r, i) { COLORS[r.id] = PALETTE[i % PALETTE.length]; });
             var emName = {};
-            DATA.emperors.forEach(function(e) { emName[e.id] = e.name; });
+            DATA.rulers.forEach(function(e) { emName[e.id] = e.name; });
             var allItems = [];
             DATA.events.forEach(function(ev) {
-                allItems.push({type: 'event', text: ev.title, emperor: ev.emperor, info: ev.note, label: 'Событие'});
+                allItems.push({type: 'event', text: ev.title, emperor: ev.emperor, info: ev.note, label: 'Событие', importance: ev.importance || 3});
             });
             DATA.persons.forEach(function(p) {
-                allItems.push({type: 'person', text: p.name, emperor: p.emperor, info: p.description, label: 'Личность'});
+                allItems.push({type: 'person', text: p.name, emperor: p.emperor, info: p.description, label: 'Личность', importance: p.importance || 3});
             });
+            var scope = localStorage.getItem('emperors_scope') || 'emperors';
+            document.getElementById('scope-select').value = scope;
+            function activeRulerIds() {
+                var ids = {};
+                (scope === 'all' ? DATA.rulers : DATA.emperors).forEach(function(r) { ids[r.id] = true; });
+                return ids;
+            }
+            function inScope(it) { return activeRulerIds()[it.emperor] === true; }
+            function itemsInScope() { return allItems.filter(inScope); }
             var quizScore = 0, quizTotal = 0;
             (function() {
                 var s = localStorage.getItem('emperors_score');
@@ -7883,12 +7908,12 @@ def emperors_page():
             }
             function flashDueCount() {
                 var now = Date.now(); var n = 0;
-                allItems.forEach(function(it) { var rec = flash[flashKey(it)]; if (!rec || rec.due <= now) n++; });
+                itemsInScope().forEach(function(it) { var rec = flash[flashKey(it)]; if (!rec || rec.due <= now) n++; });
                 return n;
             }
             function pickFlash() {
                 var now = Date.now(); var candidates = [];
-                allItems.forEach(function(it) {
+                itemsInScope().forEach(function(it) {
                     var rec = flash[flashKey(it)];
                     if (rec && rec.due > now) return;
                     var prio = 0;
@@ -7900,6 +7925,8 @@ def emperors_page():
                 if (!candidates.length) return null;
                 candidates.sort(function(a, b) {
                     if (a.prio !== b.prio) return a.prio - b.prio;
+                    var wi = a.it.importance || 3, wj = b.it.importance || 3;
+                    if (wi !== wj) return wj - wi;
                     return a.due - b.due;
                 });
                 var prevType = currentItem ? currentItem.type : null;
@@ -7913,12 +7940,12 @@ def emperors_page():
                 return candidates[0].it;
             }
             function pickCounter() {
-                var items = allItems.slice();
+                var items = itemsInScope();
                 var weights = items.map(function(it) {
                     var rec = recFor(it);
                     var c = rec.counter || 0;
                     var w = (c <= 0) ? (1 - c) : Math.max(1, 10 - c);
-                    return w;
+                    return w * (it.importance || 3);
                 });
                 var total = 0;
                 weights.forEach(function(w) { total += w; });
@@ -7944,15 +7971,15 @@ def emperors_page():
             }
             var deck = [];
             function buildDeck() {
-                deck = shuffleArray(allItems.slice());
+                deck = shuffleArray(itemsInScope());
                 if (wrongItems.length) {
-                    deck = shuffleArray(wrongItems.slice()).concat(deck);
+                    deck = shuffleArray(wrongItems.filter(inScope).slice()).concat(deck);
                 }
             }
             function saveScore() { localStorage.setItem('emperors_score', quizScore + '/' + quizTotal); }
             function saveWrong() { localStorage.setItem('emperors_wrong', JSON.stringify(wrongItems)); }
             function updateProgressBar() {
-                var total = allItems.length;
+                var total = itemsInScope().length;
                 var mastered = 0;
                 Object.keys(flash).forEach(function(k) { var r = flash[k]; if (r && (r.reps || 0) >= 3) mastered++; });
                 var el = document.getElementById('progress-fill');
@@ -7961,26 +7988,28 @@ def emperors_page():
                 if (lab) { lab.textContent = 'освоено ' + mastered + '/' + total; }
             }
             function renderStats() {
+                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
                 var byEmperor = {};
-                DATA.emperors.forEach(function(e) { byEmperor[e.id] = { wrong: 0, correct: 0 }; });
+                rulers.forEach(function(e) { byEmperor[e.id] = { wrong: 0, correct: 0 }; });
                 Object.keys(flash).forEach(function(k) {
                     var r = flash[k];
                     if (!r) return;
                     var parts = k.split('::');
                     var text = parts.slice(1).join('::');
                     for (var i = 0; i < allItems.length; i++) {
-                        if (allItems[i].type === parts[0] && allItems[i].text === text) {
+                        if (allItems[i].type === parts[0] && allItems[i].text === text && inScope(allItems[i])) {
                             var em = allItems[i].emperor;
                             if (byEmperor[em]) { byEmperor[em].wrong += r.wrong || 0; byEmperor[em].correct += r.correct || 0; }
                             break;
                         }
                     }
                 });
+                var totalItems = itemsInScope().length;
                 var html = '<div class="chip-title">Статистика</div>';
-                html += '<div class="stat-line">Освоено карточек: <b>' + Object.keys(flash).filter(function(k){return (flash[k]||{}).reps>=3;}).length + ' / ' + allItems.length + '</b></div>';
+                html += '<div class="stat-line">Освоено карточек: <b>' + Object.keys(flash).filter(function(k){return (flash[k]||{}).reps>=3;}).length + ' / ' + totalItems + '</b></div>';
                 html += '<div class="stat-line">В очереди к повторению: <b>' + flashDueCount() + '</b></div>';
-                html += '<div class="chip-title">Топ ошибок по императорам</div>';
-                var arr = DATA.emperors.map(function(e) { return { id: e.id, wrong: byEmperor[e.id].wrong }; });
+                html += '<div class="chip-title">Топ ошибок по правителям</div>';
+                var arr = rulers.map(function(e) { return { id: e.id, wrong: byEmperor[e.id].wrong }; });
                 arr.sort(function(a, b) { return b.wrong - a.wrong; });
                 arr.forEach(function(a) {
                     html += '<div class="stat-line"><span style="color:' + COLORS[a.id] + '">●</span> ' + esc(emName[a.id]) + ': <b>' + a.wrong + '</b> ошибок</div>';
@@ -7991,7 +8020,7 @@ function renderDebug() {
                 var listEl = document.getElementById('debug-list');
                 if (!listEl || document.getElementById('debug-panel').style.display !== 'block') return;
                 var rows = [];
-                allItems.forEach(function(it) {
+                itemsInScope().forEach(function(it) {
                     var rec = flash[flashKey(it)] || {};
                     var due = rec.due || 0;
                     rows.push({
@@ -8021,6 +8050,7 @@ function renderDebug() {
             }
 function updateScore() {
                 var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
+                if (scope === 'all') s += ' · режим: все правители';
                 if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
                 if (algo === 'counter') {
                     var weak = 0;
@@ -8036,7 +8066,8 @@ function updateScore() {
 
             function studyPanel() {
                 var html = '';
-                DATA.emperors.forEach(function(e) {
+                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                rulers.forEach(function(e) {
                     html += '<div class="card emperor-card" style="border-left-color:' + COLORS[e.id] + '">';
                     html += '<h2>' + e.emoji + ' ' + esc(e.name) + '</h2>';
                     html += '<div class="reign">Правил: ' + esc(e.reign) + '</div>';
@@ -8044,17 +8075,22 @@ function updateScore() {
                     var persons = DATA.persons.filter(function(p) { return p.emperor === e.id; });
                     if (events.length) {
                         html += '<div class="chip-title">События</div><div class="chip-row">';
-                        events.forEach(function(ev) { html += '<span class="chip clickable" data-type="event" data-text="' + esc(ev.title) + '" onclick="app.showInfo(this)"><small>' + esc(ev.year) + '</small> ' + esc(ev.title) + '</span>'; });
+                        events.forEach(function(ev) { html += '<span class="chip clickable" data-type="event" data-text="' + esc(ev.title) + '" onclick="app.showInfo(this)"><small>' + esc(ev.year) + '</small> ' + esc(ev.title) + starRow(ev.importance || 3) + '</span>'; });
                         html += '</div>';
                     }
                     if (persons.length) {
                         html += '<div class="chip-title">Личности</div><div class="chip-row">';
-                        persons.forEach(function(p) { html += '<span class="chip clickable" data-type="person" data-text="' + esc(p.name) + '" onclick="app.showInfo(this)">' + esc(p.name) + '</span>'; });
+                        persons.forEach(function(p) { html += '<span class="chip clickable" data-type="person" data-text="' + esc(p.name) + '" onclick="app.showInfo(this)">' + esc(p.name) + starRow(p.importance || 3) + '</span>'; });
                         html += '</div>';
                     }
                     html += '</div>';
                 });
                 document.getElementById('panel-study').innerHTML = html;
+            }
+            function starRow(imp) {
+                var s = '';
+                for (var i = 0; i < 5; i++) s += (i < imp) ? '★' : '☆';
+                return ' <small class="stars">' + s + '</small>';
             }
 
             function pickItem() {
@@ -8079,11 +8115,11 @@ function updateScore() {
                     updateScore();
                     return;
                 }
-                document.getElementById('question').textContent = 'К какому императору относится?\\n' + currentItem.label + ': ' + currentItem.text;
+                document.getElementById('question').textContent = 'К какому правителю относится?\\n' + currentItem.label + ': ' + currentItem.text;
                 var opts = document.getElementById('options');
                 opts.innerHTML = '';
                 var correct = currentItem.emperor;
-                var list = DATA.emperors.slice();
+                var list = (scope === 'all' ? DATA.rulers : DATA.emperors).slice();
                 for (var i = list.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = list[i]; list[i] = list[j]; list[j] = t; }
                 list.forEach(function(e) {
                     var btn = document.createElement('button');
@@ -8136,7 +8172,8 @@ function updateScore() {
 
             function startMatch() {
                 matchState.sel = null;
-                matchState.pool = shuffleArray(allItems.slice()).slice(0, 10);
+                var poolItems = itemsInScope();
+                matchState.pool = shuffleArray(poolItems.slice()).slice(0, 10);
                 var items = document.getElementById('match-items');
                 items.innerHTML = '';
                 matchState.pool.forEach(function(it) {
@@ -8149,7 +8186,8 @@ function updateScore() {
                 });
                 var grid = document.getElementById('match-columns');
                 grid.innerHTML = '';
-                DATA.emperors.forEach(function(e) {
+                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                rulers.forEach(function(e) {
                     var col = document.createElement('div');
                     col.className = 'match-col';
                     col.dataset.emperor = e.id;
@@ -8233,6 +8271,14 @@ function updateScore() {
                     updateScore();
                     loadQuestion();
                 },
+                toggleScope: function() {
+                    scope = document.getElementById('scope-select').value;
+                    localStorage.setItem('emperors_scope', scope);
+                    deck = [];
+                    studyPanel();
+                    updateScore();
+                    loadQuestion();
+                },
                 resetScore: function() {
                     quizScore = 0; quizTotal = 0; wrongItems = [];
                     flash = {}; saveFlashLocal();
@@ -8274,9 +8320,12 @@ function updateScore() {
                     }
                     if (!item) return;
                     document.getElementById('info-tag').textContent = type === 'event' ? 'Событие' : 'Личность';
+                    var imp = item.importance || 3;
+                    var stars = '';
+                    for (var i = 0; i < 5; i++) stars += (i < imp) ? '★' : '☆';
                     document.getElementById('info-title').textContent = (type === 'event' ? (item.year ? item.year + ' — ' : '') : '') + (type === 'event' ? item.title : item.name);
                     var emp = emName[item.emperor];
-                    document.getElementById('info-emperor').textContent = emp ? '👑 ' + emp : '';
+                    document.getElementById('info-emperor').innerHTML = emp ? '👑 ' + esc(emp) + ' <span style="color:#f0c040">' + stars + '</span>' : '';
                     document.getElementById('info-emperor').style.color = COLORS[item.emperor];
                     document.getElementById('info-body').textContent = type === 'event' ? (item.note || 'Описание отсутствует.') : (item.description || 'Описание отсутствует.');
                     document.getElementById('info-modal').classList.add('show');
