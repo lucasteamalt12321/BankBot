@@ -1028,7 +1028,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-dd3ef9c (2026-08-20) — Implement achievements system 227+ and school project plan; рабочая копия не закоммичена (модуль «Информатика — ОГЭ» /math: фиксы + карточка хаба + тесты)
+91d4661 (2026-08-20) — FEAT: модуль «Информатика — ОГЭ» /math — фиксы и карточка на хабе. Закоммичено и задеплоено (bank-bot-ruby.vercel.app, / и /math → 200).
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 
