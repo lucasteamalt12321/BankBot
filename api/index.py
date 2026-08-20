@@ -806,17 +806,18 @@ def _ensure_web_auth_tables(engine):
     try:
         with engine.connect() as conn:
             conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS web_users (
-                    id SERIAL PRIMARY KEY,
-                    login VARCHAR(64) UNIQUE NOT NULL,
-                    password_hash VARCHAR(255) NOT NULL,
-                    display_name VARCHAR(100),
-                    gd_nickname VARCHAR(64),
-                    telegram_id BIGINT,
-                    lichess_nickname VARCHAR(64),
-                    is_admin BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
+CREATE TABLE IF NOT EXISTS web_users (
+    id SERIAL PRIMARY KEY,                 -- 810
+    login VARCHAR(64) UNIQUE NOT NULL,   -- 811
+    password_hash VARCHAR(255) NOT NULL, -- 812
+    display_name VARCHAR(100),           -- 813
+    gd_nickname VARCHAR(64),             -- 814
+    telegram_id BIGINT,                  -- 815
+    lichess_nickname VARCHAR(64),        -- 816
+    is_admin BOOLEAN DEFAULT FALSE,      -- 817
+    created_at TIMESTAMPTZ DEFAULT NOW(),-- 818
+    email VARCHAR(255) UNIQUE            -- email column for authentication
+)
             """))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS web_sessions (
@@ -1092,6 +1093,16 @@ def _ensure_achievements_tables(engine):
             """))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_web_activity_user_day_module ON web_activity_log(user_id, day, module)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_activity_user ON web_activity_log(user_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_events (
+                    user_id INTEGER NOT NULL,
+                    event TEXT NOT NULL,
+                    count INTEGER NOT NULL DEFAULT 1,
+                    updated_at REAL NOT NULL DEFAULT 0,
+                    PRIMARY KEY (user_id, event)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_events_user ON web_events(user_id)"))
             conn.commit()
         print("[ACHIEVEMENTS] Tables ensured")
     except Exception as exc:
@@ -1113,6 +1124,16 @@ ACHIEVEMENTS: dict[str, dict] = {
     "streak_200": {"icon": "👑", "name": "Серия 200 дней", "desc": "Активность 200 дней подряд", "module": "streak", "weight": 10},
     "streak_365": {"icon": "🌞", "name": "Год активности", "desc": "Активность 365 дней подряд", "module": "streak", "weight": 10},
     "streak_500": {"icon": "🌞", "name": "Полтора года", "desc": "Активность 500 дней подряд", "module": "streak", "weight": 10},
+    "streak_5": {"icon": "🔥", "name": "Серия 5 дней", "desc": "Активность 5 дней подряд", "module": "streak", "weight": 10},
+    "streak_10": {"icon": "🔥", "name": "Серия 10 дней", "desc": "Активность 10 дней подряд", "module": "streak", "weight": 10},
+    "streak_20": {"icon": "🔥", "name": "Серия 20 дней", "desc": "Активность 20 дней подряд", "module": "streak", "weight": 10},
+    "streak_45": {"icon": "🌟", "name": "Серия 45 дней", "desc": "Активность 45 дней подряд", "module": "streak", "weight": 10},
+    "streak_90": {"icon": "🌟", "name": "Серия 90 дней", "desc": "Активность 90 дней подряд", "module": "streak", "weight": 10},
+    "streak_150": {"icon": "💎", "name": "Серия 150 дней", "desc": "Активность 150 дней подряд", "module": "streak", "weight": 10},
+    "streak_250": {"icon": "💎", "name": "Серия 250 дней", "desc": "Активность 250 дней подряд", "module": "streak", "weight": 10},
+    "streak_400": {"icon": "🏆", "name": "Серия 400 дней", "desc": "Активность 400 дней подряд", "module": "streak", "weight": 10},
+    "streak_750": {"icon": "👑", "name": "Серия 750 дней", "desc": "Активность 750 дней подряд", "module": "streak", "weight": 10},
+    "streak_1000": {"icon": "👑", "name": "Серия 1000 дней", "desc": "Активность 1000 дней подряд", "module": "streak", "weight": 10},
     # --- Активные дни (всего) ---
     "days_3": {"icon": "📅", "name": "3 дня на портале", "desc": "Активность в 3 разных днях", "module": "streak", "weight": 10},
     "days_7": {"icon": "📅", "name": "Неделя на портале", "desc": "Активность в 7 разных днях", "module": "streak", "weight": 10},
@@ -1122,13 +1143,36 @@ ACHIEVEMENTS: dict[str, dict] = {
     "days_100": {"icon": "🎖️", "name": "100 дней на портале", "desc": "Активность в 100 разных днях", "module": "streak", "weight": 10},
     "days_200": {"icon": "🎖️", "name": "200 дней на портале", "desc": "Активность в 200 разных днях", "module": "streak", "weight": 10},
     "days_365": {"icon": "🏅", "name": "Год на портале", "desc": "Активность в 365 разных днях", "module": "streak", "weight": 10},
+    "days_5": {"icon": "📅", "name": "5 дней на портале", "desc": "Активность в 5 разных днях", "module": "streak", "weight": 10},
+    "days_10": {"icon": "📅", "name": "10 дней на портале", "desc": "Активность в 10 разных днях", "module": "streak", "weight": 10},
+    "days_20": {"icon": "📅", "name": "20 дней на портале", "desc": "Активность в 20 разных днях", "module": "streak", "weight": 10},
+    "days_45": {"icon": "🗓️", "name": "45 дней на портале", "desc": "Активность в 45 разных днях", "module": "streak", "weight": 10},
+    "days_90": {"icon": "🗓️", "name": "90 дней на портале", "desc": "Активность в 90 разных днях", "module": "streak", "weight": 10},
+    "days_150": {"icon": "🎖️", "name": "150 дней на портале", "desc": "Активность в 150 разных днях", "module": "streak", "weight": 10},
+    "days_250": {"icon": "🎖️", "name": "250 дней на портале", "desc": "Активность в 250 разных днях", "module": "streak", "weight": 10},
+    "days_400": {"icon": "🎖️", "name": "400 дней на портале", "desc": "Активность в 400 разных днях", "module": "streak", "weight": 10},
+    "days_750": {"icon": "🏅", "name": "750 дней на портале", "desc": "Активность в 750 разных днях", "module": "streak", "weight": 10},
+    "days_1000": {"icon": "🏅", "name": "1000 дней на портале", "desc": "Активность в 1000 разных днях", "module": "streak", "weight": 10},
     # --- Исследователь ---
     "module_2": {"icon": "🧭", "name": "Любознательный", "desc": "Посетить 2 разных модуля", "module": "system", "weight": 10},
     "module_5": {"icon": "🧭", "name": "Путешественник", "desc": "Посетить 5 разных модулей", "module": "system", "weight": 10},
     "module_8": {"icon": "🌐", "name": "Полиглот портала", "desc": "Посетить 8 разных модулей", "module": "system", "weight": 10},
     "module_11": {"icon": "🚀", "name": "Исследователь", "desc": "Посетить все 11 модулей", "module": "system", "weight": 10},
+    "module_3": {"icon": "🧭", "name": "Исследователь-новичок", "desc": "Посетить 3 разных модуля", "module": "system", "weight": 10},
+    "module_4": {"icon": "🧭", "name": "Исследователь-любитель", "desc": "Посетить 4 разных модуля", "module": "system", "weight": 10},
+    "module_6": {"icon": "🧭", "name": "Исследователь-профи", "desc": "Посетить 6 разных модулей", "module": "system", "weight": 10},
+    "module_7": {"icon": "🌐", "name": "Коллекционер модулей", "desc": "Посетить 7 разных модулей", "module": "system", "weight": 10},
+    "module_9": {"icon": "🌐", "name": "Картограф", "desc": "Посетить 9 разных модулей", "module": "system", "weight": 10},
+    "module_10": {"icon": "🌐", "name": "Старожил", "desc": "Посетить 10 разных модулей", "module": "system", "weight": 10},
+    "module_12": {"icon": "🚀", "name": "Всезнайка", "desc": "Посетить 12 разных модулей", "module": "system", "weight": 10},
+    "module_13": {"icon": "🚀", "name": "Вездесущий", "desc": "Посетить 13 разных модулей", "module": "system", "weight": 10},
     "first_50_actions": {"icon": "⚡", "name": "Энергичный", "desc": "Выполнить 50 действий на портале", "module": "system", "weight": 10},
     "first_500_actions": {"icon": "🌟", "name": "Активист", "desc": "Выполнить 500 действий на портале", "module": "system", "weight": 10},
+    "first_100_actions": {"icon": "⚡", "name": "Продуктивный", "desc": "Выполнить 100 действий на портале", "module": "system", "weight": 10},
+    "first_250_actions": {"icon": "⚡", "name": "Трудоголик", "desc": "Выполнить 250 действий на портале", "module": "system", "weight": 10},
+    "first_1000_actions": {"icon": "🌟", "name": "Марафонец", "desc": "Выполнить 1000 действий на портале", "module": "system", "weight": 10},
+    "first_2500_actions": {"icon": "🌟", "name": "Стахановец", "desc": "Выполнить 2500 действий на портале", "module": "system", "weight": 10},
+    "first_5000_actions": {"icon": "🏆", "name": "Гигант", "desc": "Выполнить 5000 действий на портале", "module": "system", "weight": 10},
     # --- Тривиа (Викторина) ---
     "trivia_first": {"icon": "🧠", "name": "Первая викторина", "desc": "Ответить на вопрос викторины", "module": "trivia", "weight": 10},
     "trivia_5": {"icon": "🧠", "name": "Начало пути", "desc": "Ответить на 5 вопросов викторины", "module": "trivia", "weight": 10},
@@ -1138,6 +1182,17 @@ ACHIEVEMENTS: dict[str, dict] = {
     "trivia_100": {"icon": "🎓", "name": "Мастер викторины", "desc": "Ответить на 100 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_200": {"icon": "🎓", "name": "Гуру викторины", "desc": "Ответить на 200 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_500": {"icon": "🏆", "name": "Легенда викторины", "desc": "Ответить на 500 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_7": {"icon": "🧠", "name": "Счастливая семёрка", "desc": "Ответить на 7 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_77": {"icon": "🧠", "name": "Семь семёрок", "desc": "Ответить на 77 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_123": {"icon": "🧠", "name": "Один-два-три", "desc": "Ответить на 123 вопроса викторины", "module": "trivia", "weight": 10},
+    "trivia_250": {"icon": "🎓", "name": "Четверть тысячи", "desc": "Ответить на 250 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_666": {"icon": "🧠", "name": "Зловещая эрудиция", "desc": "Ответить на 666 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_777": {"icon": "🎓", "name": "Джекпот эрудиции", "desc": "Ответить на 777 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_999": {"icon": "🏆", "name": "Почти тысяча", "desc": "Ответить на 999 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_1000": {"icon": "🏆", "name": "Тысяча ответов", "desc": "Ответить на 1000 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_streak_3": {"icon": "🎯", "name": "Хет-трик", "desc": "Ответить правильно 3 раза подряд", "module": "trivia", "weight": 10},
+    "trivia_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Ответить правильно 5 раз подряд", "module": "trivia", "weight": 10},
+    "trivia_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Ответить правильно 10 раз подряд", "module": "trivia", "weight": 10},
     # --- Императоры ---
     "emperors_first": {"icon": "👑", "name": "Первые императоры", "desc": "Ответить на вопрос об императорах", "module": "emperors", "weight": 10},
     "emperors_10": {"icon": "👑", "name": "Историк-новичок", "desc": "Ответить на 10 вопросов об императорах", "module": "emperors", "weight": 10},
@@ -1146,6 +1201,28 @@ ACHIEVEMENTS: dict[str, dict] = {
     "emperors_100": {"icon": "🏛️", "name": "Историк-академик", "desc": "Ответить на 100 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_200": {"icon": "🏛️", "name": "Профессор истории", "desc": "Ответить на 200 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_500": {"icon": "👑", "name": "Хранитель истории", "desc": "Ответить на 500 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_7": {"icon": "👑", "name": "Семь эпох", "desc": "Ответить на 7 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_77": {"icon": "🏛️", "name": "Летопись-77", "desc": "Ответить на 77 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_123": {"icon": "🏛️", "name": "Ровно 123", "desc": "Ответить на 123 вопроса об императорах", "module": "emperors", "weight": 10},
+    "emperors_250": {"icon": "🏛️", "name": "Квадрига", "desc": "Ответить на 250 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_333": {"icon": "👑", "name": "Три тройки", "desc": "Ответить на 333 вопроса об императорах", "module": "emperors", "weight": 10},
+    "emperors_666": {"icon": "👑", "name": "Тьма истории", "desc": "Ответить на 666 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_777": {"icon": "🏆", "name": "Джекпот эпох", "desc": "Ответить на 777 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_999": {"icon": "🏆", "name": "Миллениум", "desc": "Ответить на 999 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_1000": {"icon": "👑", "name": "Тысяча вопросов", "desc": "Ответить на 1000 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_mode_study": {"icon": "📚", "name": "Изучающий", "desc": "Попробовать режим «Изучить»", "module": "emperors", "weight": 10},
+    "emperors_mode_quiz": {"icon": "🧠", "name": "Тренирующийся", "desc": "Попробовать режим «Тренажёр»", "module": "emperors", "weight": 10},
+    "emperors_mode_match": {"icon": "🎯", "name": "Сопоставляющий", "desc": "Попробовать режим «Сопоставление»", "module": "emperors", "weight": 10},
+    "emperors_mode_chrono": {"icon": "📜", "name": "Хронолог", "desc": "Попробовать режим «Хронология»", "module": "emperors", "weight": 10},
+    "emperors_all_modes": {"icon": "🌟", "name": "Мастер режимов", "desc": "Попробовать все 4 режима императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_5": {"icon": "🎖️", "name": "Первые пять", "desc": "Освоить 5 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_10": {"icon": "🎖️", "name": "Десятка", "desc": "Освоить 10 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_25": {"icon": "🎖️", "name": "Двадцать пять", "desc": "Освоить 25 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_50": {"icon": "🏅", "name": "Полсотни", "desc": "Освоить 50 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_100": {"icon": "🏅", "name": "Сотня карточек", "desc": "Освоить 100 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_150": {"icon": "🏅", "name": "Полтораста", "desc": "Освоить 150 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_200": {"icon": "🏆", "name": "Двести карточек", "desc": "Освоить 200 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_258": {"icon": "🏆", "name": "Коллекционер эпох", "desc": "Освоить все 258 карточек императоров", "module": "emperors", "weight": 10},
     # --- Чтение ---
     "reading_first": {"icon": "📖", "name": "Первое чтение", "desc": "Проверить первое задание по чтению", "module": "reading", "weight": 10},
     "reading_5": {"icon": "📖", "name": "Читатель-новичок", "desc": "Проверить 5 заданий по чтению", "module": "reading", "weight": 10},
@@ -1155,6 +1232,16 @@ ACHIEVEMENTS: dict[str, dict] = {
     "reading_100": {"icon": "📚", "name": "Библиотекарь", "desc": "Проверить 100 заданий по чтению", "module": "reading", "weight": 10},
     "reading_200": {"icon": "📚", "name": "Книжный эксперт", "desc": "Проверить 200 заданий по чтению", "module": "reading", "weight": 10},
     "reading_500": {"icon": "📚", "name": "Литературовед", "desc": "Проверить 500 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_7": {"icon": "📖", "name": "Неделя чтения", "desc": "Проверить 7 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_77": {"icon": "📖", "name": "Библиофил-77", "desc": "Проверить 77 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_123": {"icon": "📚", "name": "Книжный клуб", "desc": "Проверить 123 задания по чтению", "module": "reading", "weight": 10},
+    "reading_250": {"icon": "📚", "name": "Читальный зал", "desc": "Проверить 250 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_666": {"icon": "📚", "name": "Чёрная библиотека", "desc": "Проверить 666 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_777": {"icon": "📚", "name": "Джекпот чтения", "desc": "Проверить 777 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_1000": {"icon": "📚", "name": "Книжный миллионер", "desc": "Проверить 1000 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_streak_3": {"icon": "🎯", "name": "Читательский хет-трик", "desc": "Правильно выполнить 3 задания подряд", "module": "reading", "weight": 10},
+    "reading_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Правильно выполнить 5 заданий подряд", "module": "reading", "weight": 10},
+    "reading_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Правильно выполнить 10 заданий подряд", "module": "reading", "weight": 10},
     # --- Глаголы ---
     "verbs_first": {"icon": "🔤", "name": "Первый глагол", "desc": "Выполнить первое упражнение по глаголам", "module": "verbs", "weight": 10},
     "verbs_5": {"icon": "🔤", "name": "Глаголист-новичок", "desc": "Выполнить 5 упражнений по глаголам", "module": "verbs", "weight": 10},
@@ -1163,6 +1250,16 @@ ACHIEVEMENTS: dict[str, dict] = {
     "verbs_50": {"icon": "🔠", "name": "Мастер глаголов", "desc": "Выполнить 50 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_100": {"icon": "🔠", "name": "Профессор глаголов", "desc": "Выполнить 100 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_200": {"icon": "🔠", "name": "Легенда глаголов", "desc": "Выполнить 200 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_7": {"icon": "🔤", "name": "Неделя глаголов", "desc": "Выполнить 7 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_77": {"icon": "🔤", "name": "Спряжение-77", "desc": "Выполнить 77 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_123": {"icon": "🔠", "name": "Все времена", "desc": "Выполнить 123 упражнения по глаголам", "module": "verbs", "weight": 10},
+    "verbs_250": {"icon": "🔠", "name": "Глагольный марафон", "desc": "Выполнить 250 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_500": {"icon": "🔠", "name": "Глагольный эксперт", "desc": "Выполнить 500 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_777": {"icon": "🔠", "name": "Джекпот глаголов", "desc": "Выполнить 777 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_1000": {"icon": "🔠", "name": "Глагольный миллионер", "desc": "Выполнить 1000 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_streak_3": {"icon": "🎯", "name": "Глагольный хет-трик", "desc": "Правильно выполнить 3 упражнения подряд", "module": "verbs", "weight": 10},
+    "verbs_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Правильно выполнить 5 упражнений подряд", "module": "verbs", "weight": 10},
+    "verbs_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Правильно выполнить 10 упражнений подряд", "module": "verbs", "weight": 10},
     # --- Шахматы ---
     "chess_first": {"icon": "♟️", "name": "Первый ход", "desc": "Решить первый шахматный пазл", "module": "chess", "weight": 10},
     "chess_5": {"icon": "♟️", "name": "Шахматист-новичок", "desc": "Решить 5 шахматных пазлов", "module": "chess", "weight": 10},
@@ -1172,12 +1269,35 @@ ACHIEVEMENTS: dict[str, dict] = {
     "chess_100": {"icon": "♛", "name": "Гроссмейстер", "desc": "Решить 100 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_200": {"icon": "♛", "name": "Чемпион шахмат", "desc": "Решить 200 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_500": {"icon": "♛", "name": "Гений шахмат", "desc": "Решить 500 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_7": {"icon": "♟️", "name": "Неделя шахмат", "desc": "Решить 7 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_77": {"icon": "♞", "name": "Шахматный скаут", "desc": "Решить 77 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_150": {"icon": "♞", "name": "Полтораста пазлов", "desc": "Решить 150 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_250": {"icon": "♛", "name": "Шахматный марафон", "desc": "Решить 250 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_777": {"icon": "♛", "name": "Джекпот шахмат", "desc": "Решить 777 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_1000": {"icon": "♛", "name": "Шахматный миллионер", "desc": "Решить 1000 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_search_1": {"icon": "🔍", "name": "Разведчик", "desc": "Впервые найти игрока на Lichess", "module": "chess", "weight": 10},
+    "chess_search_10": {"icon": "🔍", "name": "Скаут-10", "desc": "Найти 10 игроков на Lichess", "module": "chess", "weight": 10},
+    "chess_search_50": {"icon": "🔍", "name": "Шахматный сыщик", "desc": "Найти 50 игроков на Lichess", "module": "chess", "weight": 10},
+    "chess_search_100": {"icon": "🧭", "name": "Поисковик-100", "desc": "Найти 100 игроков на Lichess", "module": "chess", "weight": 10},
+    "chess_link_1": {"icon": "🔗", "name": "Первая связь", "desc": "Привязать аккаунт Lichess", "module": "chess", "weight": 10},
+    "chess_link_5": {"icon": "🔗", "name": "Надёжная связь", "desc": "Привязать 5 аккаунтов Lichess", "module": "chess", "weight": 10},
+    "chess_link_10": {"icon": "🔗", "name": "Сеть контактов", "desc": "Привязать 10 аккаунтов Lichess", "module": "chess", "weight": 10},
     # --- Канон ---
     "canon_first": {"icon": "📜", "name": "Читатель канона", "desc": "Открыть произведение канона", "module": "canon", "weight": 10},
     "canon_5": {"icon": "📜", "name": "Канонист-новичок", "desc": "Открыть 5 произведений канона", "module": "canon", "weight": 10},
     "canon_10": {"icon": "📜", "name": "Канонист-любитель", "desc": "Открыть 10 произведений канона", "module": "canon", "weight": 10},
     "canon_16": {"icon": "📖", "name": "Прочитал весь канон", "desc": "Открыть все 16 произведений канона", "module": "canon", "weight": 10},
     "canon_20": {"icon": "📖", "name": "Канонист-профи", "desc": "Открыть 20 произведений канона", "module": "canon", "weight": 10},
+    "canon_2": {"icon": "📜", "name": "Двойной улов", "desc": "Открыть 2 произведения канона", "module": "canon", "weight": 10},
+    "canon_6": {"icon": "📜", "name": "Полдюжины", "desc": "Открыть 6 произведений канона", "module": "canon", "weight": 10},
+    "canon_12": {"icon": "📜", "name": "Дюжина", "desc": "Открыть 12 произведений канона", "module": "canon", "weight": 10},
+    "canon_18": {"icon": "📖", "name": "Восемнадцать", "desc": "Открыть 18 произведений канона", "module": "canon", "weight": 10},
+    "canon_all": {"icon": "🏆", "name": "Хранитель канона", "desc": "Открыть все доступные произведения канона", "module": "canon", "weight": 10},
+    "canon_terms_10": {"icon": "🧩", "name": "Глоссарист", "desc": "Посмотреть 10 терминов глоссария", "module": "canon", "weight": 10},
+    "canon_terms_25": {"icon": "🧩", "name": "Словарь-25", "desc": "Посмотреть 25 терминов глоссария", "module": "canon", "weight": 10},
+    "canon_terms_50": {"icon": "🧩", "name": "Лексикограф", "desc": "Посмотреть 50 терминов глоссария", "module": "canon", "weight": 10},
+    "canon_audio_1": {"icon": "🎧", "name": "Первый звук", "desc": "Прослушать произведение канона с аудио", "module": "canon", "weight": 10},
+    "canon_audio_5": {"icon": "🎧", "name": "Меломан", "desc": "Прослушать 5 произведений канона с аудио", "module": "canon", "weight": 10},
     # --- Молитва ---
     "prayer_first": {"icon": "🙏", "name": "Первая молитва", "desc": "Прочитать молитву дня", "module": "prayer", "weight": 10},
     "prayer_3": {"icon": "🙏", "name": "Три молитвы", "desc": "Прочитать молитву 3 дня", "module": "prayer", "weight": 10},
@@ -1186,6 +1306,14 @@ ACHIEVEMENTS: dict[str, dict] = {
     "prayer_100": {"icon": "🕯️", "name": "100 молитв", "desc": "Прочитать молитву 100 дней", "module": "prayer", "weight": 10},
     "prayer_200": {"icon": "🕯️", "name": "200 молитв", "desc": "Прочитать молитву 200 дней", "module": "prayer", "weight": 10},
     "prayer_365": {"icon": "🕯️", "name": "Год молитвы", "desc": "Прочитать молитву 365 дней", "module": "prayer", "weight": 10},
+    "prayer_2": {"icon": "🙏", "name": "Вторая молитва", "desc": "Прочитать молитву 2 дня", "module": "prayer", "weight": 10},
+    "prayer_5": {"icon": "🙏", "name": "Пять дней", "desc": "Прочитать молитву 5 дней", "module": "prayer", "weight": 10},
+    "prayer_14": {"icon": "🙏", "name": "Две недели", "desc": "Прочитать молитву 14 дней", "module": "prayer", "weight": 10},
+    "prayer_60": {"icon": "🕯️", "name": "Два месяца", "desc": "Прочитать молитву 60 дней", "module": "prayer", "weight": 10},
+    "prayer_150": {"icon": "🕯️", "name": "Пять месяцев", "desc": "Прочитать молитву 150 дней", "module": "prayer", "weight": 10},
+    "prayer_250": {"icon": "🕯️", "name": "250 молитв", "desc": "Прочитать молитву 250 дней", "module": "prayer", "weight": 10},
+    "prayer_500": {"icon": "🕯️", "name": "500 молитв", "desc": "Прочитать молитву 500 дней", "module": "prayer", "weight": 10},
+    "prayer_1000": {"icon": "🕯️", "name": "Тысяча молитв", "desc": "Прочитать молитву 1000 дней", "module": "prayer", "weight": 10},
     # --- GD ---
     "gd_first": {"icon": "🎮", "name": "Первый рекорд", "desc": "Отправить первый рекорд GD", "module": "gd", "weight": 10},
     "gd_5": {"icon": "🎮", "name": "Рекордсмен-новичок", "desc": "Отправить 5 рекордов GD", "module": "gd", "weight": 10},
@@ -1195,6 +1323,12 @@ ACHIEVEMENTS: dict[str, dict] = {
     "gd_100": {"icon": "🕹️", "name": "Икона GD", "desc": "Отправить 100 рекордов GD", "module": "gd", "weight": 10},
     "gd_200": {"icon": "🏆", "name": "Мастер рекордов", "desc": "Отправить 200 рекордов GD", "module": "gd", "weight": 10},
     "gd_500": {"icon": "🏆", "name": "Легенда GD", "desc": "Отправить 500 рекордов GD", "module": "gd", "weight": 10},
+    "gd_7": {"icon": "🎮", "name": "Неделя рекордов", "desc": "Отправить 7 рекордов GD", "module": "gd", "weight": 10},
+    "gd_77": {"icon": "🎮", "name": "Семь семёрок", "desc": "Отправить 77 рекордов GD", "module": "gd", "weight": 10},
+    "gd_150": {"icon": "🕹️", "name": "Полтораста", "desc": "Отправить 150 рекордов GD", "module": "gd", "weight": 10},
+    "gd_250": {"icon": "🕹️", "name": "Рекордный марафон", "desc": "Отправить 250 рекордов GD", "module": "gd", "weight": 10},
+    "gd_777": {"icon": "🏆", "name": "Джекпот рекордов", "desc": "Отправить 777 рекордов GD", "module": "gd", "weight": 10},
+    "gd_1000": {"icon": "🏆", "name": "Рекордный миллионер", "desc": "Отправить 1000 рекордов GD", "module": "gd", "weight": 10},
     # --- D&D ---
     "dnd_first": {"icon": "🎲", "name": "Первая сессия", "desc": "Начать первую D&D сессию", "module": "dnd", "weight": 10},
     "dnd_roll_10": {"icon": "🎲", "name": "Любитель костей", "desc": "Сделать 10 бросков в D&D", "module": "dnd", "weight": 10},
@@ -1202,6 +1336,15 @@ ACHIEVEMENTS: dict[str, dict] = {
     "dnd_roll_100": {"icon": "🎲", "name": "Мастер бросков", "desc": "Сделать 100 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_200": {"icon": "🎲", "name": "Легенда бросков", "desc": "Сделать 200 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_500": {"icon": "🎲", "name": "Владыка бросков", "desc": "Сделать 500 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_7": {"icon": "🎲", "name": "Неделя кубиков", "desc": "Сделать 7 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_30": {"icon": "🎲", "name": "Тридцать бросков", "desc": "Сделать 30 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_75": {"icon": "🎲", "name": "75 бросков", "desc": "Сделать 75 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_150": {"icon": "🎲", "name": "Полтораста бросков", "desc": "Сделать 150 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_300": {"icon": "🎲", "name": "Триста бросков", "desc": "Сделать 300 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_777": {"icon": "🎲", "name": "Джекпот кубиков", "desc": "Сделать 777 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_1000": {"icon": "🎲", "name": "Тысяча бросков", "desc": "Сделать 1000 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_nat20": {"icon": "🎯", "name": "Естественная двадцатка", "desc": "Выбросить 20 на d20 в D&D", "module": "dnd", "weight": 10},
+    "dnd_nat1": {"icon": "💀", "name": "Естественная единица", "desc": "Выбросить 1 на d20 в D&D", "module": "dnd", "weight": 10},
     # --- Монеты ---
     "coins_10": {"icon": "💰", "name": "Первые монеты", "desc": "Заработать 10 монет", "module": "coins", "weight": 10},
     "coins_50": {"icon": "💰", "name": "Полтинник", "desc": "Заработать 50 монет", "module": "coins", "weight": 10},
@@ -1213,6 +1356,14 @@ ACHIEVEMENTS: dict[str, dict] = {
     "coins_50000": {"icon": "🏆", "name": "Миллиардер", "desc": "Заработать 50000 монет", "module": "coins", "weight": 10},
     "coins_100000": {"icon": "👑", "name": "Легенда монет", "desc": "Заработать 100000 монет", "module": "coins", "weight": 10},
     "coins_1000000": {"icon": "🏆", "name": "Финансовый гений", "desc": "Заработать 1000000 монет", "module": "coins", "weight": 10},
+    "coins_25": {"icon": "💰", "name": "Четвертак", "desc": "Заработать 25 монет", "module": "coins", "weight": 10},
+    "coins_250": {"icon": "💰", "name": "Двести пятьдесят", "desc": "Заработать 250 монет", "module": "coins", "weight": 10},
+    "coins_750": {"icon": "💵", "name": "Семь сотен", "desc": "Заработать 750 монет", "module": "coins", "weight": 10},
+    "coins_2500": {"icon": "💎", "name": "Две с половиной", "desc": "Заработать 2500 монет", "module": "coins", "weight": 10},
+    "coins_25000": {"icon": "🏦", "name": "Двадцать пять тысяч", "desc": "Заработать 25000 монет", "module": "coins", "weight": 10},
+    "coins_75000": {"icon": "🏆", "name": "Семьдесят пять тысяч", "desc": "Заработать 75000 монет", "module": "coins", "weight": 10},
+    "coins_500000": {"icon": "👑", "name": "Полмиллиона", "desc": "Заработать 500000 монет", "module": "coins", "weight": 10},
+    "coins_10000000": {"icon": "🏆", "name": "Десять миллионов", "desc": "Заработать 10000000 монет", "module": "coins", "weight": 10},
 }
 
 
@@ -1233,11 +1384,26 @@ def _get_streak_row(conn, user_id):
 def _unlock_achievements(conn, user_id, codes, now_ts):
     """Insert newly unlocked codes into web_achievements and return them.
 
-    Ignores codes already unlocked (dedupe via UNIQUE index).
+    Pre-reads existing codes to avoid UNIQUE violations (a PostgreSQL
+    UniqueViolation would abort the whole transaction, blocking later inserts).
     """
+    if not codes:
+        return []
+    try:
+        existing = {
+            r["code"]
+            for r in conn.execute(
+                text("SELECT code FROM web_achievements WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            ).mappings().all()
+        }
+    except Exception:
+        existing = set()
     newly = []
     for code in codes:
         if code not in ACHIEVEMENTS:
+            continue
+        if code in existing:
             continue
         try:
             conn.execute(
@@ -1245,6 +1411,7 @@ def _unlock_achievements(conn, user_id, codes, now_ts):
                 {"u": user_id, "c": code, "t": now_ts},
             )
             newly.append(code)
+            existing.add(code)
         except Exception:
             # Already unlocked (or DB conflict) — skip silently
             continue
@@ -1301,6 +1468,31 @@ def _check_web_achievements(conn, user_id):
     ).mappings().first()
     facts["coins"] = int(coin_row["balance"]) if coin_row else 0
 
+    # --- event counters (searches, links, modes, crits, streaks...) ---
+    events = {}
+    try:
+        ev_rows = conn.execute(
+            text("SELECT event, count FROM web_events WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        ).mappings().all()
+        for r in ev_rows:
+            events[r["event"]] = int(r["count"] or 0)
+    except Exception as exc:
+        print(f"[ACHIEVEMENTS] events facts error: {exc}")
+    facts["events"] = events
+
+    # --- emperors mastered cards (reps >= 3 in the SM-2 progress table) ---
+    emastered = 0
+    try:
+        mrow = conn.execute(
+            text("SELECT COUNT(*) AS n FROM emperors_progress WHERE user_id = :uid AND reps >= 3"),
+            {"uid": uid},
+        ).mappings().first()
+        emastered = int(mrow["n"] or 0) if mrow else 0
+    except Exception as exc:
+        print(f"[ACHIEVEMENTS] emperors mastered fact error: {exc}")
+    facts["emperors_mastered"] = emastered
+
     # --- evaluate conditions ---
     should = []
     c = facts["current_streak"]
@@ -1328,6 +1520,26 @@ def _check_web_achievements(conn, user_id):
         should.append("streak_365")
     if c >= 500:
         should.append("streak_500")
+    if c >= 5:
+        should.append("streak_5")
+    if c >= 10:
+        should.append("streak_10")
+    if c >= 20:
+        should.append("streak_20")
+    if c >= 45:
+        should.append("streak_45")
+    if c >= 90:
+        should.append("streak_90")
+    if c >= 150:
+        should.append("streak_150")
+    if c >= 250:
+        should.append("streak_250")
+    if c >= 400:
+        should.append("streak_400")
+    if c >= 750:
+        should.append("streak_750")
+    if c >= 1000:
+        should.append("streak_1000")
     if facts["active_days"] >= 3:
         should.append("days_3")
     if facts["active_days"] >= 7:
@@ -1344,6 +1556,26 @@ def _check_web_achievements(conn, user_id):
         should.append("days_200")
     if facts["active_days"] >= 365:
         should.append("days_365")
+    if facts["active_days"] >= 5:
+        should.append("days_5")
+    if facts["active_days"] >= 10:
+        should.append("days_10")
+    if facts["active_days"] >= 20:
+        should.append("days_20")
+    if facts["active_days"] >= 45:
+        should.append("days_45")
+    if facts["active_days"] >= 90:
+        should.append("days_90")
+    if facts["active_days"] >= 150:
+        should.append("days_150")
+    if facts["active_days"] >= 250:
+        should.append("days_250")
+    if facts["active_days"] >= 400:
+        should.append("days_400")
+    if facts["active_days"] >= 750:
+        should.append("days_750")
+    if facts["active_days"] >= 1000:
+        should.append("days_1000")
     nm = len(facts["modules"])
     if nm >= 2:
         should.append("module_2")
@@ -1353,11 +1585,37 @@ def _check_web_achievements(conn, user_id):
         should.append("module_8")
     if nm >= 11:
         should.append("module_11")
+    if nm >= 3:
+        should.append("module_3")
+    if nm >= 4:
+        should.append("module_4")
+    if nm >= 6:
+        should.append("module_6")
+    if nm >= 7:
+        should.append("module_7")
+    if nm >= 9:
+        should.append("module_9")
+    if nm >= 10:
+        should.append("module_10")
+    if nm >= 12:
+        should.append("module_12")
+    if nm >= 13:
+        should.append("module_13")
     total_actions = sum(facts["counts"].values())
     if total_actions >= 50:
         should.append("first_50_actions")
+    if total_actions >= 100:
+        should.append("first_100_actions")
+    if total_actions >= 250:
+        should.append("first_250_actions")
     if total_actions >= 500:
         should.append("first_500_actions")
+    if total_actions >= 1000:
+        should.append("first_1000_actions")
+    if total_actions >= 2500:
+        should.append("first_2500_actions")
+    if total_actions >= 5000:
+        should.append("first_5000_actions")
 
     # per-module counts
     trivia = facts["counts"].get("trivia", 0)
@@ -1377,6 +1635,31 @@ def _check_web_achievements(conn, user_id):
         should.append("trivia_200")
     if trivia >= 500:
         should.append("trivia_500")
+    if trivia >= 7:
+        should.append("trivia_7")
+    if trivia >= 77:
+        should.append("trivia_77")
+    if trivia >= 123:
+        should.append("trivia_123")
+    if trivia >= 250:
+        should.append("trivia_250")
+    if trivia >= 666:
+        should.append("trivia_666")
+    if trivia >= 777:
+        should.append("trivia_777")
+    if trivia >= 999:
+        should.append("trivia_999")
+    if trivia >= 1000:
+        should.append("trivia_1000")
+
+    # trivia second scale: correct-answer streak (events)
+    ev = facts["events"]
+    if ev.get("trivia_streak_3", 0) >= 1:
+        should.append("trivia_streak_3")
+    if ev.get("trivia_streak_5", 0) >= 1:
+        should.append("trivia_streak_5")
+    if ev.get("trivia_streak_10", 0) >= 1:
+        should.append("trivia_streak_10")
 
     emperors = facts["counts"].get("emperors", 0)
     if emperors >= 1:
@@ -1393,6 +1676,54 @@ def _check_web_achievements(conn, user_id):
         should.append("emperors_200")
     if emperors >= 500:
         should.append("emperors_500")
+    if emperors >= 7:
+        should.append("emperors_7")
+    if emperors >= 77:
+        should.append("emperors_77")
+    if emperors >= 123:
+        should.append("emperors_123")
+    if emperors >= 250:
+        should.append("emperors_250")
+    if emperors >= 333:
+        should.append("emperors_333")
+    if emperors >= 666:
+        should.append("emperors_666")
+    if emperors >= 777:
+        should.append("emperors_777")
+    if emperors >= 999:
+        should.append("emperors_999")
+    if emperors >= 1000:
+        should.append("emperors_1000")
+
+    # emperors second/third scales: modes tried + mastered cards
+    if ev.get("emperors_mode_study", 0) >= 1:
+        should.append("emperors_mode_study")
+    if ev.get("emperors_mode_quiz", 0) >= 1:
+        should.append("emperors_mode_quiz")
+    if ev.get("emperors_mode_match", 0) >= 1:
+        should.append("emperors_mode_match")
+    if ev.get("emperors_mode_chrono", 0) >= 1:
+        should.append("emperors_mode_chrono")
+    em_modes = sum(1 for m in ("study", "quiz", "match", "chrono") if ev.get("emperors_mode_" + m, 0) >= 1)
+    if em_modes >= 4:
+        should.append("emperors_all_modes")
+    mastered = facts["emperors_mastered"]
+    if mastered >= 5:
+        should.append("emperors_mastered_5")
+    if mastered >= 10:
+        should.append("emperors_mastered_10")
+    if mastered >= 25:
+        should.append("emperors_mastered_25")
+    if mastered >= 50:
+        should.append("emperors_mastered_50")
+    if mastered >= 100:
+        should.append("emperors_mastered_100")
+    if mastered >= 150:
+        should.append("emperors_mastered_150")
+    if mastered >= 200:
+        should.append("emperors_mastered_200")
+    if mastered >= 258:
+        should.append("emperors_mastered_258")
 
     reading = facts["counts"].get("reading", 0)
     if reading >= 1:
@@ -1411,6 +1742,26 @@ def _check_web_achievements(conn, user_id):
         should.append("reading_200")
     if reading >= 500:
         should.append("reading_500")
+    if reading >= 7:
+        should.append("reading_7")
+    if reading >= 77:
+        should.append("reading_77")
+    if reading >= 123:
+        should.append("reading_123")
+    if reading >= 250:
+        should.append("reading_250")
+    if reading >= 666:
+        should.append("reading_666")
+    if reading >= 777:
+        should.append("reading_777")
+    if reading >= 1000:
+        should.append("reading_1000")
+    if ev.get("reading_streak_3", 0) >= 1:
+        should.append("reading_streak_3")
+    if ev.get("reading_streak_5", 0) >= 1:
+        should.append("reading_streak_5")
+    if ev.get("reading_streak_10", 0) >= 1:
+        should.append("reading_streak_10")
 
     verbs = facts["counts"].get("verbs", 0)
     if verbs >= 1:
@@ -1427,6 +1778,26 @@ def _check_web_achievements(conn, user_id):
         should.append("verbs_100")
     if verbs >= 200:
         should.append("verbs_200")
+    if verbs >= 7:
+        should.append("verbs_7")
+    if verbs >= 77:
+        should.append("verbs_77")
+    if verbs >= 123:
+        should.append("verbs_123")
+    if verbs >= 250:
+        should.append("verbs_250")
+    if verbs >= 500:
+        should.append("verbs_500")
+    if verbs >= 777:
+        should.append("verbs_777")
+    if verbs >= 1000:
+        should.append("verbs_1000")
+    if ev.get("verbs_streak_3", 0) >= 1:
+        should.append("verbs_streak_3")
+    if ev.get("verbs_streak_5", 0) >= 1:
+        should.append("verbs_streak_5")
+    if ev.get("verbs_streak_10", 0) >= 1:
+        should.append("verbs_streak_10")
 
     chess = facts["counts"].get("chess", 0)
     if chess >= 1:
@@ -1445,6 +1816,33 @@ def _check_web_achievements(conn, user_id):
         should.append("chess_200")
     if chess >= 500:
         should.append("chess_500")
+    if chess >= 7:
+        should.append("chess_7")
+    if chess >= 77:
+        should.append("chess_77")
+    if chess >= 150:
+        should.append("chess_150")
+    if chess >= 250:
+        should.append("chess_250")
+    if chess >= 777:
+        should.append("chess_777")
+    if chess >= 1000:
+        should.append("chess_1000")
+    # chess second/third scales: player search + account linking (events)
+    if ev.get("chess_search", 0) >= 1:
+        should.append("chess_search_1")
+    if ev.get("chess_search", 0) >= 10:
+        should.append("chess_search_10")
+    if ev.get("chess_search", 0) >= 50:
+        should.append("chess_search_50")
+    if ev.get("chess_search", 0) >= 100:
+        should.append("chess_search_100")
+    if ev.get("chess_link", 0) >= 1:
+        should.append("chess_link_1")
+    if ev.get("chess_link", 0) >= 5:
+        should.append("chess_link_5")
+    if ev.get("chess_link", 0) >= 10:
+        should.append("chess_link_10")
 
     canon = facts["counts"].get("canon", 0)
     if canon >= 1:
@@ -1457,6 +1855,26 @@ def _check_web_achievements(conn, user_id):
         should.append("canon_16")
     if canon >= 20:
         should.append("canon_20")
+    if canon >= 2:
+        should.append("canon_2")
+    if canon >= 6:
+        should.append("canon_6")
+    if canon >= 12:
+        should.append("canon_12")
+    if canon >= 18:
+        should.append("canon_18")
+    if canon >= len(CANON_WORKS):
+        should.append("canon_all")
+    if ev.get("canon_terms", 0) >= 10:
+        should.append("canon_terms_10")
+    if ev.get("canon_terms", 0) >= 25:
+        should.append("canon_terms_25")
+    if ev.get("canon_terms", 0) >= 50:
+        should.append("canon_terms_50")
+    if ev.get("canon_audio", 0) >= 1:
+        should.append("canon_audio_1")
+    if ev.get("canon_audio", 0) >= 5:
+        should.append("canon_audio_5")
 
     prayer = facts["counts"].get("prayer", 0)
     if prayer >= 1:
@@ -1473,6 +1891,22 @@ def _check_web_achievements(conn, user_id):
         should.append("prayer_200")
     if prayer >= 365:
         should.append("prayer_365")
+    if prayer >= 2:
+        should.append("prayer_2")
+    if prayer >= 5:
+        should.append("prayer_5")
+    if prayer >= 14:
+        should.append("prayer_14")
+    if prayer >= 60:
+        should.append("prayer_60")
+    if prayer >= 150:
+        should.append("prayer_150")
+    if prayer >= 250:
+        should.append("prayer_250")
+    if prayer >= 500:
+        should.append("prayer_500")
+    if prayer >= 1000:
+        should.append("prayer_1000")
 
     gd = facts["counts"].get("gd", 0)
     if gd >= 1:
@@ -1491,6 +1925,18 @@ def _check_web_achievements(conn, user_id):
         should.append("gd_200")
     if gd >= 500:
         should.append("gd_500")
+    if gd >= 7:
+        should.append("gd_7")
+    if gd >= 77:
+        should.append("gd_77")
+    if gd >= 150:
+        should.append("gd_150")
+    if gd >= 250:
+        should.append("gd_250")
+    if gd >= 777:
+        should.append("gd_777")
+    if gd >= 1000:
+        should.append("gd_1000")
 
     dnd = facts["counts"].get("dnd", 0)
     if dnd >= 1:
@@ -1505,6 +1951,25 @@ def _check_web_achievements(conn, user_id):
         should.append("dnd_roll_200")
     if dnd >= 500:
         should.append("dnd_roll_500")
+    if dnd >= 7:
+        should.append("dnd_roll_7")
+    if dnd >= 30:
+        should.append("dnd_roll_30")
+    if dnd >= 75:
+        should.append("dnd_roll_75")
+    if dnd >= 150:
+        should.append("dnd_roll_150")
+    if dnd >= 300:
+        should.append("dnd_roll_300")
+    if dnd >= 777:
+        should.append("dnd_roll_777")
+    if dnd >= 1000:
+        should.append("dnd_roll_1000")
+    # dnd second scale: natural crits on d20 (events)
+    if ev.get("dnd_nat20", 0) >= 1:
+        should.append("dnd_nat20")
+    if ev.get("dnd_nat1", 0) >= 1:
+        should.append("dnd_nat1")
 
     coins = facts["coins"]
     if coins >= 10:
@@ -1527,6 +1992,22 @@ def _check_web_achievements(conn, user_id):
         should.append("coins_100000")
     if coins >= 1000000:
         should.append("coins_1000000")
+    if coins >= 25:
+        should.append("coins_25")
+    if coins >= 250:
+        should.append("coins_250")
+    if coins >= 750:
+        should.append("coins_750")
+    if coins >= 2500:
+        should.append("coins_2500")
+    if coins >= 25000:
+        should.append("coins_25000")
+    if coins >= 75000:
+        should.append("coins_75000")
+    if coins >= 500000:
+        should.append("coins_500000")
+    if coins >= 10000000:
+        should.append("coins_10000000")
 
     newly = _unlock_achievements(conn, user_id, should, now_ts)
     if newly:
@@ -1594,6 +2075,41 @@ def _record_activity(conn, user_id, module, actions):
         except Exception:
             pass
     conn.commit()
+
+
+def _record_events(conn, user_id, events):
+    """Increment counters for action-type events (searches, links, modes, crits...).
+
+    Uses INSERT ... ON CONFLICT to be safe against duplicate key races. Runs
+    inside the caller's connection; caller commits.
+    """
+    if not events:
+        return
+    now = time.time()
+    for ev in events:
+        ev = str(ev or "").strip()
+        if not ev:
+            continue
+        try:
+            conn.execute(
+                text("""
+                    INSERT INTO web_events (user_id, event, count, updated_at)
+                    VALUES (:uid, :ev, 1, :ts)
+                    ON CONFLICT (user_id, event) DO UPDATE SET
+                        count = web_events.count + 1,
+                        updated_at = :ts
+                """),
+                {"uid": user_id, "ev": ev, "ts": now},
+            )
+        except Exception as exc:
+            print(f"[ACHIEVEMENTS] event log error: {exc}")
+            try:
+                conn.execute(
+                    text("INSERT INTO web_events (user_id, event, count, updated_at) VALUES (:uid, :ev, 1, :ts)"),
+                    {"uid": user_id, "ev": ev, "ts": now},
+                )
+            except Exception:
+                pass
     return new_streak, longest, total
 
 
@@ -2605,6 +3121,49 @@ def get_gd_difficulty_name(level_name: str) -> str:
 # Geometry Dash Module — Raw SQL Helpers
 # ============================================================================
 
+def _gd_norm_name(name: str) -> str:
+    """Normalize a level name: lowercase + collapse whitespace + strip."""
+    import re
+    return re.sub(r"\s+", " ", name or "").strip().lower()
+
+
+def _gd_pick_canonical_name(name_diffs: list[tuple[str, str]]) -> str:
+    """Pick the most canonical level name from (name, difficulty) pairs."""
+    best = name_diffs[0]
+    for nd in name_diffs[1:]:
+        cur_known = (nd[1] or "").strip().lower() != "unknown"
+        best_known = (best[1] or "").strip().lower() != "unknown"
+        if cur_known and not best_known:
+            best = nd
+        elif cur_known == best_known:
+            if len(nd[0]) > len(best[0]):
+                best = nd
+            elif len(nd[0]) == len(best[0]) and nd[0] < best[0]:
+                best = nd
+    return best[0]
+
+
+def _gd_merge_rows(items: list[dict]) -> dict:
+    """Merge duplicate level rows (same normalized name) into one."""
+    out = dict(items[0])
+    out["completions"] = sum(int(i.get("completions") or 0) for i in items)
+    names = []
+    seen = set()
+    for i in items:
+        for n in (str(i.get("completers") or "")).strip("{}").split(","):
+            n = n.strip()
+            if n and n not in seen:
+                seen.add(n)
+                names.append(n)
+    out["completers"] = ", ".join(names)
+    out["position"] = min(int(i.get("position") or 0) for i in items)
+    out["id"] = min(int(i.get("id") or 0) for i in items)
+    out["name"] = _gd_pick_canonical_name(
+        [(str(i.get("name") or ""), str(i.get("difficulty") or "")) for i in items]
+    )
+    return out
+
+
 def get_gd_level(level_id: int) -> dict | None:
     try:
         with get_db_engine().connect() as conn:
@@ -2627,17 +3186,26 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
                     FROM levels l
                     LEFT JOIN (SELECT level_id, COUNT(*) AS cnt FROM level_completions GROUP BY level_id) c ON c.level_id = l.id
                     LEFT JOIN (
-                        SELECT lc.level_id, STRING_AGG(COALESCE(NULLIF(u.first_name, ''), u.username, '?'), ', ' ORDER BY lc.completed_at) AS completers
-                        FROM level_completions lc
-                        JOIN users u ON u.telegram_id = lc.user_id
-                        GROUP BY lc.level_id
+                        SELECT lv.id AS level_id,
+                               STRING_AGG(DISTINCT COALESCE(NULLIF(u.first_name, ''), u.username, s.username, '?'), ', ') AS completers
+                        FROM submissions s
+                        JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+                        LEFT JOIN users u ON u.telegram_id = s.user_id
+                        WHERE s.status = 'approved'
+                        GROUP BY lv.id
                     ) u ON u.level_id = l.id
                     ORDER BY l.position ASC
-                    LIMIT :lim
                 """),
-                {"lim": limit},
             ).mappings().all()
-            return [dict(r) for r in rows]
+            groups: dict[str, list[dict]] = {}
+            for r in rows:
+                d = dict(r)
+                key = _gd_norm_name(d.get("name") or "")
+                if key:
+                    groups.setdefault(key, []).append(d)
+            merged = [_gd_merge_rows(items) for items in groups.values()]
+            merged.sort(key=lambda x: int(x.get("position") or 0))
+            return merged[:limit]
     except Exception as exc:
         print(f"get_gd_leaderboard error: {exc}")
         return []
@@ -2719,6 +3287,33 @@ def get_gd_user_completions_count(user_id: int) -> int:
         return 0
 
 
+def _update_gd_hardest_level(conn, user_id: int) -> None:
+    """Recompute and persist hardest level (MIN position) for a user."""
+    try:
+        row = conn.execute(
+            text("""
+                SELECT lc.level_id FROM level_completions lc
+                JOIN levels l ON l.id = lc.level_id
+                WHERE lc.user_id = :uid
+                ORDER BY l.position ASC, lc.completed_at DESC
+                LIMIT 1
+            """),
+            {"uid": user_id},
+        ).mappings().first()
+        if not row:
+            return
+        conn.execute(
+            text("""
+                INSERT INTO player_stats (user_id, hardest_level_id)
+                VALUES (:uid, :lid)
+                ON CONFLICT (user_id) DO UPDATE SET hardest_level_id = :lid
+            """),
+            {"uid": user_id, "lid": row["level_id"]},
+        )
+    except Exception as exc:
+        print(f"_update_gd_hardest_level error: {exc}")
+
+
 def get_gd_hardest_level_name(user_id: int) -> str:
     try:
         with get_db_engine().connect() as conn:
@@ -2726,10 +3321,21 @@ def get_gd_hardest_level_name(user_id: int) -> str:
                 text("""
                     SELECT l.name, l.position FROM player_stats ps
                     JOIN levels l ON l.id = ps.hardest_level_id
-                    WHERE ps.user_id = :uid
+                    WHERE ps.user_id = :uid AND ps.hardest_level_id IS NOT NULL
                 """),
                 {"uid": user_id},
             ).mappings().first()
+            if not row:
+                row = conn.execute(
+                    text("""
+                        SELECT l.name, l.position FROM level_completions lc
+                        JOIN levels l ON l.id = lc.level_id
+                        WHERE lc.user_id = :uid
+                        ORDER BY l.position ASC, lc.completed_at DESC
+                        LIMIT 1
+                    """),
+                    {"uid": user_id},
+                ).mappings().first()
             return f"{row['name']} (поз. {row['position']})" if row else "Нет"
     except Exception as exc:
         print(f"get_gd_hardest_level_name error: {exc}")
@@ -2814,8 +3420,8 @@ def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
             # Track completion
             if sub.get("level_name"):
                 level = conn.execute(
-                    text("SELECT id FROM levels WHERE name = :nm"),
-                    {"nm": sub["level_name"]},
+                    text("SELECT id FROM levels WHERE LOWER(TRIM(name)) = :key"),
+                    {"key": _gd_norm_name(sub["level_name"])},
                 ).mappings().first()
                 if level:
                     conn.execute(
@@ -2826,6 +3432,7 @@ def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
                         """),
                         {"uid": sub["user_id"], "lid": level["id"]},
                     )
+                    _update_gd_hardest_level(conn, sub["user_id"])
             conn.commit()
             return True
     except Exception as exc:
@@ -2847,9 +3454,41 @@ def reject_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
         return False
 
 
+def _gd_shift_positions(conn, position: int, exclude_id: int | None = None) -> None:
+    """Shift all levels with position >= :pos down by 1 to free a slot.
+
+    When exclude_id is set, that level keeps its current slot and only the
+    levels below it are moved down. Used so that placing a level in the top
+    automatically lowers every level below it by one position.
+    """
+    if exclude_id is not None:
+        conn.execute(
+            text("UPDATE levels SET position = position + 1 WHERE position >= :pos AND id != :lid"),
+            {"pos": position, "lid": exclude_id},
+        )
+    else:
+        conn.execute(
+            text("UPDATE levels SET position = position + 1 WHERE position >= :pos"),
+            {"pos": position},
+        )
+
+
 def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int | None:
     try:
         with get_db_engine().connect() as conn:
+            existing = conn.execute(
+                text("SELECT id, position FROM levels WHERE LOWER(TRIM(name)) = :key"),
+                {"key": _gd_norm_name(name)},
+            ).mappings().first()
+            if existing:
+                _gd_shift_positions(conn, position, exclude_id=existing["id"])
+                conn.execute(
+                    text("UPDATE levels SET position=:pos, difficulty=:diff WHERE id=:lid"),
+                    {"lid": existing["id"], "pos": position, "diff": difficulty},
+                )
+                conn.commit()
+                return int(existing["id"])
+            _gd_shift_positions(conn, position)
             result = conn.execute(
                 text("INSERT INTO levels (name, position, difficulty) VALUES (:nm, :pos, :diff) RETURNING id"),
                 {"nm": name, "pos": position, "diff": difficulty},
@@ -2864,6 +3503,7 @@ def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int |
 def set_gd_level_position(level_id: int, position: int) -> bool:
     try:
         with get_db_engine().connect() as conn:
+            _gd_shift_positions(conn, position, exclude_id=level_id)
             result = conn.execute(
                 text("UPDATE levels SET position=:pos WHERE id=:lid"),
                 {"lid": level_id, "pos": position},
@@ -3844,6 +4484,27 @@ def index():
                     <p>Учёт доходов и расходов семьи</p>
                 </div>
             </a>
+            <a class="card" href="/chess">
+                <div class="card-icon">♟️</div>
+                <div class="card-content">
+                    <h2>Шахматы</h2>
+                    <p>Рейтинги Lichess, поиск игроков, шахматные пазлы</p>
+                </div>
+            </a>
+            <a class="card" href="/daily_prayer">
+                <div class="card-icon">🕯️</div>
+                <div class="card-content">
+                    <h2>Молитва дня</h2>
+                    <p>Ежедневная молитва из канона</p>
+                </div>
+            </a>
+            <a class="card" href="/canon">
+                <div class="card-icon">📖</div>
+                <div class="card-content">
+                    <h2>Канон</h2>
+                    <p>Полный текст канона, произведения и глоссарий</p>
+                </div>
+            </a>
             <button class="beta-toggle" id="beta-toggle" onclick="toggleBeta()">
                 <div class="beta-toggle-left">
                     <div class="beta-toggle-icon">🧪</div>
@@ -3876,13 +4537,6 @@ def index():
                         <p>Брейн-Ринг по канону Олеговируса</p>
                     </div>
                 </a>
-                <a class="card" href="/chess">
-                    <div class="card-icon">♟️</div>
-                    <div class="card-content">
-                        <h2>Шахматы <span class="beta-tag">Бета</span></h2>
-                        <p>Рейтинги Lichess, поиск игроков, шахматные пазлы</p>
-                    </div>
-                </a>
                 <a class="card" href="/irregular_verbs">
                     <div class="card-icon">📝</div>
                     <div class="card-content">
@@ -3902,20 +4556,6 @@ def index():
                     <div class="card-content">
                         <h2>Family Circle <span class="beta-tag">Бета</span></h2>
                         <p>Асинхронная семейная медиация с ИИ-помощником</p>
-                    </div>
-                </a>
-                <a class="card" href="/daily_prayer">
-                    <div class="card-icon">🕯️</div>
-                    <div class="card-content">
-                        <h2>Молитва дня <span class="beta-tag">Бета</span></h2>
-                        <p>Ежедневная молитва из канона</p>
-                    </div>
-                </a>
-                <a class="card" href="/canon">
-                    <div class="card-icon">📖</div>
-                    <div class="card-content">
-                        <h2>Канон <span class="beta-tag">Бета</span></h2>
-                        <p>Полный текст канона, произведения и глоссарий</p>
                     </div>
                 </a>
                 <a class="card" href="/admin">
@@ -4005,7 +4645,7 @@ def index():
                         .then(function (r) { return r.json(); })
                         .then(function (d) {
                             if (d.error) return;
-                            el.textContent = '🏆 ' + (d.unlocked || []).length + '/' + (d.total || 0) + ' · 🔥 ' + ((d.streak || {}).current || 0);
+                            el.textContent = '🏆 ' + (d.unlocked_count || 0) + '/' + (d.total_count || 0) + ' · 🔥 ' + ((d.streak || {}).current || 0);
                         })
                         .catch(function () {});
                 }
@@ -4076,6 +4716,11 @@ def gd_page():
         .btn-approve:hover { background: #2ea043; }
         .btn-reject { background: #da3633; margin-left: 8px; }
         .btn-reject:hover { background: #f85149; }
+        .btn-mini { padding: 4px 8px; font-size: 13px; border: none; border-radius: 6px; background: #30363d; color: #c9d1d9; cursor: pointer; font-family: inherit; }
+        .btn-mini:hover { background: #484f58; }
+        .edit-inline { width: 100%; box-sizing: border-box; padding: 4px 6px; font-size: 13px; border: 1px solid #58a6ff; border-radius: 6px; background: #0d1117; color: #c9d1d9; font-family: inherit; }
+        .btn-danger { background: #da3633; }
+        .btn-danger:hover { background: #f85149; }
     </style>
 </head>
 <body>
@@ -4143,6 +4788,18 @@ def gd_page():
         var urlParams = new URLSearchParams(window.location.search);
         var qid = urlParams.get('user_id');
         if (qid) { USER_ID = qid; localStorage.setItem('gd_user_id', qid); }
+        var IS_ADMIN = false;
+        var LB_LEVELS = [];
+        (function() {
+            var token = localStorage.getItem('web_token');
+            if (!token) return;
+            fetch('/api/auth/me', { headers: { 'X-Auth-Token': token } })
+                .then(function(r) { return r.json(); })
+                .then(function(p) {
+                    if (p && !p.error && p.is_admin) IS_ADMIN = true;
+                })
+                .catch(function() {});
+        })();
 
         function showTab(name) {
             document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
@@ -4203,16 +4860,103 @@ def gd_page():
                     var r = JSON.parse(xhr.responseText);
                     if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
                     if (!r.length) { out.innerHTML = '<p class="hint">Уровни пока не добавлены.</p>'; return; }
-                    var html = '<table><thead><tr><th>Поз.</th><th>Уровень</th><th>Сложность</th><th>Прохождения</th></tr></thead><tbody>';
+                    LB_LEVELS = r;
+                    var html = '<table id="gd-table"><thead><tr><th>Поз.</th><th>Уровень</th><th>Сложность</th><th>Прохождения</th>' + (IS_ADMIN ? '<th>Действия</th>' : '') + '</tr></thead><tbody>';
                     r.forEach(function(l) {
                         var who = (l.completers && l.completers !== '{}') ? '<div class="completers">👤 ' + l.completers + '</div>' : '';
-                        html += '<tr><td class="pos">' + (l.position || '—') + '</td><td>' + (l.name || '—') + '</td><td>' + (l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td></tr>';
+                        var actions = IS_ADMIN
+                            ? '<button class="btn btn-mini" id="act-edit-' + l.id + '" onclick="editLevel(' + l.id + ')">✏️</button> <button class="btn btn-mini btn-danger" onclick="deleteLevel(' + l.id + ', this)">🗑️</button>'
+                            : '';
+                        html += '<tr data-id="' + l.id + '"><td class="pos" data-field="position">' + (l.position || '—') + '</td><td data-field="name">' + (l.name || '—') + '</td><td data-field="difficulty">' + (l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td>' + (IS_ADMIN ? '<td>' + actions + '</td>' : '') + '</tr>';
                     });
                     html += '</tbody></table>';
                     out.innerHTML = html;
                 } catch(e) { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; }
             };
             xhr.onerror = function() { out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
+            xhr.send();
+        }
+
+        function editLevel(id) {
+            if (!IS_ADMIN) return;
+            var tr = document.querySelector('#gd-table tbody tr[data-id="' + id + '"]');
+            if (!tr) return;
+            var lvl = null;
+            for (var i = 0; i < LB_LEVELS.length; i++) { if (LB_LEVELS[i].id === id) { lvl = LB_LEVELS[i]; break; } }
+            if (!lvl) return;
+            var cells = tr.querySelectorAll('td[data-field]');
+            var fields = { position: 'position', name: 'name', difficulty: 'difficulty' };
+            var inputs = {};
+            cells.forEach(function(cell) {
+                var f = cell.getAttribute('data-field');
+                if (!f || !fields[f]) return;
+                var cur = (lvl[f] != null) ? lvl[f] : '';
+                var input = document.createElement('input');
+                input.className = 'edit-inline';
+                input.value = cur;
+                inputs[f] = input;
+                cell.innerHTML = '';
+                cell.appendChild(input);
+            });
+            var act = tr.querySelector('td:last-child');
+            if (act) {
+                act.innerHTML = '<button class="btn btn-mini" onclick="saveLevel(' + id + ')">✅</button> <button class="btn btn-mini" onclick="cancelEdit(' + id + ')">❌</button>';
+            }
+            tr.querySelector('.edit-inline').focus();
+        }
+
+        function saveLevel(id) {
+            if (!IS_ADMIN) return;
+            var tr = document.querySelector('#gd-table tbody tr[data-id="' + id + '"]');
+            if (!tr) return;
+            var inputs = {};
+            tr.querySelectorAll('td[data-field] input').forEach(function(input) {
+                inputs[input.closest('td').getAttribute('data-field')] = input.value.trim();
+            });
+            var pos = parseInt(inputs.position, 10);
+            if (!pos || pos < 1) { alert('Позиция должна быть положительным числом'); return; }
+            if (!inputs.name) { alert('Название не может быть пустым'); return; }
+            var xhr = new XMLHttpRequest();
+            xhr.open('PUT', '/api/gd/admin/level/' + id);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { alert('❌ ' + r.error); return; }
+                    loadLeaderboard();
+                } catch(e) { alert('Ошибка'); }
+            };
+            xhr.onerror = function() { alert('Ошибка сети'); };
+            xhr.send(JSON.stringify({name: inputs.name, position: pos, difficulty: inputs.difficulty || 'Unknown'}));
+        }
+
+        function cancelEdit(id) {
+            if (!IS_ADMIN) return;
+            loadLeaderboard();
+        }
+
+        function deleteLevel(id, btn) {
+            if (!IS_ADMIN) return;
+            var name = '';
+            for (var i = 0; i < LB_LEVELS.length; i++) { if (LB_LEVELS[i].id === id) { name = LB_LEVELS[i].name || ''; break; } }
+            if (!confirm('⚠️ Удалить уровень «' + name + '» из топа?')) return;
+            var typed = prompt('Для подтверждения введите название уровня («' + name + '»):');
+            if (typed === null) return;
+            if (typed.trim().toLowerCase() !== name.trim().toLowerCase()) { alert('❌ Название не совпадает. Удаление отменено.'); return; }
+            if (btn) btn.disabled = true;
+            var xhr = new XMLHttpRequest();
+            xhr.open('DELETE', '/api/gd/admin/level/' + id);
+            if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
+            xhr.onload = function() {
+                try {
+                    var r = JSON.parse(xhr.responseText);
+                    if (r.error) { alert('❌ ' + r.error); return; }
+                    alert('✅ Уровень удалён');
+                    loadLeaderboard();
+                } catch(e) { alert('Ошибка'); }
+            };
+            xhr.onerror = function() { alert('Ошибка сети'); };
             xhr.send();
         }
 
@@ -4382,6 +5126,22 @@ def gd_page():
             xhr.onerror = function() { alert('Ошибка сети'); };
             xhr.send(JSON.stringify({user_id: USER_ID, submission_id: id}));
         }
+        function showRegNotice() {
+            try {
+                if (sessionStorage.getItem('reg_notice_shown')) return;
+                sessionStorage.setItem('reg_notice_shown', '1');
+                var re = document.getElementById('hub-reg-notice');
+                if (!re) {
+                    re = document.createElement('div');
+                    re.id = 'hub-reg-notice';
+                    re.style.cssText = 'position:fixed;top:70px;right:20px;z-index:100000;background:#1a1a2e;border:1px solid #ffc107;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;';
+                    re.innerHTML = '📝 Зарегистрируйтесь, чтобы сохранить прогресс <a href="/account" style="color:#ffc107;font-weight:700;">Зарегистрироваться</a><button onclick="this.parentNode.remove()" style="float:right;cursor:pointer;border:none;background:none;color:#aaa;font-size:16px;line-height:1;">✕</button>';
+                    document.body.appendChild(re);
+                }
+                clearTimeout(re._t);
+                re._t = setTimeout(function() { re.style.display = 'none'; }, 6000);
+            } catch(e) {}
+        }
         function hubTrack(module, actions) {
             actions = actions || 1;
             var token = localStorage.getItem('web_token') || '';
@@ -4392,8 +5152,24 @@ def gd_page():
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
                         body: JSON.stringify({ module: module, actions: actions })
+                    }).then(function(r) { return r.json(); }).then(function(d) {
+                        if (d && d.unlocked_detail && d.unlocked_detail.length) {
+                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var pe = document.getElementById('hub-popup');
+                            if (!pe) {
+                                pe = document.createElement('div');
+                                pe.id = 'hub-popup';
+                                pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                                document.body.appendChild(pe);
+                            }
+                            pe.innerHTML = '🏆 ' + names.join('<br>');
+                            pe.style.display = 'block';
+                            clearTimeout(pe._t);
+                            pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+                        }
                     }).catch(function() {});
                 } else {
+                    showRegNotice();
                     var today = new Date();
                     var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
                     var acts = {};
@@ -4440,6 +5216,66 @@ def api_gd_leaderboard():
     except Exception as exc:
         print(f"GD leaderboard difficulty enrich error: {exc}")
     return jsonify(levels)
+
+
+@app.route("/api/gd/admin/level/<int:level_id>", methods=["DELETE"])
+def api_gd_admin_level_delete(level_id: int):
+    """Admin: delete a GD level (and related completions/stats)."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            lvl = conn.execute(
+                text("SELECT id FROM levels WHERE id = :lid"), {"lid": level_id}
+            ).mappings().first()
+            if not lvl:
+                return jsonify({"error": "Уровень не найден"}), 404
+            conn.execute(text("DELETE FROM level_completions WHERE level_id = :lid"), {"lid": level_id})
+            conn.execute(text("UPDATE player_stats SET hardest_level_id = NULL WHERE hardest_level_id = :lid"), {"lid": level_id})
+            conn.execute(text("DELETE FROM levels WHERE id = :lid"), {"lid": level_id})
+            conn.commit()
+            return jsonify({"ok": True})
+    except Exception as exc:
+        print(f"[GD] admin delete level error: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/gd/admin/level/<int:level_id>", methods=["PUT"])
+def api_gd_admin_level_update(level_id: int):
+    """Admin: edit a GD level (name/position/difficulty)."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    position = int(data.get("position") or 0)
+    difficulty = (data.get("difficulty") or "").strip() or None
+    if not name:
+        return jsonify({"error": "Название не может быть пустым"}), 400
+    if position < 1:
+        return jsonify({"error": "Позиция должна быть положительным числом"}), 400
+    try:
+        with get_db_engine().connect() as conn:
+            lvl = conn.execute(
+                text("SELECT id, position FROM levels WHERE id = :lid"), {"lid": level_id}
+            ).mappings().first()
+            if not lvl:
+                return jsonify({"error": "Уровень не найден"}), 404
+            duplicate = conn.execute(
+                text("SELECT id FROM levels WHERE LOWER(TRIM(name)) = :key AND id != :lid"),
+                {"key": _gd_norm_name(name), "lid": level_id},
+            ).mappings().first()
+            if duplicate:
+                return jsonify({"error": "Уровень с таким названием уже есть в топе"}), 409
+            _gd_shift_positions(conn, position, exclude_id=level_id)
+            conn.execute(
+                text("UPDATE levels SET name=:nm, position=:pos, difficulty=COALESCE(:diff, difficulty) WHERE id=:lid"),
+                {"lid": level_id, "nm": name, "pos": position, "diff": difficulty},
+            )
+            conn.commit()
+            return jsonify({"ok": True, "id": level_id})
+    except Exception as exc:
+        print(f"[GD] admin update level error: {exc}")
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/gd/my_stats")
@@ -4941,6 +5777,22 @@ def dnd_page():
 
         refreshStatus();
 
+        function showRegNotice() {
+            try {
+                if (sessionStorage.getItem('reg_notice_shown')) return;
+                sessionStorage.setItem('reg_notice_shown', '1');
+                var re = document.getElementById('hub-reg-notice');
+                if (!re) {
+                    re = document.createElement('div');
+                    re.id = 'hub-reg-notice';
+                    re.style.cssText = 'position:fixed;top:70px;right:20px;z-index:100000;background:#1a1a2e;border:1px solid #ffc107;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;';
+                    re.innerHTML = '📝 Зарегистрируйтесь, чтобы сохранить прогресс <a href="/account" style="color:#ffc107;font-weight:700;">Зарегистрироваться</a><button onclick="this.parentNode.remove()" style="float:right;cursor:pointer;border:none;background:none;color:#aaa;font-size:16px;line-height:1;">✕</button>';
+                    document.body.appendChild(re);
+                }
+                clearTimeout(re._t);
+                re._t = setTimeout(function() { re.style.display = 'none'; }, 6000);
+            } catch(e) {}
+        }
         function hubTrack(module, actions) {
             actions = actions || 1;
             var token = localStorage.getItem('web_token') || '';
@@ -4951,8 +5803,24 @@ def dnd_page():
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
                         body: JSON.stringify({ module: module, actions: actions })
+                    }).then(function(r) { return r.json(); }).then(function(d) {
+                        if (d && d.unlocked_detail && d.unlocked_detail.length) {
+                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var pe = document.getElementById('hub-popup');
+                            if (!pe) {
+                                pe = document.createElement('div');
+                                pe.id = 'hub-popup';
+                                pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                                document.body.appendChild(pe);
+                            }
+                            pe.innerHTML = '🏆 ' + names.join('<br>');
+                            pe.style.display = 'block';
+                            clearTimeout(pe._t);
+                            pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+                        }
                     }).catch(function() {});
                 } else {
+                    showRegNotice();
                     var today = new Date();
                     var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
                     var acts = {};
@@ -5378,6 +6246,8 @@ def endings_trainer():
         .result-badge { text-align: center; font-size: 20px; font-weight: 700; padding: 12px; border-radius: 10px; margin-top: 16px; display: none; }
         .result-badge.pass { background: #eafff0; color: #27ae60; display: block; }
         .result-badge.fail { background: #ffeaea; color: #e74c3c; display: block; }
+        .notice { display: none; margin-top: 16px; padding: 12px 16px; background: #fff8e1; border: 1px solid #ffd54f; border-radius: 10px; color: #7a5c00; font-size: 14px; text-align: center; }
+        .notice button { margin-left: 8px; padding: 6px 14px; font-size: 14px; }
         @media (max-width: 600px) {
             .container { padding: 16px; }
             .exercise-text { font-size: 18px; }
@@ -5398,6 +6268,10 @@ def endings_trainer():
         </div>
 
         <div id="exercise-screen">
+            <div id="notice" class="notice">
+                <span id="notice-text"></span>
+                <button class="btn btn-secondary" onclick="generateExercise()">Повторить с ИИ</button>
+            </div>
             <div id="exercise-content" class="exercise-text"></div>
             <div id="result" class="result-badge"></div>
             <div class="actions">
@@ -5430,13 +6304,32 @@ def endings_trainer():
                 segments = data.segments;
                 originalText = data.original;
                 renderExercise();
+                if (data.fallback) {
+                    showNotice(data.notice || 'AI временно недоступен — упражнение создано автоматически.');
+                } else {
+                    hideNotice();
+                }
             })
             .catch(err => {
-                document.getElementById('exercise-content').innerHTML = '<div style="color:#e74c3c;text-align:center;">Ошибка: ' + err.message + '</div>';
+                hideNotice();
+                document.getElementById('exercise-content').innerHTML = '<div style="color:#e74c3c;text-align:center;padding:20px;">' +
+                    '<div style="font-size:18px;font-weight:600;margin-bottom:10px;">Не удалось создать упражнение</div>' +
+                    '<div style="margin-bottom:16px;color:#555;">' + escapeHtml(err.message) + '</div>' +
+                    '<button class="btn btn-primary" onclick="generateExercise()">Повторить</button></div>';
             });
         }
 
+        function showNotice(msg) {
+            document.getElementById('notice-text').textContent = msg;
+            document.getElementById('notice').style.display = 'block';
+        }
+
+        function hideNotice() {
+            document.getElementById('notice').style.display = 'none';
+        }
+
         function renderExercise() {
+            hideNotice();
             let html = '';
             let idx = 0;
             for (const seg of segments) {
@@ -5482,6 +6375,7 @@ def endings_trainer():
         }
 
         function resetAll() {
+            hideNotice();
             document.getElementById('input-screen').style.display = 'block';
             document.getElementById('exercise-screen').style.display = 'none';
             document.getElementById('result').className = 'result-badge';
@@ -6089,6 +6983,30 @@ def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
     )
 
 
+def _pc_extract_reply(resp: "requests.Response") -> str:
+    """Extract text reply from a Groq/OpenAI chat completion response, tolerating all formats."""
+    try:
+        data = resp.json()
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    choices = data.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        return ""
+    msg = choices[0].get("message")
+    if not isinstance(msg, dict):
+        return ""
+    content = msg.get("content")
+    if isinstance(content, list):
+        return " ".join(
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return content or ""
+
+
 def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
     """Run the agent loop: AI may call tools, results are fed back. Returns {reply, images}."""
     char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
@@ -6100,7 +7018,10 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
     groq_messages = [{"role": "system", "content": system_msg}]
     for m in messages[-12:]:
         if m.get("role") in ("user", "assistant"):
-            groq_messages.append({"role": m["role"], "content": m.get("content", "")})
+            content = m.get("content", "")
+            if isinstance(content, str) and len(content) > 4000:
+                content = content[:4000] + "…"
+            groq_messages.append({"role": m["role"], "content": content})
 
     images: list[str] = []
     groq_key = os.getenv("GROQ_API_KEY")
@@ -6149,13 +7070,20 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
                 if resp is None:
                     return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
                 if resp.status_code == 200:
-                    msg = resp.json()["choices"][0]["message"]
-                    content = msg.get("content")
-                    if isinstance(content, list):
-                        content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("type") == "text")
-                    return {"reply": str(content or "…"), "images": images}
+                    content = _pc_extract_reply(resp)
+                    if not content:
+                        return {"reply": "❌ Ошибка AI: пустой ответ модели", "images": images}
+                    return {"reply": content, "images": images}
             return {"reply": f"❌ Ошибка AI: {resp.status_code}", "images": images}
-        msg = resp.json()["choices"][0]["message"]
+        try:
+            data = resp.json()
+        except Exception:
+            return {"reply": "❌ Ошибка AI: не удалось прочитать ответ модели", "images": images}
+        if not isinstance(data, dict) or not data.get("choices"):
+            return {"reply": "❌ Ошибка AI: пустой ответ модели", "images": images}
+        msg = data["choices"][0].get("message")
+        if not isinstance(msg, dict):
+            return {"reply": "❌ Ошибка AI: пустой ответ модели", "images": images}
         tool_calls = msg.get("tool_calls")
         content = msg.get("content")
         if isinstance(content, list):
@@ -6175,7 +7103,11 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
                 result = f"tool '{name}' not found"
                 data_uri = None
             else:
-                result, data_uri = _pc_exec_tool(state, name, args)
+                try:
+                    result, data_uri = _pc_exec_tool(state, name, args)
+                except Exception as exc:
+                    result = f"Ошибка выполнения инструмента {name}: {exc}"
+                    data_uri = None
             if data_uri:
                 images.append(data_uri)
             groq_messages.append(
@@ -6277,6 +7209,7 @@ var CHARS = __CHARS_JSON__;
     var msgInput = document.getElementById('msg-input');
     var welcomeMsg = document.getElementById('welcome-msg');
     var chatHistory = [];
+    try { chatHistory = JSON.parse(localStorage.getItem('ai_chat_history') || '[]') || []; } catch(e) { chatHistory = []; }
     var pendingFiles = [];
     var USER_ID = localStorage.getItem('web_user_id');
     if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
@@ -6375,12 +7308,14 @@ xhr.onload = function() {
                 var reply = typeof r.reply === 'string' ? r.reply : String(r.reply ?? '');
                 var images = Array.isArray(r.images) ? r.images : [];
                 addMsg('bot', reply, images);
-                history.push({role: 'user', content: text});
-                history.push({role: 'assistant', content: reply});
-                if (history.length > 20) history = history.slice(-20);
+                chatHistory.push({role: 'user', content: text});
+                chatHistory.push({role: 'assistant', content: reply});
+                if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+                try { localStorage.setItem('ai_chat_history', JSON.stringify(chatHistory)); } catch(e) {}
             } catch(e) {
                 console.error('AI Chat: parse error', e, xhr.responseText);
-                addMsg('bot', 'Ошибка ответа.');
+                var detail = (e && e.message) ? e.message : 'неизвестная ошибка';
+                addMsg('bot', 'Ошибка ответа. ' + detail);
             }
         };
         xhr.onerror = function() {
@@ -6394,6 +7329,7 @@ xhr.onload = function() {
 
     document.getElementById('send-btn').addEventListener('click', sendMsg);
     document.getElementById('msg-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') sendMsg(); });
+    chatHistory.forEach(function(m) { if (m && m.role && m.content) addMsg(m.role === 'user' ? 'user' : 'bot', m.content); });
     updateCharInfo();
 </script>
 </body>
@@ -6464,7 +7400,8 @@ def api_ai_chat():
         print(f"API ai_chat error: {exc}")
         import traceback
         traceback.print_exc()
-        return jsonify({"reply": f"❌ Внутренняя ошибка сервера: {exc}", "images": []}), 500
+        msg = f"❌ Внутренняя ошибка сервера: {exc}"
+        return jsonify({"error": msg, "reply": msg, "images": []}), 500
 
 
 # ===== Chess =====
@@ -6645,6 +7582,7 @@ def chess_page():
                     try { r = JSON.parse(x.responseText); } catch(e) { r = {}; }
                     if (x.status === 200 && r.ok) {
                         document.getElementById('link-msg').innerHTML = '<div class="msg ok">✅ Аккаунт привязан!</div>';
+                        hubTrack('chess', 0, ['chess_link']);
                         loadStats();
                     } else if (x.status === 409 && r.conflict) {
                         document.getElementById('link-msg').innerHTML =
@@ -6661,6 +7599,7 @@ def chess_page():
                                 try { r2 = JSON.parse(x2.responseText); } catch(e) { r2 = {}; }
                                 if (x2.status === 200 && r2.ok) {
                                     document.getElementById('link-msg').innerHTML = '<div class="msg ok">✅ Аккаунт перенесён на вас!</div>';
+                                    hubTrack('chess', 0, ['chess_link']);
                                     loadStats();
                                 } else {
                                     document.getElementById('link-msg').innerHTML = '<div class="msg err">' + esc(r2.error || 'Не удалось привязать аккаунт.') + '</div>';
@@ -6701,6 +7640,7 @@ def chess_page():
                 if (g.total > 0) html += '<div class="stat-row"><span class="label">Всего игр</span><span class="value">' + esc(g.total) + ' (✅' + esc(g.win) + ' ❌' + esc(g.loss) + ' 🤝' + esc(g.draw) + ')</span></div>';
                 html += '</div>';
                 result.innerHTML = html;
+                hubTrack('chess', 0, ['chess_search']);
             } else {
                 var r;
                 try { r = JSON.parse(xhr.responseText); } catch(e) { r = {}; }
@@ -6763,8 +7703,25 @@ def chess_page():
             x.onerror = function() { checkBtn.disabled = false; msg.innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
             x.send(JSON.stringify({user_id: USER_ID, move: move}));
         }
-        function hubTrack(module, actions) {
+        function showRegNotice() {
+            try {
+                if (sessionStorage.getItem('reg_notice_shown')) return;
+                sessionStorage.setItem('reg_notice_shown', '1');
+                var re = document.getElementById('hub-reg-notice');
+                if (!re) {
+                    re = document.createElement('div');
+                    re.id = 'hub-reg-notice';
+                    re.style.cssText = 'position:fixed;top:70px;right:20px;z-index:100000;background:#1a1a2e;border:1px solid #ffc107;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;';
+                    re.innerHTML = '📝 Зарегистрируйтесь, чтобы сохранить прогресс <a href="/account" style="color:#ffc107;font-weight:700;">Зарегистрироваться</a><button onclick="this.parentNode.remove()" style="float:right;cursor:pointer;border:none;background:none;color:#aaa;font-size:16px;line-height:1;">✕</button>';
+                    document.body.appendChild(re);
+                }
+                clearTimeout(re._t);
+                re._t = setTimeout(function() { re.style.display = 'none'; }, 6000);
+            } catch(e) {}
+        }
+        function hubTrack(module, actions, events) {
             actions = actions || 1;
+            events = events || [];
             var token = localStorage.getItem('web_token') || '';
             var uid = localStorage.getItem('web_user_id') || '';
             try {
@@ -6772,9 +7729,25 @@ def chess_page():
                     fetch('/api/achievements/activity', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
-                        body: JSON.stringify({ module: module, actions: actions })
+                        body: JSON.stringify({ module: module, actions: actions, events: events })
+                    }).then(function(r) { return r.json(); }).then(function(d) {
+                        if (d && d.unlocked_detail && d.unlocked_detail.length) {
+                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var pe = document.getElementById('hub-popup');
+                            if (!pe) {
+                                pe = document.createElement('div');
+                                pe.id = 'hub-popup';
+                                pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                                document.body.appendChild(pe);
+                            }
+                            pe.innerHTML = '🏆 ' + names.join('<br>');
+                            pe.style.display = 'block';
+                            clearTimeout(pe._t);
+                            pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+                        }
                     }).catch(function() {});
                 } else {
+                    showRegNotice();
                     var today = new Date();
                     var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
                     var acts = {};
@@ -6984,6 +7957,10 @@ def register_page():
             <p>Регистрация для синхронизации данных между устройствами</p>
         </div>
         <div class="form-group">
+            <label>Email <span class="req">*</span></label>
+            <input type="email" id="reg-email" placeholder="example@domain.com" autocomplete="email">
+        </div>
+        <div class="form-group">
             <label>Логин <span class="req">*</span></label>
             <input type="text" id="reg-login" placeholder="например: lucas" autocomplete="username">
         </div>
@@ -7036,15 +8013,18 @@ def register_page():
         var nameVal = document.getElementById('reg-name').value.trim();
         var gdVal = document.getElementById('reg-gd').value.trim();
         var lichessVal = document.getElementById('reg-lichess').value.trim();
+        var emailVal = document.getElementById('reg-email').value.trim();
         if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
         if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
         if (lichessVal.length > 50) { showToast('Lichess ник слишком длинный (макс. 50 символов)', true); return; }
+        if (!emailVal) { showToast('Email обязателен', true); return; }
         var payload = {
             login: login,
             password: password,
             display_name: nameVal || null,
             gd_nickname: gdVal || null,
-            lichess_nickname: lichessVal || null
+            lichess_nickname: lichessVal || null,
+            email: emailVal || null
         };
         document.querySelector('.btn').disabled = true;
         fetch('/api/auth/register', {
@@ -7265,7 +8245,7 @@ def account_page():
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (d.error) { box.innerHTML = '<b>Достижения</b><div class="hint">' + esc(d.error) + '</div>'; return; }
-                var unlocked = d.unlocked || [];
+                var unlocked = d.unlocked_count || 0;
                 var cal = d.calendar || [];
                 var streak = d.streak || {};
                 var calHtml = '';
@@ -7275,7 +8255,7 @@ def account_page():
                 });
                 box.innerHTML = '<div class="ach-head">' +
                     '<div class="ach-title">🏆 Достижения</div>' +
-                    '<div class="ach-stats">открыто <b>' + unlocked.length + '</b> из ' + (d.total || 0) + ' · серия <b>' + (streak.current || 0) + '</b> дн.</div>' +
+                    '<div class="ach-stats">открыто <b>' + unlocked + '</b> из ' + (d.total_count || 0) + ' · серия <b>' + (streak.current || 0) + '</b> дн.</div>' +
                     '</div>' +
                     '<div class="ach-cal">' + calHtml + '</div>' +
                     '<a class="btn btn-secondary" href="/achievements">Смотреть все достижения</a>';
@@ -7484,15 +8464,20 @@ def api_auth_register():
     data = request.get_json(silent=True) or {}
     login = (data.get("login") or "").strip().lower()
     password = data.get("password") or ""
+    email = (data.get("email") or "").strip()
     if not login or not password:
         return jsonify({"error": "Логин и пароль обязательны"}), 400
+    if not email:
+        return jsonify({"error": "Email обязателен"}), 400
     if len(login) < 3:
         return jsonify({"error": "Логин минимум 3 символа"}), 400
     if len(password) < 6:
         return jsonify({"error": "Пароль минимум 6 символов"}), 400
     if not re.match(r"^[a-z0-9_]+$", login):
         return jsonify({"error": "Логин: только латиница, цифры и _"}), 400
-
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        return jsonify({"error": "Неверный формат email"}), 400
+    
     display_name = (data.get("display_name") or "").strip() or login
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
     lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
@@ -7502,7 +8487,7 @@ def api_auth_register():
         return jsonify({"error": "GD ник слишком длинный (макс. 50 символов)"}), 400
     if lichess_nickname and len(lichess_nickname) > 50:
         return jsonify({"error": "Lichess ник слишком длинный (макс. 50 символов)"}), 400
-
+    
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -7513,8 +8498,8 @@ def api_auth_register():
                 return jsonify({"error": "Логин уже занят"}), 409
             result = conn.execute(
                 text("""
-                    INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, is_admin)
-                    VALUES (:login, :hash, :name, :gd, :tg, :lichess, FALSE)
+                    INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, email, is_admin)
+                    VALUES (:login, :hash, :name, :gd, :tg, :lichess, :email, FALSE)
                     RETURNING id
                 """),
                 {
@@ -7524,6 +8509,7 @@ def api_auth_register():
                     "gd": gd_nickname,
                     "tg": None,
                     "lichess": lichess_nickname,
+                    "email": email,
                 },
             )
             user_id = result.scalar()
@@ -8214,7 +9200,7 @@ def trivia_page():
     </div>
     <script>
         (function() {
-            var score = 0, total = 0;
+            var score = 0, total = 0, currentSession = null;
             (function() {
                 var s = localStorage.getItem('trivia_score');
                 if (s) { var p = s.split('/'); score = parseInt(p[0]) || 0; total = parseInt(p[1]) || 0; }
@@ -8227,7 +9213,6 @@ def trivia_page():
                 document.getElementById('next-btn').style.display = 'none';
                 document.getElementById('question').textContent = '\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...';
                 document.getElementById('options').innerHTML = '';
-                var currentSession = null;
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/trivia/question');
                 xhr.setRequestHeader('Content-Type', 'application/json');
@@ -8295,6 +9280,22 @@ def trivia_page():
                 xhr.timeout = 20000;
                 xhr.send(JSON.stringify({session_id: currentSession, answer_index: idx}));
             }
+            function showRegNotice() {
+                try {
+                    if (sessionStorage.getItem('reg_notice_shown')) return;
+                    sessionStorage.setItem('reg_notice_shown', '1');
+                    var re = document.getElementById('hub-reg-notice');
+                    if (!re) {
+                        re = document.createElement('div');
+                        re.id = 'hub-reg-notice';
+                        re.style.cssText = 'position:fixed;top:70px;right:20px;z-index:100000;background:#1a1a2e;border:1px solid #ffc107;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;';
+                        re.innerHTML = '📝 Зарегистрируйтесь, чтобы сохранить прогресс <a href="/account" style="color:#ffc107;font-weight:700;">Зарегистрироваться</a><button onclick="this.parentNode.remove()" style="float:right;cursor:pointer;border:none;background:none;color:#aaa;font-size:16px;line-height:1;">✕</button>';
+                        document.body.appendChild(re);
+                    }
+                    clearTimeout(re._t);
+                    re._t = setTimeout(function() { re.style.display = 'none'; }, 6000);
+                } catch(e) {}
+            }
             function hubTrack(module, actions) {
                 actions = actions || 1;
                 var token = localStorage.getItem('web_token') || '';
@@ -8305,8 +9306,24 @@ def trivia_page():
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
                             body: JSON.stringify({ module: module, actions: actions })
+                        }).then(function(r) { return r.json(); }).then(function(d) {
+                            if (d && d.unlocked_detail && d.unlocked_detail.length) {
+                                var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                                var pe = document.getElementById('hub-popup');
+                                if (!pe) {
+                                    pe = document.createElement('div');
+                                    pe.id = 'hub-popup';
+                                    pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                                    document.body.appendChild(pe);
+                                }
+                                pe.innerHTML = '🏆 ' + names.join('<br>');
+                                pe.style.display = 'block';
+                                clearTimeout(pe._t);
+                                pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+                            }
                         }).catch(function() {});
                     } else {
+                        showRegNotice();
                         var today = new Date();
                         var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
                         var acts = {};
@@ -8408,6 +9425,10 @@ def emperors_page():
         .modal .m-close:hover { border-color: #e94560; color: #e94560; }
         .modal .m-body { font-size: 14px; line-height: 1.6; color: #c8d2e0; }
         .question { font-size: 18px; line-height: 1.6; margin-bottom: 20px; min-height: 24px; }
+        .diff-badge { display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }
+        .diff-stars { color: #f1c40f; letter-spacing: 1px; font-size: 15px; }
+        .diff-pts { background: #0f3460; border: 1px solid #1a5276; color: #e0e0e0; border-radius: 8px; padding: 2px 8px; font-weight: 600; }
+        .diff-hint { color: #888; }
         .options { display: flex; flex-direction: column; gap: 10px; }
         .opt-btn { display: block; width: 100%; padding: 14px 18px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 12px; font-size: 15px; cursor: pointer; text-align: left; transition: all 0.15s; }
         .opt-btn:hover:not(:disabled) { background: #1a5276; }
@@ -8518,6 +9539,7 @@ def emperors_page():
                 <div id="debug-list"></div>
             </div>
             <div class="card">
+                <div class="diff-badge" id="diff-badge"></div>
                 <div class="question" id="question">Загрузка...</div>
                 <div class="hint-box" id="hint-box"></div>
                 <div class="options" id="options"></div>
@@ -8823,12 +9845,28 @@ function renderDebug() {
                 });
                 listEl.innerHTML = html;
             }
-function updateScore() {
+function diffInfo() {
+                var pts, level;
+                if (scope === 'all' && optCount === 'all') { level = 3; pts = '+2/−1'; }
+                else if (scope === 'all' && optCount === '5') { level = 2; pts = '+1/−2'; }
+                else { level = 1; pts = '+1/−1'; }
+                var stars = '★'.repeat(level) + '☆'.repeat(Math.max(0, 3 - level));
+                var hint = [];
+                hint.push(scope === 'all' ? 'все правители' : '5 императоров');
+                hint.push(optCount === 'all' ? 'все варианты' : '5 вариантов');
+                if (qdir === 'fromRuler') hint.push('обратный вопрос');
+                return { level: level, stars: stars, label: hint.join(' · '), pts: pts, hint: hint.join(' · ') };
+            }
+            function updateDiffBadge() {
+                var d = diffInfo();
+                var el = document.getElementById('diff-badge');
+                if (el) el.innerHTML = '<span class="diff-stars">' + d.stars + '</span> <span class="diff-pts">' + d.pts + '</span> <span class="diff-hint">' + d.hint + '</span>';
+            }
+            function updateScore() {
                 var s = 'Счёт: ' + quizScore + ' / ' + quizTotal;
                 var lvl = levelInfo();
                 s += ' · ' + lvl.name;
-                if (scope === 'all') s += ' · режим: все правители';
-                if (optCount === 'all') s += ' · сложность: все варианты (+2/−1)';
+                s += ' · ' + diffInfo().pts;
                 if (algo === 'flash') s += ' · к изучению: ' + flashDueCount();
                 if (algo === 'counter') {
                     var weak = 0;
@@ -8886,30 +9924,25 @@ function updateScore() {
                 localStorage.setItem(hubStreakKey(), JSON.stringify({ day: dayStr, days: days }));
             }
 
-            function checkAchievements() {
-                var ach = [];
-                try { ach = JSON.parse(localStorage.getItem('emperors_achievements') || '[]'); } catch(e) { ach = []; }
-                var unlocked = [];
-                var has = function(id) { return ach.indexOf(id) !== -1; };
-                function add(id, label) { if (!has(id)) { ach.push(id); unlocked.push(id + ': ' + label); } }
-                if (quizTotal >= 1) add('first_answer', 'Первый ответ 🎯');
-                if (quizScore >= 20) add('score_20', '20 очков ⭐');
-                if (quizScore >= 100) add('score_100', '100 очков 💎');
-                var streak = getStreak();
-                if (streak.days >= 3) add('streak_3', 'Серия 3 дня 🔥');
-                if (streak.days >= 7) add('streak_7', 'Серия 7 дней 🌟');
-                var mastered = itemsInScope().filter(function(it) { return (recFor(it).reps || 0) >= 3; }).length;
-                var total = itemsInScope().length;
-                if (total && mastered >= total) add('master_all', 'Освоил все карточки 🏆');
-                if (unlocked.length) {
-                    localStorage.setItem('emperors_achievements', JSON.stringify(ach));
-                    renderStats();
-                    alert('🏆 Новые достижения!\\n' + unlocked.join('\\n'));
-                }
+            function showRegNotice() {
+                try {
+                    if (sessionStorage.getItem('reg_notice_shown')) return;
+                    sessionStorage.setItem('reg_notice_shown', '1');
+                    var re = document.getElementById('hub-reg-notice');
+                    if (!re) {
+                        re = document.createElement('div');
+                        re.id = 'hub-reg-notice';
+                        re.style.cssText = 'position:fixed;top:70px;right:20px;z-index:100000;background:#1a1a2e;border:1px solid #ffc107;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;';
+                        re.innerHTML = '📝 Зарегистрируйтесь, чтобы сохранить прогресс <a href="/account" style="color:#ffc107;font-weight:700;">Зарегистрироваться</a><button onclick="this.parentNode.remove()" style="float:right;cursor:pointer;border:none;background:none;color:#aaa;font-size:16px;line-height:1;">✕</button>';
+                        document.body.appendChild(re);
+                    }
+                    clearTimeout(re._t);
+                    re._t = setTimeout(function() { re.style.display = 'none'; }, 6000);
+                } catch(e) {}
             }
-
-            function hubTrack(module, actions) {
+            function hubTrack(module, actions, events) {
                 actions = actions || 1;
+                events = events || [];
                 var token = localStorage.getItem('web_token') || '';
                 var uid = localStorage.getItem('web_user_id') || '';
                 try {
@@ -8917,9 +9950,25 @@ function updateScore() {
                         fetch('/api/achievements/activity', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
-                            body: JSON.stringify({ module: module, actions: actions })
+                            body: JSON.stringify({ module: module, actions: actions, events: events })
+                        }).then(function(r) { return r.json(); }).then(function(d) {
+                            if (d && d.unlocked_detail && d.unlocked_detail.length) {
+                                var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                                var pe = document.getElementById('hub-popup');
+                                if (!pe) {
+                                    pe = document.createElement('div');
+                                    pe.id = 'hub-popup';
+                                    pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                                    document.body.appendChild(pe);
+                                }
+                                pe.innerHTML = '🏆 ' + names.join('<br>');
+                                pe.style.display = 'block';
+                                clearTimeout(pe._t);
+                                pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+                            }
                         }).catch(function() {});
                     } else {
+                        showRegNotice();
                         var today = new Date();
                         var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
                         var acts = {};
@@ -8938,18 +9987,9 @@ function updateScore() {
                 html += '<div>Правильных подряд: <b>' + (quizTotal ? currentStreakCorrect() : 0) + '</b></div>';
                 var streak = getStreak();
                 html += '<div>Серия дней: <b>' + (streak.days || 0) + '</b></div>';
-                var ach = [];
-                try { ach = JSON.parse(localStorage.getItem('emperors_achievements') || '[]'); } catch(e) { ach = []; }
-                var achLabels = {
-                    'first_answer': 'Первый ответ 🎯', 'score_20': '20 очков ⭐', 'score_100': '100 очков 💎',
-                    'streak_3': 'Серия 3 дня 🔥', 'streak_7': 'Серия 7 дней 🌟', 'master_all': 'Освоил все карточки 🏆'
-                };
-                var locked = ['first_answer', 'score_20', 'score_100', 'streak_3', 'streak_7', 'master_all'];
-                html += '<div class="chip-title">Достижения</div><div>';
-                locked.forEach(function(id) {
-                    html += '<span class="chip' + (ach.indexOf(id) !== -1 ? '' : ' locked') + '">' + (ach.indexOf(id) !== -1 ? '✅ ' : '🔒 ') + (achLabels[id] || id) + '</span>';
-                });
-                html += '</div>';
+                if (authToken) {
+                    html += '<div class="chip-title">Достижения</div><div><a class="chip clickable" href="/achievements" style="text-decoration:none">🏆 Смотреть достижения →</a></div>';
+                }
                 html += '<div class="chip-title">Статистика</div>';
                 var totalItems = itemsInScope().length;
                 var mastered = itemsInScope().filter(function(it) { return (recFor(it).reps || 0) >= 3; }).length;
@@ -9047,6 +10087,7 @@ function updateScore() {
                 document.getElementById('hint-box').style.display = 'none';
                 document.getElementById('hint-btn').style.display = 'block';
                 document.getElementById('next-btn').style.display = 'none';
+                updateDiffBadge();
                 currentItem = pickItem();
                 if (!currentItem) {
                     document.getElementById('question').textContent = 'Все карточки изучены на сегодня! 🎉 Переключитесь на «Классика» или нажмите «Сбросить счёт».';
@@ -9112,12 +10153,13 @@ function updateScore() {
                     else if (b === btn) b.classList.add('wrong');
                 });
                 quizTotal++;
+                var pts = diffInfo();
                 if (isCorrect) {
                     streakCorrect++;
-                    quizScore += (optCount === 'all') ? 2 : 1;
+                    quizScore += (pts.level >= 3) ? 2 : 1;
                 } else {
                     streakCorrect = 0;
-                    quizScore += (optCount === 'all') ? -1 : 0;
+                    quizScore += (pts.level === 2) ? -2 : -1;
                 }
                 saveScore();
                 updateScore();
@@ -9140,7 +10182,6 @@ function updateScore() {
                     btn.classList.add('animate-wrong');
                 }
                 updateStreak(isCorrect);
-                checkAchievements();
                 hubTrack('emperors', 1);
                 if (isCorrect) {
                     wrongItems = wrongItems.filter(function(it) { return it.text !== currentItem.text; });
@@ -9320,6 +10361,7 @@ function updateScore() {
                         document.getElementById(ids[t][0]).classList.toggle('active', t === tab);
                         document.getElementById(ids[t][1]).classList.toggle('active', t === tab);
                     });
+                    hubTrack('emperors', 0, ['emperors_mode_' + tab]);
                     if (tab === 'quiz') { loadQuestion(); }
                     if (tab === 'match') { startMatch(); }
                     if (tab === 'chrono') { startChrono(); }
@@ -9349,11 +10391,13 @@ function updateScore() {
                 toggleOptCount: function() {
                     optCount = document.getElementById('opt-count').value;
                     localStorage.setItem('emperors_optcount', optCount);
+                    updateDiffBadge();
                     loadQuestion();
                 },
                 toggleQDir: function() {
                     qdir = document.getElementById('qdir-select').value;
                     localStorage.setItem('emperors_qdir', qdir);
+                    updateDiffBadge();
                     loadQuestion();
                 },
                 startChrono: startChrono,
@@ -9434,7 +10478,184 @@ function updateScore() {
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
-@app.route("/achievements")
+
+@app.route("/math")
+def math_page():
+    import json
+    from core.math.tasks import MATH_TOPICS, task_by_id, tasks_for_topic, get_random_task, get_tasks_by_difficulty
+
+    # Get all topic names for the study tab
+    topic_names = {t.id: t.name for t in MATH_TOPICS}
+
+    # Get all task IDs for the trainer
+    all_task_ids = []
+    for topic in MATH_TOPICS:
+        for task in topic.tasks:
+            all_task_ids.append(task.id)
+
+    # Build topics data for JavaScript
+    topics_data = json.dumps(
+        {
+            "topics": [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "taskCount": len(t.tasks),
+                }
+                for t in MATH_TOPICS
+            ],
+            "allTaskIds": all_task_ids,
+        },
+        ensure_ascii=False,
+    )
+
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Информатика — ОГЭ</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }}
+        .container {{ max-width: 800px; width: 100%; }}
+        .header {{ display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }}
+        .header h1 {{ font-size: 22px; color: #e94560; }}
+        .header a {{ color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }}
+        .header a:hover {{ color: #e94560; }}
+        .tabs {{ display: flex; gap: 8px; margin-bottom: 20px; }}
+        .tab-btn {{ flex: 1; padding: 12px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; cursor: pointer; font-family: inherit; transition: background 0.15s; }}
+        .tab-btn:hover {{ background: #1a5276; }}
+        .tab-btn.active {{ background: #e94560; border-color: #e94560; color: white; }}
+        .panel {{ display: none; }}
+        .panel.active {{ display: block; }}
+        .score {{ text-align: center; color: #888; font-size: 14px; margin-bottom: 16px; }}
+        .topic-card {{ background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 20px; margin-bottom: 16px; }}
+        .topic-card h2 {{ font-size: 18px; color: #e94560; margin-bottom: 8px; }}
+        .topic-card .description {{ color: #888; font-size: 14px; margin-bottom: 12px; }}
+        .topic-card .task-count {{ color: #666; font-size: 12px; }}
+        .task {{ background: #0f3460; border: 1px solid #1a5276; border-radius: 12px; padding: 16px; margin-bottom: 12px; }}
+        .task.question {{ color: #e0e0e0; }}
+        .task.answer {{ display: none; color: #4ade80; }}
+        .task h3 {{ font-size: 16px; margin-bottom: 8px; }}
+        .task .hint {{ color: #6b7280; font-size: 13px; margin-bottom: 8px; }}
+        .task .explanation {{ color: #9ca3af; font-size: 12px; display: none; }}
+        .answer-btn {{ width: 100%; padding: 12px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 10px; font-size: 14px; cursor: pointer; margin-top: 8px; }}
+        .answer-btn.correct {{ background: #1b5e20; border-color: #2e7d32; }}
+        .answer-btn.wrong {{ background: #b71c1c; border-color: #c62828; }}
+        .stats {{ text-align: center; color: #888; margin-top: 24px; font-size: 13px; }}
+        .hint-box {{ background: #0f3460; border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 14px; color: #aaa; line-height: 1.5; display: none; }}
+        .hint-btn {{ display: block; width: 100%; padding: 10px; background: none; border: 1px dashed #1a5276; color: #888; border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10x; font-family: inherit; }}
+        .hint-btn:hover {{ border-color: #f0c040; color: #f0c040; }}
+        .next-btn {{ display: none; width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; font-family: inherit; }}
+        .next-btn:hover {{ background: #d63851; }}
+        .mode-row {{ display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center; flex-wrap: wrap; }}
+        .mode-row label {{ display: flex; align-items: center; gap: 6px; font-size: 14px; color: #e0e0e0; cursor: pointer; }}
+        .diff-select {{ background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: inherit; cursor: pointer; }}
+        .progress-bar {{ flex: 1; height: 8px; background: #0f3460; border-radius: 6px; overflow: hidden; }}
+        .progress-fill {{ height: 100%; background: #e94560; width: 0%; transition: width 0.25s; }}
+        .progress-label {{ font-size: 12px; color: #888; white-space: nowrap; }}
+        .diff-badge {{ display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }}
+        .diff-stars {{ color: #f1c40f; letter-spacing: 1px; font-size: 15px; }}
+        .diff-pts {{ background: #0f3460; border: 1px solid #1a5276; color: #e0e0e0; border-radius: 8px; padding: 2px 8px; font-weight: 600; }}
+        .info {{ background: #0f3460; border-radius: 12px; padding: 16px; margin-top: 16px; font-size: 14px; line-height: 1.5; color: #aaa; display: none; }}
+        .info .info-label {{ color: #e94560; font-weight: 600; }}
+        .stats-card {{ font-size: 13px; color: #aaa; }}
+        .stats-card .stat-line {{ margin: 4px 0; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Информатика — ОГЭ</h1>
+            <a href="/">← Назад на хаб</a>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="study">📚 Изучить</button>
+            <button class="tab-btn" data-tab="trainer">🧠 Тренажер</button>
+        </div>
+
+        <!-- Study Tab: Browse topics -->
+        <div id="panel-study" class="panel active">
+            <div class="score" id="study-score">Тема: —</div>
+            <div class="topics-grid" id="topics-grid"></div>
+        </div>
+
+        <!-- Trainer Tab: Solve problems -->
+        <div id="panel-trainer" class="panel">
+            <div class="score" id="trainer-score">Балл: 0/<span id="trainer-total">0</span></div>
+            <div class="hint-box" id="hint-box">
+                <button class="hint-btn" id="hint-btn">Подсказка</button>
+            </div>
+            <div class="task" id="current-task">
+                <h3>Выберите тему и нажмите «Получить задачу»</h3>
+            </div>
+            <button class="answer-btn" id="answer-btn">Ответить</button>
+            <div class="stats" id="stats"></div>
+            <button class="next-btn" id="next-btn">Следующая задача</button>
+        </div>
+
+    </div>
+
+    <script>
+        // Initialize state
+        let currentTopic = "{list(topic_names.keys())[0] if topic_names else ''}";
+        let currentTaskIndex = 0;
+        let correctStreak = 0;
+        let totalSolved = 0;
+        let wrongAnswers = 0;
+        let hubActivity = JSON.parse(localStorage.getItem('hub_activity') || '{}');
+
+        // Load topics data
+        const topicsData = {topics_data};
+        const topicNames = {{{" + " + "'".join(f"'{k}': '{v}'" for k, v in topic_names.items())} + "};
+
+        // Render study tab
+        function renderStudyTab() {{
+            const grid = document.getElementById('topics-grid');
+            grid.innerHTML = '';
+            topicsData.topics.forEach(topic => {{
+                const card = document.createElement('div');
+                card.className = 'topic-card';
+                card.innerHTML = `<h2>{{topic.name}}</h2><p class='description'>{{topic.description}}</p><p class='task-count'>Задач: {{topic.taskCount}}</p><button class='tab-btn' onclick='loadTopic("{topic.id}")'>Открыть</button>`;
+                grid.appendChild(card);
+            }});
+        }}
+
+        // Load a specific topic
+        function loadTopic(topicId) {{
+            currentTopic = topicId;
+            document.getElementById('study-score').innerText = 'Тема: ' + topicNames[topicId] || topicId;
+            // Show tasks for this topic
+            const topic = topicsData.topics.find(t => t.id === topicId);
+            if (topic) {{
+                const grid = document.getElementById('topics-grid');
+                grid.innerHTML = '';
+                topic.tasks.forEach((task, index) => {{
+                    const taskDiv = document.createElement('div');
+                    taskDiv.className = 'task';
+                    taskDiv.innerHTML = `<h3>{{task.question}}</h3><p class='hint'>{{task.hint}}</p><button class='answer-btn' onclick='showAnswer({{index}}')'>Ответить</button>`;
+                    grid.appendChild(taskDiv);
+                }});
+            }}
+        }}
+
+        // Show answer for a task
+        function showAnswer(taskIndex) {{
+            // Simple implementation - mark as answered
+            alert('Ответ: ' + 'See API');
+        }}
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {{
+            renderStudyTab();
+        }});
+    </script>
+</body>
+</html>
+"""@app.route("/achievements")
 def achievements_page():
     """Unified achievements & streak page: unlocked and upcoming badges + calendar."""
     html = """<!DOCTYPE html>
@@ -9464,6 +10685,10 @@ def achievements_page():
         .cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; }
         .cal-dow span { font-size: 11px; color: #7f8fa6; text-align: center; }
         .ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+        .ach-section { margin-bottom: 18px; }
+        .ach-sec-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        .ach-sec-title::before { content: ''; width: 4px; height: 16px; background: #f0c040; border-radius: 2px; }
+        .ach-sec-count { font-size: 12px; color: #9fb3c8; font-weight: 400; }
         .ach { background: #0f3460; border: 1px solid #1a5276; border-radius: 12px; padding: 12px; display: flex; gap: 10px; align-items: flex-start; transition: all 0.15s; }
         .ach.locked { opacity: 0.55; }
         .ach .icon { font-size: 26px; flex-shrink: 0; }
@@ -9538,17 +10763,17 @@ def achievements_page():
                 }
                 document.getElementById('calendar').innerHTML = html;
             }
+            var modNames = { all: 'Все', trivia: '🧠 Викторина', emperors: '👑 Императоры', reading: '📖 Чтение', verbs: '🔤 Глаголы', chess: '♟️ Шахматы', canon: '📜 Канон', prayer: '🙏 Молитва', gd: '🎮 GD', dnd: '🎲 D&D', system: '⚙️ Система', streak: '🔥 Серии', coins: '💰 Монеты' };
+            var modOrder = ['system', 'streak', 'coins', 'trivia', 'emperors', 'reading', 'verbs', 'chess', 'canon', 'prayer', 'gd', 'dnd'];
             function render(data) {
                 document.getElementById('stat-unlocked').textContent = data.unlocked_count;
                 document.getElementById('stat-total').textContent = data.total_count;
                 document.getElementById('stat-current').textContent = data.streak.current;
                 document.getElementById('stat-longest').textContent = data.streak.longest;
                 renderCalendar(data.calendar);
-                var mods = ['all'].concat(data.modules);
                 var filter = document.getElementById('module-filter');
                 filter.innerHTML = '';
-                var modNames = { all: 'Все', trivia: '🧠 Викторина', emperors: '👑 Императоры', reading: '📖 Чтение', verbs: '🔤 Глаголы', chess: '♟️ Шахматы', canon: '📜 Канон', prayer: '🙏 Молитва', gd: '🎮 GD', dnd: '🎲 D&D', system: '⚙️ Система', streak: '🔥 Серии', coins: '💰 Монеты' };
-                mods.forEach(function(m) {
+                ['all'].concat(modOrder).forEach(function(m) {
                     var b = document.createElement('button');
                     b.className = 'mf-btn' + (m === 'all' ? ' active' : '');
                     b.textContent = modNames[m] || m;
@@ -9564,14 +10789,28 @@ def achievements_page():
             function renderAch(data, module) {
                 var grid = document.getElementById('ach-grid');
                 grid.innerHTML = '';
-                var list = data.achievements.filter(function(a){ return module === 'all' || a.module === module; });
-                if (!list.length) { grid.innerHTML = '<div class="empty">Нет достижений в этой категории.</div>'; return; }
-                list.forEach(function(a) {
+                var achEl = function(a) {
                     var el = document.createElement('div');
                     el.className = 'ach' + (a.unlocked ? ' unlocked' : ' locked');
                     el.innerHTML = '<div class="icon">' + (a.icon || '🎖️') + '</div><div><div class="name">' + esc(a.name) + '</div><div class="desc">' + esc(a.desc) + '</div><div class="module-tag">' + (a.unlocked ? '✅ открыто' : '🔒 впереди') + '</div></div>';
-                    grid.appendChild(el);
+                    return el;
+                };
+                var mods = module === 'all' ? modOrder : [module];
+                var any = false;
+                mods.forEach(function(m) {
+                    var list = data.achievements.filter(function(a){ return a.module === m; });
+                    if (!list.length) return;
+                    any = true;
+                    var sec = document.createElement('div');
+                    sec.className = 'ach-section';
+                    sec.innerHTML = '<div class="ach-sec-title">' + (modNames[m] || m) + ' <span class="ach-sec-count">' + list.filter(function(a){ return a.unlocked; }).length + '/' + list.length + '</span></div>';
+                    var g = document.createElement('div');
+                    g.className = 'ach-grid';
+                    list.forEach(function(a) { g.appendChild(achEl(a)); });
+                    sec.appendChild(g);
+                    grid.appendChild(sec);
                 });
+                if (!any) { grid.innerHTML = '<div class="empty">Нет достижений в этой категории.</div>'; }
             }
             fetch('/api/achievements', { headers: { 'X-Auth-Token': token } })
                 .then(function(r) { return r.json(); })
@@ -9770,6 +11009,22 @@ def daily_prayer_page():
     <script>
         var USER_ID = localStorage.getItem('web_user_id');
         if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
+        function showRegNotice() {
+            try {
+                if (sessionStorage.getItem('reg_notice_shown')) return;
+                sessionStorage.setItem('reg_notice_shown', '1');
+                var re = document.getElementById('hub-reg-notice');
+                if (!re) {
+                    re = document.createElement('div');
+                    re.id = 'hub-reg-notice';
+                    re.style.cssText = 'position:fixed;top:70px;right:20px;z-index:100000;background:#1a1a2e;border:1px solid #ffc107;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;';
+                    re.innerHTML = '📝 Зарегистрируйтесь, чтобы сохранить прогресс <a href="/account" style="color:#ffc107;font-weight:700;">Зарегистрироваться</a><button onclick="this.parentNode.remove()" style="float:right;cursor:pointer;border:none;background:none;color:#aaa;font-size:16px;line-height:1;">✕</button>';
+                    document.body.appendChild(re);
+                }
+                clearTimeout(re._t);
+                re._t = setTimeout(function() { re.style.display = 'none'; }, 6000);
+            } catch(e) {}
+        }
         function hubTrack(module, actions) {
             actions = actions || 1;
             var token = localStorage.getItem('web_token') || '';
@@ -9780,8 +11035,24 @@ def daily_prayer_page():
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
                         body: JSON.stringify({ module: module, actions: actions })
+                    }).then(function(r) { return r.json(); }).then(function(d) {
+                        if (d && d.unlocked_detail && d.unlocked_detail.length) {
+                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var pe = document.getElementById('hub-popup');
+                            if (!pe) {
+                                pe = document.createElement('div');
+                                pe.id = 'hub-popup';
+                                pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                                document.body.appendChild(pe);
+                            }
+                            pe.innerHTML = '🏆 ' + names.join('<br>');
+                            pe.style.display = 'block';
+                            clearTimeout(pe._t);
+                            pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+                        }
                     }).catch(function() {});
                 } else {
+                    showRegNotice();
                     var today = new Date();
                     var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
                     var acts = {};
@@ -9791,13 +11062,28 @@ def daily_prayer_page():
                 }
             } catch(e) {}
         }
+        function showHubPopup(names) {
+            var pe = document.getElementById('hub-popup');
+            if (!pe) {
+                pe = document.createElement('div');
+                pe.id = 'hub-popup';
+                pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                document.body.appendChild(pe);
+            }
+            pe.innerHTML = '🏆 ' + names.join('<br>');
+            pe.style.display = 'block';
+            clearTimeout(pe._t);
+            pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+        }
         function getPrayer() {
             var btn = document.getElementById('get-btn');
             btn.disabled = true;
             btn.textContent = '🙏 Загрузка...';
+            var token = localStorage.getItem('web_token') || '';
             var xhr = new XMLHttpRequest();
             xhr.open('POST', '/api/daily_prayer');
             xhr.setRequestHeader('Content-Type', 'application/json');
+            if (token) { xhr.setRequestHeader('X-Auth-Token', token); }
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
@@ -9810,7 +11096,14 @@ def daily_prayer_page():
                         document.getElementById('subtext').textContent = 'Молитва на сегодня';
                         btn.textContent = '🙏 Ещё';
                         btn.disabled = false;
-                        hubTrack('prayer', 1);
+                        var uid = localStorage.getItem('web_user_id') || '';
+                        if (token && uid.indexOf('u') === 0) {
+                            if (r.unlocked_detail && r.unlocked_detail.length) {
+                                showHubPopup(r.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; }));
+                            }
+                        } else {
+                            hubTrack('prayer', 1);
+                        }
                     }
                 } catch(e) { document.getElementById('prayer-content').innerHTML = '<p style="color:#e94560">Ошибка загрузки.</p>'; }
             };
@@ -9837,6 +11130,7 @@ def api_daily_prayer():
     uid = _web_user_id(user_id_raw)
     today = date.today().isoformat()
     already = False
+    unlocked_detail = []
     try:
         with get_db_engine().connect() as conn:
             existing = conn.execute(
@@ -9849,11 +11143,28 @@ def api_daily_prayer():
                     {"uid": uid, "d": today},
                 )
                 conn.commit()
+                web_uid = _require_web_user()
+                if web_uid:
+                    _record_activity(conn, web_uid, "prayer", 1)
+                    newly = _check_web_achievements(conn, web_uid)
+                    conn.commit()
+                    unlocked_detail = [
+                        {
+                            "code": code,
+                            "icon": ACHIEVEMENTS[code]["icon"],
+                            "name": ACHIEVEMENTS[code]["name"],
+                        }
+                        for code in newly
+                    ]
             else:
                 already = True
     except Exception as exc:
         print(f"[DAILY_PRAYER] error: {exc}")
-    return jsonify({"prayer": _prayer_for_day(uid, today), "already": already})
+    return jsonify({
+        "prayer": _prayer_for_day(uid, today),
+        "already": already,
+        "unlocked_detail": unlocked_detail,
+    })
 
 
 # ── Achievements Module ────────────────────────────────────────────────────
@@ -9878,14 +11189,27 @@ def api_achievements_activity():
     actions = int(data.get("actions", 1) or 1)
     if actions < 1:
         actions = 1
+    events = data.get("events") or []
+    if isinstance(events, str):
+        events = [events]
     try:
         with get_db_engine().connect() as conn:
             streak, longest, total = _record_activity(conn, uid, module, actions)
+            _record_events(conn, uid, events)
             newly = _check_web_achievements(conn, uid)
+            conn.commit()
         return jsonify({
             "ok": True,
             "streak": {"current": streak, "longest": longest, "total_days": total},
             "unlocked": newly,
+            "unlocked_detail": [
+                {
+                    "code": code,
+                    "icon": ACHIEVEMENTS[code]["icon"],
+                    "name": ACHIEVEMENTS[code]["name"],
+                }
+                for code in newly
+            ],
         })
     except Exception as exc:
         print(f"[ACHIEVEMENTS] activity error: {exc}")
@@ -10138,6 +11462,17 @@ def canon_page():
             Object.keys(panels).forEach(function(k) {{ panels[k].classList.remove('active'); }});
             t.classList.add('active');
             panels[t.dataset.tab].classList.add('active');
+            if (t.dataset.tab === 'glossary') {{
+                var token = localStorage.getItem('web_token') || '';
+                var uid = localStorage.getItem('web_user_id') || '';
+                if (token && uid.indexOf('u') === 0) {{
+                    fetch('/api/achievements/activity', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json', 'X-Auth-Token': token }},
+                        body: JSON.stringify({{ module: 'canon', actions: 0, events: ['canon_terms'] }})
+                    }}).catch(function() {{}});
+                }}
+            }}
         }}); }});
 
         function renderWorks() {{
@@ -10927,7 +12262,7 @@ def canon_work_page(work_id):
         {audio_html}
         {('<div class="section-title">📜 Текст</div>' if work['kind'] == 'article' and not has_audio else '')}
         <div class="content">{content_html}</div>
-        {"<a class='source-link' href='" + _html_escape(work['url']) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") else ""}
+{"<a class='source-link' href='" + _html_escape(work['url']) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") else ""}
         <div class="nav">{nav_html}</div>
     </div>
 </body>
@@ -11472,6 +12807,22 @@ def irregular_verbs_page():
                 );
             }
 
+            function showRegNotice() {
+                try {
+                    if (sessionStorage.getItem('reg_notice_shown')) return;
+                    sessionStorage.setItem('reg_notice_shown', '1');
+                    var re = document.getElementById('hub-reg-notice');
+                    if (!re) {
+                        re = document.createElement('div');
+                        re.id = 'hub-reg-notice';
+                        re.style.cssText = 'position:fixed;top:70px;right:20px;z-index:100000;background:#1a1a2e;border:1px solid #ffc107;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;';
+                        re.innerHTML = '📝 Зарегистрируйтесь, чтобы сохранить прогресс <a href="/account" style="color:#ffc107;font-weight:700;">Зарегистрироваться</a><button onclick="this.parentNode.remove()" style="float:right;cursor:pointer;border:none;background:none;color:#aaa;font-size:16px;line-height:1;">✕</button>';
+                        document.body.appendChild(re);
+                    }
+                    clearTimeout(re._t);
+                    re._t = setTimeout(function() { re.style.display = 'none'; }, 6000);
+                } catch(e) {}
+            }
             function hubTrack(module, actions) {
                 actions = actions || 1;
                 var token = localStorage.getItem('web_token') || '';
@@ -11482,8 +12833,24 @@ def irregular_verbs_page():
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
                             body: JSON.stringify({ module: module, actions: actions })
+                        }).then(function(r) { return r.json(); }).then(function(d) {
+                            if (d && d.unlocked_detail && d.unlocked_detail.length) {
+                                var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                                var pe = document.getElementById('hub-popup');
+                                if (!pe) {
+                                    pe = document.createElement('div');
+                                    pe.id = 'hub-popup';
+                                    pe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:100000;background:#123b23;border:1px solid #4caf50;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:320px;display:none;';
+                                    document.body.appendChild(pe);
+                                }
+                                pe.innerHTML = '🏆 ' + names.join('<br>');
+                                pe.style.display = 'block';
+                                clearTimeout(pe._t);
+                                pe._t = setTimeout(function() { pe.style.display = 'none'; }, 5000);
+                            }
                         }).catch(function() {});
                     } else {
+                        showRegNotice();
                         var today = new Date();
                         var dayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
                         var acts = {};
@@ -14508,7 +15875,44 @@ Text: {text}"""
         ai_text = call_ai_api(prompt, max_tokens=3000, temperature=0.1)
         print(f"[ENDINGS] Raw AI response: {ai_text[:200]}")
 
-        import json as _json
+        def _fallback_segments(src_text: str) -> list | None:
+            """Deterministic fallback: split endings of long Russian words."""
+            endings_pool = (
+                "ами", "ями", "ого", "его", "ому", "ему", "ими", "ыми",
+                "ая", "ое", "ые", "ий", "ый", "ой", "ее", "ие",
+                "ым", "ом", "ах", "ях", "ев", "ов", "ам", "ям",
+                "у", "ю", "ы", "и", "а", "я", "о", "е",
+            )
+            tokens = re.split(r'(\s+)', src_text)
+            segments = []
+            buf = ""
+            blanks = 0
+            for tok in tokens:
+                if not re.search(r'[А-Яа-яЁё]', tok):
+                    buf += tok
+                    continue
+                m = re.match(r'^([^А-Яа-яЁё]*)([А-Яа-яЁё]{5,})([^А-Яа-яЁё]*)$', tok)
+                if not m:
+                    buf += tok
+                    continue
+                pre, word, post = m.groups()
+                split = None
+                for end in endings_pool:
+                    if word.endswith(end) and len(word) - len(end) >= 3:
+                        split = (word[:-len(end)], end)
+                        break
+                if not split:
+                    buf += tok
+                    continue
+                stem, ending = split
+                if buf or pre:
+                    segments.append(["t", buf + pre])
+                segments.append(["b", stem, ending])
+                blanks += 1
+                buf = post
+            if buf:
+                segments.append(["t", buf])
+            return segments if blanks >= 2 else None
 
         def _parse_endings_json(raw: str) -> list | None:
             cleaned = raw.strip()
@@ -14517,32 +15921,28 @@ Text: {text}"""
             cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
             cleaned = re.sub(r'\s*```$', '', cleaned)
             try:
-                data = _json.loads(cleaned)
+                data = json.loads(cleaned)
                 if isinstance(data, list):
                     return data
                 if isinstance(data, dict):
                     segs = data.get("segments", [])
                     return segs if isinstance(segs, list) else None
                 return None
-            except _json.JSONDecodeError:
+            except json.JSONDecodeError:
                 pass
             for pat in [r'\[.*\{.*"[tb]".*\}\]', r'\{.*"segments"\s*:\s*\[.*\]\}']:
                 m = re.search(pat, cleaned, re.DOTALL)
                 if m:
                     try:
-                        data = _json.loads(m.group())
+                        data = json.loads(m.group())
                         if isinstance(data, list):
                             return data
                         if isinstance(data, dict):
                             return data.get("segments", [])
                         return None
-                    except _json.JSONDecodeError:
+                    except json.JSONDecodeError:
                         pass
             return None
-
-        raw_segments = _parse_endings_json(ai_text)
-        if not raw_segments:
-            return jsonify({"ok": False, "error": "AI не смог разобрать текст. Попробуйте ещё раз."})
 
         # Normalize: support both list format ["t","text"] and dict format {"t":"text"}
         def _to_list(seg):
@@ -14555,40 +15955,62 @@ Text: {text}"""
                     return ["b", seg["b"], seg["e"]]
             return None
 
-        filtered = []
-        for seg in raw_segments:
-            item = _to_list(seg)
-            if not item:
-                continue
-            typ = item[0]
-            if typ == 't' and item[1]:
-                if filtered and filtered[-1][0] == 't':
-                    filtered[-1][1] += item[1]
-                else:
-                    filtered.append(['t', item[1]])
-            elif typ == 'b':
-                stem = item[1]
-                ending = item[2] if len(item) > 2 and item[2] else ''
-                if ending:
-                    filtered.append(['b', stem, ending])
-                else:
+        def _normalize_segments(segs: list) -> list | None:
+            if not segs:
+                return None
+            filtered = []
+            for seg in segs:
+                item = _to_list(seg)
+                if not item:
+                    continue
+                typ = item[0]
+                if typ == 't' and item[1]:
                     if filtered and filtered[-1][0] == 't':
-                        filtered[-1][1] += stem
+                        filtered[-1][1] += item[1]
                     else:
-                        filtered.append(['t', stem])
+                        filtered.append(['t', item[1]])
+                elif typ == 'b':
+                    stem = item[1]
+                    ending = item[2] if len(item) > 2 and item[2] else ''
+                    if ending:
+                        filtered.append(['b', stem, ending])
+                    else:
+                        if filtered and filtered[-1][0] == 't':
+                            filtered[-1][1] += stem
+                        else:
+                            filtered.append(['t', stem])
+            if sum(1 for s in filtered if s[0] == 'b') < 2:
+                return None
+            return filtered
 
-        blanks = [s for s in filtered if s[0] == 'b']
-        if len(blanks) < 2:
-            return jsonify({"ok": False, "error": "AI нашёл слишком мало слов для упражнения. Попробуйте другой текст побольше."})
+        ai_filtered = _normalize_segments(_parse_endings_json(ai_text))
 
-        return jsonify({"ok": True, "segments": filtered, "original": text})
+        if ai_filtered:
+            return jsonify({"ok": True, "segments": ai_filtered, "original": text})
 
-    except _json.JSONDecodeError as e:
-        print(f"[ENDINGS] JSON parse error: {e}, raw: {ai_text[:500]}")
-        return jsonify({"ok": False, "error": "AI вернул некорректный ответ. Попробуйте ещё раз."})
+        # AI unavailable or returned unusable data -> deterministic fallback
+        if not ai_text or not ai_text.strip():
+            print("[ENDINGS] AI вернул пустой ответ")
+        elif ai_text.startswith("❌"):
+            print(f"[ENDINGS] AI недоступен: {ai_text}")
+        else:
+            print("[ENDINGS] Не удалось получить корректные сегменты от AI")
+
+        fallback = _fallback_segments(text)
+        if fallback:
+            return jsonify({
+                "ok": True,
+                "segments": fallback,
+                "original": text,
+                "fallback": True,
+                "notice": "AI временно недоступен — упражнение создано автоматически.",
+            })
+
+        return jsonify({"ok": False, "error": "Не удалось создать упражнение. Попробуйте другой текст или повторите ещё раз."})
+
     except Exception as e:
         print(f"[ENDINGS] Error: {e}")
-        return jsonify({"ok": False, "error": str(e)})
+        return jsonify({"ok": False, "error": "Внутренняя ошибка при создании упражнения. Попробуйте ещё раз."})
 
 
 # ── Family Circle (медиация) ──────────────────────────────────────
