@@ -6,14 +6,22 @@
 
 ## Changelog
 
-### 2026-08-19 (Session: math module implemented)
+### 2026-08-20 (Session: модуль «Информатика — ОГЭ» `/math` доведён до боевого состояния)
+- **Задача:** завершение модуля информатики (по решению пользователя — именно «информатика», не «математика»), теория из уроков `D:\ITlessons` (1–9), паттерн императорского модуля.
+- **Починено:** `core/math/tasks.py` — синтаксическая ошибка `explanation "29 не делится..."` → `explanation=` (SyntaxError: positional argument follows keyword argument).
+- **Пакет:** `core/math/__init__.py` создан по правильному пути (удалён ошибочный `core/math/_/_init__.py`), из импорта убран несуществующий `TaskDifficulty`. Модуль импортируется: 9 тем / 45 задач.
+- **Страница:** `api/index.py` маршрут `/math` был сломан: декоратор `/achievements` вставлен в одну строку с закрывающими `"""` → f-string не закрывался, не было `return html` → 500. Фикс: `return html` + декоратор на отдельной строке.
+- **Хаб:** карточка «💻 Информатика — ОГЭ» добавлена в бета-раздел `/` (рядом с Императорами).
+- **Чистка:** убран ошибочный `return new_streak, longest, total` из `_record_events` (`api/index.py`, F821 — переменные не определены в этой функции).
+- **Тесты:** новый `tests/unit/test_math_module.py` (12 тестов); вместе с `test_emperors_module.py` + `test_achievements.py` = **38 passed**; ruff clean; `/`, `/math`, `/emperors`, `/achievements` → 200.
+- **Статус:** готово, не закоммичено — ждёт коммита + деплоя.
+
+### 2026-08-19 (Session: math module implemented — пересмотрено 2026-08-20)
 - **Задача:** реализован модуль informatics — OGE preparation based on IT lessons 1-9, following the emperors module pattern.
 - **Модуль:** `/math` страница с двумя вкладками: 📚 Изучить (темы) и 🧠 Тренажер (задачи).
 - **Данные:** `core/math/tasks.py` — 9 тем с 45 задачами из IT lessons (алгоритмы, арифметика, делители, круговые дороги, муравей/марафон, логика, графы, вероятность, комбинаторика).
-- **API:** `GET /api/math/progress`, `POST /api/math/progress`, `GET /api/math/tasks`.
-- **Достижения:** +10 монет за完成ную тему, streak tracking, милистоны.
-- **Статус:** реализовано following pattern of `core/history/emperors.py`; `/math` route добавлен в `api/index.py`.
-- **Интеграция:** SCH-01: `/math` command + page in api/index.py; SCH-02: "🎓 Школа" section on hub.
+- **Статус:** первоначально реализовано following pattern of `core/history/emperors.py`; `/math` route добавлен в `api/index.py`. Позже (2026-08-20) исправлены синтаксис, путь пакета и рендер страницы.
+- **Интеграция:** SCH-01: `/math` page in api/index.py; SCH-02: карточка модуля в бета-разделе хаба.
 
 ### 2026-08-19 (Session: план школьного проекта по информатике)
 
@@ -1020,7 +1028,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-c95fb6c (2026-08-16) — docs: update last_checked_commit -> 0c839d7 (achievements & unified streak) — рабочая копия не закоммичена (ACH-BUG-1 фикс, GD inline-edit, canon unicode-фикс)
+dd3ef9c (2026-08-20) — Implement achievements system 227+ and school project plan; рабочая копия не закоммичена (модуль «Информатика — ОГЭ» /math: фиксы + карточка хаба + тесты)
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 
@@ -1554,3 +1562,8 @@ c95fb6c (2026-08-16) — docs: update last_checked_commit -> 0c839d7 (achievemen
 
 ## last_checked_commit
 0c839d7 (2026-08-16, единая система достижений и стрика: 100 ачивок, /achievements, блок в кабинете, hubTrack во всех модулях, +10 монет за ачивку)
+### Задача 1. Ачивки
+- **Статус:** Готово
+- **Количество:** 227 ачивок
+- **Шаблон:** 2-3 шкалы на модуль
+- **Реализация:** добавлены события (events), факты (emperors_mastered), новые пороги и названия

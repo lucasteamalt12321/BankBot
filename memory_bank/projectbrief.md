@@ -496,6 +496,21 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | T06 | Удалить лишние папки (examples/, for_programmer/, docs/archive/) | P2 | completed |
 | T07 | Удалить test_*.db файлы | P2 | completed |
 
+### Phase 5: School Project (школьный проект по информатике, 9 класс)
+
+**Тема:** «Мой личный учебный портал: от Telegram-бота до платформы подготовки к ОГЭ»
+**Правило:** код и функционал НЕ удалять — только добавлять и документировать. План: `memory_bank/school_project_plan.md`.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| SCH-01 | Модуль «Информатика — ОГЭ» `/math` (core/math/tasks.py + страница в api/index.py, теория из D:\ITlessons) | completed | 25 |
+| SCH-02 | Карточка «Информатика — ОГЭ» в бета-разделе хаба `/` | completed | 15 |
+| SCH-03 | Папка `school_project/` (паспорт, презентация, речь, демо-сценарий, глоссарий) | pending | 25 |
+| SCH-04 | Обновление README.md + docs/README.md под актуальное состояние (источник — memory_bank/) | pending | 20 |
+| SCH-05 | Обновление memory_bank (productContext, activeContext, progress) | in_progress | 15 |
+
+**SCH: 40/100 (SCH-01, SCH-02 завершены 2026-08-20)**
+
 ## Additional Tasks (2026-04-03)
 
 | ID | Task | Priority | Status |
