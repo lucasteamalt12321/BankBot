@@ -2,9 +2,34 @@
 
 ## Статус проекта
 **Процент выполнения:** 96% (Phase 2) по `memory_bank/projectbrief.md` / `## Project Deliverables`
-**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal завершён (123/123), Phase 4 Canon Module завершён (CANON01: 100/100, CANON02: готов и задеплоен), пост-фаза: фиксы багов + новые функции
+**Текущая фаза:** Phase 2 Feature Expansion завершён, Phase 3 Web Portal завершён (123/123), Phase 4 Canon Module завершён (CANON01: 100/100, CANON02: готов и задеплоен), пост-фаза: фиксы багов + новые функции; **новая задача: школьный проект по информатике (9 класс)**
 
 ## Changelog
+
+### 2026-08-19 (Session: math module implemented)
+- **Задача:** реализован модуль informatics — OGE preparation based on IT lessons 1-9, following the emperors module pattern.
+- **Модуль:** `/math` страница с двумя вкладками: 📚 Изучить (темы) и 🧠 Тренажер (задачи).
+- **Данные:** `core/math/tasks.py` — 9 тем с 45 задачами из IT lessons (алгоритмы, арифметика, делители, круговые дороги, муравей/марафон, логика, графы, вероятность, комбинаторика).
+- **API:** `GET /api/math/progress`, `POST /api/math/progress`, `GET /api/math/tasks`.
+- **Достижения:** +10 монет за完成ную тему, streak tracking, милистоны.
+- **Статус:** реализовано following pattern of `core/history/emperors.py`; `/math` route добавлен в `api/index.py`.
+- **Интеграция:** SCH-01: `/math` command + page in api/index.py; SCH-02: "🎓 Школа" section on hub.
+
+### 2026-08-19 (Session: план школьного проекта по информатике)
+
+- **Задача:** пользователь преподносит свой личный сайт (LTHub) как обязательный проект по информатике в 9 классе. Код и функционал не удаляются — только добавление и документация.
+- **Тема:** «Мой личный учебный портал: от Telegram-бота до платформы подготовки к ОГЭ».
+- **План:** записан в `memory_bank/school_project_plan.md` (3 блока: модуль ОГЭ-математика `/math`, раздел «🎓 Школа» на хабе, документация `school_project/` + обновление README/docs).
+- **Создано:** `memory_bank/school_project_plan.md`, обновлён `activeContext.md`. Реализация не начата — ждёт одобрения старта с Блока 1.
+
+### 2026-08-18 (Session: [ACH-BUG-1] — ачивки не открывались на проде)
+
+- **Симптом:** пользователь играл в тренажёр императоров, ачивки не начислялись (73 действия emperors в логе, открыто только 2).
+- **Диагностика:** временные print-ы в `api_achievements_activity`/`_unlock_achievements` → логи Vercel: `UniqueViolation` на уже открытой `first_step` → PostgreSQL **абортит транзакцию** → все следующие INSERT падают с `InFailedSqlTransaction` → `newly=[]`.
+- **Root cause:** `_unlock_achievements` полагался на UNIQUE-индекс для дедупликации; в SQLite (тесты) это работает, в PostgreSQL первая же ошибка валит всю транзакцию.
+- **Фикс:** `_unlock_achievements` сначала читает открытые коды (`SELECT code FROM web_achievements WHERE user_id=:id`), пропускает их, затем вставляет новые.
+- **Проверка на проде:** `POST /api/achievements/activity` от имени пользователя (id=8) открыл 13+ ачивок сразу (`emperors_first…emperors_50`, `first_quiz`, `first_streak`, `streak_3`, `days_3`, `module_2`, `first_50_actions`, `chess_first`, `prayer_first`, `coins_10`); итого 17, повторный вызов → `unlocked: []`.
+- **Проверки:** `test_achievements.py` + `test_web_portal_e2e.py` → **17 passed**; ruff clean; задеплоено на прод. Не закоммичено.
 
 ### 2026-08-16 (Session: единая система достижений и стрика)
 
@@ -995,7 +1020,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-4fec4d0 (2026-08-16) — FEAT: emperors — пакет прокачки: таймлайн по эпохам, обратный режим вопроса, уровни, серия дней, ачивки, анимации, вкладка «Хронология»
+c95fb6c (2026-08-16) — docs: update last_checked_commit -> 0c839d7 (achievements & unified streak) — рабочая копия не закоммичена (ACH-BUG-1 фикс, GD inline-edit, canon unicode-фикс)
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 
