@@ -146,7 +146,7 @@ TASK_lesson_3_o2 = MathTask(
     difficulty="легкая",
     question="Является ли число 29 простым?",
     answer="Да",
-    explanation "29 не делится ни на какие числа от 2 до sqrt(29)≈5.3 (2, 3, 5).",
+    explanation="29 не делится ни на какие числа от 2 до sqrt(29)≈5.3 (2, 3, 5).",
 )
 
 TASK_lesson_3_o3 = MathTask(

@@ -2075,6 +2075,7 @@ def _record_activity(conn, user_id, module, actions):
         except Exception:
             pass
     conn.commit()
+    return new_streak, longest, total
 
 
 def _record_events(conn, user_id, events):
@@ -2110,7 +2111,6 @@ def _record_events(conn, user_id, events):
                 )
             except Exception:
                 pass
-    return new_streak, longest, total
 
 
 def _prev_day(day_str):
@@ -4549,6 +4549,13 @@ def index():
                     <div class="card-content">
                         <h2>Императоры России <span class="beta-tag">Бета</span></h2>
                         <p>Шпаргалка и тренажёр: имена и события к императорам</p>
+                    </div>
+                </a>
+                <a class="card" href="/math">
+                    <div class="card-icon">💻</div>
+                    <div class="card-content">
+                        <h2>Информатика — ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <p>Теория и тренажёр по информатике (сложность алгоритмов, делители, графы, комбинаторика)</p>
                     </div>
                 </a>
                 <a class="card" href="/family">
@@ -10606,11 +10613,11 @@ def math_page():
         let correctStreak = 0;
         let totalSolved = 0;
         let wrongAnswers = 0;
-        let hubActivity = JSON.parse(localStorage.getItem('hub_activity') || '{}');
+        let hubActivity = JSON.parse(localStorage.getItem('hub_activity') || '{{}}');
 
         // Load topics data
         const topicsData = {topics_data};
-        const topicNames = {{{" + " + "'".join(f"'{k}': '{v}'" for k, v in topic_names.items())} + "};
+        const topicNames = {json.dumps(dict(topic_names), ensure_ascii=False)};
 
         // Render study tab
         function renderStudyTab() {{
@@ -10652,10 +10659,13 @@ def math_page():
         document.addEventListener('DOMContentLoaded', function() {{
             renderStudyTab();
         }});
-    </script>
+</script>
 </body>
 </html>
-"""@app.route("/achievements")
+"""
+    return html
+
+@app.route("/achievements")
 def achievements_page():
     """Unified achievements & streak page: unlocked and upcoming badges + calendar."""
     html = """<!DOCTYPE html>
