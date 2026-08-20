@@ -1118,107 +1118,114 @@ ACHIEVEMENTS: dict[str, dict] = {
     "first_step": {"icon": "🚀", "name": "Первый шаг", "desc": "Выполнить любое действие на портале", "module": "system", "weight": 10},
     "first_quiz": {"icon": "🎯", "name": "Первая победа", "desc": "Правильно ответить в любом тренажёре", "module": "system", "weight": 10},
     "first_streak": {"icon": "🔥", "name": "Начало серии", "desc": "Активность 2 дня подряд", "module": "streak", "weight": 10},
+    # --- Активность ---
+    "first_50_actions": {"icon": "⚡", "name": "Энергичный", "desc": "Выполнить 50 действий на портале", "module": "system", "weight": 10},
+    "first_100_actions": {"icon": "⚡", "name": "Продуктивный", "desc": "Выполнить 100 действий на портале", "module": "system", "weight": 10},
+    "first_250_actions": {"icon": "⚡", "name": "Трудоголик", "desc": "Выполнить 250 действий на портале", "module": "system", "weight": 10},
+    "first_500_actions": {"icon": "🌟", "name": "Активист", "desc": "Выполнить 500 действий на портале", "module": "system", "weight": 10},
+    "first_1000_actions": {"icon": "🌟", "name": "Марафонец", "desc": "Выполнить 1000 действий на портале", "module": "system", "weight": 10},
+    "first_2500_actions": {"icon": "🌟", "name": "Стахановец", "desc": "Выполнить 2500 действий на портале", "module": "system", "weight": 10},
+    "first_5000_actions": {"icon": "🏆", "name": "Гигант", "desc": "Выполнить 5000 действий на портале", "module": "system", "weight": 10},
+    # --- Исследователь ---
+    "module_2": {"icon": "🧭", "name": "Любознательный", "desc": "Посетить 2 разных модуля", "module": "system", "weight": 10},
+    "module_3": {"icon": "🧭", "name": "Исследователь-новичок", "desc": "Посетить 3 разных модуля", "module": "system", "weight": 10},
+    "module_4": {"icon": "🧭", "name": "Исследователь-любитель", "desc": "Посетить 4 разных модуля", "module": "system", "weight": 10},
+    "module_5": {"icon": "🧭", "name": "Путешественник", "desc": "Посетить 5 разных модулей", "module": "system", "weight": 10},
+    "module_6": {"icon": "🧭", "name": "Исследователь-профи", "desc": "Посетить 6 разных модулей", "module": "system", "weight": 10},
+    "module_7": {"icon": "🌐", "name": "Коллекционер модулей", "desc": "Посетить 7 разных модулей", "module": "system", "weight": 10},
+    "module_8": {"icon": "🌐", "name": "Полиглот портала", "desc": "Посетить 8 разных модулей", "module": "system", "weight": 10},
+    "module_9": {"icon": "🌐", "name": "Картограф", "desc": "Посетить 9 разных модулей", "module": "system", "weight": 10},
+    "module_10": {"icon": "🌐", "name": "Старожил", "desc": "Посетить 10 разных модулей", "module": "system", "weight": 10},
+    "module_11": {"icon": "🚀", "name": "Исследователь", "desc": "Посетить все 11 модулей", "module": "system", "weight": 10},
+    "module_12": {"icon": "🚀", "name": "Всезнайка", "desc": "Посетить 12 разных модулей", "module": "system", "weight": 10},
+    "module_13": {"icon": "🚀", "name": "Вездесущий", "desc": "Посетить 13 разных модулей", "module": "system", "weight": 10},
     # --- Серии дней ---
     "streak_3": {"icon": "🔥", "name": "Серия 3 дня", "desc": "Активность 3 дня подряд", "module": "streak", "weight": 10},
-    "streak_7": {"icon": "⚡", "name": "Серия 7 дней", "desc": "Активность 7 дней подряд", "module": "streak", "weight": 10},
-    "streak_14": {"icon": "🌟", "name": "Серия 14 дней", "desc": "Активность 14 дней подряд", "module": "streak", "weight": 10},
-    "streak_30": {"icon": "💎", "name": "Серия 30 дней", "desc": "Активность 30 дней подряд", "module": "streak", "weight": 10},
-    "streak_60": {"icon": "🏆", "name": "Серия 60 дней", "desc": "Активность 60 дней подряд", "module": "streak", "weight": 10},
-    "streak_100": {"icon": "👑", "name": "Серия 100 дней", "desc": "Активность 100 дней подряд", "module": "streak", "weight": 10},
-    "streak_200": {"icon": "👑", "name": "Серия 200 дней", "desc": "Активность 200 дней подряд", "module": "streak", "weight": 10},
-    "streak_365": {"icon": "🌞", "name": "Год активности", "desc": "Активность 365 дней подряд", "module": "streak", "weight": 10},
-    "streak_500": {"icon": "🌞", "name": "Полтора года", "desc": "Активность 500 дней подряд", "module": "streak", "weight": 10},
     "streak_5": {"icon": "🔥", "name": "Серия 5 дней", "desc": "Активность 5 дней подряд", "module": "streak", "weight": 10},
+    "streak_7": {"icon": "⚡", "name": "Серия 7 дней", "desc": "Активность 7 дней подряд", "module": "streak", "weight": 10},
     "streak_10": {"icon": "🔥", "name": "Серия 10 дней", "desc": "Активность 10 дней подряд", "module": "streak", "weight": 10},
+    "streak_14": {"icon": "🌟", "name": "Серия 14 дней", "desc": "Активность 14 дней подряд", "module": "streak", "weight": 10},
     "streak_20": {"icon": "🔥", "name": "Серия 20 дней", "desc": "Активность 20 дней подряд", "module": "streak", "weight": 10},
+    "streak_30": {"icon": "💎", "name": "Серия 30 дней", "desc": "Активность 30 дней подряд", "module": "streak", "weight": 10},
     "streak_45": {"icon": "🌟", "name": "Серия 45 дней", "desc": "Активность 45 дней подряд", "module": "streak", "weight": 10},
+    "streak_60": {"icon": "🏆", "name": "Серия 60 дней", "desc": "Активность 60 дней подряд", "module": "streak", "weight": 10},
     "streak_90": {"icon": "🌟", "name": "Серия 90 дней", "desc": "Активность 90 дней подряд", "module": "streak", "weight": 10},
+    "streak_100": {"icon": "👑", "name": "Серия 100 дней", "desc": "Активность 100 дней подряд", "module": "streak", "weight": 10},
     "streak_150": {"icon": "💎", "name": "Серия 150 дней", "desc": "Активность 150 дней подряд", "module": "streak", "weight": 10},
+    "streak_200": {"icon": "👑", "name": "Серия 200 дней", "desc": "Активность 200 дней подряд", "module": "streak", "weight": 10},
     "streak_250": {"icon": "💎", "name": "Серия 250 дней", "desc": "Активность 250 дней подряд", "module": "streak", "weight": 10},
+    "streak_365": {"icon": "🌞", "name": "Год активности", "desc": "Активность 365 дней подряд", "module": "streak", "weight": 10},
     "streak_400": {"icon": "🏆", "name": "Серия 400 дней", "desc": "Активность 400 дней подряд", "module": "streak", "weight": 10},
+    "streak_500": {"icon": "🌞", "name": "Полтора года", "desc": "Активность 500 дней подряд", "module": "streak", "weight": 10},
     "streak_750": {"icon": "👑", "name": "Серия 750 дней", "desc": "Активность 750 дней подряд", "module": "streak", "weight": 10},
     "streak_1000": {"icon": "👑", "name": "Серия 1000 дней", "desc": "Активность 1000 дней подряд", "module": "streak", "weight": 10},
     # --- Активные дни (всего) ---
     "days_3": {"icon": "📅", "name": "3 дня на портале", "desc": "Активность в 3 разных днях", "module": "streak", "weight": 10},
-    "days_7": {"icon": "📅", "name": "Неделя на портале", "desc": "Активность в 7 разных днях", "module": "streak", "weight": 10},
-    "days_14": {"icon": "📅", "name": "2 недели на портале", "desc": "Активность в 14 разных днях", "module": "streak", "weight": 10},
-    "days_30": {"icon": "🗓️", "name": "Месяц на портале", "desc": "Активность в 30 разных днях", "module": "streak", "weight": 10},
-    "days_60": {"icon": "🗓️", "name": "2 месяца на портале", "desc": "Активность в 60 разных днях", "module": "streak", "weight": 10},
-    "days_100": {"icon": "🎖️", "name": "100 дней на портале", "desc": "Активность в 100 разных днях", "module": "streak", "weight": 10},
-    "days_200": {"icon": "🎖️", "name": "200 дней на портале", "desc": "Активность в 200 разных днях", "module": "streak", "weight": 10},
-    "days_365": {"icon": "🏅", "name": "Год на портале", "desc": "Активность в 365 разных днях", "module": "streak", "weight": 10},
     "days_5": {"icon": "📅", "name": "5 дней на портале", "desc": "Активность в 5 разных днях", "module": "streak", "weight": 10},
+    "days_7": {"icon": "📅", "name": "Неделя на портале", "desc": "Активность в 7 разных днях", "module": "streak", "weight": 10},
     "days_10": {"icon": "📅", "name": "10 дней на портале", "desc": "Активность в 10 разных днях", "module": "streak", "weight": 10},
+    "days_14": {"icon": "📅", "name": "2 недели на портале", "desc": "Активность в 14 разных днях", "module": "streak", "weight": 10},
     "days_20": {"icon": "📅", "name": "20 дней на портале", "desc": "Активность в 20 разных днях", "module": "streak", "weight": 10},
+    "days_30": {"icon": "🗓️", "name": "Месяц на портале", "desc": "Активность в 30 разных днях", "module": "streak", "weight": 10},
     "days_45": {"icon": "🗓️", "name": "45 дней на портале", "desc": "Активность в 45 разных днях", "module": "streak", "weight": 10},
+    "days_60": {"icon": "🗓️", "name": "2 месяца на портале", "desc": "Активность в 60 разных днях", "module": "streak", "weight": 10},
+    "days_89": {"icon": "📅", "name": "Восемь-девять дней", "desc": "Активность в 89 разных днях", "module": "streak", "weight": 10},
     "days_90": {"icon": "🗓️", "name": "90 дней на портале", "desc": "Активность в 90 разных днях", "module": "streak", "weight": 10},
+    "days_100": {"icon": "🎖️", "name": "100 дней на портале", "desc": "Активность в 100 разных днях", "module": "streak", "weight": 10},
     "days_150": {"icon": "🎖️", "name": "150 дней на портале", "desc": "Активность в 150 разных днях", "module": "streak", "weight": 10},
+    "days_200": {"icon": "🎖️", "name": "200 дней на портале", "desc": "Активность в 200 разных днях", "module": "streak", "weight": 10},
     "days_250": {"icon": "🎖️", "name": "250 дней на портале", "desc": "Активность в 250 разных днях", "module": "streak", "weight": 10},
+    "days_365": {"icon": "🏅", "name": "Год на портале", "desc": "Активность в 365 разных днях", "module": "streak", "weight": 10},
     "days_400": {"icon": "🎖️", "name": "400 дней на портале", "desc": "Активность в 400 разных днях", "module": "streak", "weight": 10},
     "days_750": {"icon": "🏅", "name": "750 дней на портале", "desc": "Активность в 750 разных днях", "module": "streak", "weight": 10},
     "days_1000": {"icon": "🏅", "name": "1000 дней на портале", "desc": "Активность в 1000 разных днях", "module": "streak", "weight": 10},
-    # --- Исследователь ---
-    "module_2": {"icon": "🧭", "name": "Любознательный", "desc": "Посетить 2 разных модуля", "module": "system", "weight": 10},
-    "module_5": {"icon": "🧭", "name": "Путешественник", "desc": "Посетить 5 разных модулей", "module": "system", "weight": 10},
-    "module_8": {"icon": "🌐", "name": "Полиглот портала", "desc": "Посетить 8 разных модулей", "module": "system", "weight": 10},
-    "module_11": {"icon": "🚀", "name": "Исследователь", "desc": "Посетить все 11 модулей", "module": "system", "weight": 10},
-    "module_3": {"icon": "🧭", "name": "Исследователь-новичок", "desc": "Посетить 3 разных модуля", "module": "system", "weight": 10},
-    "module_4": {"icon": "🧭", "name": "Исследователь-любитель", "desc": "Посетить 4 разных модуля", "module": "system", "weight": 10},
-    "module_6": {"icon": "🧭", "name": "Исследователь-профи", "desc": "Посетить 6 разных модулей", "module": "system", "weight": 10},
-    "module_7": {"icon": "🌐", "name": "Коллекционер модулей", "desc": "Посетить 7 разных модулей", "module": "system", "weight": 10},
-    "module_9": {"icon": "🌐", "name": "Картограф", "desc": "Посетить 9 разных модулей", "module": "system", "weight": 10},
-    "module_10": {"icon": "🌐", "name": "Старожил", "desc": "Посетить 10 разных модулей", "module": "system", "weight": 10},
-    "module_12": {"icon": "🚀", "name": "Всезнайка", "desc": "Посетить 12 разных модулей", "module": "system", "weight": 10},
-    "module_13": {"icon": "🚀", "name": "Вездесущий", "desc": "Посетить 13 разных модулей", "module": "system", "weight": 10},
-    "first_50_actions": {"icon": "⚡", "name": "Энергичный", "desc": "Выполнить 50 действий на портале", "module": "system", "weight": 10},
-    "first_500_actions": {"icon": "🌟", "name": "Активист", "desc": "Выполнить 500 действий на портале", "module": "system", "weight": 10},
-    "first_100_actions": {"icon": "⚡", "name": "Продуктивный", "desc": "Выполнить 100 действий на портале", "module": "system", "weight": 10},
-    "first_250_actions": {"icon": "⚡", "name": "Трудоголик", "desc": "Выполнить 250 действий на портале", "module": "system", "weight": 10},
-    "first_1000_actions": {"icon": "🌟", "name": "Марафонец", "desc": "Выполнить 1000 действий на портале", "module": "system", "weight": 10},
-    "first_2500_actions": {"icon": "🌟", "name": "Стахановец", "desc": "Выполнить 2500 действий на портале", "module": "system", "weight": 10},
-    "first_5000_actions": {"icon": "🏆", "name": "Гигант", "desc": "Выполнить 5000 действий на портале", "module": "system", "weight": 10},
     # --- Тривиа (Викторина) ---
     "trivia_first": {"icon": "🧠", "name": "Первая викторина", "desc": "Ответить на вопрос викторины", "module": "trivia", "weight": 10},
     "trivia_5": {"icon": "🧠", "name": "Начало пути", "desc": "Ответить на 5 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_7": {"icon": "🧠", "name": "Счастливая семёрка", "desc": "Ответить на 7 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_10": {"icon": "🧠", "name": "Знаток викторины", "desc": "Ответить на 10 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_25": {"icon": "🧠", "name": "Викториан-25", "desc": "Ответить на 25 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_50": {"icon": "🧠", "name": "Викториан-50", "desc": "Ответить на 50 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_100": {"icon": "🎓", "name": "Мастер викторины", "desc": "Ответить на 100 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_200": {"icon": "🎓", "name": "Гуру викторины", "desc": "Ответить на 200 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_500": {"icon": "🏆", "name": "Легенда викторины", "desc": "Ответить на 500 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_7": {"icon": "🧠", "name": "Счастливая семёрка", "desc": "Ответить на 7 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_77": {"icon": "🧠", "name": "Семь семёрок", "desc": "Ответить на 77 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_89": {"icon": "🧠", "name": "Эрудит-89", "desc": "Ответить на 89 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_100": {"icon": "🎓", "name": "Мастер викторины", "desc": "Ответить на 100 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_123": {"icon": "🧠", "name": "Один-два-три", "desc": "Ответить на 123 вопроса викторины", "module": "trivia", "weight": 10},
+    "trivia_200": {"icon": "🎓", "name": "Гуру викторины", "desc": "Ответить на 200 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_250": {"icon": "🎓", "name": "Четверть тысячи", "desc": "Ответить на 250 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_500": {"icon": "🏆", "name": "Легенда викторины", "desc": "Ответить на 500 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_666": {"icon": "🧠", "name": "Зловещая эрудиция", "desc": "Ответить на 666 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_777": {"icon": "🎓", "name": "Джекпот эрудиции", "desc": "Ответить на 777 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_999": {"icon": "🏆", "name": "Почти тысяча", "desc": "Ответить на 999 вопросов викторины", "module": "trivia", "weight": 10},
     "trivia_1000": {"icon": "🏆", "name": "Тысяча ответов", "desc": "Ответить на 1000 вопросов викторины", "module": "trivia", "weight": 10},
+    # --- Тривиа: серия правильных ---
     "trivia_streak_3": {"icon": "🎯", "name": "Хет-трик", "desc": "Ответить правильно 3 раза подряд", "module": "trivia", "weight": 10},
     "trivia_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Ответить правильно 5 раз подряд", "module": "trivia", "weight": 10},
     "trivia_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Ответить правильно 10 раз подряд", "module": "trivia", "weight": 10},
     # --- Императоры ---
     "emperors_first": {"icon": "👑", "name": "Первые императоры", "desc": "Ответить на вопрос об императорах", "module": "emperors", "weight": 10},
+    "emperors_7": {"icon": "👑", "name": "Семь эпох", "desc": "Ответить на 7 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_10": {"icon": "👑", "name": "Историк-новичок", "desc": "Ответить на 10 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_25": {"icon": "👑", "name": "Историк-любитель", "desc": "Ответить на 25 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_50": {"icon": "👑", "name": "Историк-профессионал", "desc": "Ответить на 50 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_100": {"icon": "🏛️", "name": "Историк-академик", "desc": "Ответить на 100 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_200": {"icon": "🏛️", "name": "Профессор истории", "desc": "Ответить на 200 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_500": {"icon": "👑", "name": "Хранитель истории", "desc": "Ответить на 500 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_7": {"icon": "👑", "name": "Семь эпох", "desc": "Ответить на 7 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_77": {"icon": "🏛️", "name": "Летопись-77", "desc": "Ответить на 77 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_89": {"icon": "👑", "name": "Восемь-девять эпох", "desc": "Ответить на 89 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_100": {"icon": "🏛️", "name": "Историк-академик", "desc": "Ответить на 100 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_123": {"icon": "🏛️", "name": "Ровно 123", "desc": "Ответить на 123 вопроса об императорах", "module": "emperors", "weight": 10},
+    "emperors_200": {"icon": "🏛️", "name": "Профессор истории", "desc": "Ответить на 200 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_250": {"icon": "🏛️", "name": "Квадрига", "desc": "Ответить на 250 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_333": {"icon": "👑", "name": "Три тройки", "desc": "Ответить на 333 вопроса об императорах", "module": "emperors", "weight": 10},
+    "emperors_500": {"icon": "👑", "name": "Хранитель истории", "desc": "Ответить на 500 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_666": {"icon": "👑", "name": "Тьма истории", "desc": "Ответить на 666 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_777": {"icon": "🏆", "name": "Джекпот эпох", "desc": "Ответить на 777 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_999": {"icon": "🏆", "name": "Миллениум", "desc": "Ответить на 999 вопросов об императорах", "module": "emperors", "weight": 10},
     "emperors_1000": {"icon": "👑", "name": "Тысяча вопросов", "desc": "Ответить на 1000 вопросов об императорах", "module": "emperors", "weight": 10},
+    # --- Императоры: режимы ---
     "emperors_mode_study": {"icon": "📚", "name": "Изучающий", "desc": "Попробовать режим «Изучить»", "module": "emperors", "weight": 10},
     "emperors_mode_quiz": {"icon": "🧠", "name": "Тренирующийся", "desc": "Попробовать режим «Тренажёр»", "module": "emperors", "weight": 10},
     "emperors_mode_match": {"icon": "🎯", "name": "Сопоставляющий", "desc": "Попробовать режим «Сопоставление»", "module": "emperors", "weight": 10},
     "emperors_mode_chrono": {"icon": "📜", "name": "Хронолог", "desc": "Попробовать режим «Хронология»", "module": "emperors", "weight": 10},
     "emperors_all_modes": {"icon": "🌟", "name": "Мастер режимов", "desc": "Попробовать все 4 режима императоров", "module": "emperors", "weight": 10},
+    # --- Императоры: освоенные карточки ---
     "emperors_mastered_5": {"icon": "🎖️", "name": "Первые пять", "desc": "Освоить 5 карточек императоров", "module": "emperors", "weight": 10},
     "emperors_mastered_10": {"icon": "🎖️", "name": "Десятка", "desc": "Освоить 10 карточек императоров", "module": "emperors", "weight": 10},
     "emperors_mastered_25": {"icon": "🎖️", "name": "Двадцать пять", "desc": "Освоить 25 карточек императоров", "module": "emperors", "weight": 10},
@@ -1230,143 +1237,157 @@ ACHIEVEMENTS: dict[str, dict] = {
     # --- Чтение ---
     "reading_first": {"icon": "📖", "name": "Первое чтение", "desc": "Проверить первое задание по чтению", "module": "reading", "weight": 10},
     "reading_5": {"icon": "📖", "name": "Читатель-новичок", "desc": "Проверить 5 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_7": {"icon": "📖", "name": "Неделя чтения", "desc": "Проверить 7 заданий по чтению", "module": "reading", "weight": 10},
     "reading_10": {"icon": "📖", "name": "Читатель-любитель", "desc": "Проверить 10 заданий по чтению", "module": "reading", "weight": 10},
     "reading_25": {"icon": "📖", "name": "Читатель-профи", "desc": "Проверить 25 заданий по чтению", "module": "reading", "weight": 10},
     "reading_50": {"icon": "📚", "name": "Книжный червь", "desc": "Проверить 50 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_100": {"icon": "📚", "name": "Библиотекарь", "desc": "Проверить 100 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_200": {"icon": "📚", "name": "Книжный эксперт", "desc": "Проверить 200 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_500": {"icon": "📚", "name": "Литературовед", "desc": "Проверить 500 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_7": {"icon": "📖", "name": "Неделя чтения", "desc": "Проверить 7 заданий по чтению", "module": "reading", "weight": 10},
     "reading_77": {"icon": "📖", "name": "Библиофил-77", "desc": "Проверить 77 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_89": {"icon": "📖", "name": "Книжник-89", "desc": "Проверить 89 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_100": {"icon": "📚", "name": "Библиотекарь", "desc": "Проверить 100 заданий по чтению", "module": "reading", "weight": 10},
     "reading_123": {"icon": "📚", "name": "Книжный клуб", "desc": "Проверить 123 задания по чтению", "module": "reading", "weight": 10},
+    "reading_200": {"icon": "📚", "name": "Книжный эксперт", "desc": "Проверить 200 заданий по чтению", "module": "reading", "weight": 10},
     "reading_250": {"icon": "📚", "name": "Читальный зал", "desc": "Проверить 250 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_500": {"icon": "📚", "name": "Литературовед", "desc": "Проверить 500 заданий по чтению", "module": "reading", "weight": 10},
     "reading_666": {"icon": "📚", "name": "Чёрная библиотека", "desc": "Проверить 666 заданий по чтению", "module": "reading", "weight": 10},
     "reading_777": {"icon": "📚", "name": "Джекпот чтения", "desc": "Проверить 777 заданий по чтению", "module": "reading", "weight": 10},
     "reading_1000": {"icon": "📚", "name": "Книжный миллионер", "desc": "Проверить 1000 заданий по чтению", "module": "reading", "weight": 10},
+    # --- Чтение: серия ---
     "reading_streak_3": {"icon": "🎯", "name": "Читательский хет-трик", "desc": "Правильно выполнить 3 задания подряд", "module": "reading", "weight": 10},
     "reading_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Правильно выполнить 5 заданий подряд", "module": "reading", "weight": 10},
     "reading_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Правильно выполнить 10 заданий подряд", "module": "reading", "weight": 10},
     # --- Глаголы ---
     "verbs_first": {"icon": "🔤", "name": "Первый глагол", "desc": "Выполнить первое упражнение по глаголам", "module": "verbs", "weight": 10},
     "verbs_5": {"icon": "🔤", "name": "Глаголист-новичок", "desc": "Выполнить 5 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_7": {"icon": "🔤", "name": "Неделя глаголов", "desc": "Выполнить 7 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_10": {"icon": "🔤", "name": "Глаголист-любитель", "desc": "Выполнить 10 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_25": {"icon": "🔤", "name": "Глаголист-профи", "desc": "Выполнить 25 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_50": {"icon": "🔠", "name": "Мастер глаголов", "desc": "Выполнить 50 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_100": {"icon": "🔠", "name": "Профессор глаголов", "desc": "Выполнить 100 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_200": {"icon": "🔠", "name": "Легенда глаголов", "desc": "Выполнить 200 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_7": {"icon": "🔤", "name": "Неделя глаголов", "desc": "Выполнить 7 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_77": {"icon": "🔤", "name": "Спряжение-77", "desc": "Выполнить 77 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_89": {"icon": "🔤", "name": "Спряжение-89", "desc": "Выполнить 89 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_100": {"icon": "🔠", "name": "Профессор глаголов", "desc": "Выполнить 100 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_123": {"icon": "🔠", "name": "Все времена", "desc": "Выполнить 123 упражнения по глаголам", "module": "verbs", "weight": 10},
+    "verbs_200": {"icon": "🔠", "name": "Легенда глаголов", "desc": "Выполнить 200 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_250": {"icon": "🔠", "name": "Глагольный марафон", "desc": "Выполнить 250 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_500": {"icon": "🔠", "name": "Глагольный эксперт", "desc": "Выполнить 500 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_777": {"icon": "🔠", "name": "Джекпот глаголов", "desc": "Выполнить 777 упражнений по глаголам", "module": "verbs", "weight": 10},
     "verbs_1000": {"icon": "🔠", "name": "Глагольный миллионер", "desc": "Выполнить 1000 упражнений по глаголам", "module": "verbs", "weight": 10},
+    # --- Глаголы: серия ---
     "verbs_streak_3": {"icon": "🎯", "name": "Глагольный хет-трик", "desc": "Правильно выполнить 3 упражнения подряд", "module": "verbs", "weight": 10},
     "verbs_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Правильно выполнить 5 упражнений подряд", "module": "verbs", "weight": 10},
     "verbs_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Правильно выполнить 10 упражнений подряд", "module": "verbs", "weight": 10},
     # --- Шахматы ---
     "chess_first": {"icon": "♟️", "name": "Первый ход", "desc": "Решить первый шахматный пазл", "module": "chess", "weight": 10},
     "chess_5": {"icon": "♟️", "name": "Шахматист-новичок", "desc": "Решить 5 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_7": {"icon": "♟️", "name": "Неделя шахмат", "desc": "Решить 7 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_10": {"icon": "♟️", "name": "Шахматист-любитель", "desc": "Решить 10 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_25": {"icon": "♟️", "name": "Шахматист-профи", "desc": "Решить 25 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_50": {"icon": "♞", "name": "Мастер шахмат", "desc": "Решить 50 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_100": {"icon": "♛", "name": "Гроссмейстер", "desc": "Решить 100 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_200": {"icon": "♛", "name": "Чемпион шахмат", "desc": "Решить 200 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_500": {"icon": "♛", "name": "Гений шахмат", "desc": "Решить 500 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_7": {"icon": "♟️", "name": "Неделя шахмат", "desc": "Решить 7 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_77": {"icon": "♞", "name": "Шахматный скаут", "desc": "Решить 77 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_89": {"icon": "♟️", "name": "Эндшпиль-89", "desc": "Решить 89 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_100": {"icon": "♛", "name": "Гроссмейстер", "desc": "Решить 100 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_150": {"icon": "♞", "name": "Полтораста пазлов", "desc": "Решить 150 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_200": {"icon": "♛", "name": "Чемпион шахмат", "desc": "Решить 200 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_250": {"icon": "♛", "name": "Шахматный марафон", "desc": "Решить 250 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_500": {"icon": "♛", "name": "Гений шахмат", "desc": "Решить 500 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_777": {"icon": "♛", "name": "Джекпот шахмат", "desc": "Решить 777 шахматных пазлов", "module": "chess", "weight": 10},
     "chess_1000": {"icon": "♛", "name": "Шахматный миллионер", "desc": "Решить 1000 шахматных пазлов", "module": "chess", "weight": 10},
+    # --- Шахматы: поиск игроков ---
     "chess_search_1": {"icon": "🔍", "name": "Разведчик", "desc": "Впервые найти игрока на Lichess", "module": "chess", "weight": 10},
     "chess_search_10": {"icon": "🔍", "name": "Скаут-10", "desc": "Найти 10 игроков на Lichess", "module": "chess", "weight": 10},
     "chess_search_50": {"icon": "🔍", "name": "Шахматный сыщик", "desc": "Найти 50 игроков на Lichess", "module": "chess", "weight": 10},
     "chess_search_100": {"icon": "🧭", "name": "Поисковик-100", "desc": "Найти 100 игроков на Lichess", "module": "chess", "weight": 10},
+    # --- Шахматы: привязка аккаунтов ---
     "chess_link_1": {"icon": "🔗", "name": "Первая связь", "desc": "Привязать аккаунт Lichess", "module": "chess", "weight": 10},
     "chess_link_5": {"icon": "🔗", "name": "Надёжная связь", "desc": "Привязать 5 аккаунтов Lichess", "module": "chess", "weight": 10},
     "chess_link_10": {"icon": "🔗", "name": "Сеть контактов", "desc": "Привязать 10 аккаунтов Lichess", "module": "chess", "weight": 10},
     # --- Канон ---
     "canon_first": {"icon": "📜", "name": "Читатель канона", "desc": "Открыть произведение канона", "module": "canon", "weight": 10},
-    "canon_5": {"icon": "📜", "name": "Канонист-новичок", "desc": "Открыть 5 произведений канона", "module": "canon", "weight": 10},
-    "canon_10": {"icon": "📜", "name": "Канонист-любитель", "desc": "Открыть 10 произведений канона", "module": "canon", "weight": 10},
-    "canon_16": {"icon": "📖", "name": "Прочитал весь канон", "desc": "Открыть все 16 произведений канона", "module": "canon", "weight": 10},
-    "canon_20": {"icon": "📖", "name": "Канонист-профи", "desc": "Открыть 20 произведений канона", "module": "canon", "weight": 10},
     "canon_2": {"icon": "📜", "name": "Двойной улов", "desc": "Открыть 2 произведения канона", "module": "canon", "weight": 10},
+    "canon_5": {"icon": "📜", "name": "Канонист-новичок", "desc": "Открыть 5 произведений канона", "module": "canon", "weight": 10},
     "canon_6": {"icon": "📜", "name": "Полдюжины", "desc": "Открыть 6 произведений канона", "module": "canon", "weight": 10},
+    "canon_10": {"icon": "📜", "name": "Канонист-любитель", "desc": "Открыть 10 произведений канона", "module": "canon", "weight": 10},
     "canon_12": {"icon": "📜", "name": "Дюжина", "desc": "Открыть 12 произведений канона", "module": "canon", "weight": 10},
+    "canon_16": {"icon": "📖", "name": "Прочитал весь канон", "desc": "Открыть все 16 произведений канона", "module": "canon", "weight": 10},
     "canon_18": {"icon": "📖", "name": "Восемнадцать", "desc": "Открыть 18 произведений канона", "module": "canon", "weight": 10},
+    "canon_20": {"icon": "📖", "name": "Канонист-профи", "desc": "Открыть 20 произведений канона", "module": "canon", "weight": 10},
     "canon_all": {"icon": "🏆", "name": "Хранитель канона", "desc": "Открыть все доступные произведения канона", "module": "canon", "weight": 10},
+    # --- Канон: глоссарий ---
     "canon_terms_10": {"icon": "🧩", "name": "Глоссарист", "desc": "Посмотреть 10 терминов глоссария", "module": "canon", "weight": 10},
     "canon_terms_25": {"icon": "🧩", "name": "Словарь-25", "desc": "Посмотреть 25 терминов глоссария", "module": "canon", "weight": 10},
     "canon_terms_50": {"icon": "🧩", "name": "Лексикограф", "desc": "Посмотреть 50 терминов глоссария", "module": "canon", "weight": 10},
+    # --- Канон: аудио ---
     "canon_audio_1": {"icon": "🎧", "name": "Первый звук", "desc": "Прослушать произведение канона с аудио", "module": "canon", "weight": 10},
     "canon_audio_5": {"icon": "🎧", "name": "Меломан", "desc": "Прослушать 5 произведений канона с аудио", "module": "canon", "weight": 10},
     # --- Молитва ---
     "prayer_first": {"icon": "🙏", "name": "Первая молитва", "desc": "Прочитать молитву дня", "module": "prayer", "weight": 10},
-    "prayer_3": {"icon": "🙏", "name": "Три молитвы", "desc": "Прочитать молитву 3 дня", "module": "prayer", "weight": 10},
-    "prayer_7": {"icon": "🙏", "name": "Неделя молитвы", "desc": "Прочитать молитву 7 дней", "module": "prayer", "weight": 10},
-    "prayer_30": {"icon": "🕯️", "name": "Месяц молитвы", "desc": "Прочитать молитву 30 дней", "module": "prayer", "weight": 10},
-    "prayer_100": {"icon": "🕯️", "name": "100 молитв", "desc": "Прочитать молитву 100 дней", "module": "prayer", "weight": 10},
-    "prayer_200": {"icon": "🕯️", "name": "200 молитв", "desc": "Прочитать молитву 200 дней", "module": "prayer", "weight": 10},
-    "prayer_365": {"icon": "🕯️", "name": "Год молитвы", "desc": "Прочитать молитву 365 дней", "module": "prayer", "weight": 10},
     "prayer_2": {"icon": "🙏", "name": "Вторая молитва", "desc": "Прочитать молитву 2 дня", "module": "prayer", "weight": 10},
+    "prayer_3": {"icon": "🙏", "name": "Три молитвы", "desc": "Прочитать молитву 3 дня", "module": "prayer", "weight": 10},
     "prayer_5": {"icon": "🙏", "name": "Пять дней", "desc": "Прочитать молитву 5 дней", "module": "prayer", "weight": 10},
+    "prayer_7": {"icon": "🙏", "name": "Неделя молитвы", "desc": "Прочитать молитву 7 дней", "module": "prayer", "weight": 10},
     "prayer_14": {"icon": "🙏", "name": "Две недели", "desc": "Прочитать молитву 14 дней", "module": "prayer", "weight": 10},
+    "prayer_30": {"icon": "🕯️", "name": "Месяц молитвы", "desc": "Прочитать молитву 30 дней", "module": "prayer", "weight": 10},
     "prayer_60": {"icon": "🕯️", "name": "Два месяца", "desc": "Прочитать молитву 60 дней", "module": "prayer", "weight": 10},
+    "prayer_89": {"icon": "🍵", "name": "Восемь-девять", "desc": "Прочитать 89 молитв — сакральное число чайной религии", "module": "prayer", "weight": 10},
+    "prayer_100": {"icon": "🕯️", "name": "100 молитв", "desc": "Прочитать молитву 100 дней", "module": "prayer", "weight": 10},
     "prayer_150": {"icon": "🕯️", "name": "Пять месяцев", "desc": "Прочитать молитву 150 дней", "module": "prayer", "weight": 10},
+    "prayer_200": {"icon": "🕯️", "name": "200 молитв", "desc": "Прочитать молитву 200 дней", "module": "prayer", "weight": 10},
     "prayer_250": {"icon": "🕯️", "name": "250 молитв", "desc": "Прочитать молитву 250 дней", "module": "prayer", "weight": 10},
+    "prayer_365": {"icon": "🕯️", "name": "Год молитвы", "desc": "Прочитать молитву 365 дней", "module": "prayer", "weight": 10},
     "prayer_500": {"icon": "🕯️", "name": "500 молитв", "desc": "Прочитать молитву 500 дней", "module": "prayer", "weight": 10},
     "prayer_1000": {"icon": "🕯️", "name": "Тысяча молитв", "desc": "Прочитать молитву 1000 дней", "module": "prayer", "weight": 10},
     # --- GD ---
     "gd_first": {"icon": "🎮", "name": "Первый рекорд", "desc": "Отправить первый рекорд GD", "module": "gd", "weight": 10},
     "gd_5": {"icon": "🎮", "name": "Рекордсмен-новичок", "desc": "Отправить 5 рекордов GD", "module": "gd", "weight": 10},
+    "gd_7": {"icon": "🎮", "name": "Неделя рекордов", "desc": "Отправить 7 рекордов GD", "module": "gd", "weight": 10},
     "gd_10": {"icon": "🎮", "name": "Рекордсмен-любитель", "desc": "Отправить 10 рекордов GD", "module": "gd", "weight": 10},
     "gd_25": {"icon": "🎮", "name": "Рекордсмен-профи", "desc": "Отправить 25 рекордов GD", "module": "gd", "weight": 10},
     "gd_50": {"icon": "🕹️", "name": "Легенда GD", "desc": "Отправить 50 рекордов GD", "module": "gd", "weight": 10},
-    "gd_100": {"icon": "🕹️", "name": "Икона GD", "desc": "Отправить 100 рекордов GD", "module": "gd", "weight": 10},
-    "gd_200": {"icon": "🏆", "name": "Мастер рекордов", "desc": "Отправить 200 рекордов GD", "module": "gd", "weight": 10},
-    "gd_500": {"icon": "🏆", "name": "Легенда GD", "desc": "Отправить 500 рекордов GD", "module": "gd", "weight": 10},
-    "gd_7": {"icon": "🎮", "name": "Неделя рекордов", "desc": "Отправить 7 рекордов GD", "module": "gd", "weight": 10},
     "gd_77": {"icon": "🎮", "name": "Семь семёрок", "desc": "Отправить 77 рекордов GD", "module": "gd", "weight": 10},
+    "gd_89": {"icon": "🎮", "name": "Восемь-девять рекордов", "desc": "Отправить 89 рекордов GD", "module": "gd", "weight": 10},
+    "gd_100": {"icon": "🕹️", "name": "Икона GD", "desc": "Отправить 100 рекордов GD", "module": "gd", "weight": 10},
     "gd_150": {"icon": "🕹️", "name": "Полтораста", "desc": "Отправить 150 рекордов GD", "module": "gd", "weight": 10},
+    "gd_200": {"icon": "🏆", "name": "Мастер рекордов", "desc": "Отправить 200 рекордов GD", "module": "gd", "weight": 10},
     "gd_250": {"icon": "🕹️", "name": "Рекордный марафон", "desc": "Отправить 250 рекордов GD", "module": "gd", "weight": 10},
+    "gd_500": {"icon": "🏆", "name": "Легенда GD", "desc": "Отправить 500 рекордов GD", "module": "gd", "weight": 10},
     "gd_777": {"icon": "🏆", "name": "Джекпот рекордов", "desc": "Отправить 777 рекордов GD", "module": "gd", "weight": 10},
     "gd_1000": {"icon": "🏆", "name": "Рекордный миллионер", "desc": "Отправить 1000 рекордов GD", "module": "gd", "weight": 10},
     # --- D&D ---
     "dnd_first": {"icon": "🎲", "name": "Первая сессия", "desc": "Начать первую D&D сессию", "module": "dnd", "weight": 10},
-    "dnd_roll_10": {"icon": "🎲", "name": "Любитель костей", "desc": "Сделать 10 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_50": {"icon": "🎲", "name": "Игрок-ветеран", "desc": "Сделать 50 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_100": {"icon": "🎲", "name": "Мастер бросков", "desc": "Сделать 100 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_200": {"icon": "🎲", "name": "Легенда бросков", "desc": "Сделать 200 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_500": {"icon": "🎲", "name": "Владыка бросков", "desc": "Сделать 500 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_7": {"icon": "🎲", "name": "Неделя кубиков", "desc": "Сделать 7 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_10": {"icon": "🎲", "name": "Любитель костей", "desc": "Сделать 10 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_30": {"icon": "🎲", "name": "Тридцать бросков", "desc": "Сделать 30 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_50": {"icon": "🎲", "name": "Игрок-ветеран", "desc": "Сделать 50 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_75": {"icon": "🎲", "name": "75 бросков", "desc": "Сделать 75 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_89": {"icon": "🎲", "name": "Восемь-девять кубиков", "desc": "Сделать 89 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_100": {"icon": "🎲", "name": "Мастер бросков", "desc": "Сделать 100 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_150": {"icon": "🎲", "name": "Полтораста бросков", "desc": "Сделать 150 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_200": {"icon": "🎲", "name": "Легенда бросков", "desc": "Сделать 200 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_300": {"icon": "🎲", "name": "Триста бросков", "desc": "Сделать 300 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_roll_500": {"icon": "🎲", "name": "Владыка бросков", "desc": "Сделать 500 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_777": {"icon": "🎲", "name": "Джекпот кубиков", "desc": "Сделать 777 бросков в D&D", "module": "dnd", "weight": 10},
     "dnd_roll_1000": {"icon": "🎲", "name": "Тысяча бросков", "desc": "Сделать 1000 бросков в D&D", "module": "dnd", "weight": 10},
+    # --- D&D: критические броски ---
     "dnd_nat20": {"icon": "🎯", "name": "Естественная двадцатка", "desc": "Выбросить 20 на d20 в D&D", "module": "dnd", "weight": 10},
     "dnd_nat1": {"icon": "💀", "name": "Естественная единица", "desc": "Выбросить 1 на d20 в D&D", "module": "dnd", "weight": 10},
     # --- Монеты ---
     "coins_10": {"icon": "💰", "name": "Первые монеты", "desc": "Заработать 10 монет", "module": "coins", "weight": 10},
+    "coins_25": {"icon": "💰", "name": "Четвертак", "desc": "Заработать 25 монет", "module": "coins", "weight": 10},
     "coins_50": {"icon": "💰", "name": "Полтинник", "desc": "Заработать 50 монет", "module": "coins", "weight": 10},
+    "coins_89": {"icon": "💰", "name": "Чайная казна", "desc": "Заработать 89 монет", "module": "coins", "weight": 10},
     "coins_100": {"icon": "🪙", "name": "Сотня", "desc": "Заработать 100 монет", "module": "coins", "weight": 10},
+    "coins_250": {"icon": "💰", "name": "Двести пятьдесят", "desc": "Заработать 250 монет", "module": "coins", "weight": 10},
     "coins_500": {"icon": "💵", "name": "Полтысячи", "desc": "Заработать 500 монет", "module": "coins", "weight": 10},
+    "coins_750": {"icon": "💵", "name": "Семь сотен", "desc": "Заработать 750 монет", "module": "coins", "weight": 10},
     "coins_1000": {"icon": "💎", "name": "Тысяча", "desc": "Заработать 1000 монет", "module": "coins", "weight": 10},
+    "coins_2500": {"icon": "💎", "name": "Две с половиной", "desc": "Заработать 2500 монет", "module": "coins", "weight": 10},
     "coins_5000": {"icon": "👑", "name": "Казначей", "desc": "Заработать 5000 монет", "module": "coins", "weight": 10},
     "coins_10000": {"icon": "🏦", "name": "Банкир", "desc": "Заработать 10000 монет", "module": "coins", "weight": 10},
-    "coins_50000": {"icon": "🏆", "name": "Миллиардер", "desc": "Заработать 50000 монет", "module": "coins", "weight": 10},
-    "coins_100000": {"icon": "👑", "name": "Легенда монет", "desc": "Заработать 100000 монет", "module": "coins", "weight": 10},
-    "coins_1000000": {"icon": "🏆", "name": "Финансовый гений", "desc": "Заработать 1000000 монет", "module": "coins", "weight": 10},
-    "coins_25": {"icon": "💰", "name": "Четвертак", "desc": "Заработать 25 монет", "module": "coins", "weight": 10},
-    "coins_250": {"icon": "💰", "name": "Двести пятьдесят", "desc": "Заработать 250 монет", "module": "coins", "weight": 10},
-    "coins_750": {"icon": "💵", "name": "Семь сотен", "desc": "Заработать 750 монет", "module": "coins", "weight": 10},
-    "coins_2500": {"icon": "💎", "name": "Две с половиной", "desc": "Заработать 2500 монет", "module": "coins", "weight": 10},
     "coins_25000": {"icon": "🏦", "name": "Двадцать пять тысяч", "desc": "Заработать 25000 монет", "module": "coins", "weight": 10},
+    "coins_50000": {"icon": "🏆", "name": "Миллиардер", "desc": "Заработать 50000 монет", "module": "coins", "weight": 10},
     "coins_75000": {"icon": "🏆", "name": "Семьдесят пять тысяч", "desc": "Заработать 75000 монет", "module": "coins", "weight": 10},
+    "coins_100000": {"icon": "👑", "name": "Легенда монет", "desc": "Заработать 100000 монет", "module": "coins", "weight": 10},
     "coins_500000": {"icon": "👑", "name": "Полмиллиона", "desc": "Заработать 500000 монет", "module": "coins", "weight": 10},
+    "coins_1000000": {"icon": "🏆", "name": "Финансовый гений", "desc": "Заработать 1000000 монет", "module": "coins", "weight": 10},
     "coins_10000000": {"icon": "🏆", "name": "Десять миллионов", "desc": "Заработать 10000000 монет", "module": "coins", "weight": 10},
 }
 
@@ -1570,6 +1591,8 @@ def _check_web_achievements(conn, user_id):
         should.append("days_45")
     if facts["active_days"] >= 90:
         should.append("days_90")
+    if facts["active_days"] >= 89:
+        should.append("days_89")
     if facts["active_days"] >= 150:
         should.append("days_150")
     if facts["active_days"] >= 250:
@@ -1633,6 +1656,8 @@ def _check_web_achievements(conn, user_id):
         should.append("trivia_25")
     if trivia >= 50:
         should.append("trivia_50")
+    if trivia >= 89:
+        should.append("trivia_89")
     if trivia >= 100:
         should.append("trivia_100")
     if trivia >= 200:
@@ -1674,6 +1699,8 @@ def _check_web_achievements(conn, user_id):
         should.append("emperors_25")
     if emperors >= 50:
         should.append("emperors_50")
+    if emperors >= 89:
+        should.append("emperors_89")
     if emperors >= 100:
         should.append("emperors_100")
     if emperors >= 200:
@@ -1740,6 +1767,8 @@ def _check_web_achievements(conn, user_id):
         should.append("reading_25")
     if reading >= 50:
         should.append("reading_50")
+    if reading >= 89:
+        should.append("reading_89")
     if reading >= 100:
         should.append("reading_100")
     if reading >= 200:
@@ -1778,6 +1807,8 @@ def _check_web_achievements(conn, user_id):
         should.append("verbs_25")
     if verbs >= 50:
         should.append("verbs_50")
+    if verbs >= 89:
+        should.append("verbs_89")
     if verbs >= 100:
         should.append("verbs_100")
     if verbs >= 200:
@@ -1814,6 +1845,8 @@ def _check_web_achievements(conn, user_id):
         should.append("chess_25")
     if chess >= 50:
         should.append("chess_50")
+    if chess >= 89:
+        should.append("chess_89")
     if chess >= 100:
         should.append("chess_100")
     if chess >= 200:
@@ -1889,6 +1922,8 @@ def _check_web_achievements(conn, user_id):
         should.append("prayer_7")
     if prayer >= 30:
         should.append("prayer_30")
+    if prayer >= 89:
+        should.append("prayer_89")
     if prayer >= 100:
         should.append("prayer_100")
     if prayer >= 200:
@@ -1923,6 +1958,8 @@ def _check_web_achievements(conn, user_id):
         should.append("gd_25")
     if gd >= 50:
         should.append("gd_50")
+    if gd >= 89:
+        should.append("gd_89")
     if gd >= 100:
         should.append("gd_100")
     if gd >= 200:
@@ -1949,6 +1986,8 @@ def _check_web_achievements(conn, user_id):
         should.append("dnd_roll_10")
     if dnd >= 50:
         should.append("dnd_roll_50")
+    if dnd >= 89:
+        should.append("dnd_roll_89")
     if dnd >= 100:
         should.append("dnd_roll_100")
     if dnd >= 200:
@@ -1980,6 +2019,8 @@ def _check_web_achievements(conn, user_id):
         should.append("coins_10")
     if coins >= 50:
         should.append("coins_50")
+    if coins >= 89:
+        should.append("coins_89")
     if coins >= 100:
         should.append("coins_100")
     if coins >= 500:
@@ -10541,50 +10582,50 @@ def math_page():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Информатика — ОГЭ</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }}
-        .container {{ max-width: 800px; width: 100%; }}
-        .header {{ display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }}
-        .header h1 {{ font-size: 22px; color: #e94560; }}
-        .header a {{ color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }}
-        .header a:hover {{ color: #e94560; }}
-        .tabs {{ display: flex; gap: 8px; margin-bottom: 20px; }}
-        .tab-btn {{ flex: 1; padding: 12px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; cursor: pointer; font-family: inherit; transition: background 0.15s; }}
-        .tab-btn:hover {{ background: #1a5276; }}
-        .tab-btn.active {{ background: #e94560; border-color: #e94560; color: white; }}
-        .panel {{ display: none; }}
-        .panel.active {{ display: block; }}
-        .score {{ text-align: center; color: #888; font-size: 14px; margin-bottom: 16px; }}
-        .topic-card {{ background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 20px; margin-bottom: 16px; }}
-        .topic-card h2 {{ font-size: 18px; color: #e94560; margin-bottom: 8px; }}
-        .topic-card .description {{ color: #888; font-size: 14px; margin-bottom: 12px; }}
-        .topic-card .task-count {{ color: #666; font-size: 12px; }}
-        .task {{ background: #0f3460; border: 1px solid #1a5276; border-radius: 12px; padding: 16px; margin-bottom: 12px; }}
-        .task.question {{ color: #e0e0e0; }}
-        .task.answer {{ display: none; color: #4ade80; }}
-        .task h3 {{ font-size: 16px; margin-bottom: 8px; }}
-        .task .hint {{ color: #6b7280; font-size: 13px; margin-bottom: 8px; }}
-        .task .explanation {{ color: #9ca3af; font-size: 12px; display: none; }}
-        .answer-btn {{ width: 100%; padding: 12px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 10px; font-size: 14px; cursor: pointer; margin-top: 8px; }}
-        .answer-btn.correct {{ background: #1b5e20; border-color: #2e7d32; }}
-        .answer-btn.wrong {{ background: #b71c1c; border-color: #c62828; }}
-        .stats {{ text-align: center; color: #888; margin-top: 24px; font-size: 13px; }}
-        .hint-box {{ background: #0f3460; border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 14px; color: #aaa; line-height: 1.5; display: none; }}
-        .hint-btn {{ display: block; width: 100%; padding: 10px; background: none; border: 1px dashed #1a5276; color: #888; border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10x; font-family: inherit; }}
-        .hint-btn:hover {{ border-color: #f0c040; color: #f0c040; }}
-        .next-btn {{ display: none; width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; font-family: inherit; }}
-        .next-btn:hover {{ background: #d63851; }}
-        .mode-row {{ display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center; flex-wrap: wrap; }}
-        .mode-row label {{ display: flex; align-items: center; gap: 6px; font-size: 14px; color: #e0e0e0; cursor: pointer; }}
-        .diff-select {{ background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: inherit; cursor: pointer; }}
-        .progress-bar {{ flex: 1; height: 8px; background: #0f3460; border-radius: 6px; overflow: hidden; }}
-        .progress-fill {{ height: 100%; background: #e94560; width: 0%; transition: width 0.25s; }}
-        .progress-label {{ font-size: 12px; color: #888; white-space: nowrap; }}
-        .diff-badge {{ display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }}
-        .diff-stars {{ color: #f1c40f; letter-spacing: 1px; font-size: 15px; }}
-        .diff-pts {{ background: #0f3460; border: 1px solid #1a5276; color: #e0e0e0; border-radius: 8px; padding: 2px 8px; font-weight: 600; }}
-        .info {{ background: #0f3460; border-radius: 12px; padding: 16px; margin-top: 16px; font-size: 14px; line-height: 1.5; color: #aaa; display: none; }}
-        .info .info-label {{ color: #e94560; font-weight: 600; }}
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 800px; width: 100%; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+        .header h1 { font-size: 22px; color: #e94560; }
+        .header a { color: #888; text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: #e94560; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+        .tab-btn { flex: 1; padding: 12px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 10px; font-size: 15px; cursor: pointer; font-family: inherit; transition: background 0.15s; }
+        .tab-btn:hover { background: #1a5276; }
+        .tab-btn.active { background: #e94560; border-color: #e94560; color: white; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .score { text-align: center; color: #888; font-size: 14px; margin-bottom: 16px; }
+        .topic-card { background: #16213e; border: 1px solid #0f3460; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+        .topic-card h2 { font-size: 18px; color: #e94560; margin-bottom: 8px; }
+        .topic-card .description { color: #888; font-size: 14px; margin-bottom: 12px; }
+        .topic-card .task-count { color: #666; font-size: 12px; }
+        .task { background: #0f3460; border: 1px solid #1a5276; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+        .task.question { color: #e0e0e0; }
+        .task.answer { display: none; color: #4ade80; }
+        .task h3 { font-size: 16px; margin-bottom: 8px; }
+        .task .hint { color: #6b7280; font-size: 13px; margin-bottom: 8px; }
+        .task .explanation { color: #9ca3af; font-size: 12px; display: none; }
+        .answer-btn { width: 100%; padding: 12px; background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 10px; font-size: 14px; cursor: pointer; margin-top: 8px; }
+        .answer-btn.correct { background: #1b5e20; border-color: #2e7d32; }
+        .answer-btn.wrong { background: #b71c1c; border-color: #c62828; }
+        .stats { text-align: center; color: #888; margin-top: 24px; font-size: 13px; }
+        .hint-box { background: #0f3460; border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 14px; color: #aaa; line-height: 1.5; display: none; }
+        .hint-btn { display: block; width: 100%; padding: 10px; background: none; border: 1px dashed #1a5276; color: #888; border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10x; font-family: inherit; }
+        .hint-btn:hover { border-color: #f0c040; color: #f0c040; }
+        .next-btn { display: none; width: 100%; padding: 14px; background: #e94560; color: white; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; font-family: inherit; }
+        .next-btn:hover { background: #d63851; }
+        .mode-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center; flex-wrap: wrap; }
+        .mode-row label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #e0e0e0; cursor: pointer; }
+        .diff-select { background: #0f3460; color: #e0e0e0; border: 1px solid #1a5276; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: inherit; cursor: pointer; }
+        .progress-bar { flex: 1; height: 8px; background: #0f3460; border-radius: 6px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #e94560; width: 0%; transition: width 0.25s; }
+        .progress-label { font-size: 12px; color: #888; white-space: nowrap; }
+        .diff-badge { display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }
+        .diff-stars { color: #f1c40f; letter-spacing: 1px; font-size: 15px; }
+        .diff-pts { background: #0f3460; border: 1px solid #1a5276; color: #e0e0e0; border-radius: 8px; padding: 2px 8px; font-weight: 600; }
+        .info { background: #0f3460; border-radius: 12px; padding: 16px; margin-top: 16px; font-size: 14px; line-height: 1.5; color: #aaa; display: none; }
+        .info .info-label { color: #e94560; font-weight: 600; }
         .stats-card {{ font-size: 13px; color: #aaa; }}
         .stats-card .stat-line {{ margin: 4px 0; }}
     </style>

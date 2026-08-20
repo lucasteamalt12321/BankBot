@@ -89,6 +89,8 @@ def test_math_page_renders(client=None):
     assert "__TOPICS_DATA__" not in body, "topics data placeholder not substituted"
     assert "__FIRST_TOPIC__" not in body, "first topic placeholder not substituted"
     assert "{topic.name}" not in body, "JS template literal not interpolated"
+    assert "* {{ margin" not in body, "CSS contains f-string double braces ({{ }})"
+    assert "* { margin" in body, "CSS is invalid: single braces expected"
 
 
 def test_math_page_contains_topic_data():
