@@ -1028,7 +1028,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-91d4661 (2026-08-20) — FEAT: модуль «Информатика — ОГЭ» /math — фиксы и карточка на хабе. Закоммичено и задеплоено (bank-bot-ruby.vercel.app, / и /math → 200).
+2ee8bec (2026-08-20) — FIX: /math — страница рендерилась литеральными {topic.name}, вкладки и тренажёр не работали. Закоммичено и задеплоено (bank-bot-ruby.vercel.app, /math → 200, без {topic.name}).
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 
