@@ -855,6 +855,10 @@ CREATE TABLE IF NOT EXISTS web_users (
                 conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
             except Exception:
                 pass
+            try:
+                conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE"))
+            except Exception:
+                pass
             conn.commit()
         print("[AUTH] Tables ensured")
     except Exception as exc:
@@ -10509,6 +10513,17 @@ def math_page():
                     "name": t.name,
                     "description": t.description,
                     "taskCount": len(t.tasks),
+                    "tasks": [
+                        {
+                            "id": task.id,
+                            "question": task.question,
+                            "hint": task.hint,
+                            "answer": task.answer,
+                            "explanation": task.explanation,
+                            "difficulty": task.difficulty,
+                        }
+                        for task in t.tasks
+                    ],
                 }
                 for t in MATH_TOPICS
             ],
@@ -10517,7 +10532,9 @@ def math_page():
         ensure_ascii=False,
     )
 
-    html = f"""<!DOCTYPE html>
+    first_topic_id = list(topic_names.keys())[0] if topic_names else ""
+
+    html = """<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -10608,62 +10625,247 @@ def math_page():
 
     <script>
         // Initialize state
-        let currentTopic = "{list(topic_names.keys())[0] if topic_names else ''}";
+        let currentTopic = "__FIRST_TOPIC__";
         let currentTaskIndex = 0;
         let correctStreak = 0;
         let totalSolved = 0;
         let wrongAnswers = 0;
-        let hubActivity = JSON.parse(localStorage.getItem('hub_activity') || '{{}}');
+        let hubActivity = {};
+        try { hubActivity = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch (e) {}
 
         // Load topics data
-        const topicsData = {topics_data};
-        const topicNames = {json.dumps(dict(topic_names), ensure_ascii=False)};
+        const topicsData = __TOPICS_DATA__;
+        const topicNames = __TOPIC_NAMES__;
 
-        // Render study tab
-        function renderStudyTab() {{
+        // --- Tab switching ---
+        function switchTab(name) {
+            document.querySelectorAll('.tab-btn').forEach(function (btn) {
+                btn.classList.toggle('active', btn.dataset.tab === name);
+            });
+            document.getElementById('panel-study').classList.toggle('active', name === 'study');
+            document.getElementById('panel-trainer').classList.toggle('active', name === 'trainer');
+        }
+        document.querySelectorAll('.tab-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
+        });
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // --- Study tab: browse topics ---
+        function renderStudyTab() {
             const grid = document.getElementById('topics-grid');
             grid.innerHTML = '';
-            topicsData.topics.forEach(topic => {{
+            topicsData.topics.forEach(function (topic) {
                 const card = document.createElement('div');
                 card.className = 'topic-card';
-                card.innerHTML = `<h2>{{topic.name}}</h2><p class='description'>{{topic.description}}</p><p class='task-count'>Задач: {{topic.taskCount}}</p><button class='tab-btn' onclick='loadTopic("{topic.id}")'>Открыть</button>`;
+                const btn = document.createElement('button');
+                btn.className = 'tab-btn';
+                btn.textContent = 'Открыть';
+                btn.addEventListener('click', function () { loadTopic(topic.id); });
+                const h2 = document.createElement('h2');
+                h2.textContent = topic.name;
+                const p1 = document.createElement('p');
+                p1.className = 'description';
+                p1.textContent = topic.description;
+                const p2 = document.createElement('p');
+                p2.className = 'task-count';
+                p2.textContent = 'Задач: ' + topic.taskCount;
+                card.appendChild(h2);
+                card.appendChild(p1);
+                card.appendChild(p2);
+                card.appendChild(btn);
                 grid.appendChild(card);
-            }});
-        }}
+            });
+        }
 
-        // Load a specific topic
-        function loadTopic(topicId) {{
+        // Load a specific topic (study tab)
+        function loadTopic(topicId) {
             currentTopic = topicId;
-            document.getElementById('study-score').innerText = 'Тема: ' + topicNames[topicId] || topicId;
-            // Show tasks for this topic
-            const topic = topicsData.topics.find(t => t.id === topicId);
-            if (topic) {{
-                const grid = document.getElementById('topics-grid');
-                grid.innerHTML = '';
-                topic.tasks.forEach((task, index) => {{
-                    const taskDiv = document.createElement('div');
-                    taskDiv.className = 'task';
-                    taskDiv.innerHTML = `<h3>{{task.question}}</h3><p class='hint'>{{task.hint}}</p><button class='answer-btn' onclick='showAnswer({{index}}')'>Ответить</button>`;
-                    grid.appendChild(taskDiv);
-                }});
-            }}
-        }}
+            const score = document.getElementById('study-score');
+            score.textContent = 'Тема: ' + (topicNames[topicId] || topicId);
+            const topic = topicsData.topics.find(function (t) { return t.id === topicId; });
+            if (!topic) return;
+            const grid = document.getElementById('topics-grid');
+            grid.innerHTML = '';
+            topic.tasks.forEach(function (task, index) {
+                const taskDiv = document.createElement('div');
+                taskDiv.className = 'task';
+                const h3 = document.createElement('h3');
+                h3.textContent = task.question;
+                taskDiv.appendChild(h3);
+                if (task.hint) {
+                    const hint = document.createElement('p');
+                    hint.className = 'hint';
+                    hint.textContent = '💡 ' + task.hint;
+                    taskDiv.appendChild(hint);
+                }
+                const btn = document.createElement('button');
+                btn.className = 'answer-btn';
+                btn.textContent = 'Показать ответ';
+                btn.addEventListener('click', function () {
+                    const ans = document.createElement('p');
+                    ans.className = 'task answer';
+                    ans.style.display = 'block';
+                    ans.style.color = '#4ade80';
+                    ans.textContent = 'Ответ: ' + task.answer;
+                    taskDiv.appendChild(ans);
+                    if (task.explanation) {
+                        const exp = document.createElement('p');
+                        exp.className = 'explanation';
+                        exp.style.display = 'block';
+                        exp.style.color = '#9ca3af';
+                        exp.textContent = 'Пояснение: ' + task.explanation;
+                        taskDiv.appendChild(exp);
+                    }
+                    btn.disabled = true;
+                    btn.textContent = '✓ Ответ показан';
+                });
+                taskDiv.appendChild(btn);
+                grid.appendChild(taskDiv);
+            });
+            const backBtn = document.createElement('button');
+            backBtn.className = 'tab-btn';
+            backBtn.style.marginTop = '16px';
+            backBtn.textContent = '← Ко всем темам';
+            backBtn.addEventListener('click', renderStudyTab);
+            grid.appendChild(backBtn);
+        }
 
-        // Show answer for a task
-        function showAnswer(taskIndex) {{
-            // Simple implementation - mark as answered
-            alert('Ответ: ' + 'See API');
-        }}
+        // --- Trainer tab: random tasks ---
+        let trainQueue = [];
+        let trainDone = [];
+
+        function shuffle(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+            }
+            return arr;
+        }
+
+        function buildQueue() {
+            const topic = topicsData.topics.find(function (t) { return t.id === currentTopic; });
+            const tasks = (topic && topic.tasks) || [];
+            trainQueue = shuffle(tasks.slice());
+            trainDone = [];
+            document.getElementById('trainer-total').textContent = trainQueue.length;
+            if (!trainQueue.length) {
+                document.getElementById('current-task').innerHTML = '<h3>В этой теме нет задач</h3>';
+            }
+        }
+
+        function showTrainerTask() {
+            const box = document.getElementById('current-task');
+            box.innerHTML = '';
+            if (!trainQueue.length) {
+                const fin = document.createElement('h3');
+                fin.textContent = '🎉 Все задачи темы пройдены!';
+                box.appendChild(fin);
+                document.getElementById('next-btn').style.display = 'none';
+                const again = document.createElement('button');
+                again.className = 'answer-btn';
+                again.textContent = 'Пройти ещё раз';
+                again.addEventListener('click', function () {
+                    buildQueue();
+                    showTrainerTask();
+                });
+                box.appendChild(again);
+                return;
+            }
+            const task = trainQueue[0];
+            const h3 = document.createElement('h3');
+            h3.textContent = 'Вопрос: ' + task.question;
+            box.appendChild(h3);
+            if (task.hint) {
+                const hint = document.createElement('p');
+                hint.className = 'hint';
+                hint.textContent = '💡 ' + task.hint;
+                box.appendChild(hint);
+            }
+            const reveal = document.createElement('button');
+            reveal.className = 'answer-btn';
+            reveal.textContent = 'Показать ответ';
+            reveal.addEventListener('click', function () {
+                const ans = document.createElement('p');
+                ans.className = 'task answer';
+                ans.style.display = 'block';
+                ans.style.color = '#4ade80';
+                ans.textContent = 'Ответ: ' + task.answer;
+                box.appendChild(ans);
+                if (task.explanation) {
+                    const exp = document.createElement('p');
+                    exp.className = 'explanation';
+                    exp.style.display = 'block';
+                    exp.style.color = '#9ca3af';
+                    exp.textContent = 'Пояснение: ' + task.explanation;
+                    box.appendChild(exp);
+                }
+                totalSolved++;
+                correctStreak++;
+                trainDone.push(task);
+                trainQueue.shift();
+                document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved;
+                document.getElementById('next-btn').style.display = 'block';
+                reveal.style.display = 'none';
+            });
+            box.appendChild(reveal);
+            document.getElementById('next-btn').style.display = 'none';
+        }
+
+        // Trainer UI wiring
+        const topicSelect = document.createElement('select');
+        topicSelect.className = 'diff-select';
+        topicsData.topics.forEach(function (topic) {
+            const opt = document.createElement('option');
+            opt.value = topic.id;
+            opt.textContent = topic.name;
+            topicSelect.appendChild(opt);
+        });
+        const modeRow = document.createElement('div');
+        modeRow.className = 'mode-row';
+        const lbl = document.createElement('label');
+        lbl.textContent = 'Тема: ';
+        modeRow.appendChild(lbl);
+        modeRow.appendChild(topicSelect);
+        const startBtn = document.createElement('button');
+        startBtn.className = 'answer-btn';
+        startBtn.textContent = 'Начать тренажёр';
+        modeRow.appendChild(startBtn);
+        document.getElementById('panel-trainer').insertBefore(modeRow, document.getElementById('panel-trainer').firstChild);
+
+        startBtn.addEventListener('click', function () {
+            currentTopic = topicSelect.value;
+            buildQueue();
+            totalSolved = 0;
+            correctStreak = 0;
+            document.getElementById('trainer-score').textContent = 'Решено: 0';
+            showTrainerTask();
+        });
+
+        document.getElementById('next-btn').addEventListener('click', function () {
+            document.getElementById('next-btn').style.display = 'none';
+            showTrainerTask();
+        });
 
         // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {{
+        document.addEventListener('DOMContentLoaded', function () {
             renderStudyTab();
-        }});
-</script>
+            buildQueue();
+        });
+    </script>
 </body>
-</html>
-"""
-    return html
+</html>"""
+
+    html = (html
+            .replace("__TOPICS_DATA__", topics_data)
+            .replace("__TOPIC_NAMES__", json.dumps(dict(topic_names), ensure_ascii=False))
+            .replace("__FIRST_TOPIC__", first_topic_id))
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
 
 @app.route("/achievements")
 def achievements_page():

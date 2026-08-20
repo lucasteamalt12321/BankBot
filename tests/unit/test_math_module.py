@@ -86,14 +86,28 @@ def test_math_page_renders(client=None):
     assert "Тренажер" in body
     assert "ОГЭ" in body
     assert "lesson1" in body
-    assert "__DATA__" not in body, "data placeholder not substituted"
+    assert "__TOPICS_DATA__" not in body, "topics data placeholder not substituted"
+    assert "__FIRST_TOPIC__" not in body, "first topic placeholder not substituted"
+    assert "{topic.name}" not in body, "JS template literal not interpolated"
 
 
 def test_math_page_contains_topic_data():
     from api.index import app
+    import json
+    import re
 
     c = app.test_client()
     body = c.get("/math").get_data(as_text=True)
-    for t in MATH_TOPICS:
-        assert t.id in body
-        assert t.name in body
+    m = re.search(r"const topicsData = (\{.*?\});\n", body, re.S)
+    assert m, "topicsData JS object not found"
+    data = json.loads(m.group(1))
+    topic_ids = {t["id"] for t in data["topics"]}
+    assert topic_ids == {t.id for t in MATH_TOPICS}
+    for t in data["topics"]:
+        assert t["name"] in body
+        assert len(t["tasks"]) == 5, f"topic {t['id']} should expose 5 tasks"
+        for task in t["tasks"]:
+            assert task["question"]
+            assert task["answer"] is not None
+            assert task["explanation"]
+    assert len(data["allTaskIds"]) == len(ALL_TASK_IDS)
