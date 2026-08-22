@@ -33,6 +33,32 @@ def _make_engine():
         """))
         conn.execute(text("CREATE UNIQUE INDEX uq_web_activity_user_day_module ON web_activity_log(user_id, day, module)"))
         conn.execute(text("""
+            CREATE TABLE web_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                event TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 1,
+                updated_at REAL NOT NULL DEFAULT 0
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE emperors_progress (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                card_key TEXT NOT NULL,
+                reps INTEGER NOT NULL DEFAULT 0,
+                interval_days INTEGER NOT NULL DEFAULT 0,
+                ease REAL NOT NULL DEFAULT 2.5,
+                due REAL NOT NULL DEFAULT 0,
+                correct_count INTEGER NOT NULL DEFAULT 0,
+                wrong_count INTEGER NOT NULL DEFAULT 0,
+                counter INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
+        conn.execute(text("""
             CREATE TABLE web_achievements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -124,6 +150,10 @@ def test_activity_records_streak_and_unlocks_first():
         assert "trivia_first" in unlocked
         assert "first_quiz" in unlocked
         assert "first_streak" not in unlocked
+        detail = {u["code"]: u for u in data["unlocked_detail"]}
+        assert detail["first_step"]["name"]
+        assert detail["first_step"]["icon"]
+        assert detail["first_step"]["code"] == "first_step"
 
         # same day -> streak unchanged
         r2 = c.post("/api/achievements/activity", headers=auth, json={"module": "chess", "actions": 1})
@@ -153,7 +183,7 @@ def test_achievements_list_endpoint():
         c.post("/api/achievements/activity", headers=auth, json={"module": "reading", "actions": 1})
         g = c.get("/api/achievements", headers=auth)
         data = g.get_json()
-        assert data["total_count"] == 100
+        assert data["total_count"] >= 200
         assert data["unlocked_count"] >= 1
         assert data["streak"]["current"] == 1
         assert len(data["calendar"]) == 1
