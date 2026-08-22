@@ -6,6 +6,27 @@
 
 ## Changelog
 
+### 2026-08-20 (Session: модуль Информатика — переписан под уроки ITlessons + вкладка «📖 Теория»)
+
+- **Задача:** переписать модуль информатики под РЕАЛЬНЫЕ уроки 1–9 из `D:\ITlessons` (старые темы «круговые дороги/муравей/графы/вероятность/комбинаторика» были выдуманными) + добавить вкладку теории, чтобы пользователю было удобно учить теорию.
+- **Данные `core/math/tasks.py`:** 9 тем × 5 задач = 45, id `lessonN_oM`. Темы: сложность алгоритмов, целочисленная арифметика, делители/простые, факторизация, решето Эратосфена, НОД/НОК, первый контест, свойства чисел, линейный/бинарный поиск. Каждая `MathTopic` получила поля `theory` (конспект) и `code_examples`. Ответы задач сверены независимым вычислением (скрипт). Добавлены helpers `get_all_tasks`/`get_topic_by_id` (были `task_by_id`/`tasks_for_topic`/`get_random_task`/`get_tasks_by_difficulty`).
+- **Страница `api/index.py` (`/math`):** добавлена третья вкладка **📖 Теория** (`panel-theory`, `renderTheoryTab`/`loadTheory`) — рендерит `theory` + примеры кода. В `topics_data` JSON добавлены поля `theory` и `code`. docstring `tasks.py` сделан raw (`r"""`), чтобы не было SyntaxWarning на `\I` в пути `D:\ITlessons`.
+- **Тесты:** `test_math_module.py` 12/12 passed (ответы по difficulty как `tuple`); ruff clean; `/math` → 200, вкладка «Теория» присутствует и на проде.
+- **Деплой:** `vercel deploy --prod` ✓ Ready, алиас `bank-bot-ruby.vercel.app`. Прод проверен: «Теория»/«panel-theory»/«renderTheoryTab»/«Читать конспект»/«lesson1» присутствуют в HTML.
+- **Статус:** готово, задеплоено (не закоммичено).
+
+### 2026-08-20 (Session: ачивки 240 → 250, сортировка линий по сложности, деплой)
+
+- **Задача:** переупорядочить ачивки внутри каждой линии по возрастанию сложности (порога), добавить ачивку `prayer_89` («Восемь-девять» — сакральное число чайной религии из канона) + 9 вариаций `_89` по модулям до **250** штук.
+- **Переупорядочен реестр `ACHIEVEMENTS`** в `api/index.py` (скрипт `reorder_achievements.py`): линии сгруппированы и отсортированы по числовому порогу (system_first/actions, module, streak, days, trivia_count/streak, emperors_count/modes/mastered, reading, verbs, chess, canon, prayer, gd, dnd, coins). Было 240 → стало 250.
+- **Добавлены 10 ачивок:** `prayer_89`, `trivia_89`, `emperors_89`, `reading_89`, `verbs_89`, `chess_89`, `gd_89`, `dnd_roll_89`, `coins_89`, `days_89` (порог 89 в каждой линии).
+- **Условия разблокировки** в `_check_web_achievements` (`api/index.py`): добавлены `if X >= 89: should.append(...)` для всех 10 новых кодов.
+- **Исправлен синтаксис `api/index.py`** (корень проблемы «100 ачивок на проде»): (1) JS `{}` внутри f-строк ломали билд Vercel → заменены `|| '{{}}'` и `json.dumps(dict(topic_names))` для `topicNames`; (2) декоратор `@app.route("/achievements")` восстановлен на отдельной строке (`/achievements` был 404); (3) `_record_activity` возвращает `new_streak, longest, total` (иначе 500 «cannot unpack non-iterable NoneType»). Файл снова проходит `ast.parse`.
+- **Миграция email для прод-БД:** в `_ensure_web_auth_tables` добавлен `ALTER TABLE web_users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE` — регистрация на проде падала с 500 (INSERT email в таблицу без колонки).
+- **Деплой:** `vercel deploy --prod` ✓ Ready in 46s, алиас `bank-bot-ruby.vercel.app`. Прод проверен: регистрация нового юзера → 200, `GET /api/achievements` → **total: 250**.
+- **Тесты:** `test_achievements.py` + `test_emperors_module.py` = 26/26 passed; `test_math_module.py` 12/12.
+- **⚠️ НУЖНО ПРОВЕРИТЬ:** (1) ачивки на проде отображаются в отсортированном порядке по сложности и все 250 на месте у реальных пользователей (проверено только на свежезарегистрированном юзере); (2) `prayer_89` открывается при 89 молитвах; (3) `_89`-ачивки не ломают старые unlock-пути (уже открытые ачивки не дублируются — дедуп через SELECT до INSERT); (4) 8 тестов `tests/unit` (5 canon e2e + 3 web_portal) падают из-за обязательного email в `/api/auth/register` (тесты шлют register без email → 400) — отдельная задача обновить тесты.
+
 ### 2026-08-20 (Session: модуль «Информатика — ОГЭ» `/math` доведён до боевого состояния)
 - **Задача:** завершение модуля информатики (по решению пользователя — именно «информатика», не «математика»), теория из уроков `D:\ITlessons` (1–9), паттерн императорского модуля.
 - **Починено:** `core/math/tasks.py` — синтаксическая ошибка `explanation "29 не делится..."` → `explanation=` (SyntaxError: positional argument follows keyword argument).
@@ -1028,7 +1049,7 @@
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
 ## last_checked_commit
-7386f6b (2026-08-20) — FIX: /math — починен CSS (двойные скобки {{ }} остались от f-string). Закоммичено и задеплоено (bank-bot-ruby.vercel.app, /math → 200, CSS валиден).
+62a71f8 (2026-08-20) — последний HEAD. Ачивки 240→250 переупорядочены и задеплоены (банк-бот, total: 250 на проде, см. Changelog 2026-08-20).
 
 *(UPD 2026-08-13: не закоммичено остаётся — ADMIN-BUG-2 фикс JS админки, TRIVIA-BUG-1; модуль «Императоры России» закоммичен и задеплоен.)*
 

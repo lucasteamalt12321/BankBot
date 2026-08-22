@@ -1,22 +1,22 @@
-"""Источник данных по задачам для ОГЭ по информатике.
+r"""Источник данных по информатике (ОГЭ) на основе уроков из D:\ITlessons.
 
-Contains math tasks organized by topic from IT lessons 1-9.
-Following the pattern of core/history/emperors.py - only stdlib (dataclasses),
-no external dependencies, importable directly by api/index.py on Vercel.
+Содержит 9 уроков-тем с конспектом теории и задачами из самих уроков.
+Паттерн core/history/emperors.py: только stdlib (dataclasses), импортируется
+напрямую из api/index.py на Vercel.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
 @dataclass(frozen=True)
 class MathTask:
-    """Одна задача по математике/информатике."""
+    """Одна задача по информатике."""
 
     id: str
-    topic: str  # название темы
+    topic: str  # название темы (урока)
     difficulty: str  # "легкая", "средняя", "сложная"
     question: str  # текст задачи
     answer: Any  # правильный ответ (тип зависит от задачи)
@@ -26,564 +26,752 @@ class MathTask:
 
 @dataclass(frozen=True)
 class MathTopic:
-    """Тема с набором задач."""
+    """Тема (урок) с конспектом теории и набором задач."""
 
     id: str
-    name: str  # человекочитаемое название
-    description: str  # описание темы
-    tasks: tuple[MathTask, ...]  # задачи в этой теме
+    name: str  # человекочитаемое название урока
+    description: str  # краткое описание темы
+    theory: str = ""  # конспект теории (абзацы, разделённые \n\n)
+    code_examples: tuple = ()  # примеры кода из урока
+    tasks: tuple = ()  # задачи урока
 
 
-# ============================================================
-# TASKS BY TOPIC (уроки из D:\ITlessons)
-# ============================================================
-
-# --- Урок 1: Сложность алгоритмов ---
-TASK_lesson_1_o1 = MathTask(
-    id="lesson1_o1",
-    topic="Сложность алгоритмов",
-    difficulty="легкая",
-    question="Какая сложность у алгоритма, который берет элемент по индексу в массиве?",
-    answer="Константная O(1)",
-    explanation="Доступ к массиву по индексу занимает одинаковое время независимо от размера массива.",
+THEORY_LESSON_1 = (
+    "Сложность алгоритма описывает, как время работы зависит от размера "
+    "входных данных N. Используем O-нотацию - верхнюю оценку роста.\n\n"
+    "O(1) - константное время: доступ по индексу массива, обмен переменных. "
+    "Не зависит от N.\n\n"
+    "O(log N) - логарифмическое: бинарный поиск. На каждом шаге область поиска "
+    "сокращается в 2 раза. log2(1000) ≈ 10.\n\n"
+    "O(N) - линейное: один проход по массиву. Время растёт пропорционально N.\n\n"
+    "O(N^2) - квадратичное: вложенные циклы по одному массиву. При росте N в 10 "
+    "раз время растёт в 100 раз.\n\n"
+    "Пример: сумма чисел, кратных 5, от 1 до N за O(1) = 5 * k * (k+1) // 2, "
+    "где k = N // 5."
 )
 
-TASK_lesson_1_o2 = MathTask(
-    id="lesson1_o2",
-    topic="Сложность алгоритмов",
-    difficulty="легкая",
-    question="Какая сложность у бинарного поиска на массиве из N элементов?",
-    answer="Логарифмическая O(log N)",
-    explanation="Бинарный поиск на каждом шаге делит массив пополам, поэтому операция повторяется log2(N) раз.",
+CODE_LESSON_1 = (
+    "def linear_search(a, x):\n"
+    "    for i in range(len(a)):\n"
+    "        if a[i] == x:\n"
+    "            return i\n"
+    "    return -1  # O(N)\n\n"
+    "def binary_search(a, x):\n"
+    "    lo, hi = 0, len(a) - 1\n"
+    "    while lo <= hi:\n"
+    "        mid = (lo + hi) // 2\n"
+    "        if a[mid] == x:\n"
+    "            return mid\n"
+    "        if a[mid] < x:\n"
+    "            lo = mid + 1\n"
+    "        else:\n"
+    "            hi = mid - 1\n"
+    "    return -1  # O(log N)"
 )
 
-TASK_lesson_1_o3 = MathTask(
-    id="lesson1_o3",
-    topic="Сложность алгоритмов",
-    difficulty="средняя",
-    question="Какая сложность у алгоритма с одним циклом for по N элементам?",
-    answer="Линейная O(N)",
-    explanation="Алгоритм выполняет N операций, время растёт пропорционально размеру данных.",
+THEORY_LESSON_2 = (
+    "Целочисленное деление // даёт целую часть (всегда округляет ВНИЗ до "
+    "ближайшего целого, даже для отрицательных).\n\n"
+    "19 // 7 = 2, но 19 // -7 = -3 (округление вниз).\n\n"
+    "Остаток %: всегда одного знака с ДЕЛИТЕЛЕМ. 19 % -7 = -2 (знак как у -7).\n\n"
+    "Число чисел, кратных K в отрезке [1..N] равно N // K.\n\n"
+    "Кольцевая дорога длины L: положение через t секунд = (v * t) % L.\n\n"
+    "Число, кратных 17 или 13 среди 1..N: N//17 + N//13 - N//(17*13) "
+    "(формула включений-исключений)."
 )
 
-TASK_lesson_1_o4 = MathTask(
-    id="lesson1_o4",
-    topic="Сложность алгоритмов",
-    difficulty="средняя",
-    question="Какая сложность у алгоритма с двумя вложенными циклами по N элементов?",
-    answer="Степенная O(N²)",
-    explanation="Два вложенных цикла делают примерно N×N/2 операций, время растёт как квадрат размера.",
+CODE_LESSON_2 = (
+    "n, k = 10, 3\n"
+    "print((n + k) * (n - k))   # 91 (сокращённое умножение)\n\n"
+    "v, t, L = 5, 3, 109\n"
+    "print((v * t) % L)          # 15 (кольцевая дорога)\n\n"
+    "N = 100\n"
+    "print(N // 17 + N // 13 - N // (17 * 13))  # 12 (кратные 17 или 13)"
 )
 
-TASK_lesson_1_o5 = MathTask(
-    id="lesson1_o5",
-    topic="Сложность алгоритмов",
-    difficulty="сложная",
-    question="Как называется сложность, когда время не зависит от размера данных?",
-    answer="Константная O(1)",
-    explanation="Пример: взятие элемента по индексу arr[5] занимает одинаковое время при любом n.",
-)
-
-# --- Урок 2: Целочисленная арифметика ---
-TASK_lesson_2_o1 = MathTask(
-    id="lesson2_o1",
-    topic="Целочисленная арифметика",
-    difficulty="легкая",
-    question="Какое число получится при выражении 19 // -7?",
-    answer="-3",
-    explanation="В Python целочисленное деление Rounded toward negative infinity: 19 = (-7)×(-3) + (-2).",
-)
-
-TASK_lesson_2_o2 = MathTask(
-    id="lesson2_o2",
-    topic="Целочисленная арифметика",
-    difficulty="легкая",
-    question="Что возвращает 19 % -7?",
-    answer="-2",
-    explanation="Остаток имеет такой же знак, что и делитель (минус Seven).",
-)
-
-TASK_lesson_2_o3 = MathTask(
-    id="lesson2_o3",
-    topic="Целочисленная арифметика",
-    difficulty="средняя",
-    question="Найдите НОК чисел 6 и 10.",
-    answer="30",
-    explanation="НОК(6,10) = 30, так как 6=2×3, 10=2×5, НОК = 2×3×5 = 30.",
-)
-
-TASK_lesson_2_o4 = MathTask(
-    id="lesson2_o4",
-    topic="Целочисленная арифметика",
-    difficulty="средняя",
-    question="Найдите НОД чисел 36 и 60.",
-    answer="12",
-    explanation="36=2²×3², 60=2²×3×5, НОД = 2²×3 = 12.",
-)
-
-TASK_lesson_2_o5 = MathTask(
-    id="lesson2_o5",
-    topic="Целочисленная арифметика",
-    difficulty="сложная",
-    question="Сколько недовольных детей будет, если 22 детей и 35 подарков?",
-    answer="9",
-    explanation="-35 % 22 = 9, остаток от деления подарков на детей.",
-)
-
-# --- Урок 3: Делители и простые числа ---
-TASK_lesson_3_o1 = MathTask(
-    id="lesson3_o1",
-    topic="Делители и простые числа",
-    difficulty="легкая",
-    question="Выведите все делители числа 100 по одному разу.",
-    answer="1 2 4 5 10 20 25 50 100",
-    explanation="Находим пары делителей до sqrt(100)=10: (1,100), (2,50), (4,25), (5,20), (10,10).",
-)
-
-TASK_lesson_3_o2 = MathTask(
-    id="lesson3_o2",
-    topic="Делители и простые числа",
-    difficulty="легкая",
-    question="Является ли число 29 простым?",
-    answer="Да",
-    explanation="29 не делится ни на какие числа от 2 до sqrt(29)≈5.3 (2, 3, 5).",
-)
-
-TASK_lesson_3_o3 = MathTask(
-    id="lesson3_o3",
-    topic="Делители и простые числа",
-    difficulty="средняя",
-    question="Найдите наибольший общий делитель чисел 84 и 180.",
-    answer="12",
-    explanation="84 = 2²×3×7, 180 = 2²×3²×5, НОД = 2²×3 = 12.",
-)
-
-TASK_lesson_3_o4 = MathTask(
-    id="lesson3_o4",
-    topic="Делители и простые числа",
-    difficulty="средняя",
-    question="Сколько делителей имеет число 72?",
-    answer="12",
-    explanation="72 = 2³×3², количество делителей = (3+1)×(2+1) = 4×3 = 12.",
-)
-
-TASK_lesson_3_o5 = MathTask(
-    id="lesson3_o5",
-    topic="Делители и простые числа",
-    difficulty="сложная",
-    question="Найдите все простые делители числа 360.",
-    answer="2 3 5",
-    explanation="360 = 2³×3²×5, простые делители: 2, 3, 5.",
-)
-
-# --- Урок 4: Круглые дороги и расстояния ---
-TASK_lesson_4_o1 = MathTask(
-    id="lesson4_o1",
-    topic="Круговые дороги",
-    difficulty="легкая",
-    question="Велосипедист едет по круговой дороге длиной 109 км. Скорость v=5 км/ч, время t=3 ч. На какой отметке остановится?",
-    answer="15",
-    explanation="(5×3) % 109 = 15.",
-)
-
-TASK_lesson_4_o2 = MathTask(
-    id="lesson4_o2",
-    topic="Круговые дороги",
-    difficulty="легкая",
-    question="Машина едет по круговой дороге длиной 109 км. Скорость v=37 км/ч, время t=5 ч. На какой отметке остановится?",
-    answer="91",
-    explanation="(37×5) % 109 = 185 % 109 = 76.",
-)
-
-TASK_lesson_4_o3 = MathTask(
-    id="lesson4_o3",
-    topic="Круговые дороги",
-    difficulty="средняя",
-    question="На.circular road length 109 km, cyclist speed 5 km/h, time 3 h. Where stop?",
-    answer="15",
-    explanation="(5×3) % 109 = 15.",
-)
-
-TASK_lesson_4_o4 = MathTask(
-    id="lesson4_o4",
-    topic="Круговые дороги",
-    difficulty="средняя",
-    question="Find the meeting point on a circular road of length 109 km if two cyclists start from the same point with speeds 5 and 7 km/h after 3 hours.",
-    answer="24",
-    explanation="Relative speed = 7-5 = 2 km/h. Distance = 2×3 = 6 km. Position = 6 % 109 = 6.",
-)
-
-TASK_lesson_4_o5 = MathTask(
-    id="lesson4_o5",
-    topic="Круговые дороги",
-    difficulty="сложная",
-    question="На circular road length m=109 km, cyclist speed v km/h, time t hours. Formula for position?",
-    answer="(v×t) % m",
-    explanation="Position on circular road is always (speed × time) modulo road length.",
-)
-
-# --- Урок 5: Анти-муравей и супермарафон ---
-TASK_lesson_5_o1 = MathTask(
-    id="lesson5_o1",
-    topic="Анти- муравей и супермарафон",
-    difficulty="легкая",
-    question="Муравей несет w=3 мг пищи за t=19 сек. Сигнал придет через T=100 сек. Сколько пищи принесет?",
-    answer="18",
-    explanation="Количество рейсов = (100 + 19 - 1) // 19 = 118 // 19 = 6. Итого: 6 × 3 = 18 мг.",
-)
-
-TASK_lesson_5_o2 = MathTask(
-    id="lesson5_o2",
-    topic="Анти- муравей и супермарафон",
-    difficulty="легкая",
-    question="Супермарафон: лыжник бежит N=51 км. Остановки после каждой 17 км и после каждой 13 км. Сколько остановок?",
-    answer="6",
-    explanation="51 // 17 = 3, 51 // 13 = 3, совпадающие (кратные 221) = 51 // 221 = 0. Итого: 3 + 3 - 0 = 6.",
-)
-
-TASK_lesson_5_o3 = MathTask(
-    id="lesson5_o3",
-    topic="Анти- муравей и супермарафон",
-    difficulty="средняя",
-    question="Анти-муравей несет w=5 мг за t=7 сек. Сигнал T=50 сек. Сколько пищи?",
-    answer="35",
-    explanation="(50 + 7 - 1) // 7 = 56 // 7 = 8 рейсов. 8 × 5 = 40. Но проверьте: 8×7=56≥50, верно. 8×5=40."
-)
-
-TASK_lesson_5_o4 = MathTask(
-    id="lesson5_o4",
-    topic="Анти- муравей и супермарафон",
-    difficulty="средняя",
-    question="Машина проезжает n=100 км в день, маршрут m=300 км. Сколько дней нужно?",
-    answer="3",
-    explanation="(300 + 100 - 1) // 100 = 399 // 100 = 3.",
-)
-
-TASK_lesson_5_o5 = MathTask(
-    id="lesson5_o5",
-    topic="Анти- муравей и супермарафон",
-    difficulty="сложная",
-    question="General formula for ant carrying w mg per trip, trip takes t seconds, signal at T seconds?",
-    answer="((T + t - 1) // t) * w",
-    explanation="Number of trips = ceil(T / t) = (T + t - 1) // t, total food = trips × w.",
-)
-
-# --- Урок 6: Логические задачи и строки ---
-TASK_lesson_6_o1 = MathTask(
-    id="lesson6_o1",
-    topic="Логические задачи и строки",
-    difficulty="легкая",
-    question="В кругу N спортсменов каждый ударил K следующих за собой. Сколько ударов всего?",
-    answer="N * K",
-    explanation="Каждый из N спортсменов делает K ударов, всего N×K.",
-)
-
-TASK_lesson_6_o2 = MathTask(
-    id="lesson6_o2",
-    topic="Логические задачи и строки",
-    difficulty="легкая",
-    question="Определите количество проведенных партий: N участников первой группы, K переманили ко второй. Ответ: N² - K².",
-    answer="91",
-    explanation="Тест: N=10, K=3 → 10² - 3² = 100 - 9 = 91.",
-)
-
-TASK_lesson_6_o3 = MathTask(
-    id="lesson6_o3",
-    topic="Логические задачи и строки",
-    difficulty="средняя",
-    question="Сколько слов можно составить из букв К, А, Н, А, Т, А, используя все буквы?",
-    answer="60",
-    explanation="7 букв с повторениями: 7! / 3! = 5040 / 6 = 840 (но проверьте задачи).",
-)
-
-TASK_lesson_6_o4 = MathTask(
-    id="lesson6_o4",
-    topic="Логические задачи и строки",
-    difficulty="средняя",
-    question="Какое число будет в клетке, если по диагонали кладут 1, 2, 3, ...?",
-    answer="Зависит от размерности таблицы.",
-    explanation="Задача про числовой треугольник/матрицу.",
-)
-
-TASK_lesson_6_o5 = MathTask(
-    id="lesson6_o5",
-    topic="Логические задачи и строки",
-    difficulty="сложная",
-    question="На новогоднем утреннике дети встали в круг, Дед Мороз раздал K подарков N детям. Сколько детей недовольны?",
-    answer="-K % N",
-    explanation="Остаток от деления подарков на детей дает количество недовольных.",
-)
-
-# --- Урок 7: Графовая теория (базовый уровень) ---
-TASK_lesson_7_o1 = MathTask(
-    id="lesson7_o1",
-    topic="Графовая теория",
-    difficulty="легкая",
-    question="Какое минимальное число разрезетребуется, чтобы разделить круг на N частей прямыми?",
-    answer="N",
-    explanation="Чтобы разделить круг на N равных частей, нужно N прямых резцев через центр.",
-)
-
-TASK_lesson_7_o2 = MathTask(
-    id="lesson7_o2",
-    topic="Графовая теория",
-    difficulty="легкая",
-    question="Найдите путь из А в Б в графе: А-Б-C-Д. Какие вершины пройдено?",
-    answer="А → Б → В → Г",
-    explanation="Пример простого графа.",
-)
-
-TASK_lesson_7_o3 = MathTask(
-    id="lesson7_o3",
-    topic="Графовая теория",
-    difficulty="средняя",
-    question="Какой минимальный номер дня, когда отсчет完成了 N дней подряд?",
-    answer="N",
-    explanation="Если отслеживаем streak (серию дней), то N-й день подряд — это просто N.",
-)
-
-TASK_lesson_7_o4 = MathTask(
-    id="lesson7_o4",
-    topic="Графовая теория",
-    difficulty="средняя",
-    question="Взять элемент по индексу в массиве — это O(1). Верно или неверно?",
-    answer="Верно",
-    explanation="Доступ по индексу в массиве/списке Python занимает постоянное время.",
-)
-
-TASK_lesson_7_o5 = MathTask(
-    id="lesson7_o5",
-    topic="Графовая теория",
-    difficulty="сложная",
-    question="Какова сложность поиска пути Дейкстры в графе с N вершинами и M ребрами?",
-    answer="O((N + M) log N)",
-    explanation="Дейкстра с кучей приоритетов имеет сложность O((V + E) log V).",
-)
-
-# --- Урок 8: Вероятность ---
-TASK_lesson_8_o1 = MathTask(
-    id="lesson8_o1",
-    topic="Вероятность",
-    difficulty="легкая",
-    question="Какова вероятность выпадения орла при броске честной монеты?",
-    answer="0.5 или 1/2",
-    explanation="Два исхода (орёл, решка) равновероятны.",
-)
-
-TASK_lesson_8_o2 = MathTask(
-    id="lesson8_o2",
-    topic="Вероятность",
-    difficulty="легкая",
-    question="Какая вероятность выпадения числа 6 на кубике?",
-    answer="1/6",
-    explanation="У кубика 6 граней, все равновероятны.",
-)
-
-TASK_lesson_8_o3 = MathTask(
-    id="lesson8_o3",
-    topic="Вероятность",
-    difficulty="средняя",
-    question="Из мешка из 3 красных и 2 синих шариков достают один. Какова вероятность красного?",
-    answer="3/5",
-    explanation="3 красных из 5 всего шариков.",
-)
-
-TASK_lesson_8_o4 = MathTask(
-    id="lesson8_o4",
-    topic="Вероятность",
-    difficulty="средняя",
-    question="Если вероятность дождя сегодня 0.7, какова вероятностьClear? ",
-    answer="0.3",
-    explanation="Вероятности суммируются до 1: 0.7 + 0.3 = 1.",
-)
-
-TASK_lesson_8_o5 = MathTask(
-    id="lesson8_o5",
-    topic="Вероятность",
-    difficulty="сложная",
-    question="Общая формула: P(A или B) = P(A) + P(B) - P(A и B). Верно или неверно?",
-    answer="Верно",
-    explanation="Формула включений-exclusions избегает двойного подсчета пересечения событий.",
-)
-
-# --- Урок 9: Комбинаторика ---
-TASK_lesson_9_o1 = MathTask(
-    id="lesson9_o1",
-    topic="Комбинаторика",
-    difficulty="легкая",
-    question="Сквозможностей при выборе 1 из 3 видов пиццы и 2 видов напитков?",
-    answer="6",
-    explanation="3 × 2 = 6 комбинаций.",
-)
-
-TASK_lesson_9_o2 = MathTask(
-    id="lesson9_o2",
-    topic="Комбинаторика",
-    difficulty="легкая",
-    question="Сколько способов рассадить 3 человека на 3 стульях?",
-    answer="6",
-    explanation="3! = 3 × 2 × 1 = 6.",
-)
-
-TASK_lesson_9_o3 = MathTask(
-    id="lesson9_o3",
-    topic="Комбинаторика",
-    difficulty="средняя",
-    question="Сколько способов выбрать 2 из 5 кандидатов в комитет?",
-    answer="10",
-    explanation="C(5,2) = 5! / (2!×3!) = 10.",
-)
-
-TASK_lesson_9_o4 = MathTask(
-    id="lesson9_o4",
-    topic="Комбинаторика",
-    difficulty="средняя",
-    question="Сколько вариантов пароля длиной 4 символа из 10 возможных?",
-    answer="10000",
-    explanation="10⁴ = 10 000 комбинаций (если повторяются).",
-)
-
-TASK_lesson_9_o5 = MathTask(
-    id="lesson9_o5",
-    topic="Комбинаторика",
-    difficulty="сложная",
-    question="Общая формула размещений: P(n,k) = n! / (n-k)!. Найдите P(5,3).",
-    answer="60",
-    explanation="5! / (5-3)! = 120 / 2 = 60.",
-)
-
-# ============================================================
-# COLLECTION OF ALL TOPICS
-# ============================================================
-
-MATH_TOPICS: tuple[MathTopic, ...] = (
-    # Урок 1: Сложность алгоритмов
-    MathTopic(
-        id="lesson1",
-        name="Сложность алгоритмов",
-        description="Большая O-нотация, сравнение алгоритмов, когда программа будет медленной",
-        tasks=(
-            TASK_lesson_1_o1,
-            TASK_lesson_1_o2,
-            TASK_lesson_1_o3,
-            TASK_lesson_1_o4,
-            TASK_lesson_1_o5,
+TOPIC_LESSON_1 = MathTopic(
+    id="lesson1",
+    name="Сложность алгоритмов",
+    description="O-нотация: O(1), O(log N), O(N), O(N^2). Сравнение линейного и бинарного поиска.",
+    theory=THEORY_LESSON_1,
+    code_examples=(CODE_LESSON_1,),
+    tasks=(
+        MathTask(
+            id="lesson1_o1",
+            topic="Сложность алгоритмов",
+            difficulty="легкая",
+            question="Какая сложность у операции получения элемента массива по индексу a[i]?",
+            answer="O(1)",
+            explanation="Доступ по индексу занимает константное время, не зависящее от N.",
         ),
-    ),
-    # Урок 2: Целочисленная арифметика
-    MathTopic(
-        id="lesson2",
-        name="Целочисленная арифметика",
-        description="Деление с остатком, НОД, НОК, modular arithmetic",
-        tasks=(
-            TASK_lesson_2_o1,
-            TASK_lesson_2_o2,
-            TASK_lesson_2_o3,
-            TASK_lesson_2_o4,
-            TASK_lesson_2_o5,
+        MathTask(
+            id="lesson1_o2",
+            topic="Сложность алгоритмов",
+            difficulty="легкая",
+            question="Какая сложность у бинарного поиска в отсортированном массиве длины N?",
+            answer="O(log N)",
+            explanation="На каждом шаге область поиска сокращается в 2 раза.",
         ),
-    ),
-    # Урок 3: Делители и простые числа
-    MathTopic(
-        id="lesson3",
-        name="Делители и простые числа",
-        description="Нахождение делителей, простые числа, факторизация",
-        tasks=(
-            TASK_lesson_3_o1,
-            TASK_lesson_3_o2,
-            TASK_lesson_3_o3,
-            TASK_lesson_3_o4,
-            TASK_lesson_3_o5,
+        MathTask(
+            id="lesson1_o3",
+            topic="Сложность алгоритмов",
+            difficulty="легкая",
+            question="Какая сложность у однократного прохода по всем элементам массива (один цикл for)?",
+            answer="O(N)",
+            explanation="Время линейно растёт с размером массива.",
         ),
-    ),
-    # Урок 4: Круговые дороги
-    MathTopic(
-        id="lesson4",
-        name="Круговые дороги",
-        description="Задачи на Circular road, modular arithmetic on circles",
-        tasks=(
-            TASK_lesson_4_o1,
-            TASK_lesson_4_o2,
-            TASK_lesson_4_o3,
-            TASK_lesson_4_o4,
-            TASK_lesson_4_o5,
+        MathTask(
+            id="lesson1_o4",
+            topic="Сложность алгоритмов",
+            difficulty="средняя",
+            question="Если алгоритм имеет сложность O(N^2) и при N=100 работает 1 секунду, во сколько раз дольше он будет работать при N=1000?",
+            answer=100,
+            explanation="Время пропорционально N^2: (1000/100)^2 = 10^2 = 100 раз.",
         ),
-    ),
-    # Урок 5: Анти-муравей и супермарафон
-    MathTopic(
-        id="lesson5",
-        name="Анти- муравей и супермарафон",
-        description="Задачи на шаги, рейсы, periodicity, ceil division",
-        tasks=(
-            TASK_lesson_5_o1,
-            TASK_lesson_5_o2,
-            TASK_lesson_5_o3,
-            TASK_lesson_5_o4,
-            TASK_lesson_5_o5,
-        ),
-    ),
-    # Урок 6: Логические задачи и строки
-    MathTopic(
-        id="lesson6",
-        name="Логические задачи и строки",
-        description="Задачи на логику,pattern recognition,sequence completion",
-        tasks=(
-            TASK_lesson_6_o1,
-            TASK_lesson_6_o2,
-            TASK_lesson_6_o3,
-            TASK_lesson_6_o4,
-            TASK_lesson_6_o5,
-        ),
-    ),
-    # Урок 7: Графовая теория
-    MathTopic(
-        id="lesson7",
-        name="Графовая теория",
-        description="Базовые понятия графов, пути, сложность алгоритмов",
-        tasks=(
-            TASK_lesson_7_o1,
-            TASK_lesson_7_o2,
-            TASK_lesson_7_o3,
-            TASK_lesson_7_o4,
-            TASK_lesson_7_o5,
-        ),
-    ),
-    # Урок 8: Вероятность
-    MathTopic(
-        id="lesson8",
-        name="Вероятность",
-        description="Базовая вероятность, события, формулы включений",
-        tasks=(
-            TASK_lesson_8_o1,
-            TASK_lesson_8_o2,
-            TASK_lesson_8_o3,
-            TASK_lesson_8_o4,
-            TASK_lesson_8_o5,
-        ),
-    ),
-    # Урок 9: Комбинаторика
-    MathTopic(
-        id="lesson9",
-        name="Комбинаторика",
-        description="Перестановки, сочетания, размещения, подсчет вариантов",
-        tasks=(
-            TASK_lesson_9_o1,
-            TASK_lesson_9_o2,
-            TASK_lesson_9_o3,
-            TASK_lesson_9_o4,
-            TASK_lesson_9_o5,
+        MathTask(
+            id="lesson1_o5",
+            topic="Сложность алгоритмов",
+            difficulty="средняя",
+            question="Чему равна сумма всех натуральных чисел, кратных 5, от 1 до 10 000 000 (включительно), вычисленная за O(1)?",
+            answer=10000005000000,
+            explanation="k = 10^7 // 5 = 2 000 000; S = 5*k*(k+1)//2 = 5*2 000 000*2 000 001//2 = 10 000 000 500 000.",
         ),
     ),
 )
 
+TOPIC_LESSON_2 = MathTopic(
+    id="lesson2",
+    name="Целочисленная арифметика",
+    description="Целочисленное деление //, остаток %, задачи на кратность, кольцевую дорогу и включения-исключения.",
+    theory=THEORY_LESSON_2,
+    code_examples=(CODE_LESSON_2,),
+    tasks=(
+        MathTask(
+            id="lesson2_o1",
+            topic="Целочисленная арифметика",
+            difficulty="легкая",
+            question="Чему равно 19 // -7 в Python (целочисленное деление)?",
+            answer=-3,
+            explanation="Целочисленное деление округляет ВНИЗ: 19 / -7 ≈ -2.71 -> -3.",
+        ),
+        MathTask(
+            id="lesson2_o2",
+            topic="Целочисленная арифметика",
+            difficulty="легкая",
+            question="Чему равно 19 % -7 в Python (остаток от деления)?",
+            answer=-2,
+            explanation="Остаток имеет знак делителя (-7): 19 = (-3)*(-7) + (-2).",
+        ),
+        MathTask(
+            id="lesson2_o3",
+            topic="Целочисленная арифметика",
+            difficulty="средняя",
+            question="Вычислите (N+K)*(N-K) для N=10 и K=3.",
+            answer=91,
+            explanation="(10+3)*(10-3) = 13*7 = 91. Это сокращённое умножение разности квадратов.",
+        ),
+        MathTask(
+            id="lesson2_o4",
+            topic="Целочисленная арифметика",
+            difficulty="средняя",
+            question="Кольцевая дорога длиной 109 км. Машина едет со скоростью 5 км/с и стартует с отметки 0. На какой отметке она окажется через 3 секунды?",
+            answer=15,
+            explanation="Положение = (v*t) % L = (5*3) % 109 = 15 % 109 = 15.",
+        ),
+        MathTask(
+            id="lesson2_o5",
+            topic="Целочисленная арифметика",
+            difficulty="средняя",
+            question="Сколько натуральных чисел от 1 до 100 делятся на 17 или на 13 (по формуле включений-исключений)?",
+            answer=12,
+            explanation="100//17 + 100//13 - 100//(17*13) = 5 + 7 - 0 = 12 (чисел, кратных обоим, до 100 нет).",
+        ),
+    ),
+)
 
-# ============================================================
-# ХЕЛПЕРЫ (helpers)
-# ============================================================
+THEORY_LESSON_3 = (
+    "Делитель числа N - это число, на которое N делится без остатка.\n\n"
+    "Чтобы найти все делители, достаточно перебирать i от 1 до sqrt(N): если "
+    "N % i == 0, то делителями являются и i, и N // i (пара).\n\n"
+    "Простое число делится только на 1 и на само себя. Проверка на простоту: "
+    "нет делителя от 2 до sqrt(N).\n\n"
+    "Количество всех делителей числа по его разложению N = p1^a1 * p2^a2 * ... "
+    "равно (a1+1)*(a2+1)*... . Например, 72 = 2^3 * 3^2 -> (3+1)*(2+1) = 12 делителей."
+)
+
+CODE_LESSON_3 = (
+    "def divisors(n):\n"
+    "    res = set()\n"
+    "    for i in range(1, int(n**0.5) + 1):\n"
+    "        if n % i == 0:\n"
+    "            res.add(i)\n"
+    "            res.add(n // i)\n"
+    "    return sorted(res)\n\n"
+    "def is_prime(n):\n"
+    "    i = 2\n"
+    "    while i <= n**0.5 and n % i != 0:\n"
+    "        i += 1\n"
+    "    return i > n**0.5"
+)
+
+THEORY_LESSON_4 = (
+    "Факторизация - разложение числа на простые множители.\n\n"
+    "Алгоритм: вычитаем множитель 2, пока делится; затем перебираем нечётные "
+    "делители d от 3 до sqrt(n), деля n на d, пока делится. Оставшееся n > 1 - "
+    "тоже простой множитель.\n\n"
+    "Наибольший простой делитель числа - последний оставшийся множитель после "
+    "полного деления на все меньшие."
+)
+
+CODE_LESSON_4 = (
+    "def factorize(n):\n"
+    "    factors = []\n"
+    "    while n % 2 == 0:\n"
+    "        factors.append(2); n //= 2\n"
+    "    d = 3\n"
+    "    while d * d <= n:\n"
+    "        while n % d == 0:\n"
+    "            factors.append(d); n //= d\n"
+    "        d += 2\n"
+    "    if n > 1:\n"
+    "        factors.append(n)\n"
+    "    return factors"
+)
+
+TOPIC_LESSON_3 = MathTopic(
+    id="lesson3",
+    name="Делители и простые числа",
+    description="Поиск всех делителей перебором до sqrt(N), проверка на простоту, количество делителей по разложению.",
+    theory=THEORY_LESSON_3,
+    code_examples=(CODE_LESSON_3,),
+    tasks=(
+        MathTask(
+            id="lesson3_o1",
+            topic="Делители и простые числа",
+            difficulty="легкая",
+            question="Перечислите все делители числа 100 в порядке возрастания.",
+            answer=[1, 2, 4, 5, 10, 20, 25, 50, 100],
+            explanation="Пары: (1,100),(2,50),(4,25),(5,20),(10,10).",
+        ),
+        MathTask(
+            id="lesson3_o2",
+            topic="Делители и простые числа",
+            difficulty="легкая",
+            question="Является ли число 29 простым?",
+            answer="Да",
+            explanation="Делителей от 2 до sqrt(29)≈5.4 нет, значит 29 простое.",
+        ),
+        MathTask(
+            id="lesson3_o3",
+            topic="Делители и простые числа",
+            difficulty="легкая",
+            question="Какие простые делители (с кратностью) имеет число 60?",
+            answer=[2, 3, 5],
+            explanation="60 = 2^2 * 3 * 5, значит простые делители 2, 3, 5.",
+        ),
+        MathTask(
+            id="lesson3_o4",
+            topic="Делители и простые числа",
+            difficulty="средняя",
+            question="Сколько делителей у числа 72?",
+            answer=12,
+            explanation="72 = 2^3 * 3^2, количество делителей = (3+1)*(2+1) = 12.",
+        ),
+        MathTask(
+            id="lesson3_o5",
+            topic="Делители и простые числа",
+            difficulty="средняя",
+            question="Сколько делителей у числа 36?",
+            answer=9,
+            explanation="36 = 2^2 * 3^2, количество делителей = (2+1)*(2+1) = 9.",
+        ),
+    ),
+)
+
+TOPIC_LESSON_4 = MathTopic(
+    id="lesson4",
+    name="Факторизация",
+    description="Разложение числа на простые множители, нахождение наибольшего простого делителя.",
+    theory=THEORY_LESSON_4,
+    code_examples=(CODE_LESSON_4,),
+    tasks=(
+        MathTask(
+            id="lesson4_o1",
+            topic="Факторизация",
+            difficulty="легкая",
+            question="Разложите число 12 на простые множители (в порядке возрастания, с повторами).",
+            answer=[2, 2, 3],
+            explanation="12 = 2 * 2 * 3.",
+        ),
+        MathTask(
+            id="lesson4_o2",
+            topic="Факторизация",
+            difficulty="легкая",
+            question="Каков наибольший простой делитель числа 64?",
+            answer=2,
+            explanation="64 = 2^6, все множители равны 2, наибольший = 2.",
+        ),
+        MathTask(
+            id="lesson4_o3",
+            topic="Факторизация",
+            difficulty="средняя",
+            question="Каков наибольший простой делитель числа 84?",
+            answer=7,
+            explanation="84 = 2^2 * 3 * 7, наибольший простой множитель = 7.",
+        ),
+        MathTask(
+            id="lesson4_o4",
+            topic="Факторизация",
+            difficulty="средняя",
+            question="Разложите число 360 на простые множители (в порядке возрастания, с повторами).",
+            answer=[2, 2, 2, 3, 3, 5],
+            explanation="360 = 2^3 * 3^2 * 5.",
+        ),
+        MathTask(
+            id="lesson4_o5",
+            topic="Факторизация",
+            difficulty="средняя",
+            question="Каков наибольший простой делитель числа 121?",
+            answer=11,
+            explanation="121 = 11^2, наибольший простой делитель = 11.",
+        ),
+    ),
+)
+
+THEORY_LESSON_5 = (
+    "Решето Эратосфена находит все простые числа до n за O(n log log n).\n\n"
+    "Заводим массив is_prime длиной n+1 (индексы 0 и 1 - False). Для каждого d "
+    "от 2 до sqrt(n): если d простое, вычёркиваем все кратные d, начиная с d^2 "
+    "(меньшие кратные уже вычеркнуты меньшими простыми).\n\n"
+    "Наименьший простой делитель числа i - первое простое, на которое i делится.\n\n"
+    "Наибольший простой делитель числа i - последнее оставшееся простое после "
+    "деления на все меньшие простые."
+)
+
+CODE_LESSON_5 = (
+    "def sieve(n):\n"
+    "    is_prime = [False, False] + [True] * (n - 1)\n"
+    "    d = 2\n"
+    "    while d * d <= n:\n"
+    "        if is_prime[d]:\n"
+    "            for i in range(d * d, n + 1, d):\n"
+    "                is_prime[i] = False\n"
+    "        d += 1\n"
+    "    return is_prime\n\n"
+    "# наибольший простой делитель на отрезке [l, r]\n"
+    "def largest_prime_divisors(l, r):\n"
+    "    largest = [0] * (r + 1)\n"
+    "    d = 2\n"
+    "    while d <= r:\n"
+    "        if largest[d] == 0:\n"
+    "            for i in range(d, r + 1, d):\n"
+    "                largest[i] = d\n"
+    "        d += 1\n"
+    "    return [largest[x] for x in range(l, r + 1)]"
+)
+
+THEORY_LESSON_6 = (
+    "НОД (gcd) - наибольший общий делитель. Алгоритм Евклида: gcd(a,b) = "
+    "gcd(b, a % b), пока b != 0.\n\n"
+    "НОК (lcm) = a * b // gcd(a, b).\n\n"
+    "Число точек с целыми координатами на отрезке между (x1,y1) и (x2,y2) "
+    "(включая концы) равно gcd(|x2-x1|, |y2-y1|) + 1.\n\n"
+    "Всегда выполняется: НОД(a,b) * НОК(a,b) = a * b."
+)
+
+CODE_LESSON_6 = (
+    "def gcd(a, b):\n"
+    "    while b != 0:\n"
+    "        a, b = b, a % b\n"
+    "    return a\n\n"
+    "def lcm(a, b):\n"
+    "    return a * b // gcd(a, b)\n\n"
+    "def points_on_segment(x1, y1, x2, y2):\n"
+    "    return gcd(abs(x2 - x1), abs(y2 - y1)) + 1"
+)
+
+TOPIC_LESSON_5 = MathTopic(
+    id="lesson5",
+    name="Решето Эратосфена",
+    description="Поиск простых чисел решетом, пары близнецов, наименьший и наибольший простой делитель на отрезке.",
+    theory=THEORY_LESSON_5,
+    code_examples=(CODE_LESSON_5,),
+    tasks=(
+        MathTask(
+            id="lesson5_o1",
+            topic="Решето Эратосфена",
+            difficulty="легкая",
+            question="Перечислите все простые числа в отрезке [7, 30] в порядке возрастания.",
+            answer=[7, 11, 13, 17, 19, 23, 29],
+            explanation="Решето оставляет простыми: 7,11,13,17,19,23,29.",
+        ),
+        MathTask(
+            id="lesson5_o2",
+            topic="Решето Эратосфена",
+            difficulty="легкая",
+            question="Перечислите все простые числа в интервале (89, 112) (строго между) в порядке возрастания.",
+            answer=[97, 101, 103, 107, 109],
+            explanation="Числа 97,101,103,107,109 - простые; 111 = 3*37 составное.",
+        ),
+        MathTask(
+            id="lesson5_o3",
+            topic="Решето Эратосфена",
+            difficulty="средняя",
+            question="Сколько пар простых близнецов (простые, различающиеся на 2) в отрезке [7, 30]?",
+            answer=2,
+            explanation="Пары: (11,13) и (17,19). Итого 2 пары.",
+        ),
+        MathTask(
+            id="lesson5_o4",
+            topic="Решето Эратосфена",
+            difficulty="средняя",
+            question="Для чисел 7,8,9,10,11,12,13,14,15 выпишите наименьший простой делитель каждого.",
+            answer=[7, 2, 3, 2, 11, 2, 13, 2, 3],
+            explanation="Для простых - само число; 8->2, 9->3, 10->2, 12->2, 14->2, 15->3.",
+        ),
+        MathTask(
+            id="lesson5_o5",
+            topic="Решето Эратосфена",
+            difficulty="средняя",
+            question="Для чисел 7,8,9,10,11,12,13,14,15 выпишите наибольший простой делитель каждого.",
+            answer=[7, 2, 3, 5, 11, 3, 13, 7, 5],
+            explanation="7->7, 8->2, 9->3, 10->5, 11->11, 12->3, 13->13, 14->7, 15->5.",
+        ),
+    ),
+)
+
+TOPIC_LESSON_6 = MathTopic(
+    id="lesson6",
+    name="НОД и НОК",
+    description="Алгоритм Евклида, нахождение НОД и НОК, точки на отрезке, связь НОД*НОК = a*b.",
+    theory=THEORY_LESSON_6,
+    code_examples=(CODE_LESSON_6,),
+    tasks=(
+        MathTask(
+            id="lesson6_o1",
+            topic="НОД и НОК",
+            difficulty="легкая",
+            question="Чему равен НОД(18, 12) (алгоритм Евклида)?",
+            answer=6,
+            explanation="gcd(18,12)=gcd(12,6)=gcd(6,0)=6.",
+        ),
+        MathTask(
+            id="lesson6_o2",
+            topic="НОД и НОК",
+            difficulty="легкая",
+            question="Чему равен НОК(18, 12)?",
+            answer=36,
+            explanation="НОК = 18*12 // 6 = 216 // 6 = 36.",
+        ),
+        MathTask(
+            id="lesson6_o3",
+            topic="НОД и НОК",
+            difficulty="средняя",
+            question="Чему равен НОД трёх чисел 48, 60 и 72?",
+            answer=12,
+            explanation="gcd(48,60)=12; gcd(12,72)=12.",
+        ),
+        MathTask(
+            id="lesson6_o4",
+            topic="НОД и НОК",
+            difficulty="средняя",
+            question="Сколько точек с целыми координатами лежит на отрезке между (0,0) и (4,6), включая концы?",
+            answer=3,
+            explanation="gcd(|4-0|,|6-0|) + 1 = gcd(4,6) + 1 = 2 + 1 = 3.",
+        ),
+        MathTask(
+            id="lesson6_o5",
+            topic="НОД и НОК",
+            difficulty="легкая",
+            question="Верно ли, что для a=4 и b=6 выполняется НОД(a,b) * НОК(a,b) = a * b?",
+            answer="Да",
+            explanation="НОД=2, НОК=12, 2*12=24 = 4*6. Верно для любых a,b.",
+        ),
+    ),
+)
+
+THEORY_LESSON_7 = (
+    "Первый контест объединяет пройденное: нумерацию квартир, степени, "
+    "разложение на множители и подсчёт делителей.\n\n"
+    "Номер подъезда и этажа: даны N (квартир на этаже), K (этажей), квартира "
+    "A. Подъезд x = (A-1)//(N*K) + 1; в подъезде квартира f = A - N*K*(x-1); "
+    "этаж y = (f-1)//K + 1.\n\n"
+    "Количество различных простых делителей числа считается решетом по отрезку."
+)
+
+CODE_LESSON_7 = (
+    "def pod_nom(N, K, A):\n"
+    "    x = (A - 1) // (N * K) + 1\n"
+    "    f = A - N * K * (x - 1)\n"
+    "    y = (f - 1) // K + 1\n"
+    "    return x, y\n\n"
+    "def distinct_prime_divisors_count(l, r):\n"
+    "    cnt = [0] * (r + 1)\n"
+    "    d = 2\n"
+    "    while d <= r:\n"
+    "        if cnt[d] == 0:\n"
+    "            for i in range(d, r + 1, d):\n"
+    "                cnt[i] += 1\n"
+    "        d += 1\n"
+    "    return [cnt[x] for x in range(l, r + 1)]"
+)
+
+THEORY_LESSON_8 = (
+    "Особенное число - в разложении ровно 3 простых множителя с учётом "
+    "кратности (например, 12 = 2*2*3).\n\n"
+    "Точки на отрезке СТРОГО внутри между (x1,y1) и (x2,y2): gcd(dx,dy) - 1.\n\n"
+    "Число общих делителей двух чисел: пусть разложения a и b; для каждого "
+    "общего простого p берём min(степень в a, степень в b)+1 и перемножаем.\n\n"
+    "Совершенное число: сумма его собственных делителей равна самому числу "
+    "(например, 6 = 1+2+3)."
+)
+
+CODE_LESSON_8 = (
+    "def count_prime_factors(n):\n"
+    "    c = 0\n"
+    "    while n % 2 == 0:\n"
+    "        n //= 2; c += 1\n"
+    "    d = 3\n"
+    "    while d * d <= n:\n"
+    "        if n % d == 0:\n"
+    "            n //= d; c += 1\n"
+    "        else:\n"
+    "            d += 2\n"
+    "    if n > 1:\n"
+    "        c += 1\n"
+    "    return c\n\n"
+    "def common_divisors_count(a, b):\n"
+    "    def powers(n):\n"
+    "        p = {}\n"
+    "        while n % 2 == 0:\n"
+    "            p[2] = p.get(2, 0) + 1; n //= 2\n"
+    "        d = 3\n"
+    "        while d * d <= n:\n"
+    "            while n % d == 0:\n"
+    "                p[d] = p.get(d, 0) + 1; n //= d\n"
+    "            d += 2\n"
+    "        if n > 1:\n"
+    "            p[n] = 1\n"
+    "        return p\n"
+    "    fa, fb = powers(a), powers(b)\n"
+    "    res = 1\n"
+    "    for p in fa:\n"
+    "        if p in fb:\n"
+    "            res *= min(fa[p], fb[p]) + 1\n"
+    "    return res"
+)
+
+THEORY_LESSON_9 = (
+    "Линейный поиск перебирает элементы подряд, O(N).\n\n"
+    "Бинарный поиск работает на отсортированном массиве, O(log N).\n\n"
+    "lower_bound - минимальный индекс i, при котором A[i] >= key. Равен "
+    "количеству элементов, строго меньших key.\n\n"
+    "upper_bound - минимальный индекс i, при котором A[i] > key."
+)
+
+CODE_LESSON_9 = (
+    "def linear_search(a, key):\n"
+    "    for i, x in enumerate(a):\n"
+    "        if x == key:\n"
+    "            return i\n"
+    "    return -1\n\n"
+    "def lower_bound(a, key):\n"
+    "    i = 0\n"
+    "    while i < len(a) and a[i] < key:\n"
+    "        i += 1\n"
+    "    return i\n\n"
+    "def binary_search(a, key):\n"
+    "    l, r = 0, len(a) - 1\n"
+    "    while l <= r:\n"
+    "        m = (l + r) // 2\n"
+    "        if a[m] == key:\n"
+    "            return m\n"
+    "        if a[m] < key:\n"
+    "            l = m + 1\n"
+    "        else:\n"
+    "            r = m - 1\n"
+    "    return -1"
+)
+
+TOPIC_LESSON_7 = MathTopic(
+    id="lesson7",
+    name="Первый контест",
+    description="Комплексные задачи: нумерация квартир, степени, разложение и подсчёт простых делителей.",
+    theory=THEORY_LESSON_7,
+    code_examples=(CODE_LESSON_7,),
+    tasks=(
+        MathTask(
+            id="lesson7_o1",
+            topic="Первый контест",
+            difficulty="средняя",
+            question="В доме N=4 квартиры на этаже, K=3 этажей. Квартира A=20. Найдите подъезд и этаж.",
+            answer="2 3",
+            explanation="x=(20-1)//12+1=2; f=20-12=8; y=(8-1)//3+1=3. Ответ: подъезд 2, этаж 3.",
+        ),
+        MathTask(
+            id="lesson7_o2",
+            topic="Первый контест",
+            difficulty="средняя",
+            question="Программа для N=64 (последовательно делит на d, пока d^3 <= N) выводит в итоге число d. Чему оно равно?",
+            answer=2,
+            explanation="64 делится на 2 шесть раз, становясь 1, цикл завершается, d=2.",
+        ),
+        MathTask(
+            id="lesson7_o3",
+            topic="Первый контест",
+            difficulty="сложная",
+            question="Программа для N=72 вычисляет произведение x^(y//2*2) по разложению на множители. Чему равен результат?",
+            answer=36,
+            explanation="72=2^3*3^2; для 2: 2^(3//2*2)=2^2=4; для 3: 3^2=9; 4*9=36 (наибольший делитель-квадрат).",
+        ),
+        MathTask(
+            id="lesson7_o4",
+            topic="Первый контест",
+            difficulty="легкая",
+            question="Программа для N=4, M=6 выводит строку из символов '1' длиной НОД(N,M). Что она выведет?",
+            answer="11",
+            explanation="НОД(4,6)=2, значит выводится две единицы: '11'.",
+        ),
+        MathTask(
+            id="lesson7_o5",
+            topic="Первый контест",
+            difficulty="средняя",
+            question="Для чисел 25,26,27,28,29,30,31,32 выпишите количество различных простых делителей каждого.",
+            answer=[1, 2, 1, 2, 1, 3, 1, 1],
+            explanation="25=5^2->1; 26=2*13->2; 27=3^3->1; 28=2^2*7->2; 29->1; 30=2*3*5->3; 31->1; 32=2^5->1.",
+        ),
+    ),
+)
+
+TOPIC_LESSON_8 = MathTopic(
+    id="lesson8",
+    name="Свойства чисел",
+    description="Особенные числа (3 множителя), точки внутри отрезка, общие делители, совершенные числа.",
+    theory=THEORY_LESSON_8,
+    code_examples=(CODE_LESSON_8,),
+    tasks=(
+        MathTask(
+            id="lesson8_o1",
+            topic="Свойства чисел",
+            difficulty="средняя",
+            question="Является ли число 12 'особенным' (ровно 3 простых множителя с учётом кратности)?",
+            answer="Да",
+            explanation="12 = 2*2*3 - три простых множителя с учётом кратности. Ответ: YES/Да.",
+        ),
+        MathTask(
+            id="lesson8_o2",
+            topic="Свойства чисел",
+            difficulty="средняя",
+            question="Является ли число 16 'особенным' (ровно 3 простых множителя с учётом кратности)?",
+            answer="Нет",
+            explanation="16 = 2^4 - четыре множителя, не три. Ответ: NO/Нет.",
+        ),
+        MathTask(
+            id="lesson8_o3",
+            topic="Свойства чисел",
+            difficulty="сложная",
+            question="Какие точки с целыми координатами лежат СТРОГО внутри отрезка между (0,0) и (6,9)?",
+            answer=[(2, 3), (4, 6)],
+            explanation="gcd(6,9)=3, внутри 3-1=2 точки: (6*1/3,9*1/3)=(2,3) и (4,6).",
+        ),
+        MathTask(
+            id="lesson8_o4",
+            topic="Свойства чисел",
+            difficulty="средняя",
+            question="Сколько общих делителей у чисел 12 и 18?",
+            answer=4,
+            explanation="Делители 12: 1,2,3,4,6,12; делители 18: 1,2,3,6,9,18. Общие: 1,2,3,6 = 4 штуки.",
+        ),
+        MathTask(
+            id="lesson8_o5",
+            topic="Свойства чисел",
+            difficulty="средняя",
+            question="Является ли число 6 совершенным (сумма собственных делителей равна самому числу)?",
+            answer="Да",
+            explanation="Собственные делители 6: 1,2,3; 1+2+3=6. Ответ: YES/Да.",
+        ),
+    ),
+)
+
+TOPIC_LESSON_9 = MathTopic(
+    id="lesson9",
+    name="Линейный и бинарный поиск",
+    description="Линейный и бинарный поиск, lower_bound и upper_bound, медиана в отсортированном массиве.",
+    theory=THEORY_LESSON_9,
+    code_examples=(CODE_LESSON_9,),
+    tasks=(
+        MathTask(
+            id="lesson9_o1",
+            topic="Линейный и бинарный поиск",
+            difficulty="легкая",
+            question="Массив A=[1,1,5,5,5,6], ключи B=[1,2,5,6]. Для каждого ключа найдите ПЕРВЫЙ индекс вхождения (или -1, если нет).",
+            answer=[0, -1, 2, 5],
+            explanation="1->0, 2->-1 (нет), 5->2 (первый раз на индексе 2), 6->5.",
+        ),
+        MathTask(
+            id="lesson9_o2",
+            topic="Линейный и бинарный поиск",
+            difficulty="средняя",
+            question="Для того же массива A=[1,1,5,5,5,6] и ключей B=[1,2,5,6] найдите lower_bound - минимальный индекс i, где A[i] >= key.",
+            answer=[0, 2, 2, 5],
+            explanation="1->0 (A[0]>=1); 2->2 (A[0..1]<2); 5->2 (A[2]>=5); 6->5.",
+        ),
+        MathTask(
+            id="lesson9_o3",
+            topic="Линейный и бинарный поиск",
+            difficulty="легкая",
+            question="Отсортированный массив A=[1,5,6,7,10,22], ключи B=[1,2,5,6,15,22]. Бинарный поиск: индекс или -1.",
+            answer=[0, -1, 1, 2, -1, 5],
+            explanation="1->0, 2->-1, 5->1, 6->2, 15->-1, 22->5.",
+        ),
+        MathTask(
+            id="lesson9_o4",
+            topic="Линейный и бинарный поиск",
+            difficulty="легкая",
+            question="Что возвращает функция lower_bound для отсортированного массива A и ключа key?",
+            answer="минимальный индекс i, при котором A[i] >= key (равен числу элементов строго меньше key)",
+            explanation="lower_bound даёт позицию вставки key слева; количество элементов строго меньше key.",
+        ),
+        MathTask(
+            id="lesson9_o5",
+            topic="Линейный и бинарный поиск",
+            difficulty="легкая",
+            question="В отсортированном массиве A=[3,5,7,9,11] медиана - это элемент с индексом len(A)//2. Чему равна медиана?",
+            answer=7,
+            explanation="len=5, 5//2=2, A[2]=7.",
+        ),
+    ),
+)
+
+MATH_TOPICS: tuple = (
+    TOPIC_LESSON_1,
+    TOPIC_LESSON_2,
+    TOPIC_LESSON_3,
+    TOPIC_LESSON_4,
+    TOPIC_LESSON_5,
+    TOPIC_LESSON_6,
+    TOPIC_LESSON_7,
+    TOPIC_LESSON_8,
+    TOPIC_LESSON_9,
+)
 
 
-def task_by_id(task_id: str) -> MathTask | None:
-    """Найти задачу по её ID."""
+def get_all_tasks() -> list:
+    """Плоский список всех задач (для тренажёра и страницы /math)."""
+    tasks: list = []
+    for topic in MATH_TOPICS:
+        tasks.extend(topic.tasks)
+    return tasks
+
+
+def get_topic_by_id(topic_id: str):
+    for topic in MATH_TOPICS:
+        if topic.id == topic_id:
+            return topic
+    return None
+
+
+def task_by_id(task_id: str):
     for topic in MATH_TOPICS:
         for task in topic.tasks:
             if task.id == task_id:
@@ -591,28 +779,20 @@ def task_by_id(task_id: str) -> MathTask | None:
     return None
 
 
-def tasks_for_topic(topic_id: str) -> tuple[MathTask, ...] | None:
-    """Найти все задачи по теме."""
-    for topic in MATH_TOPICS:
-        if topic.id == topic_id:
-            return topic.tasks
-    return None
+def tasks_for_topic(topic_id: str):
+    topic = get_topic_by_id(topic_id)
+    if topic is None:
+        return None
+    return list(topic.tasks)
 
 
-def get_random_task() -> MathTask:
-    """Вернуть случайную задачу из всех."""
+def get_random_task():
     import random
-    all_tasks = []
-    for topic in MATH_TOPICS:
-        all_tasks.extend(topic.tasks)
-    return random.choice(all_tasks)
+
+    return random.choice(get_all_tasks())
 
 
-def get_tasks_by_difficulty(difficulty: str) -> tuple[MathTask, ...]:
-    """Вернуть все задачи заданной сложности."""
-    result = []
-    for topic in MATH_TOPICS:
-        for task in topic.tasks:
-            if task.difficulty == difficulty:
-                result.append(task)
-    return tuple(result)
+def get_tasks_by_difficulty(difficulty: str):
+    return tuple(t for t in get_all_tasks() if t.difficulty == difficulty)
+
+
