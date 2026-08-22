@@ -186,9 +186,12 @@ def test_emperors_page_has_extended_mode_and_importance():
     assert "toggleOptCount" in body
     assert "Все (хронологически)" in body
     assert "e.key <= '6'" in body, "keyboard handler should support up to 6 options"
-    assert "quizScore += (optCount === 'all') ? 2 : 1" in body, "score gain should depend on difficulty"
-    assert "quizScore += (optCount === 'all') ? -1 : 0" in body, "score loss should depend on difficulty"
-    assert "сложность: все варианты" in body
+    assert "quizScore += (pts.level >= 3) ? 2 : 1" in body, "score gain should depend on difficulty"
+    assert "quizScore += (pts.level === 2) ? -2 : -1" in body, "score loss should depend on difficulty"
+    assert "diffInfo" in body
+    assert "+2/−1" in body, "all rulers / all options difficulty should exist"
+    assert "+1/−2" in body, "all rulers / 5 options difficulty should exist"
+    assert "+1/−1" in body, "5 emperors difficulty should exist"
 
 
 def test_emperors_progress_api_save_and_get():
@@ -267,8 +270,7 @@ def test_emperors_page_powerup_features():
     assert "Знаток" in body
     assert "function updateStreak" in body
     assert "emperors_streak" in body
-    assert "function checkAchievements" in body
-    assert "emperors_achievements" in body
+    assert "hubTrack('emperors', 1)" in body, "global achievements tracking should exist"
     assert "function eraGroups" in body, "timeline era groups should exist"
     assert "Древняя Русь" in body
     assert "timeline" in body
