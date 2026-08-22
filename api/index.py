@@ -10553,6 +10553,8 @@ def math_page():
                     "id": t.id,
                     "name": t.name,
                     "description": t.description,
+                    "theory": t.theory,
+                    "code": list(t.code_examples),
                     "taskCount": len(t.tasks),
                     "tasks": [
                         {
@@ -10639,6 +10641,7 @@ def math_page():
 
         <div class="tabs">
             <button class="tab-btn active" data-tab="study">📚 Изучить</button>
+            <button class="tab-btn" data-tab="theory">📖 Теория</button>
             <button class="tab-btn" data-tab="trainer">🧠 Тренажер</button>
         </div>
 
@@ -10646,6 +10649,12 @@ def math_page():
         <div id="panel-study" class="panel active">
             <div class="score" id="study-score">Тема: —</div>
             <div class="topics-grid" id="topics-grid"></div>
+        </div>
+
+        <!-- Theory Tab: Read the lesson theory -->
+        <div id="panel-theory" class="panel">
+            <div class="score" id="theory-score">Выберите урок</div>
+            <div class="topics-grid" id="theory-grid"></div>
         </div>
 
         <!-- Trainer Tab: Solve problems -->
@@ -10684,11 +10693,91 @@ def math_page():
                 btn.classList.toggle('active', btn.dataset.tab === name);
             });
             document.getElementById('panel-study').classList.toggle('active', name === 'study');
+            document.getElementById('panel-theory').classList.toggle('active', name === 'theory');
             document.getElementById('panel-trainer').classList.toggle('active', name === 'trainer');
+            if (name === 'theory') renderTheoryTab();
         }
         document.querySelectorAll('.tab-btn').forEach(function (btn) {
             btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
         });
+
+        // --- Theory tab: read the lesson summary ---
+        function renderTheoryTab() {
+            const grid = document.getElementById('theory-grid');
+            grid.innerHTML = '';
+            topicsData.topics.forEach(function (topic) {
+                const card = document.createElement('div');
+                card.className = 'topic-card';
+                const btn = document.createElement('button');
+                btn.className = 'tab-btn';
+                btn.textContent = 'Читать конспект';
+                btn.addEventListener('click', function () { loadTheory(topic.id); });
+                const h2 = document.createElement('h2');
+                h2.textContent = topic.name;
+                const p1 = document.createElement('p');
+                p1.className = 'description';
+                p1.textContent = topic.description;
+                const p2 = document.createElement('p');
+                p2.className = 'task-count';
+                p2.textContent = 'Задач в уроке: ' + topic.taskCount;
+                card.appendChild(h2);
+                card.appendChild(p1);
+                card.appendChild(p2);
+                card.appendChild(btn);
+                grid.appendChild(card);
+            });
+        }
+
+        function loadTheory(topicId) {
+            const topic = topicsData.topics.find(function (t) { return t.id === topicId; });
+            if (!topic) return;
+            document.getElementById('theory-score').textContent = 'Урок: ' + (topicNames[topicId] || topicId);
+            const grid = document.getElementById('theory-grid');
+            grid.innerHTML = '';
+            const card = document.createElement('div');
+            card.className = 'topic-card';
+            const h2 = document.createElement('h2');
+            h2.textContent = topic.name;
+            card.appendChild(h2);
+            const p1 = document.createElement('p');
+            p1.className = 'description';
+            p1.textContent = topic.description;
+            card.appendChild(p1);
+            const theory = document.createElement('div');
+            theory.style.marginTop = '12px';
+            theory.style.lineHeight = '1.6';
+            theory.style.fontSize = '14px';
+            theory.style.color = '#cbd5e1';
+            theory.style.whiteSpace = 'pre-wrap';
+            theory.textContent = topic.theory || 'Конспект отсутствует.';
+            card.appendChild(theory);
+            if (topic.code && topic.code.length) {
+                const cl = document.createElement('div');
+                cl.style.marginTop = '14px';
+                topic.code.forEach(function (codeText) {
+                    const pre = document.createElement('pre');
+                    pre.style.background = '#0f3460';
+                    pre.style.border = '1px solid #1a5276';
+                    pre.style.borderRadius = '10px';
+                    pre.style.padding = '12px';
+                    pre.style.overflowX = 'auto';
+                    pre.style.fontSize = '12px';
+                    pre.style.color = '#9be7c4';
+                    pre.style.whiteSpace = 'pre';
+                    pre.textContent = codeText;
+                    cl.appendChild(pre);
+                });
+                card.appendChild(cl);
+            }
+            const backBtn = document.createElement('button');
+            backBtn.className = 'tab-btn';
+            backBtn.style.marginTop = '16px';
+            backBtn.textContent = '← Ко всем урокам';
+            backBtn.addEventListener('click', renderTheoryTab);
+            card.appendChild(backBtn);
+            grid.appendChild(card);
+        }
+
 
         function escapeHtml(s) {
             return String(s == null ? '' : s)
