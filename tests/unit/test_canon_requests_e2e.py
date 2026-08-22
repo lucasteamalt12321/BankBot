@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import uuid
 
 from unittest.mock import patch
 
@@ -18,6 +19,7 @@ def _admin_token(client):
     resp = client.post("/api/auth/register", json={
         "login": "canonroot",
         "password": "secret123",
+        "email": f"canonroot_{uuid.uuid4().hex[:10]}@test.local",
     })
     assert resp.status_code == 200
     data = resp.get_json()
@@ -31,7 +33,11 @@ def _admin_token(client):
 
 
 def _user_token(client, login="canonuser"):
-    resp = client.post("/api/auth/register", json={"login": login, "password": "secret123"})
+    resp = client.post("/api/auth/register", json={
+        "login": login,
+        "password": "secret123",
+        "email": f"{login}_{uuid.uuid4().hex[:10]}@test.local",
+    })
     assert resp.status_code == 200
     return resp.get_json()["token"]
 

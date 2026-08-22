@@ -60,6 +60,7 @@ def _make_engine():
         gd_nickname VARCHAR(64),
         telegram_id BIGINT,
         lichess_nickname VARCHAR(64),
+        email VARCHAR(255) UNIQUE,
         is_admin INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -301,13 +302,13 @@ def test_auth_register_login_me_logout(mock_engine):
     r = client.post("/api/auth/register", json={"login": "us", "password": "short"})
     assert r.status_code == 400
 
-    r = client.post("/api/auth/register", json={"login": "alice", "password": "secret123"})
+    r = client.post("/api/auth/register", json={"login": "alice", "password": "secret123", "email": "alice@test.local"})
     assert r.status_code == 200
     body = r.get_json()
     assert "token" in body
     token = body["token"]
 
-    dup = client.post("/api/auth/register", json={"login": "alice", "password": "secret123"})
+    dup = client.post("/api/auth/register", json={"login": "alice", "password": "secret123", "email": "alice_dup@test.local"})
     assert dup.status_code == 409
 
     bad = client.post("/api/auth/login", json={"login": "alice", "password": "wrong"})
@@ -355,7 +356,7 @@ def test_feedback_submit_and_admin_flow(mock_engine):
     assert r.status_code == 403
 
     reg = client.post("/api/auth/register", json={
-        "login": "boss", "password": "secret123",
+        "login": "boss", "password": "secret123", "email": "boss@test.local",
     })
     assert reg.status_code == 200
     reg_data = reg.get_json()
@@ -378,7 +379,7 @@ def test_feedback_submit_and_admin_flow(mock_engine):
     d = client.delete(f"/api/admin/feedback/{fid}", headers=_auth_headers(token))
     assert d.status_code == 200
 
-    reg2 = client.post("/api/auth/register", json={"login": "bob", "password": "secret123"})
+    reg2 = client.post("/api/auth/register", json={"login": "bob", "password": "secret123", "email": "bob@test.local"})
     token2 = reg2.get_json()["token"]
     lst2 = client.get("/api/admin/feedback", headers=_auth_headers(token2))
     assert lst2.status_code == 403
@@ -391,7 +392,7 @@ def test_admin_stats_and_users(mock_engine):
     client = app.test_client()
 
     reg = client.post("/api/auth/register", json={
-        "login": "root", "password": "secret123",
+        "login": "root", "password": "secret123", "email": "root@test.local",
     })
     reg_data = reg.get_json()
     token = reg_data["token"]

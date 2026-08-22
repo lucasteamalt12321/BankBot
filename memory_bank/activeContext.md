@@ -7,11 +7,11 @@
 - **Проверки:** `tests/unit/test_math_module.py` 12 passed (добавлена проверка ответов по difficulty как `tuple`); ruff clean; `/math` → 200, вкладка «Теория» присутствует. **Статус: готово к деплою (не задеплоено, не закоммичено).**
 - **Грабли:** docstring модуля содержит `D:\ITlessons` — сделан raw (`r"""..."""`), иначе Python 3.12+ ругается на `\I` invalid escape (SyntaxWarning). `get_tasks_by_difficulty` должна возвращать `tuple`, не `list` (тест ждёт `() `).
 
-## Ачивки 240 → 250 (2026-08-20) — задеплоено, НУЖНО ПРОВЕРИТЬ
+## Ачивки 240 → 250 (2026-08-20) — задеплоено, ПРОВЕРЕНО (2026-08-20)
 
 - **Сделано:** реестр `ACHIEVEMENTS` в `api/index.py` переупорядочен по сложности внутри линий (скрипт reorder_achievements.py), добавлено 10 ачивок `_89` (prayer/trivia/emperors/reading/verbs/chess/gd/dnd/coins/days) до 250; условия разблокировки добавлены в `_check_web_achievements`. Задеплоено на Vercel ✓ Ready, прод: `/api/achievements` → total: 250.
 - **Попутно починены 3 синтакс-бага `api/index.py`** (мешали билду Vercel — поэтому прод показывал 100 ачивок): JS `{}` в f-строках, декоратор `/achievements`, return в `_record_activity`. Добавлен ALTER email в `_ensure_web_auth_tables` (регистрация на проде была 500).
-- **НУЖНО ПРОВЕРИТЬ (⚠️):** (1) у реальных пользователей на проде новые ачивки не ломают открытые (дедуп работает), `prayer_89` открывается при 89 молитвах; (2) сортировка линий выглядит корректно на `/achievements`; (3) 8 тестов (5 canon e2e + 3 web_portal) падают из-за обязательного email в register — отдельная задача.
+- **Проверено (2026-08-20):** импорт `ACHIEVEMENTS` — dict из 250 записей; все 21 числовая линия отсортирована по возрастанию порога (unsorted: []); все 10 `_89` кодов присутствуют; `_unlock_achievements` читает уже открытые коды до INSERT (дедуп). 8 ранее падавших тестов (email в register) починены: в `test_web_portal_e2e.py` добавлено поле `email` в регистрации + колонка `email VARCHAR(255) UNIQUE` в тестовую схему `_make_engine()`; в `test_canon_requests_e2e.py` хелперы `_user_token`/`_admin_token` шлют уникальный email. Теперь `test_web_portal_e2e.py` + `test_canon_requests_e2e.py` = 19/19 passed.
 
 ## Модуль «Информатика — ОГЭ» `/math` — фикс CSS (2026-08-20, итерация 3)
 
