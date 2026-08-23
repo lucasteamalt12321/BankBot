@@ -1588,3 +1588,15 @@
 - **Количество:** 227 ачивок
 - **Шаблон:** 2-3 шкалы на модуль
 - **Реализация:** добавлены события (events), факты (emperors_mastered), новые пороги и названия
+### 2026-08-22 - Light/Dark theme system for all web pages
+
+**What done:**
+- Added core/theme.py: THEME_CSS (CSS vars, dark default + [data-theme=light]), THEME_TOGGLE (floating button), inject_theme(html) idempotent injector.
+- Theme injected centrally via @app.after_request in api/index.py for ALL text/html responses (no per-page edits, no f-string brace breakage).
+- Hardcoded hex colors in api/index.py HTML replaced with var(--bb-*)/var(--gh-*) (safe in f-strings).
+- Decision: default = system prefers-color-scheme, override persisted in localStorage; floating global toggle button.
+- Verified prod: home, /math, /reading_trainer.html all contain app-theme + app-theme-toggle.
+- Tests: 31/31 relevant unit tests pass; ruff clean.
+- Deployed to Vercel (bank-bot-ruby.vercel.app).
+
+**Commit:** 9a4510c (feat: add light/dark theme system injected via after_request for all pages)
