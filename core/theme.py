@@ -15,7 +15,8 @@ from __future__ import annotations
 
 # Определения переменных: тёмная тема — значения по умолчанию в :root,
 # светлая — в [data-theme="light"].
-THEME_CSS = """<style id="app-theme">
+THEME_CSS = """<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<style id="app-theme">
 :root {
   color-scheme: dark;
   /* Поверхности и текст */
@@ -54,6 +55,18 @@ THEME_CSS = """<style id="app-theme">
 }
 /* Каркас страницы всегда темится (приоритет выше, чем у inline-стилей страниц) */
 body { background: var(--bb-bg) !important; color: var(--bb-text) !important; }
+/* Pico <-> тема: палитра Pico следует нашим переменным (свет/тьма переключаются вместе) */
+:root {
+  --pico-border-radius: 16px;
+  --pico-primary: var(--bb-primary);
+  --pico-primary-background: var(--bb-primary);
+  --pico-primary-hover: var(--bb-accent2);
+  --pico-primary-underline: var(--bb-accent2);
+  --pico-background-color: var(--bb-bg);
+}
+/* Pico по умолчанию растягивает кнопки на всю ширину — возвращаем компактность,
+   явные width:100% в стилях страниц продолжают работать */
+button, input[type=submit], input[type=button], [role=button] { width: auto; display: inline-block; }
 #theme-toggle {
   position: fixed; left: 16px; bottom: 16px; z-index: 9999;
   width: 46px; height: 46px; border-radius: 50%;
