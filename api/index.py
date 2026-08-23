@@ -4451,6 +4451,7 @@ def index():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <title>LTHub — Сервисы</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -4490,6 +4491,11 @@ def index():
         .user-bar .logout-btn:hover { background: var(--bb-link); color: var(--bb-panel); }
         .bug-fab { position: fixed; right: 20px; bottom: 20px; width: 54px; height: 54px; border-radius: 50%; background: var(--bb-primary); color: var(--bb-panel); font-size: 24px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(0,0,0,.4); z-index: 999; text-decoration: none; }
         .bug-fab:hover { background: var(--bb-accent2); transform: scale(1.08); }
+        /* Pico pilot: маппинг палитры Pico на переменные темы + правки утечек */
+        :root { --pico-border-radius: 16px; --pico-primary: var(--bb-primary); --pico-primary-background: var(--bb-primary); --pico-primary-hover: var(--bb-accent2); --pico-primary-underline: var(--bb-accent2); }
+        .user-bar .logout-btn { width: auto; display: inline-block; }
+        .card, .card:hover { text-decoration: none; }
+        h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
     </style>
 </head>
 <body>
