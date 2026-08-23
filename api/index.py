@@ -9756,13 +9756,19 @@ def emperors_page():
             }
             function recFor(it) {
                 var key = flashKey(it);
-                return flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0 };
+                return flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0, streak: 0 };
+            }
+            function isMastered(rec) {
+                if (!rec) return false;
+                var s = (rec.streak != null) ? rec.streak : (rec.reps || 0);
+                return s >= 3;
             }
             function recordAnswer(it, correct) {
                 var key = flashKey(it);
                 var rec = recFor(it);
                 rec.counter = (rec.counter || 0) + (correct ? 1 : -1);
                 if (correct) {
+                    rec.streak = (rec.streak || 0) + 1;
                     rec.reps = (rec.reps || 0) + 1;
                     rec.correct = (rec.correct || 0) + 1;
                     if (rec.reps === 1) rec.interval = 1;
@@ -9771,6 +9777,7 @@ def emperors_page():
                     else rec.interval = Math.round((rec.interval || 7) * rec.ease);
                     rec.due = Date.now() + rec.interval * 86400000;
                 } else {
+                    rec.streak = 0;
                     rec.reps = 0; rec.interval = 0; rec.due = Date.now() + 60000;
                     rec.wrong = (rec.wrong || 0) + 1;
                 }
@@ -9847,13 +9854,18 @@ def emperors_page():
             function saveScore() { localStorage.setItem('emperors_score', quizScore + '/' + quizTotal); }
             function saveWrong() { localStorage.setItem('emperors_wrong', JSON.stringify(wrongItems)); }
             function updateProgressBar() {
-                var total = itemsInScope().length;
+                var items = itemsInScope();
+                var total = items.length;
                 var mastered = 0;
-                Object.keys(flash).forEach(function(k) { var r = flash[k]; if (r && (r.reps || 0) >= 3) mastered++; });
+                var inScopeKeys = {};
+                items.forEach(function(it) { inScopeKeys[flashKey(it)] = true; });
+                Object.keys(flash).forEach(function(k) {
+                    if (inScopeKeys[k] && isMastered(flash[k])) mastered++;
+                });
                 var el = document.getElementById('progress-fill');
                 var lab = document.getElementById('progress-label');
                 if (el) { el.style.width = (total ? (mastered / total * 100) : 0) + '%'; }
-                if (lab) { lab.textContent = 'освоено ' + mastered + '/' + total; }
+                if (lab) { lab.textContent = 'выучено ' + mastered + '/' + total + ' (3 подряд)'; }
             }
             function renderStatsOld() {
                 var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
@@ -9874,7 +9886,7 @@ def emperors_page():
                 });
                 var totalItems = itemsInScope().length;
                 var html = '<div class="chip-title">Статистика</div>';
-                html += '<div class="stat-line">Освоено карточек: <b>' + Object.keys(flash).filter(function(k){return (flash[k]||{}).reps>=3;}).length + ' / ' + totalItems + '</b></div>';
+                html += '<div class="stat-line">Выучено карточек (3 подряд): <b>' + Object.keys(flash).filter(function(k){return isMastered(flash[k]);}).length + ' / ' + totalItems + '</b></div>';
                 html += '<div class="stat-line">В очереди к повторению: <b>' + flashDueCount() + '</b></div>';
                 html += '<div class="chip-title">Топ ошибок по правителям</div>';
                 var arr = rulers.map(function(e) { return { id: e.id, wrong: byEmperor[e.id].wrong }; });
@@ -9895,6 +9907,7 @@ function renderDebug() {
                         key: it.type.charAt(0) + '·' + it.text,
                         emperor: it.emperor,
                         reps: rec.reps || 0,
+                        streak: rec.streak || 0,
                         interval: rec.interval || 0,
                         ease: rec.ease != null ? rec.ease.toFixed(1) : '2.5',
                         due: due ? new Date(due).toISOString().slice(0, 16) : '—',
@@ -9909,6 +9922,7 @@ function renderDebug() {
                 rows.forEach(function(r) {
                     html += '<div class="d-row"><b>' + esc(r.key) + '</b>' +
                         ' · ' + emName[r.emperor].split(' (')[0] +
+                        ' · серия=' + r.streak +
                         ' · счётчик=' + r.counter +
                         ' · reps=' + r.reps + ' int=' + r.interval + ' ease=' + r.ease +
                         ' ✓' + r.correct + ' ✗' + r.wrong +
