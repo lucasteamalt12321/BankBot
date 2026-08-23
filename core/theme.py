@@ -3,11 +3,12 @@
 Используется как централизованный инжектор: ``inject_theme(html)`` добавляет
 в <head> определения CSS-переменных (тёмная по умолчанию + светлая через
 [data-theme="light"]) и скрипт без вспышки, а перед </body> — плавающую
-кнопку-переключатель. Все страницы (api/index.py, reading_trainer.py и т.д.)
-должны пропускать свой HTML через ``inject_theme``.
+кнопку-переключатель.
 
-Цвета в стилях страниц заменяются на CSS-переменные (см. HEX_TO_VAR в
-скрипте миграции), поэтому переключатель реально меняет оформление.
+Все страницы (``api/index.py``, ``reading_trainer.py`` и т.д.) пропускают свой
+HTML через ``inject_theme``. Цвета в стилях страниц ссылаются на CSS-переменные
+(``--bb-*`` и ``--gh-*`` — два параллельных неймспейса с одинаковым смыслом),
+поэтому переключатель реально меняет оформление целиком.
 """
 
 from __future__ import annotations
@@ -17,44 +18,58 @@ from __future__ import annotations
 THEME_CSS = """<style id="app-theme">
 :root {
   color-scheme: dark;
-  --bb-bg: #1a1a2e; --bb-card: #16213e; --bb-elev: #0f3460; --bb-border: #1a5276;
-  --bb-text: #e0e0e0; --bb-text-soft: #cbd5e1; --bb-muted: #9ca3af; --bb-dim: #6b7280;
-  --bb-primary: #e94560; --bb-primary-2: #d63851; --bb-gold: #f0c040;
-  --bb-success: #4ade80; --bb-success-bg: #1b5e20; --bb-success-border: #2e7d32;
-  --bb-danger-bg: #b71c1c; --bb-danger-border: #c62828;
-  --gh-bg: #0d1117; --gh-card: #161b22; --gh-elev: #21262d; --gh-border: #30363d;
-  --gh-text: #c9d1d9; --gh-text-2: #e6edf3; --gh-muted: #8b949e;
-  --gh-link: #58a6ff; --gh-accent: #1f6feb; --gh-success: #238636;
-  --gh-danger: #f85149; --gh-warn: #d29922; --gh-code: #0a1628; --gh-success-bg: #123b23;
+  /* Поверхности и текст */
+  --bb-bg: #0f1420; --bb-panel: #171c2b; --bb-elev: #1f2638; --bb-border: #2a3346;
+  --bb-text: #e6e9f0; --bb-text-soft: #c2c9d6; --bb-muted: #8b93a7; --bb-dim: #6b7280;
+  --bb-ink: #cbd5e1;
+  /* Бренд / акценты */
+  --bb-primary: #5b8def; --bb-accent: #7aa2ff; --bb-accent2: #4a78d6; --bb-link: #7aa2ff;
+  --bb-orange: #f0b429; --bb-gold: #f0c040;
+  /* Статусы */
+  --bb-green: #4ade80; --bb-green2: #22c55e; --bb-green3: #16a34a; --bb-green-panel: #14361f;
+  --bb-red: #f87171; --bb-warn: #e3b341;
+  --bb-success-bg: #14361f; --bb-success-border: #2e7d32; --bb-danger-bg: #3a1a1c; --bb-danger-border: #c62828;
+  /* Параллельный неймспейс gh (тот же смысл) */
+  --gh-bg: #0f1420; --gh-bg2: #1f2638; --gh-panel: #171c2b; --gh-elev: #1f2638; --gh-border: #2a3346;
+  --gh-text: #e6e9f0; --gh-text2: #c2c9d6; --gh-muted: #8b93a7;
+  --gh-accent: #5b8def; --gh-link: #7aa2ff; --gh-code: #0a1628;
+  --gh-green: #4ade80; --gh-green-panel: #14361f; --gh-red: #f87171; --gh-warn: #e3b341;
+  --gh-success: #2da44e; --gh-success-bg: #14361f;
 }
 [data-theme="light"] {
   color-scheme: light;
-  --bb-bg: #eef0f7; --bb-card: #ffffff; --bb-elev: #e6e9f2; --bb-border: #c2cad8;
-  --bb-text: #1f2330; --bb-text-soft: #3b4250; --bb-muted: #5c6373; --bb-dim: #8a90a0;
-  --bb-primary: #d6334f; --bb-primary-2: #c02740; --bb-gold: #b58900;
-  --bb-success: #15803d; --bb-success-bg: #dcfce7; --bb-success-border: #22c55e;
-  --bb-danger-bg: #fee2e2; --bb-danger-border: #ef4444;
-  --gh-bg: #ffffff; --gh-card: #f6f8fa; --gh-elev: #eaeef2; --gh-border: #d0d7de;
-  --gh-text: #1f2328; --gh-text-2: #24292f; --gh-muted: #656d76;
-  --gh-link: #0969da; --gh-accent: #0969da; --gh-success: #1a7f37;
-  --gh-danger: #cf222e; --gh-warn: #9a6700; --gh-code: #f6f8fa; --gh-success-bg: #dafbe1;
+  --bb-bg: #eef1f7; --bb-panel: #ffffff; --bb-elev: #e6e9f2; --bb-border: #cdd4e1;
+  --bb-text: #1f2430; --bb-text-soft: #3b4250; --bb-muted: #5c6373; --bb-dim: #8a90a0;
+  --bb-ink: #1f2430;
+  --bb-primary: #3b6fd4; --bb-accent: #2563eb; --bb-accent2: #1d4ed8; --bb-link: #2563eb;
+  --bb-orange: #b5790a; --bb-gold: #a9790a;
+  --bb-green: #16a34a; --bb-green2: #15803d; --bb-green3: #166534; --bb-green-panel: #dcfce7;
+  --bb-red: #dc2626; --bb-warn: #b45309;
+  --bb-success-bg: #dcfce7; --bb-success-border: #22c55e; --bb-danger-bg: #fee2e2; --bb-danger-border: #ef4444;
+  --gh-bg: #eef1f7; --gh-bg2: #e6e9f2; --gh-panel: #ffffff; --gh-elev: #e6e9f2; --gh-border: #cdd4e1;
+  --gh-text: #1f2430; --gh-text2: #3b4250; --gh-muted: #5c6373;
+  --gh-accent: #3b6fd4; --gh-link: #2563eb; --gh-code: #f5f7fa;
+  --gh-green: #16a34a; --gh-green-panel: #dcfce7; --gh-red: #dc2626; --gh-warn: #b45309;
+  --gh-success: #1a7f37; --gh-success-bg: #dcfce7;
 }
-body { background: var(--bb-bg); color: var(--bb-text); }
+/* Каркас страницы всегда темится (приоритет выше, чем у inline-стилей страниц) */
+body { background: var(--bb-bg) !important; color: var(--bb-text) !important; }
 #theme-toggle {
-  position: fixed; right: 16px; bottom: 16px; z-index: 9999;
-  width: 44px; height: 44px; border-radius: 50%;
+  position: fixed; left: 16px; bottom: 16px; z-index: 9999;
+  width: 46px; height: 46px; border-radius: 50%;
   border: 1px solid var(--bb-border); background: var(--bb-elev); color: var(--bb-text);
   font-size: 20px; line-height: 1; cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0,0,0,.35); transition: background .15s, color .15s;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,.35); transition: background .15s, color .15s, transform .15s;
 }
-#theme-toggle:hover { background: var(--bb-primary); color: #fff; }
+#theme-toggle:hover { background: var(--bb-primary); color: #fff; transform: scale(1.06); }
 </style>
 <script id="app-theme-init">
 (function () {
   try {
     var t = localStorage.getItem('theme');
     if (!t) {
-      t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+      t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
     }
     document.documentElement.setAttribute('data-theme', t);
   } catch (e) {}
@@ -66,19 +81,21 @@ THEME_TOGGLE = """<script id="app-theme-toggle">
   function apply(t) {
     document.documentElement.setAttribute('data-theme', t);
     try { localStorage.setItem('theme', t); } catch (e) {}
+    var b = document.getElementById('theme-toggle');
+    if (b) b.textContent = t === 'light' ? '☀️' : '🌙';
   }
   function current() { return document.documentElement.getAttribute('data-theme') || 'dark'; }
   function makeBtn() {
-    var b = document.createElement('button');
-    b.id = 'theme-toggle'; b.type = 'button';
-    b.title = 'Сменить тему (светлая/тёмная)';
-    b.setAttribute('aria-label', 'Сменить тему');
+    var b = document.getElementById('theme-toggle');
+    if (!b) {
+      b = document.createElement('button');
+      b.id = 'theme-toggle'; b.type = 'button';
+      b.title = 'Сменить тему (светлая/тёмная)';
+      b.setAttribute('aria-label', 'Сменить тему');
+      document.body.appendChild(b);
+    }
     b.textContent = current() === 'light' ? '☀️' : '🌙';
-    b.addEventListener('click', function () {
-      var n = current() === 'light' ? 'dark' : 'light';
-      apply(n); b.textContent = n === 'light' ? '☀️' : '🌙';
-    });
-    document.body.appendChild(b);
+    b.onclick = function () { apply(current() === 'light' ? 'dark' : 'light'); };
   }
   if (document.readyState !== 'loading') makeBtn();
   else document.addEventListener('DOMContentLoaded', makeBtn);

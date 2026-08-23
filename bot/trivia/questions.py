@@ -144,21 +144,23 @@ async def generate_trivia_question() -> dict:
     if ai_question:
         return ai_question
 
-    # Fallback: hardcoded pool, distractors from same group
+    # Fallback: hardcoded pool, manual distractors (or same-group if unavailable)
     question = random.choice(TRIVIA_QUESTIONS)
     correct_text = question["correct_text"]
     q_group = question.get("group", "")
 
-    same_group = [q for q in TRIVIA_QUESTIONS if q.get("group") == q_group and q["correct_text"] != correct_text]
-    other = [q for q in TRIVIA_QUESTIONS if q.get("group") != q_group and q["correct_text"] != correct_text]
+    manual = question.get("distractors") or []
+    if len(manual) >= 3:
+        distractors_pool = random.sample(manual, 3)
+    else:
+        same_group = [q for q in TRIVIA_QUESTIONS if q.get("group") == q_group and q["correct_text"] != correct_text]
+        other = [q for q in TRIVIA_QUESTIONS if q.get("group") != q_group and q["correct_text"] != correct_text]
+        distractors_pool = [q["correct_text"] for q in same_group]
+        if len(distractors_pool) < 3:
+            distractors_pool += [q["correct_text"] for q in other]
+        distractors_pool = random.sample(distractors_pool, min(3, len(distractors_pool)))
 
-    distractors_pool = [q["correct_text"] for q in same_group]
-    if len(distractors_pool) < 3:
-        distractors_pool += [q["correct_text"] for q in other]
-
-    fake_answers = random.sample(distractors_pool, min(3, len(distractors_pool)))
-
-    options = [correct_text] + fake_answers
+    options = [correct_text] + distractors_pool
     random.shuffle(options)
     correct_index = options.index(correct_text)
 
