@@ -9517,8 +9517,8 @@ def emperors_page():
         .reset-btn { background: none; border: 1px solid var(--bb-link); color: var(--bb-muted); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: inherit; }
         .reset-btn:hover { border-color: var(--bb-accent); color: var(--bb-accent); }
         .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-        .progress-bar { flex: 1; height: 8px; background: var(--bb-primary); border-radius: 6px; overflow: hidden; }
-        .progress-fill { height: 100%; background: var(--bb-accent); width: 0%; transition: width 0.25s; }
+ .progress-bar { flex: 1; height: 8px; background: var(--bb-elev); border-radius: 6px; overflow: hidden; }
+ .progress-fill { height: 100%; background: var(--bb-primary); width: 0%; transition: width 0.25s; }
         .progress-label { font-size: 12px; color: var(--bb-muted); white-space: nowrap; }
         .hint-box { background: var(--bb-primary); border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 14px; color: var(--bb-muted); line-height: 1.5; display: none; }
         .hint-btn { display: block; width: 100%; padding: 10px; background: none; border: 1px dashed var(--bb-link); color: var(--bb-muted); border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10px; font-family: inherit; }
@@ -10639,8 +10639,8 @@ def math_page():
         .mode-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center; flex-wrap: wrap; }
         .mode-row label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--bb-text); cursor: pointer; }
         .diff-select { background: var(--bb-primary); color: var(--bb-text); border: 1px solid var(--bb-link); border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: inherit; cursor: pointer; }
-        .progress-bar { flex: 1; height: 8px; background: var(--bb-primary); border-radius: 6px; overflow: hidden; }
-        .progress-fill { height: 100%; background: var(--bb-accent); width: 0%; transition: width 0.25s; }
+ .progress-bar { flex: 1; height: 8px; background: var(--bb-elev); border-radius: 6px; overflow: hidden; }
+ .progress-fill { height: 100%; background: var(--bb-primary); width: 0%; transition: width 0.25s; }
         .progress-label { font-size: 12px; color: var(--bb-muted); white-space: nowrap; }
         .diff-badge { display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }
         .diff-stars { color: var(--bb-gold); letter-spacing: 1px; font-size: 15px; }
