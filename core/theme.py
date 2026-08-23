@@ -41,14 +41,14 @@ THEME_CSS = """<style id="app-theme">
   --bb-bg: #eef1f7; --bb-panel: #ffffff; --bb-elev: #e6e9f2; --bb-border: #cdd4e1;
   --bb-text: #1f2430; --bb-text-soft: #3b4250; --bb-muted: #5c6373; --bb-dim: #8a90a0;
   --bb-ink: #1f2430;
-  --bb-primary: #3b6fd4; --bb-accent: #2563eb; --bb-accent2: #1d4ed8; --bb-link: #2563eb;
+  --bb-primary: #5b8def; --bb-accent: #4a90e8; --bb-accent2: #3b7fd6; --bb-link: #4a90e8;
   --bb-orange: #b5790a; --bb-gold: #a9790a;
   --bb-green: #16a34a; --bb-green2: #15803d; --bb-green3: #166534; --bb-green-panel: #dcfce7;
   --bb-red: #dc2626; --bb-warn: #b45309;
   --bb-success-bg: #dcfce7; --bb-success-border: #22c55e; --bb-danger-bg: #fee2e2; --bb-danger-border: #ef4444;
   --gh-bg: #eef1f7; --gh-bg2: #e6e9f2; --gh-panel: #ffffff; --gh-elev: #e6e9f2; --gh-border: #cdd4e1;
   --gh-text: #1f2430; --gh-text2: #3b4250; --gh-muted: #5c6373;
-  --gh-accent: #3b6fd4; --gh-link: #2563eb; --gh-code: #f5f7fa;
+  --gh-accent: #5b8def; --gh-link: #4a90e8; --gh-code: #f5f7fa;
   --gh-green: #16a34a; --gh-green-panel: #dcfce7; --gh-red: #dc2626; --gh-warn: #b45309;
   --gh-success: #1a7f37; --gh-success-bg: #dcfce7;
 }
