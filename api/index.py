@@ -4774,6 +4774,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Формулы-карточки, задачи, генератор и экзамен-режим (механика, тепло, электричество)</p>
                     </div>
                 </a>
+                <a class="card" data-oge="1" href="/exam">
+                    <div class="card-icon">🎯</div>
+                    <div class="card-content">
+                        <h2>Экзаменатор ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <p>Сводный экзамен из всех предметов с серверной проверкой ответов</p>
+                    </div>
+                </a>
                 <a class="card" href="/family">
                     <div class="card-icon">🫂</div>
                     <div class="card-content">
@@ -12449,6 +12456,232 @@ def terms_page():
     html = TERMS_PAGE_TEMPLATE.replace("__TERMS_DATA__", json.dumps(data, ensure_ascii=False))
     return html
 
+
+_EXAM_SESSIONS: dict = {}
+
+
+def _exam_norm(s) -> str:
+    return " ".join(str("" if s is None else s).strip().lower().split())
+
+
+def _exam_is_correct(user_val, answer) -> bool:
+    u = _exam_norm(user_val).replace(",", ".")
+    a = _exam_norm(answer).replace(",", ".")
+    if not u:
+        return False
+    if u == a:
+        return True
+    try:
+        return abs(float(u) - float(a)) < 1e-9
+    except ValueError:
+        return False
+
+
+def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
+    """Upsert one study_progress card applying simplified SM-2 scheduling."""
+    row = conn.execute(
+        text("SELECT reps, interval_days, ease, streak FROM study_progress WHERE user_id=:u AND module=:m AND card_key=:k"),
+        {"u": uid, "m": module, "k": key},
+    ).mappings().first()
+    now = time.time()
+    if row:
+        reps, interval, ease, streak = int(row["reps"]), float(row["interval_days"]), float(row["ease"]), int(row["streak"])
+        if correct:
+            reps += 1
+            streak += 1
+            interval = 1 if reps == 1 else 3 if reps == 2 else 7 if reps == 3 else round(interval * ease)
+            due = now + interval * 86400
+        else:
+            reps, interval, streak, ease = 0, 0, 0, max(2.0, ease - 0.2)
+            due = now + 60
+        conn.execute(text("""
+            UPDATE study_progress SET reps=:r, interval_days=:i, ease=:e, streak=:s, due=:d,
+                   correct_count=correct_count+:c, wrong_count=wrong_count+:w, counter=counter+:co, updated_at=:t
+            WHERE user_id=:u AND module=:m AND card_key=:k
+        """), {"r": reps, "i": interval, "e": ease, "s": streak, "d": due,
+               "c": 1 if correct else 0, "w": 0 if correct else 1,
+               "co": 1 if correct else -1, "t": now, "u": uid, "m": module, "k": key})
+    else:
+        conn.execute(text("""
+            INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease, due, streak,
+                                        correct_count, wrong_count, counter, updated_at)
+            VALUES (:u, :m, :k, :r, :i, :e, :d, :s, :c, :w, :co, :t)
+        """), {"u": uid, "m": module, "k": key,
+               "r": 1 if correct else 0, "i": 1 if correct else 0, "e": 2.5,
+               "d": now + (86400 if correct else 60), "s": 1 if correct else 0,
+               "c": 1 if correct else 0, "w": 0 if correct else 1,
+               "co": 1 if correct else -1, "t": now})
+
+
+@app.route("/api/exam/mixed", methods=["GET"])
+def api_exam_mixed():
+    """Assemble a mixed exam session drawing tasks across OGE subjects."""
+    try:
+        n = max(5, min(30, int(request.args.get("n", 15))))
+    except ValueError:
+        n = 15
+    from core.informatics.tasks import get_all_tasks as info_tasks
+    from core.mathematics.formulas import TASKS as math_tasks
+    from core.russian.rules import TASKS as ru_tasks
+
+    pool = []
+    for module, tasks in (("math", math_tasks), ("russian", ru_tasks), ("informatics", info_tasks())):
+        for t in tasks:
+            pool.append({
+                "module": module,
+                "key": t.id,
+                "question": t.question,
+                "hint": getattr(t, "hint", "") or "",
+                "_answer": str(t.answer),
+                "_explanation": getattr(t, "explanation", "") or "",
+            })
+    if len(pool) > n:
+        items = random.sample(pool, n)
+    else:
+        items = list(pool)
+    sid = secrets.token_hex(6)
+    _EXAM_SESSIONS[sid] = items
+    while len(_EXAM_SESSIONS) > 300:
+        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)))
+    safe = [{"idx": i, "module": it["module"], "question": it["question"], "hint": it["hint"]}
+            for i, it in enumerate(items)]
+    return jsonify({"sid": sid, "items": safe})
+
+
+@app.route("/api/exam/check", methods=["POST"])
+def api_exam_check():
+    """Grade one exam answer; records progress when the user is authenticated."""
+    data = request.get_json(silent=True) or {}
+    sid = str(data.get("sid") or "")
+    items = _EXAM_SESSIONS.get(sid)
+    if not items:
+        return jsonify({"ok": False, "error": "unknown session"}), 404
+    try:
+        idx = int(data.get("idx"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "bad idx"}), 400
+    if not 0 <= idx < len(items):
+        return jsonify({"ok": False, "error": "bad idx"}), 400
+    it = items[idx]
+    ok = _exam_is_correct(data.get("value"), it["_answer"])
+    user = _get_session_user(_auth_token_from_request())
+    recorded = False
+    if user:
+        uid = _web_user_id("u" + str(user["id"]))
+        if uid:
+            try:
+                with get_db_engine().begin() as conn:
+                    _study_record_one(conn, uid, it["module"], "task::" + it["key"], ok)
+                recorded = True
+            except Exception as exc:
+                print(f"[EXAM] progress record error: {exc}")
+    return jsonify({"ok": True, "correct": ok, "answer": it["_answer"],
+                    "explanation": it["_explanation"], "recorded": recorded})
+
+
+@app.route("/exam")
+def exam_page():
+    auth_token_present = bool(_get_session_user(_auth_token_from_request()))
+    html = EXAM_PAGE_TEMPLATE.replace("__AUTH_HINT__", "on" if auth_token_present else "off")
+    return html
+
+
+EXAM_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Экзаменатор ОГЭ | LTHub</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',Arial,sans-serif; background:var(--bb-bg); color:var(--bb-text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:20px; }
+.container{max-width:700px;width:100%;}
+.header{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+.header h1{font-size:22px;color:var(--bb-accent);}
+.header a{color:var(--bb-muted);text-decoration:none;font-size:14px;margin-left:auto;}
+.card{background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:24px;margin-bottom:14px;}
+.muted{color:var(--bb-muted);font-size:14px;}
+.modtag{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:10px;background:var(--bb-elev);color:var(--bb-accent);margin-bottom:8px;}
+input{width:100%;padding:11px;border-radius:10px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:16px;margin-top:8px;}
+.btn{padding:10px 18px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:12px;}
+.btn.green{background:var(--bb-accent);border-color:var(--bb-accent);}
+.btn.ghost{background:transparent;color:var(--bb-text);}
+.progress-mini{font-size:13px;color:var(--bb-muted);margin-bottom:8px;}
+.explain{font-size:13px;color:var(--bb-muted);margin-top:8px;}
+.ok{color:var(--bb-accent);font-weight:600;}
+.bad{color:#e07373;font-weight:600;}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header"><h1>🎯 Экзаменатор ОГЭ</h1><a href="/">← На главную</a></div>
+<div class="card" id="start-card">
+<h2>Сводный экзамен</h2>
+<p class="muted">Случайные задания из математики, русского и информатики с серверной проверкой. Прогресс учитывается в ОГЭ-центре.</p>
+<p class="muted" id="auth-note"></p>
+<button class="btn green" id="start">Начать (15 заданий)</button>
+</div>
+<div class="card" id="quiz" style="display:none;">
+<div class="progress-mini" id="status"></div>
+<span class="modtag" id="modtag"></span>
+<h2 id="q"></h2>
+<input id="ans" placeholder="Ваш ответ">
+<button class="btn" id="check">Ответить</button>
+<div id="fb"></div>
+<button class="btn green" id="next" style="display:none;">Дальше →</button>
+</div>
+<div id="result"></div>
+</div>
+<script>
+var sid=null, items=[], idx=0, score=0;
+var AUTH_ON = document.getElementById('auth-note');
+AUTH_ON.textContent = __AUTH_HINT__ === 'on' ? '✓ Вы вошли — прогресс сохранится.' : 'Войдите на сайте, чтобы сохранять прогресс.';
+document.getElementById('start').onclick=function(){
+  fetch('/api/exam/mixed?n=15').then(function(r){return r.json();}).then(function(d){
+    sid=d.sid; items=d.items; idx=0; score=0;
+    document.getElementById('start-card').style.display='none';
+    document.getElementById('quiz').style.display='';
+    document.getElementById('result').innerHTML='';
+    render();
+  }).catch(function(){ alert('Не удалось загрузить задания'); });
+};
+function render(){
+  var it=items[idx];
+  document.getElementById('status').textContent='Задание '+(idx+1)+' / '+items.length+' • счёт: '+score;
+  document.getElementById('modtag').textContent=({math:'Математика',russian:'Русский язык',informatics:'Информатика'})[it.module]||it.module;
+  document.getElementById('q').textContent=it.question;
+  document.getElementById('ans').value='';
+  document.getElementById('fb').innerHTML='';
+  document.getElementById('check').style.display='';
+  document.getElementById('next').style.display='none';
+}
+document.getElementById('check').onclick=function(){
+  var v=document.getElementById('ans').value;
+  fetch('/api/exam/check',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sid:sid,idx:idx,value:v})})
+   .then(function(r){return r.json();})
+   .then(function(d){
+     if(!d.ok){ document.getElementById('fb').textContent='Сессия истекла'; return; }
+     if(d.correct) score++;
+     document.getElementById('fb').innerHTML=(d.correct?'<span class="ok">✓ Верно!</span>':'<span class="bad">✗ Неверно. Ответ: '+d.answer+'</span>')
+       +(d.explanation?'<div class="explain">'+d.explanation+'</div>':'');
+     document.getElementById('check').style.display='none';
+     document.getElementById('next').style.display='';
+   });
+};
+document.getElementById('next').onclick=function(){
+  if(idx<items.length-1){ idx++; render(); }
+  else {
+    document.getElementById('quiz').style.display='none';
+    var pct=Math.round(score/items.length*100);
+    document.getElementById('result').innerHTML='<div class="card"><h2>Результат: '+score+' / '+items.length+' ('+pct+'%)</h2><p class="muted">Слабые места подскажет «План на сегодня» на главной.</p></div>';
+  }
+};
+document.getElementById('ans').addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); if(document.getElementById('check').style.display!=='none')document.getElementById('check').click(); else document.getElementById('next').click(); }});
+</script>
+</body>
+</html>
+"""
 
 @app.route("/achievements")
 def achievements_page():
