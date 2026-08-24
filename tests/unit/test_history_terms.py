@@ -39,13 +39,20 @@ def test_terms_categories():
     assert term_by_id("nope") is None
 
 
-def test_terms_page_loads(client):
-    resp = client.get("/terms")
+def test_terms_embedded_into_history_page(client):
+    resp = client.get("/emperors")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "История" in body and "термины" in body.lower()
-    assert "__TERMS_DATA__" not in body
+    assert "История" in body
+    assert "terms-wrap" in body and "t-cat" in body
     assert "Опричнина" in body or "Полюдье" in body
+    assert "__TERMS_DATA__" not in body
+
+
+def test_terms_redirects_to_history(client):
+    resp = client.get("/terms")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/emperors?tab=terms")
 
 
 def test_history_terms_roundtrip():
