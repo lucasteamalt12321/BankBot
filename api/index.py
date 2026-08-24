@@ -318,6 +318,7 @@ def get_db_engine():
         _ensure_web_auth_tables(DB_ENGINE)
         _ensure_parsing_tables(DB_ENGINE)
         _ensure_emperors_tables(DB_ENGINE)
+        _ensure_study_progress_tables(DB_ENGINE)
         _ensure_achievements_tables(DB_ENGINE)
         _ensure_chess_games_table(DB_ENGINE)
         try:
@@ -1075,6 +1076,94 @@ def _ensure_emperors_tables(engine):
         print("[EMPERORS] Tables ensured")
     except Exception as exc:
         print(f"[EMPERORS] Table init error: {exc}")
+
+
+OGE_MODULES = {
+    "history": {"label": "История", "emoji": "📜", "url": "/emperors", "total": 291},
+    "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 45},
+    "math": {"label": "Математика", "emoji": "📐", "url": "/math", "total": 130},
+    "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 80},
+    "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 100},
+}
+
+OGE_EXAM_DATES = {
+    "history": (2027, 6, 7),
+    "informatics": (2027, 6, 3),
+    "math": (2027, 5, 28),
+    "russian": (2027, 5, 25),
+    "physics": (2027, 6, 5),
+}
+
+
+def _oge_exam_urgency(module):
+    """Weight in [1.0, 2.0]: grows as the exam date approaches (1.0 if >180 days left)."""
+    exam = OGE_EXAM_DATES.get(module)
+    if not exam:
+        return 1.0
+    try:
+        days_left = (date(*exam) - date.today()).days
+    except Exception:
+        return 1.0
+    return max(1.0, min(2.0, 2.0 - days_left / 180.0))
+
+
+def _migrate_emperors_progress_to_study(engine):
+    """One-shot idempotent copy of emperors_progress rows into study_progress."""
+    try:
+        with engine.connect() as conn:
+            done = conn.execute(
+                text("SELECT COUNT(*) FROM study_progress WHERE module = 'history'")
+            ).scalar()
+            if done:
+                conn.commit()
+                return False
+            conn.execute(text("""
+                INSERT INTO study_progress
+                    (user_id, module, card_key, reps, interval_days, ease, due, streak,
+                     correct_count, wrong_count, counter, updated_at)
+                SELECT user_id, 'history', card_key, reps, interval_days, ease, due,
+                       reps,
+                       correct_count, wrong_count, counter, updated_at
+                FROM emperors_progress
+                WHERE true
+                ON CONFLICT DO NOTHING
+            """))
+            conn.commit()
+        print("[STUDY] emperors_progress migrated to study_progress")
+        return True
+    except Exception as exc:
+        print(f"[STUDY] emperors migration error: {exc}")
+        return False
+
+
+def _ensure_study_progress_tables(engine):
+    """Create the unified OGE progress table and migrate Emperors rows into it."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS study_progress (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    module VARCHAR(32) NOT NULL,
+                    card_key TEXT NOT NULL,
+                    reps INTEGER NOT NULL DEFAULT 0,
+                    interval_days REAL NOT NULL DEFAULT 0,
+                    ease REAL NOT NULL DEFAULT 2.5,
+                    due REAL NOT NULL DEFAULT 0,
+                    streak INTEGER NOT NULL DEFAULT 0,
+                    correct_count INTEGER NOT NULL DEFAULT 0,
+                    wrong_count INTEGER NOT NULL DEFAULT 0,
+                    counter INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_study_progress_user ON study_progress(user_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_study_progress_user_module_card ON study_progress(user_id, module, card_key)"))
+            conn.commit()
+        _migrate_emperors_progress_to_study(engine)
+        print("[STUDY] Tables ensured")
+    except Exception as exc:
+        print(f"[STUDY] Table init error: {exc}")
 
 
 def _ensure_achievements_tables(engine):
@@ -4494,8 +4583,22 @@ def index():
         :root { --pico-border-radius: 16px; --pico-primary: var(--bb-primary); --pico-primary-background: var(--bb-primary); --pico-primary-hover: var(--bb-accent2); --pico-primary-underline: var(--bb-accent2); }
         .user-bar .logout-btn { width: auto; display: inline-block; }
         .card, .card:hover { text-decoration: none; }
-        h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
-    </style>
+h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
+.oge-plan { background: var(--bb-panel); border: 1px solid var(--bb-border); border-radius: 16px; padding: 18px 20px; margin-bottom: 20px; }
+.oge-plan-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.oge-plan-head h2 { font-size: 17px; color: var(--bb-text); margin: 0; }
+.oge-plan-head span { font-size: 12px; color: var(--bb-muted); }
+.oge-plan-list { display: flex; flex-direction: column; gap: 8px; }
+.oge-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bb-elev); border: 1px solid var(--bb-border); border-radius: 12px; text-decoration: none; transition: border-color 0.15s; }
+.oge-item:hover { border-color: var(--bb-primary); text-decoration: none; }
+.oge-item .oi-emoji { font-size: 20px; width: 26px; text-align: center; flex-shrink: 0; }
+.oge-item .oi-label { font-weight: 600; font-size: 14px; color: var(--bb-text); white-space: nowrap; }
+.oge-item .oi-action { font-size: 13px; color: var(--bb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oge-item .oi-badge { margin-left: auto; flex-shrink: 0; min-width: 22px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 3px 7px; }
+.oge-item .oi-badge.zero { background: var(--bb-green2); }
+.oge-plan-empty { font-size: 13px; color: var(--bb-muted); }
+.card-badge { display: inline-block; min-width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 2px 7px; margin-left: 6px; vertical-align: middle; }
+</style>
 </head>
 <body>
     <div class="container">
@@ -4569,6 +4672,10 @@ def index():
                     <p>Полный текст канона, произведения и глоссарий</p>
                 </div>
             </a>
+            <div class="oge-plan" id="oge-plan">
+                <div class="oge-plan-head"><h2>📌 План на сегодня</h2><span>ОГЭ-центр</span></div>
+                <div class="oge-plan-list" id="oge-plan-list"><div class="oge-plan-empty">Загрузка…</div></div>
+            </div>
             <button class="beta-toggle" id="beta-toggle" onclick="toggleBeta()">
                 <div class="beta-toggle-left">
                     <div class="beta-toggle-icon">🧪</div>
@@ -4615,7 +4722,7 @@ def index():
                         <p>Шпаргалка и тренажёр: имена и события к императорам</p>
                     </div>
                 </a>
-                <a class="card" href="/math">
+                <a class="card" href="/informatics">
                     <div class="card-icon">💻</div>
                     <div class="card-content">
                         <h2>Информатика — ОГЭ <span class="beta-tag">Бета</span></h2>
@@ -4720,8 +4827,49 @@ def index():
                         })
                         .catch(function () {});
                 }
+                function loadOgePlan() {
+                    var list = document.getElementById('oge-plan-list');
+                    if (!list) return;
+                    var token = localStorage.getItem('web_token');
+                    var uid = localStorage.getItem('web_user_id') || '';
+                    if (!token || uid.indexOf('u') !== 0) {
+                        list.innerHTML = '<div class="oge-plan-empty">Войдите — и ОГЭ-центр сам подскажет, что учить сегодня.</div>';
+                        return;
+                    }
+                    fetch('/api/study/recommendations', { headers: { 'X-Auth-Token': token } })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            if (!d || !d.subjects) return;
+                            var html = '';
+                            d.subjects.forEach(function (s) {
+                                var cnt = s.due + s.weak;
+                                html += '<a class="oge-item" href="' + s.next_action.url + '">' +
+                                    '<span class="oi-emoji">' + s.emoji + '</span>' +
+                                    '<span class="oi-label">' + s.label + '</span>' +
+                                    '<span class="oi-action">' + s.next_action.text + '</span>' +
+                                    '<span class="oi-badge' + (cnt ? '' : ' zero') + '">' + (cnt ? cnt : '✓') + '</span>' +
+                                    '</a>';
+                                updateCardBadge(s.url, cnt);
+                            });
+                            list.innerHTML = html;
+                        })
+                        .catch(function () {
+                            list.innerHTML = '<div class="oge-plan-empty">План временно недоступен</div>';
+                        });
+                }
+                function updateCardBadge(url, cnt) {
+                    var card = document.querySelector('.beta-cards .card[href="' + url + '"]');
+                    if (!card) return;
+                    var h2 = card.querySelector('h2');
+                    if (!h2) return;
+                    var b = h2.querySelector('.card-badge');
+                    if (!cnt) { if (b) b.remove(); return; }
+                    if (!b) { b = document.createElement('span'); b.className = 'card-badge'; h2.appendChild(b); }
+                    b.textContent = cnt;
+                }
                 loadUser();
                 loadAch();
+                loadOgePlan();
                 window.addEventListener('error', function() { showBugBtn(); });
                 window.addEventListener('unhandledrejection', function() { showBugBtn(); });
                 function showBugBtn() {
@@ -10565,9 +10713,15 @@ function diffInfo() {
 
 
 @app.route("/math")
-def math_page():
+def math_redirect():
+    """Legacy alias: the informatics module now lives at /informatics."""
+    return redirect("/informatics", code=301)
+
+
+@app.route("/informatics")
+def informatics_page():
     import json
-    from core.math.tasks import MATH_TOPICS, task_by_id, tasks_for_topic, get_random_task, get_tasks_by_difficulty
+    from core.informatics.tasks import MATH_TOPICS, task_by_id, tasks_for_topic, get_random_task, get_tasks_by_difficulty
 
     # Get all topic names for the study tab
     topic_names = {t.id: t.name for t in MATH_TOPICS}
@@ -11292,6 +11446,166 @@ def api_emperors_progress_save():
     except Exception as exc:
         print(f"[EMPERORS] progress POST error: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/study/progress", methods=["GET"])
+def api_study_progress():
+    """Load unified OGE progress for the current web user across all modules."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"cards": {}, "uid": 0})
+    uid = _web_user_id("u" + str(user["id"]))
+    cards = {}
+    if uid:
+        try:
+            engine = get_db_engine()
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text("""
+                        SELECT module, card_key, reps, interval_days, ease, due, streak,
+                               correct_count, wrong_count, counter
+                        FROM study_progress WHERE user_id = :uid
+                    """),
+                    {"uid": uid},
+                ).mappings()
+                for r in rows:
+                    cards.setdefault(r["module"], {})[r["card_key"]] = {
+                        "reps": r["reps"],
+                        "interval": r["interval_days"],
+                        "ease": r["ease"],
+                        "due": r["due"],
+                        "streak": r["streak"],
+                        "correct": r["correct_count"],
+                        "wrong": r["wrong_count"],
+                        "counter": r["counter"],
+                    }
+        except Exception as exc:
+            print(f"[STUDY] progress GET error: {exc}")
+    return jsonify({"cards": cards, "uid": uid})
+
+
+@app.route("/api/study/progress", methods=["POST"])
+def api_study_progress_save():
+    """Save unified OGE progress for one module (or reset it via reset=true)."""
+    data = request.get_json(silent=True) or {}
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    module = str(data.get("module") or "")
+    if module not in OGE_MODULES:
+        return jsonify({"ok": False, "error": "unknown module"}), 400
+    cards = data.get("cards") or {}
+    if not uid:
+        return jsonify({"ok": False, "error": "user_id required"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            if data.get("reset"):
+                conn.execute(
+                    text("DELETE FROM study_progress WHERE user_id = :uid AND module = :module"),
+                    {"uid": uid, "module": module},
+                )
+            else:
+                for key, rec in cards.items():
+                    conn.execute(text("""
+                        INSERT INTO study_progress
+                            (user_id, module, card_key, reps, interval_days, ease, due, streak,
+                             correct_count, wrong_count, counter, updated_at)
+                        VALUES (:uid, :module, :key, :reps, :interval, :ease, :due, :streak,
+                                :correct, :wrong, :counter, :ts)
+                        ON CONFLICT (user_id, module, card_key) DO UPDATE SET
+                            reps = EXCLUDED.reps,
+                            interval_days = EXCLUDED.interval_days,
+                            ease = EXCLUDED.ease,
+                            due = EXCLUDED.due,
+                            streak = EXCLUDED.streak,
+                            correct_count = EXCLUDED.correct_count,
+                            wrong_count = EXCLUDED.wrong_count,
+                            counter = EXCLUDED.counter,
+                            updated_at = EXCLUDED.updated_at
+                    """), {
+                        "uid": uid,
+                        "module": module,
+                        "key": key,
+                        "reps": int(rec.get("reps", 0)),
+                        "interval": float(rec.get("interval", 0)),
+                        "ease": float(rec.get("ease", 2.5)),
+                        "due": float(rec.get("due", 0)),
+                        "streak": int(rec.get("streak", 0)),
+                        "correct": int(rec.get("correct", 0)),
+                        "wrong": int(rec.get("wrong", 0)),
+                        "counter": int(rec.get("counter", 0)),
+                        "ts": time.time(),
+                    })
+        return jsonify({"ok": True, "uid": uid, "module": module, "saved": len(cards)})
+    except Exception as exc:
+        print(f"[STUDY] progress POST error: {exc}")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/study/recommendations", methods=["GET"])
+def api_study_recommendations():
+    """Build the 'what to study now' plan from due/weak/unstarted items per subject."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"subjects": [], "uid": 0})
+    uid = _web_user_id("u" + str(user["id"]))
+    now = time.time()
+    stats = {}
+    if uid:
+        try:
+            engine = get_db_engine()
+            with engine.connect() as conn:
+                rows = conn.execute(text("""
+                    SELECT module,
+                           SUM(CASE WHEN due > 0 AND due <= :now THEN 1 ELSE 0 END) AS due_cnt,
+                           SUM(CASE WHEN streak = 0 AND wrong_count > correct_count THEN 1 ELSE 0 END) AS weak_cnt,
+                           COUNT(*) AS started_cnt
+                    FROM study_progress WHERE user_id = :uid GROUP BY module
+                """), {"uid": uid, "now": now}).mappings()
+                for r in rows:
+                    stats[r["module"]] = {
+                        "due": int(r["due_cnt"] or 0),
+                        "weak": int(r["weak_cnt"] or 0),
+                        "started": int(r["started_cnt"] or 0),
+                    }
+        except Exception as exc:
+            print(f"[STUDY] recommendations error: {exc}")
+    subjects = []
+    for module, meta in OGE_MODULES.items():
+        s = stats.get(module, {"due": 0, "weak": 0, "started": 0})
+        total = meta["total"]
+        unstarted = max(0, total - s["started"])
+        urgency = _oge_exam_urgency(module)
+        score = (s["due"] * 10 + s["weak"] * 5 + min(unstarted, 20)) * urgency
+        if s["due"] > 0:
+            action = f"Повторить {s['due']} карточек"
+            url = meta["url"] + "?algo=flash"
+        elif s["weak"] > 0:
+            action = f"Разобрать {s['weak']} ошибок"
+            url = meta["url"]
+        elif unstarted > 0:
+            action = "Начать новую тему"
+            url = meta["url"]
+        else:
+            action = "Поддерживать форму"
+            url = meta["url"]
+        subjects.append({
+            "module": module,
+            "label": meta["label"],
+            "emoji": meta["emoji"],
+            "url": meta["url"],
+            "due": s["due"],
+            "weak": s["weak"],
+            "started": s["started"],
+            "total": total,
+            "urgency": round(urgency, 2),
+            "score": round(score, 1),
+            "next_action": {"text": action, "url": url},
+        })
+    subjects.sort(key=lambda x: x["score"], reverse=True)
+    return jsonify({"subjects": subjects, "uid": uid})
 
 
 @app.route("/api/trivia/question", methods=["POST"])
