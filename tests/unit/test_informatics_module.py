@@ -93,13 +93,13 @@ def test_informatics_page_renders(client=None):
     assert "* { margin" in body, "CSS is invalid: single braces expected"
 
 
-def test_math_url_redirects_to_informatics():
+def test_math_url_serves_math_module():
     from api.index import app
 
     c = app.test_client()
     resp = c.get("/math")
-    assert resp.status_code == 301
-    assert resp.headers["Location"].endswith("/informatics")
+    assert resp.status_code == 200
+    assert "Математика" in resp.get_data(as_text=True)
 
 
 def test_informatics_page_contains_topic_data():
