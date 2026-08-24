@@ -1083,7 +1083,7 @@ OGE_MODULES = {
     "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 75},
     "math": {"label": "Математика", "emoji": "📐", "url": "/math", "total": 130},
     "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 82},
-    "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 100},
+    "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 85},
 }
 
 OGE_EXAM_DATES = {
@@ -4758,6 +4758,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <div class="card-content">
                         <h2>Русский язык — ОГЭ <span class="beta-tag">Бета</span></h2>
                         <p>Правила-карточки, тренажёр орфографии/пунктуации, чек-лист сочинения по ФИПИ</p>
+                    </div>
+                </a>
+                <a class="card" data-oge="1" href="/physics">
+                    <div class="card-icon">⚛️</div>
+                    <div class="card-content">
+                        <h2>Физика — ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <p>Формулы-карточки, задачи, генератор и экзамен-режим (механика, тепло, электричество)</p>
                     </div>
                 </a>
                 <a class="card" href="/family">
@@ -11106,6 +11113,370 @@ loadServerProgress();
 </body>
 </html>
 """
+
+PHYSICS_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Физика — ОГЭ | LTHub</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
+.container { max-width: 760px; width: 100%; }
+.header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.header h1 { font-size: 22px; color: var(--bb-accent); }
+.header a { color: var(--bb-muted); text-decoration: none; font-size: 14px; margin-left: auto; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.tab { padding: 8px 14px; border: 1px solid var(--bb-elev); border-radius: 10px; background: var(--bb-panel); color: var(--bb-muted); cursor: pointer; font-size: 14px; }
+.tab.active { border-color: var(--bb-primary); color: var(--bb-text); }
+.panel { display: none; }
+.panel.active { display: block; }
+.card { background: var(--bb-panel); border: 1px solid var(--bb-primary); border-radius: 16px; padding: 22px; margin-bottom: 14px; }
+.card h2 { font-size: 18px; margin-bottom: 10px; color: var(--bb-text); }
+.muted { color: var(--bb-muted); font-size: 14px; }
+.formula { font-size: 20px; font-weight: 600; padding: 12px; background: var(--bb-elev); border-radius: 10px; margin: 10px 0; }
+.topic-sel { margin-bottom: 12px; }
+select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--bb-elev); background: var(--bb-bg); color: var(--bb-text); font-size: 15px; width: 100%; }
+.btn { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--bb-primary); background: var(--bb-primary); color: #fff; cursor: pointer; font-size: 14px; margin-top: 10px; }
+.btn.ghost { background: transparent; color: var(--bb-text); }
+.btn.green { background: var(--bb-accent); border-color: var(--bb-accent); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row .btn { flex: 1; }
+.progress-mini { font-size: 13px; color: var(--bb-muted); margin-bottom: 10px; }
+.gen-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gen-item { padding: 12px; border: 1px solid var(--bb-elev); border-radius: 10px; background: var(--bb-elev); cursor: pointer; }
+.gen-item:hover { border-color: var(--bb-accent); }
+.explain { font-size: 13px; color: var(--bb-muted); margin-top: 8px; }
+.ok { color: var(--bb-accent); font-weight: 600; }
+.bad { color: #e07373; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>⚛️ Физика — ОГЭ</h1>
+<a href="/">← На главную</a>
+</div>
+<div class="tabs">
+<div class="tab active" data-tab="formulas">📚 Формулы</div>
+<div class="tab" data-tab="tasks">🧠 Задачи</div>
+<div class="tab" data-tab="generators">🎲 Генератор</div>
+<div class="tab" data-tab="exam">📝 Экзамен</div>
+</div>
+
+<div class="panel active" id="p-formulas">
+<div class="card">
+<div class="topic-sel">
+<label class="muted">Тема:</label>
+<select id="f-topic"></select>
+</div>
+<div class="progress-mini" id="f-progress"></div>
+<div class="card" id="f-card">
+<h2 id="f-title"></h2>
+<div class="formula" id="f-formula" style="display:none;"></div>
+<div class="muted" id="f-note"></div>
+<div class="row">
+<button class="btn ghost" id="f-show">Показать</button>
+<button class="btn green" id="f-ok" style="display:none;">Помню</button>
+<button class="btn" id="f-no" style="display:none;">Не помню</button>
+</div>
+<div class="row" style="margin-top:8px;">
+<button class="btn ghost" id="f-prev">←</button>
+<button class="btn ghost" id="f-next">→</button>
+</div>
+</div>
+</div>
+</div>
+
+<div class="panel" id="p-tasks">
+<div class="card">
+<div class="topic-sel">
+<label class="muted">Фильтр по теме:</label>
+<select id="t-topic"><option value="">Все темы</option></select>
+</div>
+<div class="card" id="t-card">
+<div class="muted" id="t-diff"></div>
+<h2 id="t-q"></h2>
+<input id="t-ans" placeholder="Ваш ответ">
+<div class="row">
+<button class="btn" id="t-check">Проверить</button>
+<button class="btn ghost" id="t-hint">Подсказка</button>
+<button class="btn green" id="t-next" style="display:none;">Следующая →</button>
+</div>
+<div id="t-feedback"></div>
+<div class="row" style="margin-top:8px;">
+<button class="btn ghost" id="t-prev">←</button>
+</div>
+</div>
+</div>
+</div>
+
+<div class="panel" id="p-generators">
+<div class="card">
+<h2>🎲 Параметрические генераторы</h2>
+<div class="gen-list" id="g-list"></div>
+</div>
+<div class="card" id="g-card" style="display:none;">
+<h2 id="g-name"></h2>
+<p class="muted" id="g-desc"></p>
+<h2 id="g-q"></h2>
+<input id="g-ans" placeholder="Ваш ответ">
+<div class="row">
+<button class="btn" id="g-check">Проверить</button>
+<button class="btn green" id="g-new">Новая задача</button>
+</div>
+<div id="g-feedback"></div>
+</div>
+</div>
+
+<div class="panel" id="p-exam">
+<div class="card">
+<h2>📝 Экзамен-режим</h2>
+<p class="muted">20 случайных заданий, таймер 12 минут. Проходи как на реальном ОГЭ.</p>
+<button class="btn green" id="e-start">Начать экзамен</button>
+<div id="e-area" style="display:none;">
+<div class="progress-mini" id="e-status"></div>
+<div class="card" id="e-card">
+<h2 id="e-q"></h2>
+<input id="e-ans" placeholder="Ваш ответ">
+<div class="row">
+<button class="btn" id="e-check">Ответить</button>
+</div>
+<div id="e-feedback"></div>
+</div>
+</div>
+<div id="e-result"></div>
+</div>
+</div>
+</div>
+
+<script>
+const PH = __PHYSICS_DATA__;
+const AUTH = localStorage.getItem('web_token') || '';
+const MODULE = "math";
+
+let prog = {};
+try { prog = JSON.parse(localStorage.getItem('physics_prog') || '{}'); } catch(e) { prog = {}; }
+function saveLocal() { localStorage.setItem('physics_prog', JSON.stringify(prog)); }
+function loadServerProgress() {
+  if (!AUTH) return;
+  fetch('/api/study/progress', { headers: { 'X-Auth-Token': AUTH } })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){ if (d && d.cards && d.cards.physics) { prog = Object.assign({}, d.cards.physics); saveLocal(); } })
+    .catch(function(){});
+}
+let pushTimer = null;
+function push() {
+  saveLocal();
+  if (!AUTH) return;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(function() {
+    fetch('/api/study/progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Token': AUTH },
+      body: JSON.stringify({ module: 'physics', cards: prog })
+    }).catch(function(){});
+  }, 600);
+}
+function key(k) { return k; }
+function recFor(k) { return prog[key(k)] || { reps:0, interval:0, ease:2.5, correct:0, wrong:0, counter:0, streak:0, due:Date.now() }; }
+function record(k, correct) {
+  const r = recFor(k);
+  if (correct) {
+    r.streak = (r.streak||0)+1; r.reps=(r.reps||0)+1; r.correct=(r.correct||0)+1;
+    if (r.reps===1) r.interval=1; else if (r.reps===2) r.interval=3; else if (r.reps===3) r.interval=7;
+    else r.interval=Math.round((r.interval||7)*r.ease);
+    r.due = Date.now() + r.interval*86400000;
+  } else {
+    r.streak=0; r.reps=0; r.interval=0; r.due=Date.now()+60000; r.wrong=(r.wrong||0)+1;
+  }
+  prog[key(k)] = r; push();
+}
+function norm(s){ return (s==null?'':s).toString().trim().toLowerCase().replace(/\\s+/g,' '); }
+function checkAnswer(user, ans) {
+  user = norm(user); ans = norm(ans);
+  if (user===ans) return true;
+  var nu = parseFloat(String(user).replace(',','.'));
+  var na = parseFloat(String(ans).replace(',','.'));
+  if (!isNaN(nu) && !isNaN(na) && Math.abs(nu-na) < 1e-9) return true;
+  return false;
+}
+
+// tabs
+document.querySelectorAll('.tab').forEach(function(t){
+  t.addEventListener('click', function(){
+    document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function(x){ x.classList.remove('active'); });
+    t.classList.add('active');
+    document.getElementById('p-'+t.dataset.tab).classList.add('active');
+  });
+});
+
+// ---- Formulas ----
+const topicSel = document.getElementById('f-topic');
+Object.keys(PH.topics).forEach(function(tp){
+  const o = document.createElement('option'); o.value=tp; o.textContent=tp+' ('+PH.topics[tp].length+')'; topicSel.appendChild(o);
+});
+let fList = [], fIdx = 0;
+function loadTopic() {
+  const tp = topicSel.value;
+  fList = PH.topics[tp].map(function(id){ return PH.formulas.find(function(f){ return f.id===id; }); });
+  fIdx = 0; renderFormula();
+}
+function renderFormula() {
+  if (!fList.length) return;
+  const f = fList[fIdx];
+  document.getElementById('f-title').textContent = f.title;
+  document.getElementById('f-formula').textContent = f.formula;
+  document.getElementById('f-formula').style.display = 'none';
+  document.getElementById('f-note').textContent = f.note || '';
+  document.getElementById('f-show').style.display = '';
+  document.getElementById('f-ok').style.display = 'none';
+  document.getElementById('f-no').style.display = 'none';
+  const r = recFor('formula::'+f.id);
+  const total = fList.length;
+  const done = fList.filter(function(x){ return (prog[key('formula::'+x.id)]||{}).streak>=3; }).length;
+  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+'  •  выучено: '+done;
+}
+document.getElementById('f-show').onclick = function(){
+  document.getElementById('f-formula').style.display = '';
+  document.getElementById('f-show').style.display = 'none';
+  document.getElementById('f-ok').style.display = '';
+  document.getElementById('f-no').style.display = '';
+};
+document.getElementById('f-ok').onclick = function(){ record('formula::'+fList[fIdx].id, true); nextFormula(); };
+document.getElementById('f-no').onclick = function(){ record('formula::'+fList[fIdx].id, false); nextFormula(); };
+function nextFormula(){ if (fIdx < fList.length-1) { fIdx++; renderFormula(); } else { fIdx=0; renderFormula(); } }
+document.getElementById('f-next').onclick = nextFormula;
+document.getElementById('f-prev').onclick = function(){ fIdx = (fIdx>0)?fIdx-1:fList.length-1; renderFormula(); };
+topicSel.onchange = loadTopic;
+loadTopic();
+
+// ---- Tasks ----
+const tSel = document.getElementById('t-topic');
+Object.keys(PH.topics).forEach(function(tp){
+  const o=document.createElement('option'); o.value=tp; o.textContent=tp; tSel.appendChild(o);
+});
+let tList = PH.tasks.slice(), tIdx = 0;
+function loadTasks(){ const tp=tSel.value; tList = tp ? PH.tasks.filter(function(x){return x.topic===tp;}) : PH.tasks.slice(); tIdx=0; renderTask(); }
+function renderTask(){
+  if (!tList.length) return;
+  const t = tList[tIdx];
+  document.getElementById('t-diff').textContent = 'Сложность: '+t.difficulty;
+  document.getElementById('t-q').textContent = t.question;
+  document.getElementById('t-ans').value = '';
+  document.getElementById('t-feedback').textContent = '';
+  document.getElementById('t-next').style.display = 'none';
+  document.getElementById('t-check').style.display = '';
+  document.getElementById('t-hint').style.display = '';
+}
+document.getElementById('t-check').onclick = function(){
+  const t = tList[tIdx];
+  const ok = checkAnswer(document.getElementById('t-ans').value, t.answer);
+  record('task::'+t.id, ok);
+  const fb = document.getElementById('t-feedback');
+  fb.innerHTML = (ok?'<span class="ok">✓ Верно!</span>':'<span class="bad">✗ Неверно. Ответ: '+t.answer+'</span>')
+    + '<div class="explain">'+t.explanation+'</div>';
+  document.getElementById('t-next').style.display = '';
+  document.getElementById('t-check').style.display = 'none';
+  document.getElementById('t-hint').style.display = 'none';
+};
+document.getElementById('t-hint').onclick = function(){ document.getElementById('t-feedback').innerHTML = '<div class="explain">Подсказка: '+tList[tIdx].hint+'</div>'; };
+document.getElementById('t-next').onclick = function(){ if (tIdx<tList.length-1){tIdx++; renderTask();} else {tIdx=0; renderTask();} };
+document.getElementById('t-prev').onclick = function(){ tIdx=(tIdx>0)?tIdx-1:tList.length-1; renderTask(); };
+tSel.onchange = loadTasks; loadTasks();
+
+// ---- Generators ----
+const GEN = {
+  g01: function(){ const v=Math.floor(20+Math.random()*80), t=Math.floor(2+Math.random()*5); const s=v*t; return {q:'Тело движется со скоростью '+v+' км/ч. Какой путь оно пройдёт за '+t+' ч?', a:String(s), ex:'S = v*t = '+v+'*'+t+' = '+s+' км'}; },
+  g02: function(){ const m=Math.floor(2+Math.random()*8), a=Math.floor(1+Math.random()*5); const F=m*a; return {q:'Тело массой '+m+' кг получает ускорение '+a+' м/с². Найдите силу (Н).', a:String(F), ex:'F = m*a = '+m+'*'+a+' = '+F+' Н'}; },
+  g03: function(){ const m=Math.floor(100+Math.random()*900), V=Math.round((Math.random()*4+1)*25)/100; const ro=Math.round(m/V*100)/100; return {q:'Масса тела '+m+' г, объём '+V+' см³. Плотность (г/см³, округли до 0.01).', a:String(ro), ex:'ρ = m/V = '+m+'/'+V+' ≈ '+ro+' г/см³'}; },
+  g04: function(){ const F=Math.floor(10+Math.random()*90), S=Math.floor(2+Math.random()*8), t=Math.floor(4+Math.random()*16); const A=F*S, N=Math.round(A/t*10)/10; return {q:'Сила '+F+' Н перемещает тело на '+S+' м за '+t+' с. Какова мощность (Вт, округли до 0.1)?', a:String(N), ex:'A='+A+' Дж; N = A/t = '+N+' Вт'}; },
+  g05: function(){ const m=Math.floor(1+Math.random()*3), dt=Math.floor(5+Math.random()*30); const Q=4200*m*dt; return {q:'Нагревают '+m+' кг воды на '+dt+' °C (c=4200 Дж/(кг·°C)). Сколько теплоты нужно (Дж)?', a:String(Q), ex:'Q = c*m*Δt = 4200*'+m+'*'+dt+' = '+Q+' Дж'}; },
+  g06: function(){ const U=Math.floor(6+Math.random()*18), R=Math.floor(2+Math.random()*12); const I=Math.round(U/R*100)/100; return {q:'Напряжение '+U+' В приложено к сопротивлению '+R+' Ом. Найдите ток (А, округли до 0.01).', a:String(I), ex:'I = U/R = '+U+'/'+R+' ≈ '+I+' А'}; }
+};
+function gcd(a,b){ while(b){ const t=b; b=a%b; a=t; } return a; }
+const gList = document.getElementById('g-list');
+PH.generators.forEach(function(g){
+  const d=document.createElement('div'); d.className='gen-item'; d.textContent=g.name;
+  d.onclick=function(){ startGen(g.id); }; gList.appendChild(d);
+});
+let curGen=null;
+function startGen(gid){ curGen=gid; const g=PH.generators.find(function(x){return x.id===gid;}); document.getElementById('g-card').style.display=''; document.getElementById('g-name').textContent=g.name; document.getElementById('g-desc').textContent=g.description; genNew(); }
+function genNew(){ if(!curGen) return; const p=GEN[curGen](); document.getElementById('g-q').textContent=p.q; document.getElementById('g-ans').value=''; document.getElementById('g-feedback').textContent=''; window.__genAns=p.a; window.__genEx=p.ex; }
+document.getElementById('g-check').onclick=function(){ if(!curGen) return; const ok=checkAnswer(document.getElementById('g-ans').value, window.__genAns); record('gen::'+curGen, ok); document.getElementById('g-feedback').innerHTML=(ok?'<span class="ok">✓ Верно!</span>':'<span class="bad">✗ Неверно. Ответ: '+window.__genAns+'</span>')+'<div class="explain">'+window.__genEx+'</div>'; };
+document.getElementById('g-new').onclick=genNew;
+
+// ---- Exam ----
+let eItems=[], eIdx=0, eScore=0, eTimer=null, eLeft=720;
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+document.getElementById('e-start').onclick=function(){
+  const tasks = shuffle(PH.tasks.slice()).slice(0,15).map(function(t){ return {type:'task', ref:t}; });
+  const gens = shuffle(PH.generators.slice()).slice(0,5).map(function(g){ const p=GEN[g.id](); return {type:'gen', gid:g.id, q:p.q, a:p.a, ex:p.ex}; });
+  eItems = shuffle(tasks.concat(gens)); eIdx=0; eScore=0; eLeft=720;
+  document.getElementById('e-start').style.display='none'; document.getElementById('e-area').style.display=''; document.getElementById('e-result').textContent='';
+  eTimer=setInterval(function(){ eLeft--; if(eLeft<=0){ clearInterval(eTimer); finishExam(); } updateEStatus(); }, 1000);
+  renderExam();
+};
+function updateEStatus(){ const m=Math.floor(eLeft/60), s=eLeft%60; document.getElementById('e-status').textContent='Задание '+(eIdx+1)+' / '+eItems.length+'  •  счёт: '+eScore+'  •  время: '+m+':'+(s<10?'0':'')+s; }
+function renderExam(){
+  updateEStatus();
+  const it=eItems[eIdx];
+  document.getElementById('e-q').textContent=it.q;
+  document.getElementById('e-ans').value='';
+  document.getElementById('e-feedback').textContent='';
+}
+document.getElementById('e-check').onclick=function(){
+  const it=eItems[eIdx];
+  const ok=checkAnswer(document.getElementById('e-ans').value, it.a);
+  if(ok) eScore++;
+  if(it.type==='task') record('task::'+it.ref.id, ok); else record('gen::'+it.gid, ok);
+  document.getElementById('e-feedback').innerHTML=(ok?'<span class="ok">✓ Верно!</span>':'<span class="bad">✗ Неверно. Ответ: '+it.a+'</span>')+'<div class="explain">'+it.ex+'</div>';
+  if(eIdx<eItems.length-1){ eIdx++; setTimeout(renderExam, 900); } else { finishExam(); }
+};
+function finishExam(){ if(eTimer) clearInterval(eTimer); const pct=Math.round(eScore/eItems.length*100); document.getElementById('e-area').style.display='none'; document.getElementById('e-start').style.display=''; document.getElementById('e-result').innerHTML='<div class="card"><h2>Результат: '+eScore+' / '+eItems.length+' ('+pct+'%)</h2><p class="muted">Повторяйте слабые темы в разделах Формулы и Задачи.</p></div>'; }
+loadServerProgress();
+</script>
+</body>
+</html>
+"""
+
+
+@app.route("/physics")
+def physics_page():
+    import json
+
+    from core.physics.formulas import FORMULAS, TASKS, GENERATORS, formulas_by_topic
+
+    topics_map = formulas_by_topic()
+    physics_data = {
+        "formulas": [
+            {"id": f.id, "topic": f.topic, "title": f.title, "formula": f.formula, "note": f.note}
+            for f in FORMULAS
+        ],
+        "tasks": [
+            {
+                "id": t.id,
+                "topic": t.topic,
+                "difficulty": t.difficulty,
+                "question": t.question,
+                "answer": str(t.answer),
+                "hint": t.hint,
+                "explanation": t.explanation,
+            }
+            for t in TASKS
+        ],
+        "generators": [
+            {"id": g.id, "topic": g.topic, "name": g.name, "description": g.description}
+            for g in GENERATORS
+        ],
+        "topics": {tp: [f.id for f in fs] for tp, fs in topics_map.items()},
+    }
+    physics_json = json.dumps(physics_data, ensure_ascii=False)
+    html = PHYSICS_PAGE_TEMPLATE.replace("__PHYSICS_DATA__", physics_json)
+    return html
+
 
 @app.route("/math")
 def math_page():
