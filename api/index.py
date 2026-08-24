@@ -1079,11 +1079,11 @@ def _ensure_emperors_tables(engine):
 
 
 OGE_MODULES = {
-    "history": {"label": "История", "emoji": "📜", "url": "/emperors", "total": 371},
-    "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 75},
+    "history": {"label": "История", "emoji": "📜", "url": "/emperors", "total": 391},
+    "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 95},
     "math": {"label": "Математика", "emoji": "📐", "url": "/math", "total": 130},
-    "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 82},
-    "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 85},
+    "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 107},
+    "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 102},
 }
 
 OGE_EXAM_DATES = {
