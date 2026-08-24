@@ -1080,7 +1080,7 @@ def _ensure_emperors_tables(engine):
 
 OGE_MODULES = {
     "history": {"label": "История", "emoji": "📜", "url": "/emperors", "total": 291},
-    "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 45},
+    "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 75},
     "math": {"label": "Математика", "emoji": "📐", "url": "/math", "total": 130},
     "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 80},
     "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 100},
@@ -11236,6 +11236,44 @@ def informatics_page():
         let hubActivity = {};
         try { hubActivity = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch (e) {}
 
+        // --- Unified OGE progress (module = informatics) ---
+        const INFO_AUTH = localStorage.getItem('web_token') || '';
+        let infoProg = {};
+        try { infoProg = JSON.parse(localStorage.getItem('informatics_prog') || '{}'); } catch (e) { infoProg = {}; }
+        function infoSaveLocal() { localStorage.setItem('informatics_prog', JSON.stringify(infoProg)); }
+        function infoLoad() {
+            if (!INFO_AUTH) return;
+            fetch('/api/study/progress', { headers: { 'X-Auth-Token': INFO_AUTH } })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) { if (d && d.cards && d.cards.informatics) { infoProg = Object.assign({}, d.cards.informatics); infoSaveLocal(); } })
+                .catch(function () {});
+        }
+        let infoPushTimer = null;
+        function infoPush() {
+            infoSaveLocal();
+            if (!INFO_AUTH) return;
+            if (infoPushTimer) clearTimeout(infoPushTimer);
+            infoPushTimer = setTimeout(function () {
+                fetch('/api/study/progress', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': INFO_AUTH },
+                    body: JSON.stringify({ module: 'informatics', cards: infoProg })
+                }).catch(function () {});
+            }, 600);
+        }
+        function infoRecord(taskId, correct) {
+            const r = infoProg[taskId] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0, streak: 0, due: Date.now() };
+            if (correct) {
+                r.streak = (r.streak || 0) + 1; r.reps = (r.reps || 0) + 1; r.correct = (r.correct || 0) + 1;
+                if (r.reps === 1) r.interval = 1; else if (r.reps === 2) r.interval = 3; else if (r.reps === 3) r.interval = 7;
+                else r.interval = Math.round((r.interval || 7) * r.ease);
+                r.due = Date.now() + r.interval * 86400000;
+            } else {
+                r.streak = 0; r.reps = 0; r.interval = 0; r.due = Date.now() + 60000; r.wrong = (r.wrong || 0) + 1;
+            }
+            infoProg[taskId] = r; infoPush();
+        }
+
         // Load topics data
         const topicsData = __TOPICS_DATA__;
         const topicNames = __TOPIC_NAMES__;
@@ -11489,6 +11527,7 @@ def informatics_page():
                 }
                 totalSolved++;
                 correctStreak++;
+                infoRecord(task.id, true);
                 trainDone.push(task);
                 trainQueue.shift();
                 document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved;
@@ -11536,6 +11575,7 @@ def informatics_page():
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function () {
+            infoLoad();
             renderStudyTab();
             buildQueue();
         });

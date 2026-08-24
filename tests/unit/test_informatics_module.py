@@ -12,13 +12,14 @@ ALL_TASK_IDS = [task.id for topic in MATH_TOPICS for task in topic.tasks]
 
 
 def test_topics_count():
-    assert len(MATH_TOPICS) == 9
+    assert len(MATH_TOPICS) == 15
 
 
 def test_topic_ids():
     assert [t.id for t in MATH_TOPICS] == [
         "lesson1", "lesson2", "lesson3", "lesson4", "lesson5",
         "lesson6", "lesson7", "lesson8", "lesson9",
+        "lesson10", "lesson11", "lesson12", "lesson13", "lesson14", "lesson15",
     ]
 
 
