@@ -10,7 +10,7 @@
 - russian     — задачи на логику и русский язык.
 """
 
-from core.math.tasks import (
+from core.informatics.tasks import (
     MATH_TOPICS,
     MathTopic,
     MathTask,

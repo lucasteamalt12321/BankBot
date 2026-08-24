@@ -1,6 +1,6 @@
-"""Unit tests for the core.math (informatics) module and the /math web page."""
+"""Unit tests for the core.informatics (informatics) module and the /informatics web page."""
 
-from core.math import (
+from core.informatics import (
     MATH_TOPICS,
     task_by_id,
     tasks_for_topic,
@@ -74,11 +74,11 @@ def test_get_tasks_by_difficulty():
     assert get_tasks_by_difficulty("nope") == ()
 
 
-def test_math_page_renders(client=None):
+def test_informatics_page_renders(client=None):
     from api.index import app
 
     c = app.test_client()
-    resp = c.get("/math")
+    resp = c.get("/informatics")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Информатика" in body
@@ -93,13 +93,22 @@ def test_math_page_renders(client=None):
     assert "* { margin" in body, "CSS is invalid: single braces expected"
 
 
-def test_math_page_contains_topic_data():
+def test_math_url_redirects_to_informatics():
+    from api.index import app
+
+    c = app.test_client()
+    resp = c.get("/math")
+    assert resp.status_code == 301
+    assert resp.headers["Location"].endswith("/informatics")
+
+
+def test_informatics_page_contains_topic_data():
     from api.index import app
     import json
     import re
 
     c = app.test_client()
-    body = c.get("/math").get_data(as_text=True)
+    body = c.get("/informatics").get_data(as_text=True)
     m = re.search(r"const topicsData = (\{.*?\});\n", body, re.S)
     assert m, "topicsData JS object not found"
     data = json.loads(m.group(1))
