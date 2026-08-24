@@ -1094,6 +1094,8 @@ OGE_EXAM_DATES = {
     "physics": (2027, 6, 5),
 }
 
+_OGE_AI_PLAN_CACHE: dict = {}
+
 
 def _oge_exam_urgency(module):
     """Weight in [1.0, 2.0]: grows as the exam date approaches (1.0 if >180 days left)."""
@@ -4597,6 +4599,14 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
 .oge-item .oi-badge { margin-left: auto; flex-shrink: 0; min-width: 22px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 3px 7px; }
 .oge-item .oi-badge.zero { background: var(--bb-green2); }
 .oge-plan-empty { font-size: 13px; color: var(--bb-muted); }
+.oge-mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 13px; color: var(--bb-muted); }
+.oge-mode-bar label { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.oge-mode-bar input { width: 16px; height: 16px; accent-color: var(--bb-primary); }
+.oge-ai-box { background: linear-gradient(135deg, rgba(91,141,239,.14), rgba(74,144,232,.05)); border: 1px solid var(--bb-primary); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+.oge-ai-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--bb-accent); margin-bottom: 6px; }
+.oge-ai-head button { margin-left: auto; background: none; border: none; color: var(--bb-muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.oge-ai-head button:hover { color: var(--bb-accent); }
+.oge-ai-text { white-space: pre-wrap; font-size: 13px; line-height: 1.55; color: var(--bb-text); }
 .card-badge { display: inline-block; min-width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 2px 7px; margin-left: 6px; vertical-align: middle; }
 </style>
 </head>
@@ -4672,8 +4682,15 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <p>Полный текст канона, произведения и глоссарий</p>
                 </div>
             </a>
+            <div class="oge-mode-bar" id="oge-mode-bar">
+                <label><input type="checkbox" id="oge-mode-toggle"> 🎯 Режим подготовки к ОГЭ</label>
+            </div>
             <div class="oge-plan" id="oge-plan">
                 <div class="oge-plan-head"><h2>📌 План на сегодня</h2><span>ОГЭ-центр</span></div>
+                <div class="oge-ai-box" id="oge-ai-box" style="display:none;">
+                    <div class="oge-ai-head">✨ Персональный план от ИИ <button id="oge-ai-regen" title="Сгенерировать заново">↻</button></div>
+                    <div class="oge-ai-text" id="oge-ai-text"></div>
+                </div>
                 <div class="oge-plan-list" id="oge-plan-list"><div class="oge-plan-empty">Загрузка…</div></div>
             </div>
             <button class="beta-toggle" id="beta-toggle" onclick="toggleBeta()">
@@ -4715,28 +4732,28 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Практика неправильных глаголов с AI</p>
                     </div>
                 </a>
-                <a class="card" href="/emperors">
+                <a class="card" data-oge="1" href="/emperors">
                     <div class="card-icon">👑</div>
                     <div class="card-content">
                         <h2>Императоры России <span class="beta-tag">Бета</span></h2>
                         <p>Шпаргалка и тренажёр: имена и события к императорам</p>
                     </div>
                 </a>
-                <a class="card" href="/informatics">
+                <a class="card" data-oge="1" href="/informatics">
                     <div class="card-icon">💻</div>
                     <div class="card-content">
                         <h2>Информатика — ОГЭ <span class="beta-tag">Бета</span></h2>
                         <p>Теория и тренажёр по информатике (сложность алгоритмов, делители, графы, комбинаторика)</p>
                     </div>
                 </a>
-                <a class="card" href="/math">
+                <a class="card" data-oge="1" href="/math">
                     <div class="card-icon">📐</div>
                     <div class="card-content">
                         <h2>Математика — ОГЭ <span class="beta-tag">Бета</span></h2>
                         <p>Формулы-карточки, задачи, генератор и экзамен-режим (алгебра, геометрия, вероятность)</p>
                     </div>
                 </a>
-                <a class="card" href="/russian">
+                <a class="card" data-oge="1" href="/russian">
                     <div class="card-icon">📝</div>
                     <div class="card-content">
                         <h2>Русский язык — ОГЭ <span class="beta-tag">Бета</span></h2>
@@ -4841,9 +4858,42 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         })
                         .catch(function () {});
                 }
+                function ogeModeOn() { return localStorage.getItem('oge_mode') !== '0'; }
+                function applyOgeMode() {
+                    var on = ogeModeOn();
+                    var t = document.getElementById('oge-mode-toggle'); if (t) t.checked = on;
+                    var w = document.getElementById('oge-plan'); if (w) w.style.display = on ? '' : 'none';
+                    document.querySelectorAll('a.card[data-oge="1"]').forEach(function (c) { c.style.display = on ? '' : 'none'; });
+                }
+                function renderAiBox(plan) {
+                    var box = document.getElementById('oge-ai-box');
+                    if (!box) return;
+                    if (!plan) { box.style.display = 'none'; return; }
+                    box.style.display = '';
+                    document.getElementById('oge-ai-text').textContent = plan;
+                }
+                function loadAiPlan(force) {
+                    if (!localStorage.getItem('web_token') || !ogeModeOn()) { renderAiBox(null); return; }
+                    var txt = document.getElementById('oge-ai-text');
+                    if (force && txt) txt.textContent = 'Генерирую план…';
+                    fetch('/api/study/ai-plan' + (force ? '?force=1' : ''), { headers: { 'X-Auth-Token': localStorage.getItem('web_token') } })
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .then(function (d) { renderAiBox(d && d.ok && d.plan ? d.plan : null); })
+                        .catch(function () { renderAiBox(null); });
+                }
+                var aiRegen = document.getElementById('oge-ai-regen');
+                if (aiRegen) aiRegen.addEventListener('click', function () { loadAiPlan(true); });
+                var ogeToggle = document.getElementById('oge-mode-toggle');
+                if (ogeToggle) ogeToggle.addEventListener('change', function () {
+                    localStorage.setItem('oge_mode', ogeToggle.checked ? '1' : '0');
+                    applyOgeMode();
+                    if (ogeToggle.checked) loadOgePlan();
+                });
                 function loadOgePlan() {
                     var list = document.getElementById('oge-plan-list');
                     if (!list) return;
+                    applyOgeMode();
+                    if (!ogeModeOn()) return;
                     var token = localStorage.getItem('web_token');
                     var uid = localStorage.getItem('web_user_id') || '';
                     if (!token || uid.indexOf('u') !== 0) {
@@ -4866,6 +4916,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                                 updateCardBadge(s.url, cnt);
                             });
                             list.innerHTML = html;
+                            loadAiPlan(false);
                         })
                         .catch(function () {
                             list.innerHTML = '<div class="oge-plan-empty">План временно недоступен</div>';
@@ -12248,14 +12299,8 @@ def api_study_progress_save():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
-@app.route("/api/study/recommendations", methods=["GET"])
-def api_study_recommendations():
-    """Build the 'what to study now' plan from due/weak/unstarted items per subject."""
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"subjects": [], "uid": 0})
-    uid = _web_user_id("u" + str(user["id"]))
-    now = time.time()
+def _oge_subjects_payload(uid, now: float) -> list:
+    """Collect per-subject study stats and priority actions for the OGE center."""
     stats = {}
     if uid:
         try:
@@ -12309,7 +12354,56 @@ def api_study_recommendations():
             "next_action": {"text": action, "url": url},
         })
     subjects.sort(key=lambda x: x["score"], reverse=True)
-    return jsonify({"subjects": subjects, "uid": uid})
+    return subjects
+
+
+@app.route("/api/study/recommendations", methods=["GET"])
+def api_study_recommendations():
+    """Build the 'what to study now' plan from due/weak/unstarted items per subject."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"subjects": [], "uid": 0})
+    uid = _web_user_id("u" + str(user["id"]))
+    return jsonify({"subjects": _oge_subjects_payload(uid, time.time()), "uid": uid})
+
+
+@app.route("/api/study/ai-plan", methods=["GET"])
+def api_study_ai_plan():
+    """AI-generated daily OGE plan from progress stats (cached per day per user)."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required", "plan": ""}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    today = time.strftime("%Y-%m-%d")
+    force = request.args.get("force") == "1"
+    cached = _OGE_AI_PLAN_CACHE.get(uid)
+    if cached and not force and cached.get("date") == today:
+        return jsonify({"ok": True, "source": "cache", "plan": cached["plan"]})
+    subjects = _oge_subjects_payload(uid, time.time())
+    stat_lines = []
+    for s in subjects:
+        stat_lines.append(
+            f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
+            f"слабых тем {s['weak']} → {s['next_action']['text']}"
+        )
+    exam_lines = []
+    for module, meta in OGE_MODULES.items():
+        d = OGE_EXAM_DATES.get(module)
+        if d:
+            exam_lines.append(f"{meta['label']} — {d[2]:02d}.{d[1]:02d}.{d[0]}")
+    prompt = (
+        "Ты — методист по подготовке к ОГЭ (9 класс). Составь персональный план подготовки на сегодня "
+        "из 3-5 пунктов на основе статистики ученика. Приоритет: близкие даты экзаменов и просроченные "
+        "повторения. Формат: каждый пункт с новой строки в виде «Предмет — действие (время)», без markdown "
+        "и без вступлений. В конце добавь одну строку-совет дня.\n\n"
+        "Статистика ученика:\n" + "\n".join(stat_lines) +
+        "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
+    )
+    plan = call_ai_api(prompt, max_tokens=400, temperature=0.6)
+    if plan and not plan.startswith("❌"):
+        _OGE_AI_PLAN_CACHE[uid] = {"date": today, "plan": plan}
+        return jsonify({"ok": True, "source": "ai", "plan": plan})
+    return jsonify({"ok": False, "source": "fallback", "plan": ""})
 
 
 @app.route("/api/trivia/question", methods=["POST"])

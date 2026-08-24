@@ -197,3 +197,48 @@ def test_hub_contains_oge_plan_widget():
     assert 'id="oge-plan"' in body
     assert "loadOgePlan" in body
     assert "/api/study/recommendations" in body
+    assert 'id="oge-mode-toggle"' in body
+    assert "/api/study/ai-plan" in body
+    assert 'data-oge="1"' in body
+
+
+def test_ai_plan_requires_auth():
+    from api.index import app
+
+    c = app.test_client()
+    r = c.get("/api/study/ai-plan")
+    assert r.status_code == 401
+
+
+def test_ai_plan_generates_caches_and_forces():
+    from unittest.mock import patch
+
+    from api.index import _OGE_AI_PLAN_CACHE, app
+
+    engine = _make_engine()
+    c = app.test_client()
+    p1, p2, p3 = _auth_patches(engine)
+    with patch("api.index.call_ai_api", return_value="1. Математика — повторить формулы (20 мин).") as pai:
+        with p1, p2, p3:
+            _OGE_AI_PLAN_CACHE.clear()
+            r = c.get("/api/study/ai-plan", headers=AUTH_HEADERS)
+            assert r.status_code == 200
+            d = r.get_json()
+            assert d["ok"] is True and d["source"] == "ai" and "Математика" in d["plan"]
+            assert pai.call_count == 1
+
+            r2 = c.get("/api/study/ai-plan", headers=AUTH_HEADERS)
+            assert r2.get_json()["source"] == "cache"
+            assert pai.call_count == 1
+
+            r3 = c.get("/api/study/ai-plan?force=1", headers=AUTH_HEADERS)
+            assert r3.get_json()["source"] == "ai"
+            assert pai.call_count == 2
+
+    with p1, p2, p3:
+        with patch("api.index.call_ai_api", return_value="❌ AI недоступен"):
+            _OGE_AI_PLAN_CACHE.pop(next(iter(_OGE_AI_PLAN_CACHE)), None) if _OGE_AI_PLAN_CACHE else None
+            r4 = c.get("/api/study/ai-plan?force=1", headers=AUTH_HEADERS)
+            assert r4.status_code == 200
+            d4 = r4.get_json()
+            assert d4["ok"] is False and d4["source"] == "fallback" and d4["plan"] == ""
