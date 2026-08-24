@@ -1082,7 +1082,7 @@ OGE_MODULES = {
     "history": {"label": "История", "emoji": "📜", "url": "/emperors", "total": 291},
     "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 75},
     "math": {"label": "Математика", "emoji": "📐", "url": "/math", "total": 130},
-    "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 80},
+    "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 82},
     "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 100},
 }
 
@@ -4734,6 +4734,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <div class="card-content">
                         <h2>Математика — ОГЭ <span class="beta-tag">Бета</span></h2>
                         <p>Формулы-карточки, задачи, генератор и экзамен-режим (алгебра, геометрия, вероятность)</p>
+                    </div>
+                </a>
+                <a class="card" href="/russian">
+                    <div class="card-icon">📝</div>
+                    <div class="card-content">
+                        <h2>Русский язык — ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <p>Правила-карточки, тренажёр орфографии/пунктуации, чек-лист сочинения по ФИПИ</p>
                     </div>
                 </a>
                 <a class="card" href="/family">
@@ -11588,6 +11595,297 @@ def informatics_page():
             .replace("__TOPIC_NAMES__", json.dumps(dict(topic_names), ensure_ascii=False))
             .replace("__FIRST_TOPIC__", first_topic_id))
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+RUSSIAN_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Русский язык — ОГЭ | LTHub</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
+.container { max-width: 780px; width: 100%; }
+.header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.header h1 { font-size: 22px; color: var(--bb-accent); }
+.header a { color: var(--bb-muted); text-decoration: none; font-size: 14px; margin-left: auto; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.tab { padding: 8px 14px; border: 1px solid var(--bb-elev); border-radius: 10px; background: var(--bb-panel); color: var(--bb-muted); cursor: pointer; font-size: 14px; }
+.tab.active { border-color: var(--bb-primary); color: var(--bb-text); }
+.panel { display: none; }
+.panel.active { display: block; }
+.card { background: var(--bb-panel); border: 1px solid var(--bb-primary); border-radius: 16px; padding: 22px; margin-bottom: 14px; }
+.card h2 { font-size: 18px; margin-bottom: 10px; color: var(--bb-text); }
+.muted { color: var(--bb-muted); font-size: 14px; }
+.formula { font-size: 18px; font-weight: 600; padding: 12px; background: var(--bb-elev); border-radius: 10px; margin: 10px 0; }
+.topic-sel { margin-bottom: 12px; }
+select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--bb-elev); background: var(--bb-bg); color: var(--bb-text); font-size: 15px; width: 100%; }
+.btn { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--bb-primary); background: var(--bb-primary); color: #fff; cursor: pointer; font-size: 14px; margin-top: 10px; }
+.btn.ghost { background: transparent; color: var(--bb-text); }
+.btn.green { background: var(--bb-accent); border-color: var(--bb-accent); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row .btn { flex: 1; }
+.progress-mini { font-size: 13px; color: var(--bb-muted); margin-bottom: 10px; }
+.explain { font-size: 13px; color: var(--bb-muted); margin-top: 8px; }
+.ok { color: var(--bb-accent); font-weight: 600; }
+.bad { color: #e07373; font-weight: 600; }
+.essay-item { display: flex; gap: 10px; padding: 10px; border: 1px solid var(--bb-elev); border-radius: 10px; margin-bottom: 10px; background: var(--bb-elev); }
+.essay-item input { width: 18px; height: 18px; margin-top: 3px; }
+.essay-code { font-weight: 700; color: var(--bb-primary); }
+.tips { margin: 6px 0 0 26px; font-size: 13px; color: var(--bb-muted); }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>📝 Русский язык — ОГЭ</h1>
+<a href="/">← На главную</a>
+</div>
+<div class="tabs">
+<div class="tab active" data-tab="rules">📚 Правила</div>
+<div class="tab" data-tab="tasks">🧠 Тренажёр</div>
+<div class="tab" data-tab="essay">📋 Чек-лист сочинения</div>
+</div>
+
+<div class="panel active" id="p-rules">
+<div class="card">
+<div class="topic-sel">
+<label class="muted">Раздел:</label>
+<select id="r-cat"></select>
+</div>
+<div class="progress-mini" id="r-progress"></div>
+<div class="card" id="r-card">
+<h2 id="r-title"></h2>
+<div class="formula" id="r-rule" style="display:none;"></div>
+<p class="muted" id="r-example" style="display:none;"></p>
+<div class="row">
+<button class="btn ghost" id="r-show">Показать</button>
+<button class="btn green" id="r-ok" style="display:none;">Помню</button>
+<button class="btn" id="r-no" style="display:none;">Не помню</button>
+</div>
+<div class="row" style="margin-top:8px;">
+<button class="btn ghost" id="r-prev">←</button>
+<button class="btn ghost" id="r-next">→</button>
+</div>
+</div>
+</div>
+</div>
+
+<div class="panel" id="p-tasks">
+<div class="card">
+<div class="topic-sel">
+<label class="muted">Фильтр по теме:</label>
+<select id="t-topic"><option value="">Все темы</option></select>
+</div>
+<div class="card" id="t-card">
+<div class="muted" id="t-diff"></div>
+<h2 id="t-q"></h2>
+<input id="t-ans" placeholder="Ваш ответ">
+<div class="row">
+<button class="btn" id="t-check">Проверить</button>
+<button class="btn ghost" id="t-hint">Подсказка</button>
+<button class="btn green" id="t-next" style="display:none;">Следующая →</button>
+</div>
+<div id="t-feedback"></div>
+<div class="row" style="margin-top:8px;">
+<button class="btn ghost" id="t-prev">←</button>
+</div>
+</div>
+</div>
+</div>
+
+<div class="panel" id="p-essay">
+<div class="card">
+<h2>📋 Чек-лист сочинения (критерии ФИПИ)</h2>
+<p class="muted">Отмечайте пункты, которые учли в работе. Прогресс сохраняется — система подскажет, что ещё проверить.</p>
+<div class="progress-mini" id="e-progress"></div>
+<div id="e-list"></div>
+</div>
+</div>
+</div>
+
+<script>
+const RU = __RUSSIAN_DATA__;
+const AUTH = localStorage.getItem('web_token') || '';
+const MODULE = 'russian';
+
+let prog = {};
+try { prog = JSON.parse(localStorage.getItem('russian_prog') || '{}'); } catch(e) { prog = {}; }
+function saveLocal() { localStorage.setItem('russian_prog', JSON.stringify(prog)); }
+function loadServer() {
+  if (!AUTH) return;
+  fetch('/api/study/progress', { headers: { 'X-Auth-Token': AUTH } })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){ if (d && d.cards && d.cards.russian) { prog = Object.assign({}, d.cards.russian); saveLocal(); } })
+    .catch(function(){});
+}
+let pushTimer = null;
+function push() {
+  saveLocal();
+  if (!AUTH) return;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(function() {
+    fetch('/api/study/progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Token': AUTH },
+      body: JSON.stringify({ module: 'russian', cards: prog })
+    }).catch(function(){});
+  }, 600);
+}
+function key(k) { return k; }
+function recFor(k) { return prog[key(k)] || { reps:0, interval:0, ease:2.5, correct:0, wrong:0, counter:0, streak:0, due:Date.now() }; }
+function record(k, correct) {
+  const r = recFor(k);
+  if (correct) {
+    r.streak = (r.streak||0)+1; r.reps=(r.reps||0)+1; r.correct=(r.correct||0)+1;
+    if (r.reps===1) r.interval=1; else if (r.reps===2) r.interval=3; else if (r.reps===3) r.interval=7;
+    else r.interval=Math.round((r.interval||7)*r.ease);
+    r.due = Date.now() + r.interval*86400000;
+  } else {
+    r.streak=0; r.reps=0; r.interval=0; r.due=Date.now()+60000; r.wrong=(r.wrong||0)+1;
+  }
+  prog[key(k)] = r; push();
+}
+function norm(s){ return (s==null?'':s).toString().trim().toLowerCase().replace(/\\s+/g,' '); }
+function checkAnswer(user, ans) {
+  user = norm(user); ans = norm(ans);
+  if (user===ans) return true;
+  var nu = parseFloat(String(user).replace(',','.'));
+  var na = parseFloat(String(ans).replace(',','.'));
+  if (!isNaN(nu) && !isNaN(na) && Math.abs(nu-na) < 1e-9) return true;
+  return false;
+}
+
+document.querySelectorAll('.tab').forEach(function(t){
+  t.addEventListener('click', function(){
+    document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function(x){ x.classList.remove('active'); });
+    t.classList.add('active');
+    document.getElementById('p-'+t.dataset.tab).classList.add('active');
+  });
+});
+
+// ---- Rules ----
+const catSel = document.getElementById('r-cat');
+Object.keys(RU.categories).forEach(function(c){
+  const o=document.createElement('option'); o.value=c; o.textContent=c+' ('+RU.categories[c].length+')'; catSel.appendChild(o);
+});
+let rList=[], rIdx=0;
+function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rIdx=0; renderRule(); }
+function renderRule(){
+  if(!rList.length) return;
+  const r=rList[rIdx];
+  document.getElementById('r-title').textContent=r.title;
+  document.getElementById('r-rule').textContent=r.rule;
+  document.getElementById('r-example').textContent='Пример: '+r.example;
+  document.getElementById('r-rule').style.display='none';
+  document.getElementById('r-example').style.display='none';
+  document.getElementById('r-show').style.display='';
+  document.getElementById('r-ok').style.display='none';
+  document.getElementById('r-no').style.display='none';
+  const total=rList.length;
+  const done=rList.filter(function(x){ return (prog[key('rule::'+x.id)]||{}).streak>=3; }).length;
+  document.getElementById('r-progress').textContent=(rIdx+1)+' / '+total+'  •  выучено: '+done;
+}
+document.getElementById('r-show').onclick=function(){ document.getElementById('r-rule').style.display=''; document.getElementById('r-example').style.display=''; document.getElementById('r-show').style.display='none'; document.getElementById('r-ok').style.display=''; document.getElementById('r-no').style.display=''; };
+document.getElementById('r-ok').onclick=function(){ record('rule::'+rList[rIdx].id, true); nextRule(); };
+document.getElementById('r-no').onclick=function(){ record('rule::'+rList[rIdx].id, false); nextRule(); };
+function nextRule(){ if(rIdx<rList.length-1){rIdx++;} else {rIdx=0;} renderRule(); }
+document.getElementById('r-next').onclick=nextRule;
+document.getElementById('r-prev').onclick=function(){ rIdx=(rIdx>0)?rIdx-1:rList.length-1; renderRule(); };
+catSel.onchange=loadCat;
+
+// ---- Tasks ----
+const tSel=document.getElementById('t-topic');
+RU.categories_tasks.forEach(function(c){ const o=document.createElement('option'); o.value=c; o.textContent=c; tSel.appendChild(o); });
+let tList=RU.tasks.slice(), tIdx=0;
+function loadTasks(){ const c=tSel.value; tList=c?RU.tasks.filter(function(x){return x.topic===c;}):RU.tasks.slice(); tIdx=0; renderTask(); }
+function renderTask(){
+  if(!tList.length) return;
+  const t=tList[tIdx];
+  document.getElementById('t-diff').textContent='Сложность: '+t.difficulty;
+  document.getElementById('t-q').textContent=t.question;
+  document.getElementById('t-ans').value='';
+  document.getElementById('t-feedback').textContent='';
+  document.getElementById('t-next').style.display='none';
+  document.getElementById('t-check').style.display='';
+  document.getElementById('t-hint').style.display='';
+}
+document.getElementById('t-check').onclick=function(){
+  const t=tList[tIdx];
+  const ok=checkAnswer(document.getElementById('t-ans').value, t.answer);
+  record('task::'+t.id, ok);
+  document.getElementById('t-feedback').innerHTML=(ok?'<span class="ok">✓ Верно!</span>':'<span class="bad">✗ Неверно. Ответ: '+t.answer+'</span>')+'<div class="explain">'+t.explanation+'</div>';
+  document.getElementById('t-next').style.display='';
+  document.getElementById('t-check').style.display='none';
+  document.getElementById('t-hint').style.display='none';
+};
+document.getElementById('t-hint').onclick=function(){ document.getElementById('t-feedback').innerHTML='<div class="explain">Подсказка: '+tList[tIdx].hint+'</div>'; };
+document.getElementById('t-next').onclick=function(){ if(tIdx<tList.length-1){tIdx++;} else {tIdx=0;} renderTask(); };
+document.getElementById('t-prev').onclick=function(){ tIdx=(tIdx>0)?tIdx-1:tList.length-1; renderTask(); };
+tSel.onchange=loadTasks;
+
+// ---- Essay checklist ----
+function renderEssay(){
+  const box=document.getElementById('e-list'); box.innerHTML='';
+  let done=0;
+  RU.essay.forEach(function(c){
+    const item=document.createElement('div'); item.className='essay-item';
+    const cb=document.createElement('input'); cb.type='checkbox';
+    const rec=prog[key('essay::'+c.id)];
+    if(rec && rec.correct){ cb.checked=true; done++; }
+    cb.onchange=function(){ record('essay::'+c.id, cb.checked); renderEssay(); };
+    const body=document.createElement('div');
+    let html='<div><span class="essay-code">'+c.code+'</span> — <b>'+c.name+'</b></div><div class="muted">'+c.description+'</div><ul class="tips">';
+    c.tips.forEach(function(tp){ html+='<li>'+tp+'</li>'; });
+    html+='</ul></div>';
+    body.innerHTML=html;
+    item.appendChild(cb); item.appendChild(body);
+    box.appendChild(item);
+  });
+  document.getElementById('e-progress').textContent='Учтено пунктов: '+done+' / '+RU.essay.length;
+}
+
+loadCat(); loadTasks(); renderEssay(); loadServer();
+</script>
+</body>
+</html>
+"""
+
+@app.route("/russian")
+def russian_page():
+    import json
+
+    from core.russian.rules import RULES, TASKS, ESSAY_CRITERIA, rules_by_category
+
+    russian_data = {
+        "rules": [
+            {"id": r.id, "category": r.category, "title": r.title, "rule": r.rule, "example": r.example}
+            for r in RULES
+        ],
+        "tasks": [
+            {
+                "id": t.id,
+                "topic": t.topic,
+                "difficulty": t.difficulty,
+                "question": t.question,
+                "answer": str(t.answer),
+                "hint": t.hint,
+                "explanation": t.explanation,
+            }
+            for t in TASKS
+        ],
+        "essay": [
+            {"id": c.id, "code": c.code, "name": c.name, "description": c.description, "tips": list(c.tips)}
+            for c in ESSAY_CRITERIA
+        ],
+        "categories": {cat: [r.id for r in rs] for cat, rs in rules_by_category().items()},
+        "categories_tasks": sorted({t.topic for t in TASKS}),
+    }
+    russian_json = json.dumps(russian_data, ensure_ascii=False)
+    html = RUSSIAN_PAGE_TEMPLATE.replace("__RUSSIAN_DATA__", russian_json)
+    return html
 
 
 @app.route("/achievements")
