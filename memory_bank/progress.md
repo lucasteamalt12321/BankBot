@@ -1057,8 +1057,13 @@
 - ~~User сообщает что кнопка "Создать" на экране создания семьи не реагирует на нажатие в Telegram WebView~~ → **ПОЧИНЕНО (2026-08-10):** JS Family Circle переписан на ES5 + XHR Promise (старый WebView падал на async/await/стрелках/fetch). Деплой сделан.
 - ~~**Pre-existing падения тестов (~30 failed)**~~ → **ПОЧИНЕНЫ (2026-08-10):** исправлены парсеры legacy, @settings(deadline=None), getattr callback в bot.py, temp-БД патчи интеграционных тестов, флейк PID_FILE в graceful shutdown. property+integration зелёные, unit 972 passed / 10 skipped.
 
+### 2026-08-24 (ОГЭ-центр — Этап 0: ядро рекомендаций)
+- Реализовано ядро ОГЭ-центра: таблица `study_progress` (user_id, module, card_key, reps, interval_days, ease, due, streak, correct_count, wrong_count, counter), API `/api/study/progress` GET/POST/reset и `/api/study/recommendations` (приоритет: просроченные due → слабые темы >40% ошибок → новые; вес по датам ОГЭ из `OGE_EXAM_DATES`), хаб-виджет «📌 План на сегодня» + бейджи на карточках предметов, идемпотентная миграция `emperors_progress`→`study_progress`. Информатика переименована `/math`→`/informatics` (+301 redirect).
+- Проверки: ruff clean; `tests/unit/test_study_progress.py` (11 тестов: API, recommendations-приоритеты, миграция, хаб-виджет); `test_informatics_module.py` (бывш. `test_math_module.py`) обновлён под `/informatics` + тест редиректа; регресс моих модулей зелёный. Задеплоено `7967c1d`.
+- Разделение труда (решение пользователя): ОГЭ ведёт opencode; легаси-падения тестов (120 шт., env/version mismatch по `telegram`/`pydantic`/`aiohttp`/`structlog` в бот/src-модулях) чинит другой разработчик параллельно — НЕ блокирует ОГЭ.
+
 ## last_checked_commit
-5a62125 (2026-08-24) — последний HEAD. Записан план ОГЭ-центра в память банка (`oge_center_plan.md`, Phase 6 в projectbrief.md); докоммичен хвост темизации страницы достижений (репо = прод).
+7967c1d (2026-08-24) — последний HEAD. ОГЭ-центр Этап 0 задеплоен: единый прогресс + рекомендации + виджет «План на сегодня», информатика на `/informatics`. OGE-00 (projectbrief Phase 6) = completed (20/100).
 
 ### 2026-08-23 (Темы + Pico CSS + императоры: критерий выученности)
 - **ОГЭ-центр (план):** составлен и записан в память банка план подготовки к ОГЭ по 5 предметам (математика, русский, информатика, физика, история) с ядром рекомендаций «что учить сейчас». Deliverables — `projectbrief.md` Phase 6 (OGE-00…OGE-06 + OGE-FULL), детальный план — `memory_bank/oge_center_plan.md`. Решения: информатика → `/informatics`, математика → `/math`; единая таблица `study_progress`; контент MVP, затем весь кодификатор ФИПИ. Исполнение не начато.
