@@ -834,3 +834,11 @@ database/migrations/
 - **Ядро (OGE-00):** таблица `study_progress` (module, card_key, reps, ease, due, streak…), API GET/POST/reset `/api/study/progress`, планировщик `/api/study/recommendations` (просроченные due → слабые темы >40% ошибок → новые темы, вес по датам ОГЭ), хаб-виджет «📌 План на сегодня» + бейджи. Императоры — алиас на общий API.
 - **Порядок этапов:** 0 ядро → 1 математика (обязательный предмет) → 2 информатика (расширение до ~17 тем) → 3 история (термины/культура) → 4 русский → 5 физика → 6 полировка (экзамен-режимы, ачивки).
 - **Статус:** план записан в память банка, исполнение не начато. Следующий шаг — Этап 0.
+
+## ОГЭ-центр: Этап 0 — ядро рекомендаций (2026-08-24, ЗАВЕРШЁН)
+
+- **Сделано (OGE-00, completed, projectbrief Phase 6 = 20/100):** `api/index.py` — таблица `study_progress` + `_ensure_study_progress_tables` (с идемпотентной миграцией `emperors_progress`→`study_progress`), реестр `OGE_MODULES` (history/informatics/math/russian/physics) + `OGE_EXAM_DATES`, API `/api/study/progress` (GET/POST/reset, module-whitelist) и `/api/study/recommendations` (приоритет due→weak→new, вес по дате экзамена), хаб-виджет «📌 План на сегодня» (HTML/CSS/JS + бейджи на карточках предметов). Информатика: `git mv core/math → core/informatics`, импорт `from core.informatics.tasks`, маршрут `/math`→301 redirect на `/informatics`; тест `test_math_module.py`→`test_informatics_module.py`.
+- **Грабли:** при патче `get_db_engine` в тестах НЕЛЬЗЯ делать `patch(...).return_value = engine` ПОСЛЕ создания патча — мок остаётся `MagicMock`, POST «успешно» пишет в пустоту. Создавать сразу с `return_value`: `patch("api.index.get_db_engine", return_value=engine)`.
+- **Проверки:** ruff clean; `test_study_progress.py` (11) + `test_informatics_module.py` + `test_emperors_module.py` зелёные; node --check хаба/императоров/информатики OK; прод: `/informatics` 200, `/api/study/recommendations` и `/api/study/progress` отвечают, виджет на хабе присутствует. Задеплоено `7967c1d`.
+- **Разделение труда:** 120 легаси-падений тестов (env/version по telegram/pydantic/aiohttp) чинит другой разработчик параллельно — не блокирует ОГЭ.
+- **Следующий шаг:** Этап 1 — Математика `/math` (`core/mathematics/`), MVP ~130 формул-карточек + генераторы параметрических задач + экзамен-режим (см. `memory_bank/oge_center_plan.md`).
