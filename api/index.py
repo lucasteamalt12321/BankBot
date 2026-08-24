@@ -4735,49 +4735,49 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 <a class="card" data-oge="1" href="/emperors">
                     <div class="card-icon">👑</div>
                     <div class="card-content">
-                        <h2>История <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
+                        <h2>История <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
                         <p>Шпаргалка и тренажёр: имена и события к императорам</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/terms">
                     <div class="card-icon">🏛️</div>
                     <div class="card-content">
-                        <h2>История — термины <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
+                        <h2>История — термины <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
                         <p>80 флеш-карточек терминов IX–XX вв. по периодам</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/informatics">
                     <div class="card-icon">💻</div>
                     <div class="card-content">
-                        <h2>Информатика <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
+                        <h2>Информатика <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
                         <p>Теория и тренажёр по информатике (сложность алгоритмов, делители, графы, комбинаторика)</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/math">
                     <div class="card-icon">📐</div>
                     <div class="card-content">
-                        <h2>Математика <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
+                        <h2>Математика <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
                         <p>Формулы-карточки, задачи, генератор и экзамен-режим (алгебра, геометрия, вероятность)</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/russian">
                     <div class="card-icon">📝</div>
                     <div class="card-content">
-                        <h2>Русский язык <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
+                        <h2>Русский язык <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
                         <p>Правила-карточки, тренажёр орфографии/пунктуации, чек-лист сочинения по ФИПИ</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/physics">
                     <div class="card-icon">⚛️</div>
                     <div class="card-content">
-                        <h2>Физика <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
+                        <h2>Физика <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
                         <p>Формулы-карточки, задачи, генератор и экзамен-режим (механика, тепло, электричество)</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/exam">
                     <div class="card-icon">🎯</div>
                     <div class="card-content">
-                        <h2>Экзаменатор <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
+                        <h2>Экзаменатор <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
                         <p>Сводный экзамен из всех предметов с серверной проверкой ответов</p>
                     </div>
                 </a>
