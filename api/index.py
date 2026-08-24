@@ -9783,7 +9783,7 @@ def emperors_page():
 <body>
     <div class="container">
         <div class="header">
-            <h1>👑 История<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
+            <h1>👑 История</h1>
             <a href="/">← Назад</a>
         </div>
         <div class="tabs">
@@ -10839,7 +10839,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <body>
 <div class="container">
 <div class="header">
-<h1>📐 Математика<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
+<h1>📐 Математика</h1>
 <a href="/">← На главную</a>
 </div>
 <div class="tabs">
@@ -11169,7 +11169,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <body>
 <div class="container">
 <div class="header">
-<h1>⚛️ Физика<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
+<h1>⚛️ Физика</h1>
 <a href="/">← На главную</a>
 </div>
 <div class="tabs">
@@ -11631,7 +11631,7 @@ def informatics_page():
 <body>
     <div class="container">
         <div class="header">
-            <h1>Информатика<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
+            <h1>Информатика</h1>
             <a href="/">← Назад на хаб</a>
         </div>
 
@@ -12075,7 +12075,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <body>
 <div class="container">
 <div class="header">
-<h1>📝 Русский язык<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
+<h1>📝 Русский язык</h1>
 <a href="/">← На главную</a>
 </div>
 <div class="tabs">
@@ -12614,7 +12614,7 @@ input{width:100%;padding:11px;border-radius:10px;border:1px solid var(--bb-elev)
 </head>
 <body>
 <div class="container">
-<div class="header"><h1>🎯 Экзаменатор<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1><a href="/">← На главную</a></div>
+<div class="header"><h1>🎯 Экзаменатор</h1><a href="/">← На главную</a></div>
 <div class="card" id="start-card">
 <h2>Сводный экзамен</h2>
 <p class="muted">Случайные задания из математики, русского и информатики с серверной проверкой. Прогресс учитывается в ОГЭ-центре.</p>
