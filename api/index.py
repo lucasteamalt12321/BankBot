@@ -4735,49 +4735,49 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 <a class="card" data-oge="1" href="/emperors">
                     <div class="card-icon">👑</div>
                     <div class="card-content">
-                        <h2>Императоры России <span class="beta-tag">Бета</span></h2>
+                        <h2>История <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
                         <p>Шпаргалка и тренажёр: имена и события к императорам</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/terms">
                     <div class="card-icon">🏛️</div>
                     <div class="card-content">
-                        <h2>История — термины <span class="beta-tag">Бета</span></h2>
+                        <h2>История — термины <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
                         <p>80 флеш-карточек терминов IX–XX вв. по периодам</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/informatics">
                     <div class="card-icon">💻</div>
                     <div class="card-content">
-                        <h2>Информатика — ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <h2>Информатика <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
                         <p>Теория и тренажёр по информатике (сложность алгоритмов, делители, графы, комбинаторика)</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/math">
                     <div class="card-icon">📐</div>
                     <div class="card-content">
-                        <h2>Математика — ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <h2>Математика <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
                         <p>Формулы-карточки, задачи, генератор и экзамен-режим (алгебра, геометрия, вероятность)</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/russian">
                     <div class="card-icon">📝</div>
                     <div class="card-content">
-                        <h2>Русский язык — ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <h2>Русский язык <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
                         <p>Правила-карточки, тренажёр орфографии/пунктуации, чек-лист сочинения по ФИПИ</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/physics">
                     <div class="card-icon">⚛️</div>
                     <div class="card-content">
-                        <h2>Физика — ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <h2>Физика <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
                         <p>Формулы-карточки, задачи, генератор и экзамен-режим (механика, тепло, электричество)</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/exam">
                     <div class="card-icon">🎯</div>
                     <div class="card-content">
-                        <h2>Экзаменатор ОГЭ <span class="beta-tag">Бета</span></h2>
+                        <h2>Экзаменатор <span class="beta-tag">Бета</span><span class="beta-tag" style="background:var(--bb-accent2);margin-left:6px;">ОГЭ</span></h2>
                         <p>Сводный экзамен из всех предметов с серверной проверкой ответов</p>
                     </div>
                 </a>
@@ -9675,7 +9675,7 @@ def emperors_page():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Императоры России — LTHub</title>
+    <title>История | LTHub</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -9783,7 +9783,7 @@ def emperors_page():
 <body>
     <div class="container">
         <div class="header">
-            <h1>👑 Императоры России</h1>
+            <h1>👑 История<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
             <a href="/">← Назад</a>
         </div>
         <div class="tabs">
@@ -10803,7 +10803,7 @@ MATH_PAGE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Математика — ОГЭ | LTHub</title>
+<title>Математика | LTHub</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -10839,7 +10839,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <body>
 <div class="container">
 <div class="header">
-<h1>📐 Математика — ОГЭ</h1>
+<h1>📐 Математика<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
 <a href="/">← На главную</a>
 </div>
 <div class="tabs">
@@ -11133,7 +11133,7 @@ PHYSICS_PAGE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Физика — ОГЭ | LTHub</title>
+<title>Физика | LTHub</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -11169,7 +11169,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <body>
 <div class="container">
 <div class="header">
-<h1>⚛️ Физика — ОГЭ</h1>
+<h1>⚛️ Физика<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
 <a href="/">← На главную</a>
 </div>
 <div class="tabs">
@@ -11578,7 +11578,7 @@ def informatics_page():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Информатика — ОГЭ</title>
+    <title>Информатика | LTHub</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -11631,7 +11631,7 @@ def informatics_page():
 <body>
     <div class="container">
         <div class="header">
-            <h1>Информатика — ОГЭ</h1>
+            <h1>Информатика<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
             <a href="/">← Назад на хаб</a>
         </div>
 
@@ -12038,7 +12038,7 @@ RUSSIAN_PAGE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Русский язык — ОГЭ | LTHub</title>
+<title>Русский язык | LTHub</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -12075,7 +12075,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <body>
 <div class="container">
 <div class="header">
-<h1>📝 Русский язык — ОГЭ</h1>
+<h1>📝 Русский язык<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1>
 <a href="/">← На главную</a>
 </div>
 <div class="tabs">
@@ -12591,7 +12591,7 @@ EXAM_PAGE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Экзаменатор ОГЭ | LTHub</title>
+<title>Экзаменатор | LTHub</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Segoe UI',Arial,sans-serif; background:var(--bb-bg); color:var(--bb-text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:20px; }
@@ -12614,7 +12614,7 @@ input{width:100%;padding:11px;border-radius:10px;border:1px solid var(--bb-elev)
 </head>
 <body>
 <div class="container">
-<div class="header"><h1>🎯 Экзаменатор ОГЭ</h1><a href="/">← На главную</a></div>
+<div class="header"><h1>🎯 Экзаменатор<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--bb-accent2);border-radius:10px;padding:2px 8px;vertical-align:middle;margin-left:10px;">ОГЭ</span></h1><a href="/">← На главную</a></div>
 <div class="card" id="start-card">
 <h2>Сводный экзамен</h2>
 <p class="muted">Случайные задания из математики, русского и информатики с серверной проверкой. Прогресс учитывается в ОГЭ-центре.</p>

@@ -104,7 +104,7 @@ def test_emperors_page_renders(client=None):
     resp = c.get("/emperors")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "Императоры России" in body
+    assert "История" in body
     assert "Тренажёр" in body
     assert "Александр I" in body
     assert "Николай II" in body
