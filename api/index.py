@@ -4739,13 +4739,6 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Шпаргалка и тренажёр: имена и события к императорам</p>
                     </div>
                 </a>
-                <a class="card" data-oge="1" href="/terms">
-                    <div class="card-icon">🏛️</div>
-                    <div class="card-content">
-                        <h2>История — термины <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
-                        <p>80 флеш-карточек терминов IX–XX вв. по периодам</p>
-                    </div>
-                </a>
                 <a class="card" data-oge="1" href="/informatics">
                     <div class="card-icon">💻</div>
                     <div class="card-content">
@@ -4884,7 +4877,6 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var on = ogeModeOn();
                     var t = document.getElementById('oge-mode-toggle'); if (t) t.checked = on;
                     var w = document.getElementById('oge-plan'); if (w) w.style.display = on ? '' : 'none';
-                    document.querySelectorAll('a.card[data-oge="1"]').forEach(function (c) { c.style.display = on ? '' : 'none'; });
                 }
                 function renderAiBox(plan) {
                     var box = document.getElementById('oge-ai-box');
@@ -9647,8 +9639,123 @@ def trivia_page():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+TERMS_FRAGMENT = """
+<div style="max-width:760px;margin:0 auto;padding:0 4px 30px;">
+<select id="t-cat" onchange="loadTCat()" style="width:100%;padding:9px 11px;border-radius:9px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:15px;margin-bottom:12px;"></select>
+<div style="background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:24px;">
+  <div id="t-prog" style="font-size:13px;color:var(--bb-muted);margin-bottom:10px;"></div>
+  <h2 id="t-term" style="font-size:20px;margin-bottom:10px;"></h2>
+  <div id="t-def" style="display:none;font-size:17px;line-height:1.55;padding:12px;background:var(--bb-elev);border-radius:10px;margin:10px 0;"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button id="t-show" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;">Показать определение</button>
+    <button id="t-ok" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-accent);background:var(--bb-accent);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;" style="display:none;">Знаю</button>
+    <button id="t-no" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;" style="display:none;">Не знаю</button>
+  </div>
+  <div class="row" style="margin-top:8px;">
+    <button id="t-prev" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;">←</button>
+    <button id="t-next" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;">→</button>
+  </div>
+</div>
+<script>
+const T_DATA = __TERMS_DATA__;
+const T_AUTH = localStorage.getItem('web_token') || '';
+let tProg = {};
+try { tProg = JSON.parse(localStorage.getItem('history_terms_prog') || '{}'); } catch(e) { tProg = {}; }
+let tPushTimer=null;
+function tSave(){ localStorage.setItem('history_terms_prog', JSON.stringify(tProg)); }
+function tPush(){
+  tSave();
+  if(!T_AUTH) return;
+  if(tPushTimer) clearTimeout(tPushTimer);
+  tPushTimer=setTimeout(function(){
+    fetch('/api/study/progress',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':T_AUTH},body:JSON.stringify({module:'history',cards:tProg})}).catch(function(){});
+  },600);
+}
+function tRec(k, correct){
+  const r = tProg[k] || {reps:0,interval:0,ease:2.5,correct:0,wrong:0,counter:0,streak:0,due:Date.now()};
+  if(correct){
+    r.streak=(r.streak||0)+1;r.reps=(r.reps||0)+1;r.correct=(r.correct||0)+1;
+    if(r.reps===1)r.interval=1;else if(r.reps===2)r.interval=3;else if(r.reps===3)r.interval=7;
+    else r.interval=Math.round((r.interval||7)*r.ease);
+    r.due=Date.now()+r.interval*86400000;
+  } else {
+    r.streak=0;r.reps=0;r.interval=0;r.due=Date.now()+60000;r.wrong=(r.wrong||0)+1;
+  }
+  tProg[k]=r;tPush();
+}
+let tList=[],tIdx=0;
+function loadTCat(){
+  tList=T_DATA.categories[document.getElementById('t-cat').value].map(function(id){return T_DATA.by_id[id];});
+  tIdx=0;tRender();
+}
+function tRender(){
+  const t=tList[tIdx];
+  document.getElementById('t-term').textContent=t.term;
+  const d=document.getElementById('t-def');
+  d.textContent=t.definition;d.style.display='none';
+  document.getElementById('t-show').style.display='';
+  document.getElementById('t-ok').style.display='none';
+  document.getElementById('t-no').style.display='none';
+  const done=tList.filter(function(x){return (tProg['term::'+x.id]||{}).streak>=3;}).length;
+  document.getElementById('t-prog').textContent=(tIdx+1)+' / '+tList.length+' • выучено: '+done;
+}
+document.getElementById('t-show').onclick=function(){
+  document.getElementById('t-def').style.display='';
+  document.getElementById('t-show').style.display='none';
+  document.getElementById('t-ok').style.display='';
+  document.getElementById('t-no').style.display='';
+};
+document.getElementById('t-ok').onclick=function(){tRec('term::'+tList[tIdx].id,true);nextT();};
+document.getElementById('t-no').onclick=function(){tRec('term::'+tList[tIdx].id,false);nextT();};
+function nextT(){ tIdx = tIdx<tList.length-1 ? tIdx+1 : 0; tRender(); }
+document.getElementById('t-next').onclick=nextT;
+document.getElementById('t-prev').onclick=function(){ tIdx = tIdx>0 ? tIdx-1 : tList.length-1; tRender(); };
+Object.keys(T_DATA.categories).forEach(function(c){
+  const o=document.createElement('option');o.value=c;o.textContent=c+' ('+T_DATA.categories[c].length+')';
+  document.getElementById('t-cat').appendChild(o);
+});
+loadTCat();
+if(T_AUTH){
+  fetch('/api/study/progress',{headers:{'X-Auth-Token':T_AUTH}}).then(function(r){return r.ok?r.json():null;})
+   .then(function(d){ if(d&&d.cards&&d.cards.history){ tProg=Object.assign({},d.cards.history); tSave(); tRender(); } })
+   .catch(function(){});
+}
+</script>"""
+
+HIST_TABS_HTML = """<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px;">
+<button id="tab-legacy" onclick="showHistTab('legacy')" style="padding:8px 14px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-accent2);color:#fff;cursor:pointer;font-size:14px;">👑 Даты и правители</button>
+<button id="tab-terms" onclick="showHistTab('terms')" style="padding:8px 14px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-panel);color:var(--bb-text);cursor:pointer;font-size:14px;">🏛️ Термины</button>
+</div>"""
+
+HIST_TABS_JS = """<script>
+function showHistTab(t){
+  var onT = t === 'terms';
+  document.getElementById('hist-legacy').style.display = onT ? 'none' : '';
+  document.getElementById('terms-wrap').style.display = onT ? '' : 'none';
+  var bl=document.getElementById('tab-legacy'), bt=document.getElementById('tab-terms');
+  bl.style.background = onT ? 'var(--bb-panel)' : 'var(--bb-accent2)';
+  bl.style.color = onT ? 'var(--bb-text)' : '#fff';
+  bt.style.background = onT ? 'var(--bb-accent2)' : 'var(--bb-panel)';
+  bt.style.color = onT ? '#fff' : 'var(--bb-text)';
+  try { history.replaceState(null, '', onT ? '?tab=terms' : '/emperors'); } catch(e) {}
+}
+(function(){
+  var p = new URLSearchParams(location.search).get('tab');
+  if (p === 'terms') showHistTab('terms');
+})();
+</script>"""
+
+
 @app.route("/emperors")
 def emperors_page():
+    from core.history.terms import TERMS as _H_TERMS, categories as _H_CATS
+
+    terms_json = json.dumps(
+        {"by_id": {t.id: {"id": t.id, "category": t.category, "term": t.term,
+                           "definition": t.definition} for t in _H_TERMS},
+         "categories": _H_CATS()},
+        ensure_ascii=False,
+    )
     history_data = json.dumps(
         {
             "emperors": [
@@ -9780,10 +9887,11 @@ def emperors_page():
         @media (max-width: 600px) { .card { padding: 16px; } .question { font-size: 16px; } .chip { font-size: 12px; } }
     </style>
 </head>
-<body>
+<body><div id="hist-legacy">
     <div class="container">
         <div class="header">
             <h1>👑 История</h1>
+__HIST_TABS__
             <a href="/">← Назад</a>
         </div>
         <div class="tabs">
@@ -10792,8 +10900,13 @@ function diffInfo() {
             loadQuestion();
         })();
     </script>
-</body>
-</html>""".replace("__DATA__", history_data)
+__HIST_CLOSE__
+</html>"""
+    html = (html.replace("__DATA__", history_data)
+                .replace("__HIST_TABS__", HIST_TABS_HTML)
+                .replace("__HIST_CLOSE__", '</div><div id="terms-wrap" style="display:none">'
+                          + TERMS_FRAGMENT.replace("__TERMS_DATA__", terms_json)
+                          + "</div>" + HIST_TABS_JS))
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
@@ -12324,138 +12437,10 @@ def russian_page():
     return html
 
 
-TERMS_PAGE_TEMPLATE = """<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>История — термины | LTHub</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
-.container { max-width: 720px; width: 100%; }
-.header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.header h1 { font-size: 22px; color: var(--bb-accent); }
-.header a { color: var(--bb-muted); text-decoration: none; font-size: 14px; margin-left: auto; }
-.card { background: var(--bb-panel); border: 1px solid var(--bb-primary); border-radius: 16px; padding: 24px; margin-bottom: 14px; }
-.card h2 { font-size: 20px; margin-bottom: 10px; }
-.muted { color: var(--bb-muted); font-size: 14px; }
-.term-def { font-size: 17px; line-height: 1.55; padding: 12px; background: var(--bb-elev); border-radius: 10px; margin: 10px 0; }
-select { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--bb-elev); background: var(--bb-bg); color: var(--bb-text); font-size: 15px; width: 100%; margin-bottom: 12px; }
-.btn { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--bb-primary); background: var(--bb-primary); color: #fff; cursor: pointer; font-size: 14px; margin-top: 10px; }
-.btn.ghost { background: transparent; color: var(--bb-text); }
-.btn.green { background: var(--bb-accent); border-color: var(--bb-accent); }
-.row { display: flex; gap: 8px; flex-wrap: wrap; }
-.row .btn { flex: 1; }
-.progress-mini { font-size: 13px; color: var(--bb-muted); margin-bottom: 10px; }
-</style>
-</head>
-<body>
-<div class="container">
-<div class="header">
-<h1>🏛️ История — термины</h1>
-<a href="/">← На главную</a>
-</div>
-<div class="card">
-<label class="muted">Период:</label>
-<select id="cat"></select>
-<div class="progress-mini" id="prog"></div>
-<h2 id="term"></h2>
-<div class="term-def" id="def" style="display:none;"></div>
-<p class="muted" id="cat-note" style="display:none;"></p>
-<div class="row">
-<button class="btn ghost" id="show">Показать определение</button>
-<button class="btn green" id="ok" style="display:none;">Знаю</button>
-<button class="btn" id="no" style="display:none;">Не знаю</button>
-</div>
-<div class="row" style="margin-top:8px;">
-<button class="btn ghost" id="prev">←</button>
-<button class="btn ghost" id="next">→</button>
-</div>
-</div>
-</div>
-
-<script>
-const DATA = __TERMS_DATA__;
-const AUTH = localStorage.getItem('web_token') || '';
-let prog = {};
-try { prog = JSON.parse(localStorage.getItem('history_terms_prog') || '{}'); } catch(e) { prog = {}; }
-function saveLocal(){ localStorage.setItem('history_terms_prog', JSON.stringify(prog)); }
-let pushTimer=null;
-function push(){
-  saveLocal();
-  if(!AUTH) return;
-  if(pushTimer) clearTimeout(pushTimer);
-  pushTimer=setTimeout(function(){
-    fetch('/api/study/progress',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':AUTH},body:JSON.stringify({module:'history',cards:prog})}).catch(function(){});
-  },600);
-}
-function recFor(k){ return prog[k] || {reps:0,interval:0,ease:2.5,correct:0,wrong:0,counter:0,streak:0,due:Date.now()}; }
-function record(k, correct){
-  const r=recFor(k);
-  if(correct){
-    r.streak=(r.streak||0)+1;r.reps=(r.reps||0)+1;r.correct=(r.correct||0)+1;
-    if(r.reps===1)r.interval=1;else if(r.reps===2)r.interval=3;else if(r.reps===3)r.interval=7;
-    else r.interval=Math.round((r.interval||7)*r.ease);
-    r.due=Date.now()+r.interval*86400000;
-  } else {
-    r.streak=0;r.reps=0;r.interval=0;r.due=Date.now()+60000;r.wrong=(r.wrong||0)+1;
-  }
-  prog[k]=r;push();
-}
-const catSel=document.getElementById('cat');
-Object.keys(DATA.categories).forEach(function(c){
-  const o=document.createElement('option');o.value=c;o.textContent=c+' ('+DATA.categories[c].length+')';catSel.appendChild(o);
-});
-let list=[],idx=0;
-function loadCat(){
-  list=DATA.categories[catSel.value].map(function(id){return DATA.by_id[id];});
-  idx=0;render();
-}
-function render(){
-  const t=list[idx];
-  document.getElementById('term').textContent=t.term;
-  document.getElementById('def').textContent=t.definition;
-  document.getElementById('def').style.display='none';
-  document.getElementById('show').style.display='';
-  document.getElementById('ok').style.display='none';
-  document.getElementById('no').style.display='none';
-  const done=list.filter(function(x){return (prog['term::'+x.id]||{}).streak>=3;}).length;
-  document.getElementById('prog').textContent=(idx+1)+' / '+list.length+' • выучено: '+done;
-}
-document.getElementById('show').onclick=function(){
-  document.getElementById('def').style.display='';
-  document.getElementById('show').style.display='none';
-  document.getElementById('ok').style.display='';document.getElementById('no').style.display='';
-};
-document.getElementById('ok').onclick=function(){record('term::'+list[idx].id,true);nextT();};
-document.getElementById('no').onclick=function(){record('term::'+list[idx].id,false);nextT();};
-function nextT(){ idx = idx<list.length-1 ? idx+1 : 0; render(); }
-document.getElementById('next').onclick=nextT;
-document.getElementById('prev').onclick=function(){ idx = idx>0 ? idx-1 : list.length-1; render(); };
-catSel.onchange=loadCat;
-loadCat();
-if(AUTH){
-  fetch('/api/study/progress',{headers:{'X-Auth-Token':AUTH}}).then(function(r){return r.ok?r.json():null;})
-   .then(function(d){ if(d&&d.cards&&d.cards.history){ prog=Object.assign({},prog,d.cards.history); saveLocal(); render(); } })
-   .catch(function(){});
-}
-</script>
-</body>
-</html>
-"""
-
 @app.route("/terms")
 def terms_page():
-    import json
-
-    from core.history.terms import TERMS, categories
-
-    by_id = {t.id: {"id": t.id, "category": t.category, "term": t.term, "definition": t.definition} for t in TERMS}
-    data = {"by_id": by_id, "categories": categories()}
-    html = TERMS_PAGE_TEMPLATE.replace("__TERMS_DATA__", json.dumps(data, ensure_ascii=False))
-    return html
-
+    """Terms now live inside the unified History page."""
+    return redirect("/emperors?tab=terms")
 
 _EXAM_SESSIONS: dict = {}
 
