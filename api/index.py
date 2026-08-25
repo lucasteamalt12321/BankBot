@@ -2572,9 +2572,9 @@ def get_global_chat_memory() -> list[dict]:
 def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
     """Call AI via OpenAI-compatible chat/completions endpoints.
 
-    Provider order: Gemini (primary) -> Groq (fallback).
+    Provider order: Gemini (primary) -> Groq (fallback) -> OpenRouter free models (fallback).
     Returns the first successful Response, the last failed Response,
-    or None when neither API key is set / network failed everywhere.
+    or None when no API key is set / network failed everywhere.
     """
     providers = [
         (
@@ -2608,6 +2608,44 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
             return resp
         print(f"{name} API error {resp.status_code}: {resp.text[:200]}")
         last_resp = resp
+
+    # OpenRouter: перебор бесплатных моделей (пулы :free регулярно отдают 429)
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    if openrouter_key:
+        models_env = os.getenv("OPENROUTER_MODEL", "")
+        or_models = [m.strip() for m in models_env.split(",") if m.strip()] or [
+            "nvidia/nemotron-3-super-120b-a12b:free",
+            "minimax/minimax-m2.7:free",
+            "dots-studio/dots-3-note-preview:free",
+        ]
+        for model in or_models:
+            try:
+                resp = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openrouter_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"model": model, **payload},
+                    timeout=timeout,
+                )
+            except Exception as exc:
+                print(f"OpenRouter API error ({model}): {exc}")
+                continue
+            if resp.status_code != 200:
+                print(f"OpenRouter API error ({model}) {resp.status_code}: {resp.text[:200]}")
+                last_resp = last_resp or resp
+                continue
+            try:
+                msg = resp.json()["choices"][0].get("message") or {}
+            except Exception:
+                msg = {}
+            # reasoning-модели могут вернуть пустой content — пробуем следующую модель
+            if not msg.get("tool_calls") and not str(msg.get("content") or "").strip():
+                print(f"OpenRouter empty reply ({model}), trying next")
+                continue
+            return resp
+
     return last_resp
 
 
@@ -9841,12 +9879,13 @@ TERMS_FRAGMENT = """
 <select id="t-cat" onchange="loadTCat()" style="width:100%;padding:9px 11px;border-radius:9px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:15px;margin-bottom:12px;"></select>
 <div style="background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:24px;">
   <div id="t-prog" style="font-size:13px;color:var(--bb-muted);margin-bottom:10px;"></div>
-  <h2 id="t-term" style="font-size:20px;margin-bottom:10px;"></h2>
-  <div id="t-def" style="display:none;font-size:17px;line-height:1.55;padding:12px;background:var(--bb-elev);border-radius:10px;margin:10px 0;"></div>
+  <h2 id="t-term" style="font-size:12px;color:var(--bb-muted);font-weight:normal;margin-bottom:6px;">Определение:</h2>
+  <div id="t-def" style="font-size:17px;line-height:1.55;padding:12px;background:var(--bb-elev);border-radius:10px;margin-bottom:12px;"></div>
+  <input id="t-inp" placeholder="Введите термин" autocomplete="off" style="width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:15px;">
+  <div id="t-fb" style="font-size:14px;font-weight:600;min-height:20px;margin-top:8px;"></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <button id="t-show" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;">Показать определение</button>
-    <button id="t-ok" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-accent);background:var(--bb-accent);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;" style="display:none;">Знаю</button>
-    <button id="t-no" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;" style="display:none;">Не знаю</button>
+    <button id="t-check" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-accent);background:var(--bb-accent);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;">Проверить</button>
+    <button id="t-reveal" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;">Не помню</button>
   </div>
   <div class="row" style="margin-top:8px;">
     <button id="t-prev" style="flex:1;padding:9px 16px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:10px;">←</button>
@@ -9885,25 +9924,41 @@ function loadTCat(){
   tList=T_DATA.categories[document.getElementById('t-cat').value].map(function(id){return T_DATA.by_id[id];});
   tIdx=0;tRender();
 }
+let tLocked=false;
+function tNorm(s){return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/[^a-zа-я0-9 ]/gi,'').replace(/\s+/g,' ').trim();}
 function tRender(){
-  const t=tList[tIdx];
-  document.getElementById('t-term').textContent=t.term;
-  const d=document.getElementById('t-def');
-  d.textContent=t.definition;d.style.display='none';
-  document.getElementById('t-show').style.display='';
-  document.getElementById('t-ok').style.display='none';
-  document.getElementById('t-no').style.display='none';
+  const t=tList[tIdx];tLocked=false;
+  document.getElementById('t-def').textContent=t.definition;
+  const inp=document.getElementById('t-inp');inp.value='';inp.disabled=false;
+  const fb=document.getElementById('t-fb');fb.textContent='';fb.style.color='';
+  document.getElementById('t-check').disabled=false;
   const done=tList.filter(function(x){return (tProg['term::'+x.id]||{}).streak>=3;}).length;
   document.getElementById('t-prog').textContent=(tIdx+1)+' / '+tList.length+' • выучено: '+done;
+  setTimeout(function(){try{inp.focus();}catch(e){}},0);
 }
-document.getElementById('t-show').onclick=function(){
-  document.getElementById('t-def').style.display='';
-  document.getElementById('t-show').style.display='none';
-  document.getElementById('t-ok').style.display='';
-  document.getElementById('t-no').style.display='';
+function tFinish(ok){
+  const t=tList[tIdx];
+  tRec('term::'+t.id,ok);
+  const fb=document.getElementById('t-fb');
+  document.getElementById('t-inp').disabled=true;
+  document.getElementById('t-check').disabled=true;
+  tLocked=true;
+  if(ok){fb.textContent='✅ Верно!';fb.style.color='var(--bb-accent)';}
+  else{fb.textContent='Ответ: '+t.term;fb.style.color='#e07373';}
+}
+document.getElementById('t-check').onclick=function(){
+  if(tLocked)return;
+  const t=tList[tIdx];
+  const v=document.getElementById('t-inp').value;
+  if(!v.trim())return;
+  tFinish(tNorm(v)===tNorm(t.term));
 };
-document.getElementById('t-ok').onclick=function(){tRec('term::'+tList[tIdx].id,true);nextT();};
-document.getElementById('t-no').onclick=function(){tRec('term::'+tList[tIdx].id,false);nextT();};
+document.getElementById('t-reveal').onclick=function(){
+  if(!tLocked)tFinish(false);
+};
+document.getElementById('t-inp').addEventListener('keydown',function(e){
+  if(e.key==='Enter'){e.preventDefault();document.getElementById('t-check').click();}
+});
 function nextT(){ tIdx = tIdx<tList.length-1 ? tIdx+1 : 0; tRender(); }
 document.getElementById('t-next').onclick=nextT;
 document.getElementById('t-prev').onclick=function(){ tIdx = tIdx>0 ? tIdx-1 : tList.length-1; tRender(); };
@@ -9919,28 +9974,6 @@ if(T_AUTH){
 }
 </script>"""
 
-HIST_TABS_HTML = """<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px;">
-<button id="tab-legacy" onclick="showHistTab('legacy')" style="padding:8px 14px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-accent2);color:#fff;cursor:pointer;font-size:14px;">👑 Даты и правители</button>
-<button id="tab-terms" onclick="showHistTab('terms')" style="padding:8px 14px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-panel);color:var(--bb-text);cursor:pointer;font-size:14px;">🏛️ Термины</button>
-</div>"""
-
-HIST_TABS_JS = """<script>
-function showHistTab(t){
-  var onT = t === 'terms';
-  document.getElementById('hist-legacy').style.display = onT ? 'none' : '';
-  document.getElementById('terms-wrap').style.display = onT ? '' : 'none';
-  var bl=document.getElementById('tab-legacy'), bt=document.getElementById('tab-terms');
-  bl.style.background = onT ? 'var(--bb-panel)' : 'var(--bb-accent2)';
-  bl.style.color = onT ? 'var(--bb-text)' : '#fff';
-  bt.style.background = onT ? 'var(--bb-accent2)' : 'var(--bb-panel)';
-  bt.style.color = onT ? '#fff' : 'var(--bb-text)';
-  try { history.replaceState(null, '', onT ? '?tab=terms' : '/emperors'); } catch(e) {}
-}
-(function(){
-  var p = new URLSearchParams(location.search).get('tab');
-  if (p === 'terms') showHistTab('terms');
-})();
-</script>"""
 
 
 @app.route("/emperors")
@@ -9970,6 +10003,10 @@ def emperors_page():
             "persons": [
                 {"name": p.name, "emperor": p.emperor_id, "description": p.description, "importance": p.importance}
                 for p in _HISTORY_PERSONS
+            ],
+            "terms": [
+                {"id": t.id, "category": t.category, "term": t.term, "definition": t.definition}
+                for t in _H_TERMS
             ],
         },
         ensure_ascii=False,
@@ -10084,18 +10121,18 @@ def emperors_page():
         @media (max-width: 600px) { .card { padding: 16px; } .question { font-size: 16px; } .chip { font-size: 12px; } }
     </style>
 </head>
-<body><div id="hist-legacy">
+<body>
     <div class="container">
         <div class="header">
             <h1>👑 История</h1>
-__HIST_TABS__
-            <a href="/">← Назад</a>
+<a href="/">← Назад</a>
         </div>
         <div class="tabs">
             <button class="tab-btn active" id="tab-study" onclick="app.showTab('study')">📚 Изучить</button>
             <button class="tab-btn" id="tab-quiz" onclick="app.showTab('quiz')">🧠 Тренажёр</button>
             <button class="tab-btn" id="tab-match" onclick="app.showTab('match')">🎯 Сопоставление</button>
             <button class="tab-btn" id="tab-chrono" onclick="app.showTab('chrono')">📜 Хронология</button>
+            <button class="tab-btn" id="tab-terms" onclick="app.showTab('terms')">🏛 Термины</button>
         </div>
         <div class="panel active" id="panel-study">
             <div class="mode-row">
@@ -10138,6 +10175,14 @@ __HIST_TABS__
                     <select class="algo-select" id="qdir-select" onchange="app.toggleQDir()">
                         <option value="toRuler">Событие → Правитель</option>
                         <option value="fromRuler">Правитель → Событие</option>
+                    </select>
+                </label>
+                <label>Карточки:
+                    <select class="algo-select" id="type-mode" onchange="app.toggleTypeMode()">
+                        <option value="all">Все сразу</option>
+                        <option value="persons">Имена</option>
+                        <option value="events">События</option>
+                        <option value="terms">Термины</option>
                     </select>
                 </label>
                 <label><input type="checkbox" id="mode-errors" onchange="app.toggleMode()"> Только ошибки</label>
@@ -10203,7 +10248,10 @@ __HIST_TABS__
                 <span class="progress-label" id="chrono-count"></span>
             </div>
         </div>
-        <div class="status">модуль подготовки к игре «Имена и события»</div>
+        <div class="panel" id="panel-terms">
+__PANEL_TERMS__
+        </div>
+        <div class="status">подготовка к ОГЭ · история</div>
     </div>
     <div class="modal-overlay" id="info-modal" onclick="if (event.target === this) app.closeInfo()">
         <div class="modal">
@@ -10241,19 +10289,30 @@ __HIST_TABS__
             DATA.persons.forEach(function(p) {
                 allItems.push({type: 'person', text: p.name, emperor: p.emperor, info: p.description, label: 'Личность', importance: p.importance || 3});
             });
+            (DATA.terms || []).forEach(function(t) {
+                allItems.push({type: 'term', text: t.term, def: t.definition, period: t.category, emperor: null, info: '', label: 'Термин', importance: 3});
+            });
             var scope = localStorage.getItem('emperors_scope') || 'emperors';
             document.querySelectorAll('.scope-sel').forEach(function(s) { s.value = scope; });
             var optCount = localStorage.getItem('emperors_optcount') || '5';
             document.getElementById('opt-count').value = optCount;
             var qdir = localStorage.getItem('emperors_qdir') || 'toRuler';
             document.getElementById('qdir-select').value = qdir;
+            var typeMode = localStorage.getItem('emperors_typemode') || 'all';
+            document.getElementById('type-mode').value = typeMode;
+            function typeMatch(it) {
+                if (typeMode === 'persons') return it.type === 'person';
+                if (typeMode === 'events') return it.type === 'event';
+                if (typeMode === 'terms') return it.type === 'term';
+                return true;
+            }
             function activeRulerIds() {
                 var ids = {};
                 (scope === 'all' ? DATA.rulers : DATA.emperors).forEach(function(r) { ids[r.id] = true; });
                 return ids;
             }
             function inScope(it) { return activeRulerIds()[it.emperor] === true; }
-            function itemsInScope() { return allItems.filter(inScope); }
+            function itemsInScope() { return allItems.filter(function(it) { return inScope(it) && typeMatch(it); }); }
             var quizScore = 0, quizTotal = 0;
             (function() {
                 var s = localStorage.getItem('emperors_score');
@@ -10721,6 +10780,22 @@ function diffInfo() {
                 }
                 var opts = document.getElementById('options');
                 opts.innerHTML = '';
+                if (currentItem.type === 'term') {
+                    document.getElementById('question').textContent = 'Что это за термин: ' + currentItem.def;
+                    var poolT = allItems.filter(function(it) { return it.type === 'term' && it !== currentItem; });
+                    shuffleArray(poolT);
+                    var listT = [currentItem].concat(poolT.slice(0, 5));
+                    shuffleArray(listT);
+                    listT.forEach(function(t) {
+                        var b = document.createElement('button');
+                        b.className = 'opt-btn';
+                        b.textContent = t.text;
+                        b.dataset.correct = (t === currentItem) ? '1' : '0';
+                        b.addEventListener('click', function() { answerClick(b); });
+                        opts.appendChild(b);
+                    });
+                    return;
+                }
                 if (qdir === 'fromRuler') {
                     document.getElementById('question').textContent = 'Что относится к правителю «' + emName[currentItem.emperor] + '»?';
                     var cur = currentItem;
@@ -10790,9 +10865,13 @@ function diffInfo() {
                 var info = document.getElementById('info');
                 var lines = [];
                 lines.push('<span class="info-label">' + (isCorrect ? '✅ Верно' : '❌ Неверно') + '</span>');
-                lines.push('<div><b>' + esc(currentItem.label) + ':</b> ' + esc(currentItem.text) + '</div>');
-                if (currentItem.info) lines.push('<div>📎 ' + esc(currentItem.info) + '</div>');
-                lines.push('<div>👑 Император: <b>' + esc(emName[currentItem.emperor]) + '</b></div>');
+                if (currentItem.type === 'term') {
+                    lines.push('<div><b>' + esc(currentItem.text) + '</b> — ' + esc(currentItem.def || '') + '</div>');
+                } else {
+                    lines.push('<div><b>' + esc(currentItem.label) + ':</b> ' + esc(currentItem.text) + '</div>');
+                    if (currentItem.info) lines.push('<div>📎 ' + esc(currentItem.info) + '</div>');
+                    lines.push('<div>👑 Император: <b>' + esc(emName[currentItem.emperor]) + '</b></div>');
+                }
                 info.innerHTML = lines.join('');
                 info.style.display = 'block';
                 var qEl = document.getElementById('question');
@@ -10827,7 +10906,7 @@ function diffInfo() {
 
             function startMatch() {
                 matchState.sel = null;
-                var poolItems = itemsInScope();
+                var poolItems = itemsInScope().filter(function(it) { return it.emperor; });
                 matchState.pool = shuffleArray(poolItems.slice()).slice(0, 10);
                 var items = document.getElementById('match-items');
                 items.innerHTML = '';
@@ -10979,8 +11058,8 @@ function diffInfo() {
 
             window.app = {
                 showTab: function(tab) {
-                    var tabs = ['study', 'quiz', 'match', 'chrono'];
-                    var ids = { study: ['tab-study', 'panel-study'], quiz: ['tab-quiz', 'panel-quiz'], match: ['tab-match', 'panel-match'], chrono: ['tab-chrono', 'panel-chrono'] };
+                    var tabs = ['study', 'quiz', 'match', 'chrono', 'terms'];
+                    var ids = { study: ['tab-study', 'panel-study'], quiz: ['tab-quiz', 'panel-quiz'], match: ['tab-match', 'panel-match'], chrono: ['tab-chrono', 'panel-chrono'], terms: ['tab-terms', 'panel-terms'] };
                     tabs.forEach(function(t) {
                         document.getElementById(ids[t][0]).classList.toggle('active', t === tab);
                         document.getElementById(ids[t][1]).classList.toggle('active', t === tab);
@@ -11011,6 +11090,13 @@ function diffInfo() {
                     loadQuestion();
                     if (document.getElementById('panel-match').classList.contains('active')) startMatch();
                     if (document.getElementById('panel-chrono').classList.contains('active')) startChrono();
+                },
+                toggleTypeMode: function() {
+                    typeMode = document.getElementById('type-mode').value;
+                    localStorage.setItem('emperors_typemode', typeMode);
+                    deck = [];
+                    updateScore();
+                    loadQuestion();
                 },
                 toggleOptCount: function() {
                     optCount = document.getElementById('opt-count').value;
@@ -11095,15 +11181,14 @@ function diffInfo() {
             studyPanel();
             updateScore();
             loadQuestion();
+            try {
+                if (new URLSearchParams(location.search).get('tab') === 'terms') app.showTab('terms');
+            } catch(e) {}
         })();
     </script>
-__HIST_CLOSE__
 </html>"""
     html = (html.replace("__DATA__", history_data)
-                .replace("__HIST_TABS__", HIST_TABS_HTML)
-                .replace("__HIST_CLOSE__", '</div><div id="terms-wrap" style="display:none">'
-                          + TERMS_FRAGMENT.replace("__TERMS_DATA__", terms_json)
-                          + "</div>" + HIST_TABS_JS))
+                .replace("__PANEL_TERMS__", TERMS_FRAGMENT.replace("__TERMS_DATA__", terms_json)))
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
