@@ -2618,19 +2618,30 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
             "minimax/minimax-m2.7:free",
             "dots-studio/dots-3-note-preview:free",
         ]
+        or_url = "https://openrouter.ai/api/v1/chat/completions"
+        or_headers = {
+            "Authorization": f"Bearer {openrouter_key}",
+            "Content-Type": "application/json",
+        }
         for model in or_models:
-            try:
-                resp = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {openrouter_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": model, **payload},
-                    timeout=timeout,
-                )
-            except Exception as exc:
-                print(f"OpenRouter API error ({model}): {exc}")
+            base_body = {"model": model, **payload}
+            resp = None
+            # reasoning-модели жгут max_tokens на «мысли» и отдают пустой/обрезанный
+            # content — сначала пробуем отключить reasoning; часть моделей параметр
+            # не принимает (400) — повторяем без него.
+            for attempt, body in enumerate(
+                ({"reasoning": {"enabled": False}, **base_body}, base_body)
+            ):
+                try:
+                    resp = requests.post(or_url, headers=or_headers, json=body, timeout=timeout)
+                except Exception as exc:
+                    print(f"OpenRouter API error ({model}): {exc}")
+                    resp = None
+                    break
+                if resp.status_code == 400 and attempt == 0:
+                    continue
+                break
+            if resp is None:
                 continue
             if resp.status_code != 200:
                 print(f"OpenRouter API error ({model}) {resp.status_code}: {resp.text[:200]}")
@@ -2640,7 +2651,7 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                 msg = resp.json()["choices"][0].get("message") or {}
             except Exception:
                 msg = {}
-            # reasoning-модели могут вернуть пустой content — пробуем следующую модель
+            # пустой content без tool_calls — пробуем следующую модель
             if not msg.get("tool_calls") and not str(msg.get("content") or "").strip():
                 print(f"OpenRouter empty reply ({model}), trying next")
                 continue
@@ -11253,13 +11264,9 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
 <h2 id="f-title"></h2>
-<div class="formula" id="f-formula" style="display:none;"></div>
 <div class="muted" id="f-note"></div>
-<div class="row">
-<button class="btn ghost" id="f-show">Показать</button>
-<button class="btn green" id="f-ok" style="display:none;">Помню</button>
-<button class="btn" id="f-no" style="display:none;">Не помню</button>
-</div>
+<div id="f-opts" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+<div class="explain" id="f-fb"></div>
 <div class="row" style="margin-top:8px;">
 <button class="btn ghost" id="f-prev">←</button>
 <button class="btn ghost" id="f-next">→</button>
@@ -11403,30 +11410,51 @@ function loadTopic() {
   fList = MATH.topics[tp].map(function(id){ return MATH.formulas.find(function(f){ return f.id===id; }); });
   fIdx = 0; renderFormula();
 }
+function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 function renderFormula() {
   if (!fList.length) return;
   const f = fList[fIdx];
   document.getElementById('f-title').textContent = f.title;
-  document.getElementById('f-formula').textContent = f.formula;
-  document.getElementById('f-formula').style.display = 'none';
-  document.getElementById('f-note').textContent = f.note || '';
-  document.getElementById('f-show').style.display = '';
-  document.getElementById('f-ok').style.display = 'none';
-  document.getElementById('f-no').style.display = 'none';
-  const r = recFor('formula::'+f.id);
+  document.getElementById('f-note').textContent = '';
+  const fb = document.getElementById('f-fb');
+  fb.textContent = ''; fb.style.color = '';
+  const allF = (typeof MATH !== 'undefined') ? MATH.formulas : PH.formulas;
+  let pool = fList.filter(function(x){ return x.id !== f.id && x.formula !== f.formula; });
+  if (pool.length < 3) {
+    pool = pool.concat(allF.filter(function(x){ return x.id !== f.id && x.formula !== f.formula && pool.indexOf(x) === -1; }));
+  }
+  fShuffle(pool);
+  const opts = fShuffle([{fx:f, ok:true}].concat(pool.slice(0, 3).map(function(x){ return {fx:x, ok:false}; })));
+  const box = document.getElementById('f-opts');
+  box.innerHTML = '';
+  opts.forEach(function(o){
+    const b = document.createElement('button');
+    b.className = 'btn ghost';
+    b.style.textAlign = 'left';
+    b.style.whiteSpace = 'normal';
+    b.textContent = o.fx.formula;
+    b.onclick = function(){
+      if (b.disabled) return;
+      Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
+      record('formula::' + f.id, o.ok);
+      if (o.ok) {
+        fb.textContent = '✅ Верно!';
+        fb.style.color = 'var(--bb-accent)';
+        b.classList.remove('ghost'); b.classList.add('green');
+      } else {
+        fb.textContent = '❌ Правильно: ' + f.formula;
+        fb.style.color = '#e07373';
+        Array.prototype.forEach.call(box.children, function(c){
+          if (c.textContent === f.formula) { c.classList.remove('ghost'); c.classList.add('green'); }
+        });
+      }
+    };
+    box.appendChild(b);
+  });
   const total = fList.length;
   const done = fList.filter(function(x){ return (prog[key('formula::'+x.id)]||{}).streak>=3; }).length;
-  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+'  •  выучено: '+done;
-}
-document.getElementById('f-show').onclick = function(){
-  document.getElementById('f-formula').style.display = '';
-  document.getElementById('f-show').style.display = 'none';
-  document.getElementById('f-ok').style.display = '';
-  document.getElementById('f-no').style.display = '';
-};
-document.getElementById('f-ok').onclick = function(){ record('formula::'+fList[fIdx].id, true); nextFormula(); };
-document.getElementById('f-no').onclick = function(){ record('formula::'+fList[fIdx].id, false); nextFormula(); };
-function nextFormula(){ if (fIdx < fList.length-1) { fIdx++; renderFormula(); } else { fIdx=0; renderFormula(); } }
+  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' • выучено: '+done;
+}function nextFormula(){ if (fIdx < fList.length-1) { fIdx++; renderFormula(); } else { fIdx=0; renderFormula(); } }
 document.getElementById('f-next').onclick = nextFormula;
 document.getElementById('f-prev').onclick = function(){ fIdx = (fIdx>0)?fIdx-1:fList.length-1; renderFormula(); };
 topicSel.onchange = loadTopic;
@@ -11583,13 +11611,9 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
 <h2 id="f-title"></h2>
-<div class="formula" id="f-formula" style="display:none;"></div>
 <div class="muted" id="f-note"></div>
-<div class="row">
-<button class="btn ghost" id="f-show">Показать</button>
-<button class="btn green" id="f-ok" style="display:none;">Помню</button>
-<button class="btn" id="f-no" style="display:none;">Не помню</button>
-</div>
+<div id="f-opts" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+<div class="explain" id="f-fb"></div>
 <div class="row" style="margin-top:8px;">
 <button class="btn ghost" id="f-prev">←</button>
 <button class="btn ghost" id="f-next">→</button>
@@ -11733,30 +11757,51 @@ function loadTopic() {
   fList = PH.topics[tp].map(function(id){ return PH.formulas.find(function(f){ return f.id===id; }); });
   fIdx = 0; renderFormula();
 }
+function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 function renderFormula() {
   if (!fList.length) return;
   const f = fList[fIdx];
   document.getElementById('f-title').textContent = f.title;
-  document.getElementById('f-formula').textContent = f.formula;
-  document.getElementById('f-formula').style.display = 'none';
-  document.getElementById('f-note').textContent = f.note || '';
-  document.getElementById('f-show').style.display = '';
-  document.getElementById('f-ok').style.display = 'none';
-  document.getElementById('f-no').style.display = 'none';
-  const r = recFor('formula::'+f.id);
+  document.getElementById('f-note').textContent = '';
+  const fb = document.getElementById('f-fb');
+  fb.textContent = ''; fb.style.color = '';
+  const allF = (typeof MATH !== 'undefined') ? MATH.formulas : PH.formulas;
+  let pool = fList.filter(function(x){ return x.id !== f.id && x.formula !== f.formula; });
+  if (pool.length < 3) {
+    pool = pool.concat(allF.filter(function(x){ return x.id !== f.id && x.formula !== f.formula && pool.indexOf(x) === -1; }));
+  }
+  fShuffle(pool);
+  const opts = fShuffle([{fx:f, ok:true}].concat(pool.slice(0, 3).map(function(x){ return {fx:x, ok:false}; })));
+  const box = document.getElementById('f-opts');
+  box.innerHTML = '';
+  opts.forEach(function(o){
+    const b = document.createElement('button');
+    b.className = 'btn ghost';
+    b.style.textAlign = 'left';
+    b.style.whiteSpace = 'normal';
+    b.textContent = o.fx.formula;
+    b.onclick = function(){
+      if (b.disabled) return;
+      Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
+      record('formula::' + f.id, o.ok);
+      if (o.ok) {
+        fb.textContent = '✅ Верно!';
+        fb.style.color = 'var(--bb-accent)';
+        b.classList.remove('ghost'); b.classList.add('green');
+      } else {
+        fb.textContent = '❌ Правильно: ' + f.formula;
+        fb.style.color = '#e07373';
+        Array.prototype.forEach.call(box.children, function(c){
+          if (c.textContent === f.formula) { c.classList.remove('ghost'); c.classList.add('green'); }
+        });
+      }
+    };
+    box.appendChild(b);
+  });
   const total = fList.length;
   const done = fList.filter(function(x){ return (prog[key('formula::'+x.id)]||{}).streak>=3; }).length;
-  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+'  •  выучено: '+done;
-}
-document.getElementById('f-show').onclick = function(){
-  document.getElementById('f-formula').style.display = '';
-  document.getElementById('f-show').style.display = 'none';
-  document.getElementById('f-ok').style.display = '';
-  document.getElementById('f-no').style.display = '';
-};
-document.getElementById('f-ok').onclick = function(){ record('formula::'+fList[fIdx].id, true); nextFormula(); };
-document.getElementById('f-no').onclick = function(){ record('formula::'+fList[fIdx].id, false); nextFormula(); };
-function nextFormula(){ if (fIdx < fList.length-1) { fIdx++; renderFormula(); } else { fIdx=0; renderFormula(); } }
+  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' • выучено: '+done;
+}function nextFormula(){ if (fIdx < fList.length-1) { fIdx++; renderFormula(); } else { fIdx=0; renderFormula(); } }
 document.getElementById('f-next').onclick = nextFormula;
 document.getElementById('f-prev').onclick = function(){ fIdx = (fIdx>0)?fIdx-1:fList.length-1; renderFormula(); };
 topicSel.onchange = loadTopic;
@@ -12488,13 +12533,8 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <div class="progress-mini" id="r-progress"></div>
 <div class="card" id="r-card">
 <h2 id="r-title"></h2>
-<div class="formula" id="r-rule" style="display:none;"></div>
-<p class="muted" id="r-example" style="display:none;"></p>
-<div class="row">
-<button class="btn ghost" id="r-show">Показать</button>
-<button class="btn green" id="r-ok" style="display:none;">Помню</button>
-<button class="btn" id="r-no" style="display:none;">Не помню</button>
-</div>
+<div id="r-opts" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+<div class="explain" id="r-fb"></div>
 <div class="row" style="margin-top:8px;">
 <button class="btn ghost" id="r-prev">←</button>
 <button class="btn ghost" id="r-next">→</button>
@@ -12604,25 +12644,49 @@ Object.keys(RU.categories).forEach(function(c){
 });
 let rList=[], rIdx=0;
 function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rIdx=0; renderRule(); }
-function renderRule(){
-  if(!rList.length) return;
-  const r=rList[rIdx];
-  document.getElementById('r-title').textContent=r.title;
-  document.getElementById('r-rule').textContent=r.rule;
-  document.getElementById('r-example').textContent='Пример: '+r.example;
-  document.getElementById('r-rule').style.display='none';
-  document.getElementById('r-example').style.display='none';
-  document.getElementById('r-show').style.display='';
-  document.getElementById('r-ok').style.display='none';
-  document.getElementById('r-no').style.display='none';
-  const total=rList.length;
-  const done=rList.filter(function(x){ return (prog[key('rule::'+x.id)]||{}).streak>=3; }).length;
-  document.getElementById('r-progress').textContent=(rIdx+1)+' / '+total+'  •  выучено: '+done;
-}
-document.getElementById('r-show').onclick=function(){ document.getElementById('r-rule').style.display=''; document.getElementById('r-example').style.display=''; document.getElementById('r-show').style.display='none'; document.getElementById('r-ok').style.display=''; document.getElementById('r-no').style.display=''; };
-document.getElementById('r-ok').onclick=function(){ record('rule::'+rList[rIdx].id, true); nextRule(); };
-document.getElementById('r-no').onclick=function(){ record('rule::'+rList[rIdx].id, false); nextRule(); };
-function nextRule(){ if(rIdx<rList.length-1){rIdx++;} else {rIdx=0;} renderRule(); }
+function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function renderRule() {
+  if (!rList.length) return;
+  const r = rList[rIdx];
+  document.getElementById('r-title').textContent = r.title;
+  const fb = document.getElementById('r-fb');
+  fb.textContent = ''; fb.style.color = '';
+  let pool = rList.filter(function(x){ return x.id !== r.id && x.rule !== r.rule; });
+  if (pool.length < 3) {
+    pool = pool.concat(RU.rules.filter(function(x){ return x.id !== r.id && x.rule !== r.rule && pool.indexOf(x) === -1; }));
+  }
+  fShuffle(pool);
+  const opts = fShuffle([{rx:r, ok:true}].concat(pool.slice(0, 3).map(function(x){ return {rx:x, ok:false}; })));
+  const box = document.getElementById('r-opts');
+  box.innerHTML = '';
+  opts.forEach(function(o){
+    const b = document.createElement('button');
+    b.className = 'btn ghost';
+    b.style.textAlign = 'left';
+    b.style.whiteSpace = 'normal';
+    b.textContent = o.rx.rule;
+    b.onclick = function(){
+      if (b.disabled) return;
+      Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
+      record('rule::' + r.id, o.ok);
+      if (o.ok) {
+        fb.textContent = '✅ Верно!';
+        fb.style.color = 'var(--bb-accent)';
+        b.classList.remove('ghost'); b.classList.add('green');
+      } else {
+        fb.textContent = '❌ Правильно: ' + r.rule;
+        fb.style.color = '#e07373';
+        Array.prototype.forEach.call(box.children, function(c){
+          if (c.textContent === r.rule) { c.classList.remove('ghost'); c.classList.add('green'); }
+        });
+      }
+    };
+    box.appendChild(b);
+  });
+  const total = rList.length;
+  const done = rList.filter(function(x){ return (prog[key('rule::'+x.id)]||{}).streak>=3; }).length;
+  document.getElementById('r-progress').textContent = (rIdx+1)+' / '+total+' • выучено: '+done;
+}function nextRule(){ if(rIdx<rList.length-1){rIdx++;} else {rIdx=0;} renderRule(); }
 document.getElementById('r-next').onclick=nextRule;
 document.getElementById('r-prev').onclick=function(){ rIdx=(rIdx>0)?rIdx-1:rList.length-1; renderRule(); };
 catSel.onchange=loadCat;
