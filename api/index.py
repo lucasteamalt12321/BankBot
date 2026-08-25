@@ -321,6 +321,7 @@ def get_db_engine():
         _ensure_study_progress_tables(DB_ENGINE)
         _ensure_achievements_tables(DB_ENGINE)
         _ensure_chess_games_table(DB_ENGINE)
+        _ensure_oge_curator_tables(DB_ENGINE)
         try:
             _ensure_canon_tables(DB_ENGINE)
         except Exception as exc:
@@ -2568,11 +2569,50 @@ def get_global_chat_memory() -> list[dict]:
     return [{"role": m["role"], "content": m["content"]} for m in _CHAT_GLOBAL]
 
 
+def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
+    """Call AI via OpenAI-compatible chat/completions endpoints.
+
+    Provider order: Gemini (primary) -> Groq (fallback).
+    Returns the first successful Response, the last failed Response,
+    or None when neither API key is set / network failed everywhere.
+    """
+    providers = [
+        (
+            "Gemini",
+            os.getenv("GEMINI_API_KEY"),
+            os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        ),
+        (
+            "Groq",
+            os.getenv("GROQ_API_KEY"),
+            os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            "https://api.groq.com/openai/v1/chat/completions",
+        ),
+    ]
+    last_resp: requests.Response | None = None
+    for name, api_key, model, url in providers:
+        if not api_key:
+            continue
+        try:
+            resp = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, **payload},
+                timeout=timeout,
+            )
+        except Exception as exc:
+            print(f"{name} API error: {exc}")
+            continue
+        if resp.status_code == 200:
+            return resp
+        print(f"{name} API error {resp.status_code}: {resp.text[:200]}")
+        last_resp = resp
+    return last_resp
+
+
 def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str:
     """Call AI with conversation context (personal + global chat)."""
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        return "❌ AI недоступен (нет GROQ_API_KEY)"
 
     # Build messages with memory
     messages = []
@@ -2590,21 +2630,13 @@ def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str
     # Add current message
     messages.append({"role": "user", "content": prompt})
 
+    response = _ai_chat(
+        {"messages": messages, "max_tokens": max_tokens, "temperature": 0.8},
+        timeout=10.0,
+    )
+    if response is None:
+        return "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)"
     try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.8,
-            },
-            timeout=10.0,
-        )
         if response.status_code == 200:
             result = response.json()
             answer = result["choices"][0]["message"]["content"]
@@ -2612,10 +2644,9 @@ def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str
             add_chat_memory(user_id, "user", prompt)
             add_chat_memory(user_id, "assistant", answer)
             return answer
-        else:
-            error_detail = response.text[:200] if response.text else "No details"
-            print(f"AI API error {response.status_code}: {error_detail}")
-            return f"❌ Ошибка AI: {response.status_code}"
+        error_detail = response.text[:200] if response.text else "No details"
+        print(f"AI API error {response.status_code}: {error_detail}")
+        return f"❌ Ошибка AI: {response.status_code}"
     except Exception as exc:
         print(f"Error calling AI API: {exc}")
         return f"❌ Ошибка AI: {str(exc)}"
@@ -2829,12 +2860,29 @@ _groq_active_model = {"name": None}
 
 
 def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) -> str:
-    """Call Groq AI API with prompt; falls back through models when one is retired."""
-    try:
-        groq_key = os.getenv("GROQ_API_KEY")
-        if not groq_key:
-            return "❌ AI недоступен (нет GROQ_API_KEY)"
+    """Call AI API (Gemini primary, Groq fallback); falls through Groq models when retired."""
+    response = _ai_chat(
+        {
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        },
+        timeout=10.0,
+    )
+    if response is not None and response.status_code == 200:
+        try:
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        except Exception as exc:
+            print(f"Error calling AI API: {exc}")
+            return f"❌ Ошибка AI: {str(exc)}"
 
+    # Фоллбэк: перебор актуальных моделей Groq
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        return "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)"
+
+    try:
         preferred = os.getenv("GROQ_MODEL")
         candidates = ([preferred] if preferred else []) + _GROQ_MODEL_CANDIDATES
         active = _groq_active_model["name"]
@@ -4375,11 +4423,7 @@ def log_error(module: str, error_type: str, message: str, context: str = "") -> 
 
 
 def _get_ai_recommendation(module: str, error_type: str, message: str, context: str = "") -> str:
-    """Get AI-generated fix recommendation for an error."""
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        return _static_recommendation(module, error_type)
-
+    """Get AI-generated fix recommendation for an error (Gemini primary, Groq fallback)."""
     # Try to get relevant code snippet from error traceback
     import traceback
     code_snippet = ""
@@ -4402,25 +4446,19 @@ def _get_ai_recommendation(module: str, error_type: str, message: str, context: 
         f"{'- Traceback код:\\n' + code_snippet + '\\n' if code_snippet else ''}"
         f"Ответ ТОЛЬКО текст рекомендации, без приветствий и пояснений."
     )
-    try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 100,
-                "temperature": 0.3,
-            },
-            timeout=8,
-        )
-        if response.status_code == 200:
+    response = _ai_chat(
+        {
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 100,
+            "temperature": 0.3,
+        },
+        timeout=8,
+    )
+    if response is not None and response.status_code == 200:
+        try:
             return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
-        pass
+        except Exception:
+            pass
     return _static_recommendation(module, error_type)
 
 
@@ -4441,7 +4479,7 @@ def _static_recommendation(module: str, error_type: str) -> str:
         ("GD", "level_top"): "Проверить таблицу levels в Supabase",
         ("GD", "my_stats"): "Проверить таблицу player_stats/submissions",
         ("GD", "player_stats"): "Проверить таблицу player_stats в Supabase",
-        ("AI", "groq_api"): "Проверить GROQ_API_KEY в Vercel env",
+        ("AI", "gemini_api"): "Проверить GEMINI_API_KEY в Vercel env",
         ("Telegram", "send_failed"): "Проверить BOT_TOKEN, rate limits Telegram",
     }
     return recs.get((module, error_type), "Проверить логи Vercel для деталей")
@@ -6810,21 +6848,16 @@ def _parse_ai_question(text: str) -> dict | None:
 
 
 def _call_ai_api_fast(prompt: str, max_tokens: int = 200, timeout: float = 4.0) -> str:
-    """Fast AI call with short timeout for trivia."""
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        return "❌"
-    try:
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.7},
-            timeout=timeout,
-        )
-        if resp.status_code == 200:
+    """Fast AI call with short timeout for trivia (Gemini primary, Groq fallback)."""
+    resp = _ai_chat(
+        {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.7},
+        timeout=timeout,
+    )
+    if resp is not None and resp.status_code == 200:
+        try:
             return resp.json()["choices"][0]["message"]["content"]
-    except Exception:
-        pass
+        except Exception:
+            pass
     return "❌"
 
 
@@ -7309,7 +7342,7 @@ def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
 
 
 def _pc_extract_reply(resp: "requests.Response") -> str:
-    """Extract text reply from a Groq/OpenAI chat completion response, tolerating all formats."""
+    """Extract text reply from an OpenAI-compatible chat completion response, tolerating all formats."""
     try:
         data = resp.json()
     except Exception:
@@ -7340,58 +7373,46 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
     uploads = state.get("uploads", [])
 
     system_msg = _pc_build_prompt(char_name, user_id, uploads)
-    groq_messages = [{"role": "system", "content": system_msg}]
+    ai_messages = [{"role": "system", "content": system_msg}]
     for m in messages[-12:]:
         if m.get("role") in ("user", "assistant"):
             content = m.get("content", "")
             if isinstance(content, str) and len(content) > 4000:
                 content = content[:4000] + "…"
-            groq_messages.append({"role": m["role"], "content": content})
+            ai_messages.append({"role": m["role"], "content": content})
 
     images: list[str] = []
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        return {"reply": "❌ AI недоступен (нет GROQ_API_KEY)", "images": []}
+    if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
+        return {"reply": "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)", "images": []}
 
     valid_tool_names = {t["function"]["name"] for t in AI_CHAT_TOOLS}
 
-    def _groq_call(use_tools: bool) -> requests.Response | None:
-        try:
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": groq_messages,
-                "max_tokens": 800,
-                "temperature": 0.8,
-            }
-            if use_tools:
-                payload["tools"] = AI_CHAT_TOOLS
-                payload["tool_choice"] = "auto"
-            resp = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=20.0,
-            )
-            return resp
-        except Exception as exc:
-            print(f"AI call error: {exc}")
-            return None
+    def _ai_call(use_tools: bool) -> requests.Response | None:
+        payload = {
+            "messages": ai_messages,
+            "max_tokens": 800,
+            "temperature": 0.8,
+        }
+        if use_tools:
+            payload["tools"] = AI_CHAT_TOOLS
+            payload["tool_choice"] = "auto"
+        return _ai_chat(payload, timeout=20.0)
 
     fallback_done = False
     for _ in range(6):
-        resp = _groq_call(use_tools=True)
+        resp = _ai_call(use_tools=True)
         if resp is None:
             return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
         if resp.status_code == 400 and "tool_use_failed" in resp.text and not fallback_done:
             fallback_done = True
-            resp = _groq_call(use_tools=False)
+            resp = _ai_call(use_tools=False)
         if resp is None:
             return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
         if resp.status_code != 200:
             print(f"AI tool API error {resp.status_code}: {resp.text[:300]}")
             if resp.status_code == 400 and not fallback_done:
                 fallback_done = True
-                resp = _groq_call(use_tools=False)
+                resp = _ai_call(use_tools=False)
                 if resp is None:
                     return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
                 if resp.status_code == 200:
@@ -7416,7 +7437,7 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
         if not tool_calls:
             reply = content or "…"
             return {"reply": str(reply), "images": images}
-        groq_messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
+        ai_messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
         for tc in tool_calls:
             fn = tc.get("function", {})
             name = fn.get("name", "")
@@ -7435,7 +7456,7 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
                     data_uri = None
             if data_uri:
                 images.append(data_uri)
-            groq_messages.append(
+            ai_messages.append(
                 {"role": "tool", "tool_call_id": tc.get("id"), "content": result}
             )
     return {"reply": "⏱ Слишком много шагов, упрости просьбу.", "images": images}
@@ -13162,6 +13183,393 @@ def api_study_ai_plan():
         return jsonify({"ok": True, "source": "ai", "plan": plan})
     return jsonify({"ok": False, "source": "fallback", "plan": ""})
 
+# ---------------- OGE curator: persistent daily plan + chat (OGE-08/09) ----------------
+
+
+def _ensure_oge_curator_tables(engine):
+    """Tables for the persistent daily plan and curator chat history."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS oge_daily_plans (
+                    user_id INTEGER NOT NULL,
+                    plan_date TEXT NOT NULL,
+                    target_minutes INTEGER NOT NULL DEFAULT 10,
+                    items_json TEXT NOT NULL DEFAULT '[]',
+                    source VARCHAR(16) NOT NULL DEFAULT 'rule',
+                    done_count INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL DEFAULT 0,
+                    PRIMARY KEY (user_id, plan_date)
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS oge_chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    role VARCHAR(12) NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at REAL NOT NULL DEFAULT 0
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_oge_chat_user ON oge_chat_messages(user_id, id)"))
+    except Exception as exc:
+        print(f"[OGE] curator tables skipped: {exc}")
+
+
+_OGE_PLAN_MIN_MIN = 5
+_OGE_PLAN_MAX_MIN = 120
+_OGE_PLAN_MAX_ITEMS = 6
+
+
+def _clamp_minutes(v, default=10):
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return default
+    return max(_OGE_PLAN_MIN_MIN, min(_OGE_PLAN_MAX_MIN, v))
+
+
+def _plan_items_rule_based(subjects, minutes, ease):
+    count = max(2, min(_OGE_PLAN_MAX_ITEMS, max(2, minutes // 5)))
+    if ease == "light":
+        count = max(2, count - 1)
+    elif ease == "push":
+        count = min(_OGE_PLAN_MAX_ITEMS, count + 1)
+    count = min(count, len(subjects))
+    picked = [s for s in subjects[:count] if s["score"] > 0] or subjects[:count]
+    per = max(5, round(minutes / max(1, len(picked))))
+    items = []
+    for s in picked:
+        items.append({
+            "module": s["module"],
+            "label": f"{s['emoji']} {s['label']}",
+            "text": s["next_action"]["text"],
+            "url": s["next_action"]["url"],
+            "minutes": per,
+        })
+    return items
+
+
+def _yesterday_completion(uid, today):
+    """Fraction (0..1) of yesterday's plan items marked done; None when unknown."""
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            y = conn.execute(text(
+                "SELECT items_json, done_count FROM oge_daily_plans "
+                "WHERE user_id=:u AND plan_date=:d"
+            ), {"u": uid, "d": _prev_day(today)}).mappings().first()
+        if not y:
+            return None
+        total = len(json.loads(y["items_json"] or "[]"))
+        done = int(y["done_count"] or 0)
+        if total <= 0:
+            return None
+        return max(0.0, min(1.0, done / total))
+    except Exception:
+        return None
+
+
+def _plan_items_ai(subjects, minutes, ratio):
+    stat_lines = [
+        f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
+        f"слабых тем {s['weak']} → {s['next_action']['text']}"
+        for s in subjects
+    ]
+    exam_lines = []
+    for module, meta in OGE_MODULES.items():
+        d = OGE_EXAM_DATES.get(module)
+        if d:
+            exam_lines.append(f"{meta['label']} — {d[2]:02d}.{d[1]:02d}.{d[0]}")
+    hard = ""
+    if ratio is not None and ratio < 0.5:
+        hard = " Ученик вчера не справился с планом - сделай его заметно ЛЕГЧЕ (меньше пунктов/минут)."
+    elif ratio is not None and ratio >= 1.0:
+        hard = " Вчера ученик выполнил весь план - можно немного усложнить."
+    prompt = (
+        "Ты - методист подготовки к ОГЭ. Верни СТРОГО JSON-массив из 3-6 объектов вида "
+        '{"module":"math|russian|informatics|history|physics","text":"что сделать сегодня",'
+        '"minutes":N}, без markdown, без пояснений. '
+        f"Общий бюджет времени: {minutes} минут." + hard + "\n\n"
+        "Статистика ученика:\n" + "\n".join(stat_lines) +
+        "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
+    )
+    raw = call_ai_api(prompt, max_tokens=500, temperature=0.5)
+    if not raw or raw.startswith("❌"):
+        return None
+    m = re.search(r"\[.*\]", raw, re.S)
+    if not m:
+        return None
+    try:
+        arr = json.loads(m.group(0))
+    except Exception:
+        return None
+    meta = {s["module"]: s for s in subjects}
+    items = []
+    for it in arr[:_OGE_PLAN_MAX_ITEMS]:
+        if not isinstance(it, dict):
+            continue
+        mod = str(it.get("module", "")).strip()
+        txt = str(it.get("text", "")).strip()
+        if mod in meta and txt:
+            s = meta[mod]
+            try:
+                mins = max(_OGE_PLAN_MIN_MIN, min(60, int(it.get("minutes") or 5)))
+            except (TypeError, ValueError):
+                mins = 5
+            items.append({
+                "module": mod,
+                "label": f"{s['emoji']} {s['label']}",
+                "text": txt,
+                "url": s["url"],
+                "minutes": mins,
+            })
+    return items or None
+
+
+def _generate_plan(uid, today, minutes):
+    """Build today's plan items; AI first, rule-based fallback. Returns (items, source)."""
+    now = time.time()
+    ratio = _yesterday_completion(uid, today)
+    ease = "normal"
+    if ratio is not None and ratio < 0.5:
+        ease = "light"
+    elif ratio is not None and ratio >= 1.0:
+        ease = "push"
+    subjects = _oge_subjects_payload(uid, now)
+    items = _plan_items_ai(subjects, minutes, ratio)
+    if items:
+        return items, "ai"
+    return _plan_items_rule_based(subjects, minutes, ease), "rule"
+
+
+def _upsert_plan(conn, uid, today, minutes, items, source):
+    conn.execute(text("""
+        INSERT INTO oge_daily_plans (user_id, plan_date, target_minutes, items_json, source, done_count, created_at)
+        VALUES (:u, :d, :m, :j, :s, 0, :t)
+        ON CONFLICT (user_id, plan_date) DO UPDATE SET
+            target_minutes=:m, items_json=:j, source=:s, done_count=0, created_at=:t
+    """), {"u": uid, "d": today, "m": minutes, "j": json.dumps(items, ensure_ascii=False),
+           "s": source, "t": time.time()})
+
+
+def _load_plan_row(conn, uid, day):
+    return conn.execute(text(
+        "SELECT plan_date, target_minutes, items_json, source, done_count "
+        "FROM oge_daily_plans WHERE user_id=:u AND plan_date=:d"
+    ), {"u": uid, "d": day}).mappings().first()
+
+
+def _plan_payload(row):
+    return {
+        "ok": True,
+        "date": row["plan_date"],
+        "target_minutes": int(row["target_minutes"]),
+        "source": row["source"],
+        "done": int(row["done_count"] or 0),
+        "items": json.loads(row["items_json"] or "[]"),
+    }
+
+
+@app.route("/api/study/plan", methods=["GET"])
+def api_study_plan_get():
+    """Today's persistent plan; generates once a day, regenerates on target change."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    today = time.strftime("%Y-%m-%d")
+    minutes_arg = request.args.get("minutes")
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        row = _load_plan_row(conn, uid, today)
+    if row and (not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])):
+        return jsonify(_plan_payload(row))
+    minutes = _clamp_minutes(minutes_arg or (row["target_minutes"] if row else 10))
+    items, source = _generate_plan(uid, today, minutes)
+    with engine.begin() as conn:
+        _upsert_plan(conn, uid, today, minutes, items, source)
+        row = _load_plan_row(conn, uid, today)
+    return jsonify(_plan_payload(row))
+
+
+@app.route("/api/study/plan", methods=["POST"])
+def api_study_plan_regenerate():
+    """Explicit regeneration (chip click / refresh button); accepts new minutes."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    data = request.get_json(silent=True) or {}
+    today = time.strftime("%Y-%m-%d")
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        row = _load_plan_row(conn, uid, today)
+    minutes = _clamp_minutes(data.get("minutes") or (row["target_minutes"] if row else 10))
+    items, source = _generate_plan(uid, today, minutes)
+    with engine.begin() as conn:
+        _upsert_plan(conn, uid, today, minutes, items, source)
+        row = _load_plan_row(conn, uid, today)
+    return jsonify(_plan_payload(row))
+
+
+@app.route("/api/study/plan/done", methods=["POST"])
+def api_study_plan_done():
+    """Mark/unmark a plan item as completed (delta +1/-1)."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    data = request.get_json(silent=True) or {}
+    try:
+        delta = 1 if int(data.get("delta")) > 0 else -1
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "bad delta"}), 400
+    today = time.strftime("%Y-%m-%d")
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        row = conn.execute(text(
+            "SELECT done_count FROM oge_daily_plans WHERE user_id=:u AND plan_date=:d"
+        ), {"u": uid, "d": today}).mappings().first()
+        if not row:
+            return jsonify({"ok": False, "error": "no plan"}), 404
+        new_done = max(0, int(row["done_count"] or 0) + delta)
+        conn.execute(text(
+            "UPDATE oge_daily_plans SET done_count=:v WHERE user_id=:u AND plan_date=:d"
+        ), {"v": new_done, "u": uid, "d": today})
+    return jsonify({"ok": True, "done": new_done})
+
+
+@app.route("/api/study/today", methods=["GET"])
+def api_study_today():
+    """How many cards the student touched today (progress monitoring)."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
+    try:
+        with get_db_engine().connect() as conn:
+            n = conn.execute(text(
+                "SELECT COUNT(*) AS c FROM study_progress WHERE user_id=:u AND updated_at >= :t"
+            ), {"u": uid, "t": day_start}).scalar()
+        return jsonify({"ok": True, "touched": int(n or 0)})
+    except Exception as exc:
+        print(f"[OGE] today stats error: {exc}")
+        return jsonify({"ok": True, "touched": 0})
+
+
+_OGE_CHAT_KEEP = 80
+_OGE_CHAT_CONTEXT = 12
+
+
+def _chat_history(conn, uid, limit=_OGE_CHAT_CONTEXT):
+    rows = conn.execute(text(
+        "SELECT role, content, created_at FROM ("
+        " SELECT id, role, content, created_at FROM oge_chat_messages"
+        " WHERE user_id=:u ORDER BY id DESC LIMIT :l"
+        ") t ORDER BY id ASC"
+    ).bindparams(bindparam("l")), {"u": uid, "l": limit}).mappings().all()
+    return [{"role": r["role"], "content": r["content"], "ts": float(r["created_at"] or 0)} for r in rows]
+
+
+@app.route("/api/study/chat", methods=["GET"])
+def api_study_chat_history():
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    try:
+        with get_db_engine().connect() as conn:
+            msgs = _chat_history(conn, uid, 30)
+        return jsonify({"ok": True, "messages": msgs})
+    except Exception as exc:
+        print(f"[OGE] chat history error: {exc}")
+        return jsonify({"ok": True, "messages": []})
+
+
+@app.route("/api/study/chat", methods=["POST"])
+def api_study_chat_send():
+    """Curator chat: persists both sides, feeds progress + plan + history into the prompt."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    uid = _web_user_id("u" + str(user["id"]))
+    data = request.get_json(silent=True) or {}
+    msg = str(data.get("message") or "").strip()
+    if not msg:
+        return jsonify({"ok": False, "error": "empty message"}), 400
+    msg = msg[:2000]
+    now = time.time()
+    today = time.strftime("%Y-%m-%d")
+    budget_lines, plan_lines = [], []
+    minutes = 10
+    try:
+        with get_db_engine().connect() as conn:
+            row = _load_plan_row(conn, uid, today)
+            if row:
+                minutes = int(row["target_minutes"])
+                items = json.loads(row["items_json"] or "[]")
+                done = int(row["done_count"] or 0)
+                plan_lines.append(f"План на сегодня (выполнено {done} из {len(items)}):")
+                for i, it in enumerate(items, 1):
+                    plan_lines.append(f"{i}) [{it.get('label', '')}] {it.get('text', '')} ({it.get('minutes', 5)} мин)")
+            else:
+                plan_lines.append("План на сегодня ещё не составлен.")
+    except Exception as exc:
+        print(f"[OGE] chat context error: {exc}")
+        plan_lines.append("Статистика временно недоступна.")
+    budget_lines.append(f"Бюджет времени в день: {minutes} минут.")
+    subj_lines = []
+    for s in _oge_subjects_payload(uid, now)[:5]:
+        subj_lines.append(
+            f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
+            f"слабых тем {s['weak']} → {s['next_action']['text']}"
+        )
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            history = _chat_history(conn, uid)
+    except Exception:
+        history = []
+    if history:
+        hist_lines = ["История переписки:"]
+        for h in history:
+            who = "Ученик" if h["role"] == "user" else "Куратор"
+            hist_lines.append(f"{who}: {h['content'][:400]}")
+    else:
+        hist_lines = ["История переписки: -"]
+    prompt = (
+        "Ты - ИИ-куратор подготовки девятиклассника к ОГЭ. Отвечай по-русски, кратко "
+        "(до 150 слов), поддерживающе и конкретно; предлагай следующий шаг (предмет/тему/режим "
+        "на сайте). Доступные предметы: Математика, Русский язык, Информатика, Физика, История; "
+        "режимы: карточки, тренажёр задач, сопоставление, экзамен.\n\n"
+        "Данные ученика:\n" + "\n".join(budget_lines) + "\n" + "\n".join(subj_lines) +
+        "\n" + "\n".join(plan_lines) + "\n" + "\n".join(hist_lines) +
+        f"\n\nУченик: {msg}\nКуратор:"
+    )
+    reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
+    if not reply or reply.startswith("❌"):
+        return jsonify({"ok": False, "error": "ai unavailable", "detail": reply or ""}), 502
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO oge_chat_messages (user_id, role, content, created_at) "
+                "VALUES (:u, 'user', :c, :t)"
+            ), {"u": uid, "c": msg, "t": now})
+            conn.execute(text(
+                "INSERT INTO oge_chat_messages (user_id, role, content, created_at) "
+                "VALUES (:u, 'assistant', :c, :t)"
+            ), {"u": uid, "c": reply, "t": time.time()})
+            conn.execute(text(
+                "DELETE FROM oge_chat_messages WHERE user_id=:u AND id NOT IN ("
+                "SELECT id FROM oge_chat_messages WHERE user_id=:u ORDER BY id DESC LIMIT :k)"
+            ).bindparams(bindparam("k")), {"u": uid, "k": _OGE_CHAT_KEEP})
+    except Exception as exc:
+        print(f"[OGE] chat persist error: {exc}")
+        return jsonify({"ok": False, "error": "storage failed"}), 500
+    return jsonify({"ok": True, "reply": reply})
+
 
 @app.route("/api/trivia/question", methods=["POST"])
 def api_trivia_question():
@@ -17576,23 +17984,18 @@ def generate_trivia_from_canon(chat_id: int) -> str | None:
 def test_ai():
     """Test AI API access from Vercel."""
     try:
-        groq_key = os.getenv("GROQ_API_KEY")
-        if not groq_key:
-            return jsonify({"status": "error", "message": "GROQ_API_KEY not set"})
+        if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
+            return jsonify({"status": "error", "message": "GEMINI_API_KEY/GROQ_API_KEY not set"})
 
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",
+        response = _ai_chat(
+            {
                 "messages": [{"role": "user", "content": "Say hello in one word"}],
                 "max_tokens": 10,
             },
             timeout=10,
         )
+        if response is None:
+            return jsonify({"status": "error", "message": "AI request failed (network)"})
 
         return jsonify(
             {
@@ -17696,14 +18099,16 @@ def reading_generate():
 
         import requests
 
-        # Try Groq first, then HF as fallback
+        # Try AI (Gemini -> Groq) first, then HF as fallback
+        gemini_key = os.getenv("GEMINI_API_KEY")
         groq_key = os.getenv("GROQ_API_KEY")
         hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
 
+        print(f"Gemini key available: {bool(gemini_key)}")
         print(f"Groq key available: {bool(groq_key)}")
         print(f"HF Token available: {bool(hf_token)}")
 
-        if not groq_key and not hf_token:
+        if not gemini_key and not groq_key and not hf_token:
             print("No API keys, using fallback")
             fallback_sets = get_fallback_sets()
             return jsonify(random.choice(fallback_sets))
@@ -17728,18 +18133,12 @@ def reading_generate():
 
         generated_text = None
 
-        # Try Groq first (faster and more reliable)
-        if groq_key:
+        # Try Gemini first, then Groq (via _ai_chat chain)
+        if gemini_key or groq_key:
             try:
-                print("Trying Groq API...")
-                response = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {groq_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "llama-3.3-70b-versatile",
+                print("Trying AI API (Gemini -> Groq)...")
+                response = _ai_chat(
+                    {
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 300,
                         "temperature": 0.8,
@@ -17747,19 +18146,21 @@ def reading_generate():
                     timeout=15.0,
                 )
 
-                print(f"Groq API status: {response.status_code}")
-
-                if response.status_code == 200:
-                    result = response.json()
-                    print(f"Groq response: {result}")
-                    generated_text = result["choices"][0]["message"]["content"]
-                    print(f"Success with Groq! Generated {len(generated_text)} chars")
+                if response is None:
+                    print("AI failed: no keys or network error")
                 else:
-                    print(f"Groq failed: {response.text[:200]}")
-            except Exception as e:
-                print(f"Groq error: {e}")
+                    print(f"AI API status: {response.status_code}")
 
-        # Fallback to HF if Groq failed
+                    if response.status_code == 200:
+                        result = response.json()
+                        generated_text = result["choices"][0]["message"]["content"]
+                        print(f"Success with AI! Generated {len(generated_text)} chars")
+                    else:
+                        print(f"AI failed: {response.text[:200]}")
+            except Exception as e:
+                print(f"AI error: {e}")
+
+        # Fallback to HF if Gemini/Groq failed
         if not generated_text and hf_token:
             try:
                 print("Trying HF API as fallback...")
