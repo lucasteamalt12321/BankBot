@@ -2818,35 +2818,63 @@ def purchase_item(user_id: int, item_id: int) -> tuple[bool, str]:
         return False, f"❌ Ошибка покупки: {str(exc)}"
 
 
+_GROQ_MODEL_CANDIDATES = [
+    "llama-3.3-70b-versatile",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "openai/gpt-oss-120b",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llama-3.1-8b-instant",
+]
+_groq_active_model = {"name": None}
+
+
 def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) -> str:
-    """Call Groq AI API with prompt."""
+    """Call Groq AI API with prompt; falls back through models when one is retired."""
     try:
         groq_key = os.getenv("GROQ_API_KEY")
         if not groq_key:
             return "❌ AI недоступен (нет GROQ_API_KEY)"
 
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",  # Updated model name
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            },
-            timeout=10.0,
-        )
+        preferred = os.getenv("GROQ_MODEL")
+        candidates = ([preferred] if preferred else []) + _GROQ_MODEL_CANDIDATES
+        active = _groq_active_model["name"]
+        if active in candidates:
+            candidates = [active] + [m for m in candidates if m != active]
 
-        if response.status_code == 200:
-            result = response.json()
-            return result["choices"][0]["message"]["content"]
-        else:
-            error_detail = response.text[:200] if response.text else "No details"
-            print(f"AI API error {response.status_code}: {error_detail}")
-            return f"❌ Ошибка AI: {response.status_code}"
+        last_status = "0"
+        for model in candidates:
+            try:
+                response = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {groq_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                    },
+                    timeout=10.0,
+                )
+            except Exception as exc:
+                print(f"Error calling AI API ({model}): {exc}")
+                return f"❌ Ошибка AI: {exc}"
+
+            if response.status_code == 200:
+                result = response.json()
+                _groq_active_model["name"] = model
+                return result["choices"][0]["message"]["content"]
+
+            last_status = str(response.status_code)
+            detail = response.text[:200] if response.text else "No details"
+            print(f"AI API error ({model}) {last_status}: {detail}")
+            # 404 = модель списана провайдером — пробуем следующую из списка.
+            if response.status_code == 404:
+                continue
+            break
+        return f"❌ Ошибка AI: {last_status}"
     except Exception as exc:
         print(f"Error calling AI API: {exc}")
         return f"❌ Ошибка AI: {str(exc)}"
@@ -12619,8 +12647,8 @@ input{width:100%;padding:11px;border-radius:10px;border:1px solid var(--bb-elev)
 </div>
 <script>
 var sid=null, items=[], idx=0, score=0;
-var AUTH_ON = document.getElementById('auth-note');
-AUTH_ON.textContent = __AUTH_HINT__ === 'on' ? '✓ Вы вошли — прогресс сохранится.' : 'Войдите на сайте, чтобы сохранять прогресс.';
+var AUTH_HINT = '__AUTH_HINT__';
+document.getElementById('auth-note').textContent = AUTH_HINT === 'on' ? '✓ Вы вошли — прогресс сохранится.' : 'Войдите на сайте, чтобы сохранять прогресс.';
 document.getElementById('start').onclick=function(){
   fetch('/api/exam/mixed?n=15').then(function(r){return r.json();}).then(function(d){
     sid=d.sid; items=d.items; idx=0; score=0;
