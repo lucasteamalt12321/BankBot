@@ -198,7 +198,8 @@ def test_hub_contains_oge_plan_widget():
     assert "loadOgePlan" in body
     assert "/api/study/recommendations" in body
     assert 'id="oge-mode-toggle"' in body
-    assert "/api/study/ai-plan" in body
+    assert "/api/study/plan" in body
+    assert "cur-overlay" in body
     assert 'data-oge="1"' in body
 
 

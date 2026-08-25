@@ -86,7 +86,7 @@ def test_informatics_page_renders(client=None):
     assert "Информатика" in body
     assert "Изучить" in body
     assert "Тренажер" in body
-    assert "ОГЭ" in body
+    assert "ОГЭ" not in body  # бейджи/суффиксы ОГЭ со страниц убраны
     assert "lesson1" in body
     assert "__TOPICS_DATA__" not in body, "topics data placeholder not substituted"
     assert "__FIRST_TOPIC__" not in body, "first topic placeholder not substituted"
