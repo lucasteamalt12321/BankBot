@@ -44,7 +44,10 @@ def test_terms_embedded_into_history_page(client):
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "История" in body
-    assert "terms-wrap" in body and "t-cat" in body
+    assert "terms-wrap" not in body
+    assert 'id="tab-terms"' in body and 'id="panel-terms"' in body
+    assert "t-cat" in body and 'id="t-inp"' in body and 'id="t-check"' in body
+    assert ">Знаю<" not in body and "Показать определение" not in body
     assert "Опричнина" in body or "Полюдье" in body
     assert "__TERMS_DATA__" not in body
 
