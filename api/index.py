@@ -4673,6 +4673,26 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
 .oge-ai-head button { margin-left: auto; background: none; border: none; color: var(--bb-muted); cursor: pointer; font-size: 15px; line-height: 1; }
 .oge-ai-head button:hover { color: var(--bb-accent); }
 .oge-ai-text { white-space: pre-wrap; font-size: 13px; line-height: 1.55; color: var(--bb-text); }
+.oge-chips { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 4px; }
+.oge-chip { padding:5px 12px; border-radius:14px; border:1px solid var(--bb-border); background:var(--bb-elev); color:var(--bb-muted); font-size:12px; cursor:pointer; font-family:inherit; }
+.oge-chip.active { background:var(--bb-accent); border-color:var(--bb-accent); color:#0f1420; font-weight:600; }
+.oge-today-line { font-size:12px; color:var(--bb-muted); margin-top:8px; }
+.cur-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; z-index:1200; align-items:center; justify-content:center; padding:16px; }
+.cur-modal { width:min(680px,100%); max-height:88vh; overflow:auto; background:var(--bb-panel); border:1px solid var(--bb-primary); border-radius:16px; padding:18px; }
+.cur-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+.cur-head h2 { font-size:17px; margin:0; color:var(--bb-accent); }
+.cur-head .cur-x { margin-left:auto; background:none; border:none; color:var(--bb-muted); font-size:16px; cursor:pointer; }
+.cur-head .cur-x:hover { color:var(--bb-accent); }
+.cur-btn { padding:8px 14px; border-radius:10px; border:1px solid var(--bb-accent); background:var(--bb-accent); color:#0f1420; font-weight:600; font-size:13px; cursor:pointer; font-family:inherit; margin-top:6px; }
+.cur-btn:disabled { opacity:.5; cursor:default; }
+.cur-item { display:flex; gap:8px; align-items:center; font-size:13px; padding:7px 9px; border:1px solid var(--bb-border); border-radius:10px; margin-bottom:6px; }
+.cur-item.done { opacity:.55; text-decoration:line-through; }
+.cur-log { display:flex; flex-direction:column; gap:8px; max-height:300px; overflow:auto; margin-bottom:10px; padding-right:4px; }
+.cur-msg { font-size:13px; line-height:1.5; padding:8px 11px; border-radius:12px; max-width:85%; white-space:pre-wrap; word-wrap:break-word; }
+.cur-msg.user { align-self:flex-end; background:rgba(91,141,239,.18); border:1px solid var(--bb-link); }
+.cur-msg.bot { align-self:flex-start; background:var(--bb-elev); border:1px solid var(--bb-border); }
+.cur-row { display:flex; gap:8px; }
+.cur-row input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--bb-elev); background:var(--bb-bg); color:var(--bb-text); font-size:14px; }
 .card-badge { display: inline-block; min-width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 2px 7px; margin-left: 6px; vertical-align: middle; }
 </style>
 </head>
@@ -4752,12 +4772,19 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 <label><input type="checkbox" id="oge-mode-toggle"> 🎯 Режим подготовки к ОГЭ</label>
             </div>
             <div class="oge-plan" id="oge-plan">
-                <div class="oge-plan-head"><h2>📌 План на сегодня</h2><span>ОГЭ-центр</span></div>
-                <div class="oge-ai-box" id="oge-ai-box" style="display:none;">
-                    <div class="oge-ai-head">✨ Персональный план от ИИ <button id="oge-ai-regen" title="Сгенерировать заново">↻</button></div>
-                    <div class="oge-ai-text" id="oge-ai-text"></div>
-                </div>
+                <div class="oge-plan-head" id="oge-open" style="cursor:pointer" title="Открыть ИИ-куратора"><h2>📌 План на день</h2><span>ИИ-куратор · нажмите, чтобы открыть</span></div>
+                <div class="oge-chips" id="oge-chips"></div>
                 <div class="oge-plan-list" id="oge-plan-list"><div class="oge-plan-empty">Загрузка…</div></div>
+                <div class="oge-today-line" id="oge-today-line"></div>
+            </div>
+            <div class="cur-overlay" id="cur-overlay">
+                <div class="cur-modal">
+                    <div class="cur-head"><h2>🤖 ИИ-куратор</h2><span id="cur-date" style="font-size:12px;color:var(--bb-muted)"></span><button class="cur-x" id="cur-regen" title="Пересобрать план">↻</button><button class="cur-x" id="cur-close" title="Закрыть">✕</button></div>
+                    <div class="oge-chips" id="cur-chips" style="margin:0 0 10px;"></div>
+                    <div id="cur-plan"></div>
+                    <div class="cur-log" id="cur-log"></div>
+                    <div class="cur-row"><input id="cur-input" placeholder="Спросите куратора…"><button class="cur-btn" id="cur-send" style="margin-top:0">➤</button></div>
+                </div>
             </div>
             <button class="beta-toggle" id="beta-toggle" onclick="toggleBeta()">
                 <div class="beta-toggle-left">
@@ -4944,63 +4971,184 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var t = document.getElementById('oge-mode-toggle'); if (t) t.checked = on;
                     var w = document.getElementById('oge-plan'); if (w) w.style.display = on ? '' : 'none';
                 }
-                function renderAiBox(plan) {
-                    var box = document.getElementById('oge-ai-box');
-                    if (!box) return;
-                    if (!plan) { box.style.display = 'none'; return; }
-                    box.style.display = '';
-                    document.getElementById('oge-ai-text').textContent = plan;
-                }
-                function loadAiPlan(force) {
-                    if (!localStorage.getItem('web_token') || !ogeModeOn()) { renderAiBox(null); return; }
-                    var txt = document.getElementById('oge-ai-text');
-                    if (force && txt) txt.textContent = 'Генерирую план…';
-                    fetch('/api/study/ai-plan' + (force ? '?force=1' : ''), { headers: { 'X-Auth-Token': localStorage.getItem('web_token') } })
-                        .then(function (r) { return r.ok ? r.json() : null; })
-                        .then(function (d) { renderAiBox(d && d.ok && d.plan ? d.plan : null); })
-                        .catch(function () { renderAiBox(null); });
-                }
-                var aiRegen = document.getElementById('oge-ai-regen');
-                if (aiRegen) aiRegen.addEventListener('click', function () { loadAiPlan(true); });
                 var ogeToggle = document.getElementById('oge-mode-toggle');
                 if (ogeToggle) ogeToggle.addEventListener('change', function () {
                     localStorage.setItem('oge_mode', ogeToggle.checked ? '1' : '0');
                     applyOgeMode();
                     if (ogeToggle.checked) loadOgePlan();
                 });
+                var CUR_TARGET = parseInt(localStorage.getItem('oge_target_min') || '10', 10) || 10;
+                var PLAN = null;
+                function curAuth(h) {
+                    h = h || {}; var t = localStorage.getItem('web_token');
+                    if (t) h['X-Auth-Token'] = t; return h;
+                }
+                function escHtml(s) {
+                    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+                        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+                    });
+                }
+                function renderChips() {
+                    [5, 10, 15, 20, 30].forEach(function () {});
+                    ['oge-chips', 'cur-chips'].forEach(function (id) {
+                        var el = document.getElementById(id); if (!el) return;
+                        el.innerHTML = '';
+                        [5, 10, 15, 20, 30].forEach(function (m) {
+                            var btn = document.createElement('button');
+                            btn.className = 'oge-chip' + (m === CUR_TARGET ? ' active' : '');
+                            btn.textContent = m + ' \u043C\u0438\u043D';
+                            btn.onclick = function () { setTarget(m); };
+                            el.appendChild(btn);
+                        });
+                    });
+                }
+                function setTarget(m) {
+                    if (m === CUR_TARGET) return;
+                    CUR_TARGET = m; localStorage.setItem('oge_target_min', String(m));
+                    renderChips();
+                    if (localStorage.getItem('web_token')) regenPlan();
+                    else loadOgePlan();
+                }
                 function loadOgePlan() {
-                    var list = document.getElementById('oge-plan-list');
-                    if (!list) return;
                     applyOgeMode();
-                    if (!ogeModeOn()) return;
+                    var list = document.getElementById('oge-plan-list');
+                    if (!list || !ogeModeOn()) return;
                     var token = localStorage.getItem('web_token');
                     var uid = localStorage.getItem('web_user_id') || '';
                     if (!token || uid.indexOf('u') !== 0) {
-                        list.innerHTML = '<div class="oge-plan-empty">Войдите — и ОГЭ-центр сам подскажет, что учить сегодня.</div>';
+                        list.innerHTML = '<div class="oge-plan-empty">\u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u2014 \u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u0441\u0430\u043C \u0441\u043E\u0441\u0442\u0430\u0432\u0438\u0442 \u043F\u043B\u0430\u043D \u043D\u0430 \u0434\u0435\u043D\u044C.</div>';
                         return;
                     }
-                    fetch('/api/study/recommendations', { headers: { 'X-Auth-Token': token } })
+                    fetch('/api/study/recommendations', { headers: curAuth() })
                         .then(function (r) { return r.json(); })
                         .then(function (d) {
-                            if (!d || !d.subjects) return;
-                            var html = '';
-                            d.subjects.forEach(function (s) {
-                                var cnt = s.due + s.weak;
-                                html += '<a class="oge-item" href="' + s.next_action.url + '">' +
-                                    '<span class="oi-emoji">' + s.emoji + '</span>' +
-                                    '<span class="oi-label">' + s.label + '</span>' +
-                                    '<span class="oi-action">' + s.next_action.text + '</span>' +
-                                    '<span class="oi-badge' + (cnt ? '' : ' zero') + '">' + (cnt ? cnt : '✓') + '</span>' +
-                                    '</a>';
-                                updateCardBadge(s.url, cnt);
-                            });
-                            list.innerHTML = html;
-                            loadAiPlan(false);
+                            if (d && d.subjects) d.subjects.forEach(function (s) { updateCardBadge(s.url, s.due + s.weak); });
+                            return fetch('/api/study/plan?minutes=' + CUR_TARGET, { headers: curAuth() });
+                        })
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .then(function (p) {
+                            if (p && p.ok) { PLAN = p; renderWidgetPlan(p); renderCurPlan(p); }
                         })
                         .catch(function () {
-                            list.innerHTML = '<div class="oge-plan-empty">План временно недоступен</div>';
+                            list.innerHTML = '<div class="oge-plan-empty">\u041F\u043B\u0430\u043D \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D</div>';
                         });
+                    pollToday();
                 }
+                function renderWidgetPlan(p) {
+                    var list = document.getElementById('oge-plan-list'); if (!list) return;
+                    var html = '';
+                    p.items.forEach(function (it, i) {
+                        html += '<div class="oge-item" data-i="' + i + '" style="cursor:pointer">' +
+                            escHtml(it.label) + ' \u2014 ' + escHtml(it.text) +
+                            ' <span class="oi-badge">' + it.minutes + '\u043C</span></div>';
+                    });
+                    html += '<div class="oge-plan-empty">\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E ' + p.done + ' \u0438\u0437 ' + p.items.length + ' \u00B7 \u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u0430</div>';
+                    list.innerHTML = html;
+                    Array.prototype.forEach.call(list.querySelectorAll('.oge-item'), function (el) {
+                        el.onclick = openCurator;
+                    });
+                }
+                function openCurator() {
+                    var ov = document.getElementById('cur-overlay'); if (!ov) return;
+                    ov.style.display = 'flex';
+                    document.getElementById('cur-date').textContent = new Date().toLocaleDateString('ru-RU');
+                    renderChips();
+                    if (PLAN) { renderCurPlan(PLAN); } else { loadOgePlan(); }
+                    loadChat();
+                }
+                function closeCurator() { var ov = document.getElementById('cur-overlay'); if (ov) ov.style.display = 'none'; }
+                function renderCurPlan(p) {
+                    var el = document.getElementById('cur-plan'); if (!el) return;
+                    var h = '';
+                    p.items.forEach(function (it, i) {
+                        var done = i < p.done;
+                        h += '<div class="cur-item' + (done ? ' done' : '') + '"><span>' + (done ? '\u2705' : '\u2B1C') +
+                            '</span><span>' + escHtml((it.label || '') + ' \u2014 ' + it.text) +
+                            '</span><span style="margin-left:auto;color:var(--bb-muted)">' + it.minutes + ' \u043C\u0438\u043D</span></div>';
+                    });
+                    var more = p.done < p.items.length;
+                    h += '<button class="cur-btn" id="cur-mark"' + (more ? '' : ' disabled') + '>' +
+                        (more ? '\u2713 \u041E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u043C (' + (p.done + 1) + ')' : '\U0001F389 \u041F\u043B\u0430\u043D \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D!') + '</button>';
+                    el.innerHTML = h;
+                    var mb = document.getElementById('cur-mark');
+                    if (mb && more) mb.onclick = markDone;
+                }
+                function markDone() {
+                    fetch('/api/study/plan/done', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ delta: 1 }) })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            if (d && d.ok && PLAN) { PLAN.done = d.done; renderWidgetPlan(PLAN); renderCurPlan(PLAN); pollToday(); }
+                        }).catch(function () {});
+                }
+                function regenPlan() {
+                    var l = document.getElementById('oge-plan-list');
+                    if (l) l.innerHTML = '<div class="oge-plan-empty">\u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0441\u043E\u0431\u0438\u0440\u0430\u0435\u0442 \u043F\u043B\u0430\u043D\u2026</div>';
+                    fetch('/api/study/plan', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ minutes: CUR_TARGET }) })
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .then(function (p) {
+                            if (p && p.ok) {
+                                PLAN = p; renderWidgetPlan(p);
+                                var ov = document.getElementById('cur-overlay');
+                                if (ov && ov.style.display !== 'none') renderCurPlan(p);
+                            }
+                        }).catch(function () {});
+                }
+                var todayTimer = null;
+                function pollToday() {
+                    if (!localStorage.getItem('web_token')) return;
+                    fetch('/api/study/today', { headers: curAuth() })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            var el = document.getElementById('oge-today-line');
+                            if (el && d && d.ok) el.textContent = '\u0421\u0435\u0433\u043E\u0434\u043D\u044F \u043E\u0442\u043C\u0435\u0447\u0435\u043D\u043E \u043A\u0430\u0440\u0442\u043E\u0447\u0435\u043A: ' + d.touched;
+                        }).catch(function () {});
+                    clearTimeout(todayTimer);
+                    todayTimer = setTimeout(pollToday, 60000);
+                }
+                function bubble(role, text) {
+                    var log = document.getElementById('cur-log'); if (!log) return;
+                    var div = document.createElement('div');
+                    div.className = 'cur-msg ' + (role === 'user' ? 'user' : 'bot');
+                    div.textContent = text;
+                    log.appendChild(div);
+                    log.scrollTop = log.scrollHeight;
+                }
+                function loadChat() {
+                    fetch('/api/study/chat', { headers: curAuth() })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            var log = document.getElementById('cur-log'); if (!log) return;
+                            log.innerHTML = '';
+                            (d.messages || []).forEach(function (m) { bubble(m.role, m.content); });
+                        }).catch(function () {});
+                }
+                function sendChat() {
+                    var inp = document.getElementById('cur-input');
+                    var v = (inp.value || '').trim(); if (!v) return;
+                    inp.value = ''; bubble('user', v);
+                    var btn = document.getElementById('cur-send'); btn.disabled = true;
+                    fetch('/api/study/chat', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ message: v }) })
+                        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                        .then(function (res) {
+                            btn.disabled = false;
+                            if (res.j && res.j.reply) bubble('assistant', res.j.reply);
+                            else bubble('assistant', '\u274C \u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.');
+                        })
+                        .catch(function () { btn.disabled = false; bubble('assistant', '\u274C \u041D\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u043E\u043C.'); });
+                }
+                var curSend = document.getElementById('cur-send');
+                if (curSend) curSend.onclick = sendChat;
+                var curInput = document.getElementById('cur-input');
+                if (curInput) curInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+                var curClose = document.getElementById('cur-close');
+                if (curClose) curClose.onclick = closeCurator;
+                var curRegen = document.getElementById('cur-regen');
+                if (curRegen) curRegen.onclick = regenPlan;
+                var curOverlayEl = document.getElementById('cur-overlay');
+                if (curOverlayEl) curOverlayEl.addEventListener('click', function (e) { if (e.target.id === 'cur-overlay') closeCurator(); });
+                var ogeOpen = document.getElementById('oge-open');
+                if (ogeOpen) ogeOpen.addEventListener('click', openCurator);
+                renderChips();
                 function updateCardBadge(url, cnt) {
                     var card = document.querySelector('.beta-cards .card[href="' + url + '"]');
                     if (!card) return;
