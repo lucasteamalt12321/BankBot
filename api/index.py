@@ -2961,8 +2961,7 @@ def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) ->
             result = response.json()
             return result["choices"][0]["message"]["content"]
         except Exception as exc:
-            print(f"Error calling AI API: {exc}")
-            return f"❌ Ошибка AI: {str(exc)}"
+            print(f"Error parsing primary AI response: {exc}")
 
     # Фоллбэк: перебор актуальных моделей Groq
     groq_key = os.getenv("GROQ_API_KEY")
@@ -2995,7 +2994,7 @@ def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) ->
                 )
             except Exception as exc:
                 print(f"Error calling AI API ({model}): {exc}")
-                return f"❌ Ошибка AI: {exc}"
+                continue
 
             if response.status_code == 200:
                 result = response.json()
@@ -3005,8 +3004,8 @@ def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) ->
             last_status = str(response.status_code)
             detail = response.text[:200] if response.text else "No details"
             print(f"AI API error ({model}) {last_status}: {detail}")
-            # 404 = модель списана провайдером — пробуем следующую из списка.
-            if response.status_code == 404:
+            # 404 = модель списана провайдером, 429 = rate limit — пробуем следующую.
+            if response.status_code in (404, 429):
                 continue
             break
         return f"❌ Ошибка AI: {last_status}"
@@ -13798,6 +13797,32 @@ _OGE_CHAT_KEEP = 80
 _OGE_CHAT_CONTEXT = 12
 
 
+def _curator_fallback_reply(subjects, plan_lines):
+    """Rule-based curator answer for when every AI provider is unreachable."""
+    reply_parts = []
+    items = []
+    for line in plan_lines[1:]:
+        m = re.match(r"\d+\) \[(.*?)\] (.*?) \((\d+) мин\)", line)
+        if m:
+            items.append({"label": m.group(1), "text": m.group(2), "minutes": int(m.group(3))})
+    if items:
+        reply_parts.append(
+            "План на сегодня: " + "; ".join(f"{it['text']} ({it['minutes']} мин)" for it in items) + "."
+        )
+    nxt = (
+        next((s for s in subjects if s["weak"] > 0), None)
+        or next((s for s in subjects if s["due"] > 0), None)
+        or next((s for s in subjects if s.get("started", 0) < s.get("total", 0)), None)
+    )
+    if nxt:
+        act = nxt["next_action"]["text"]
+        reply_parts.append(f"Советую сейчас: {nxt['label']} — {act}.")
+    if plan_lines:
+        reply_parts.append(plan_lines[0])
+    reply_parts.append("⚠️ ИИ временно недоступен — это автоподсказка; напишите ещё раз чуть позже.")
+    return " ".join(reply_parts)
+
+
 def _chat_history(conn, uid, limit=_OGE_CHAT_CONTEXT):
     rows = conn.execute(text(
         "SELECT role, content, created_at FROM ("
@@ -13855,8 +13880,9 @@ def api_study_chat_send():
         print(f"[OGE] chat context error: {exc}")
         plan_lines.append("Статистика временно недоступна.")
     budget_lines.append(f"Бюджет времени в день: {minutes} минут.")
+    subjects = _oge_subjects_payload(uid, now)[:5]
     subj_lines = []
-    for s in _oge_subjects_payload(uid, now)[:5]:
+    for s in subjects:
         subj_lines.append(
             f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
             f"слабых тем {s['weak']} → {s['next_action']['text']}"
@@ -13885,7 +13911,8 @@ def api_study_chat_send():
     )
     reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
     if not reply or reply.startswith("❌"):
-        return jsonify({"ok": False, "error": "ai unavailable", "detail": reply or ""}), 502
+        print("[OGE] curator AI unavailable, using rule fallback")
+        reply = _curator_fallback_reply(subjects, plan_lines)
     try:
         with engine.begin() as conn:
             conn.execute(text(
