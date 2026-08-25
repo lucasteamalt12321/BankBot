@@ -217,12 +217,50 @@ except ImportError:
 # Centralized light/dark theme injection for all HTML responses
 from core.theme import inject_theme
 
+_OGE_HINT_PAGES = {"/math": "math", "/russian": "russian", "/physics": "physics",
+                   "/informatics": "informatics", "/emperors": "history"}
+
+_OGE_HINT_JS = """<script>
+(function(){
+  var MOD='%s';
+  var tok=localStorage.getItem('web_token');
+  var H={};
+  if(tok)H['X-Auth-Token']=tok;
+  fetch('/api/study/hint?module='+MOD,{headers:H})
+   .then(function(r){return r.json();})
+   .then(function(d){
+      if(!d||!d.ok)return;
+      if(tok&&localStorage.getItem('aihint_dismiss')===d.text)return;
+      var el=document.createElement('a');
+      el.href=d.url;
+      el.id='ai-hint-bar';
+      el.style.cssText='position:fixed;left:14px;bottom:14px;z-index:900;display:block;'
+        +'background:linear-gradient(135deg,rgba(91,141,239,.16),rgba(74,144,232,.06));'
+        +'border:1px solid var(--bb-primary);color:var(--bb-text);padding:9px 14px;'
+        +'border-radius:12px;font-size:13px;line-height:1.4;text-decoration:none;'
+        +'max-width:78vw;box-shadow:0 4px 18px rgba(0,0,0,.25)';
+      el.textContent='\u2728 \u0418\u0418 \u0441\u043E\u0432\u0435\u0442\u0443\u0435\u0442: '+d.text;
+      var x=document.createElement('span');
+      x.textContent=' \u00D7';
+      x.style.cssText='color:var(--bb-muted);font-weight:700;margin-left:6px';
+      x.onclick=function(ev){ev.preventDefault();ev.stopPropagation();el.remove();localStorage.setItem('aihint_dismiss',d.text);};
+      el.appendChild(x);
+      document.body.appendChild(el);
+   })
+   .catch(function(){});
+})();
+</script>"""
+
+
 @app.after_request
 def _inject_theme_into_response(response):
     ctype = response.headers.get("Content-Type", "")
     if "text/html" in ctype:
         try:
             body = response.get_data(as_text=True)
+            mod = _OGE_HINT_PAGES.get(request.path.rstrip("/") or request.path)
+            if mod and "</html>" in body:
+                body = body.replace("</html>", _OGE_HINT_JS % mod + "</html>", 1)
             response.set_data(inject_theme(body))
         except Exception:
             pass
@@ -13867,6 +13905,57 @@ def api_study_chat_send():
         return jsonify({"ok": False, "error": "storage failed"}), 500
     return jsonify({"ok": True, "reply": reply})
 
+
+@app.route("/api/study/hint", methods=["GET"])
+def api_study_hint():
+    """Rule-based AI suggestion of topic/mode for a subject page banner."""
+    module = request.args.get("module", "")
+    meta = OGE_MODULES.get(module)
+    if not meta:
+        return jsonify({"ok": False, "error": "unknown module"}), 400
+    base = {"ok": True, "module": module}
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify(dict(base, text="Пройдите карточки первой темы — это фундамент",
+                            url=meta["url"], mode="flash"))
+    uid = _web_user_id("u" + str(user["id"]))
+    now = time.time()
+    subjects = {s["module"]: s for s in _oge_subjects_payload(uid, now)}
+    s = subjects[module]
+    pref_cnt = {"formula": 0, "rule": 0, "task": 0, "term": 0}
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT card_key FROM study_progress "
+                "WHERE user_id=:u AND module=:m AND due>0 AND due<=:n LIMIT 120"
+            ), {"u": uid, "m": module, "n": now}).mappings().all()
+            for r in rows:
+                p = str(r["card_key"]).split("::", 1)[0]
+                if p in pref_cnt:
+                    pref_cnt[p] += 1
+    except Exception as exc:
+        print(f"[OGE] hint stats error: {exc}")
+    if s["due"] > 0:
+        dominant = max(pref_cnt, key=lambda k: pref_cnt[k])
+        if not pref_cnt[dominant]:
+            dominant = "formula"
+        mode = "tasks" if dominant == "task" else "flash"
+        noun = {"formula": "формул", "rule": "правил", "term": "терминов", "task": "задач"}[dominant]
+        hint_text = f"Повторите {s['due']} просроченных карточек ({noun})"
+        url = meta["url"] + ("?algo=flash" if mode == "flash" else "")
+    elif s["weak"] > 0:
+        mode = "tasks"
+        hint_text = f"Разберите {s['weak']} слабых мест в тренажёре задач"
+        url = meta["url"]
+    elif s["started"] == 0:
+        mode = "flash"
+        hint_text = "Начните с первых карточек темы №1"
+        url = meta["url"]
+    else:
+        mode = "exam"
+        hint_text = "Форма поддерживается — устройте себе короткий экзамен"
+        url = "/exam"
+    return jsonify(dict(base, text=hint_text, url=url, mode=mode))
 
 @app.route("/api/trivia/question", methods=["POST"])
 def api_trivia_question():

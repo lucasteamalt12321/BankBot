@@ -226,3 +226,61 @@ def test_today_touched_endpoint_counts_rows():
         assert d["ok"] and d["touched"] >= 1
     finally:
         _stop(patches)
+
+
+def test_hint_unknown_module_400_and_anon_generic():
+    import api.index as m
+
+    engine = _make_engine()
+    c = m.app.test_client()
+    p = patch("api.index.get_db_engine", return_value=engine)
+    p.start()
+    try:
+        assert c.get("/api/study/hint?module=nope").status_code == 400
+        d = c.get("/api/study/hint?module=math").get_json()
+        assert d["ok"] and "карточки" in d["text"] and d["url"] == "/math"
+    finally:
+        p.stop()
+
+
+def test_hint_due_weak_and_fresh_scenarios():
+    m, c, patches = _setup()
+    try:
+        uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
+        import time as _t
+        now = _t.time()
+        with m.get_db_engine().begin() as conn:
+            conn.execute(m.text(
+                "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
+                " due, streak, correct_count, wrong_count, counter, updated_at)"
+                " VALUES (:u,'math','formula::f01',0,0,2.5,:past,0,0,3,-2,:ts)"
+            ), {"u": uid, "past": now - 10, "ts": now})
+            conn.execute(m.text(
+                "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
+                " due, streak, correct_count, wrong_count, counter, updated_at)"
+                " VALUES (:u,'russian','rule::r01',1,1,2.5,:future,1,1,0,1,:ts),"
+                " (:u,'russian','rule::r02',0,0,2.5,:future,0,0,2,-1,:ts)"
+            ), {"u": uid, "future": now + 99999, "ts": now})
+        d1 = c.get("/api/study/hint?module=math", headers=AUTH_HEADERS).get_json()
+        assert d1["ok"] and "Повторите" in d1["text"] and "формул" in d1["text"]
+        assert d1["mode"] == "flash"
+        d2 = c.get("/api/study/hint?module=russian", headers=AUTH_HEADERS).get_json()
+        assert d2["ok"] and ("слабых" in d2["text"])
+        with m.get_db_engine().begin() as conn:
+            conn.execute(m.text("DELETE FROM study_progress WHERE user_id=:u AND module='math'"),
+                         {"u": uid})
+        d3 = c.get("/api/study/hint?module=math", headers=AUTH_HEADERS).get_json()
+        assert d3["ok"] and "Начните" in d3["text"]
+    finally:
+        _stop(patches)
+
+
+def test_subject_pages_get_hint_snippet_injected():
+    m, c, patches = _setup()
+    try:
+        for page in ("/math", "/physics", "/russian", "/emperors"):
+            html = c.get(page).get_data(as_text=True)
+            assert "api/study/hint?module=" in html, page
+            assert 'id="ai-hint-bar"' not in html  # создаётся только из JS
+    finally:
+        _stop(patches)
