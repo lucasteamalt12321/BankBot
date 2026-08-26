@@ -14,7 +14,6 @@
 - **Тесты**: 53 passed (17 curator + 16 study_progress + 20 emperors). В проде.
 
 ### Осталось:
-- Добавить выбор алгоритма квиза (deck/flash/smart) на страницы Math/Physics/Russian
 - Обновить projectbrief.md deliverables (OGE-08…12 → completed)
 - Деплой подтверждён: bank-bot-ruby.vercel.app ✓ Ready
 
