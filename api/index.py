@@ -13722,58 +13722,205 @@ def api_quiz_check():
 
 @app.route("/api/quiz/ai-generate", methods=["POST"])
 def api_quiz_ai_generate():
-    """Generate a single AI-powered quiz question for any module. NOT saved to chat history."""
+    """AI curator picks the best existing question from the DB for this student. NOT saved to chat history."""
     data = request.get_json(silent=True) or {}
     module = str(data.get("module") or "")
     topic = str(data.get("topic") or "")
     if module not in OGE_MODULES:
         return jsonify({"ok": False, "error": "unknown module"}), 400
-    module_names = {
-        "history": "истории (ОГЭ, события, деятели, даты, термины)",
-        "informatics": "информатики (алгоритмы, Python, сети, данные)",
-        "math": "математике (алгебра, геометрия, формулы, задачи)",
-        "russian": "русскому языку (правила, орфография, пунктуация, термины)",
-        "physics": "физике (механика, электричество, оптика, формулы)",
-    }
-    mod_name = module_names.get(module, module)
-    topic_hint = f"Тема: {topic}.\n" if topic else ""
+
+    # ── 1. Build condensed catalog of available questions ──
+    catalog = []  # list of {"key": ..., "q": short question, "t": topic}
+    if module == "history":
+        from core.history import EVENTS as _HE, PERSONS as _HP
+        from core.history.terms import TERMS as _HT
+        for it in _HE:
+            catalog.append({"key": "event::" + it.title, "q": it.title + " (" + it.year + ")", "t": "события"})
+        for it in _HP:
+            catalog.append({"key": "person::" + it.name, "q": it.name, "t": "деятели"})
+        for it in _HT:
+            catalog.append({"key": "term::" + it.term, "q": it.term + " — " + it.definition[:60], "t": it.category})
+    elif module == "informatics":
+        from core.informatics.tasks import get_all_tasks as _info_tasks
+        for t in _info_tasks():
+            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "")})
+    elif module == "math":
+        from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
+        for f in _mf:
+            catalog.append({"key": "formula::" + f.id, "q": f.title, "t": "формулы"})
+        for t in _mt:
+            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "задачи")})
+    elif module == "russian":
+        from core.russian.rules import TASKS as _rt, RULES as _rr
+        for r in _rr:
+            catalog.append({"key": "rule::" + r.id, "q": r.title, "t": "правила"})
+        for t in _rt:
+            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "задачи")})
+    elif module == "physics":
+        from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
+        for f in _pf:
+            catalog.append({"key": "formula::" + f.id, "q": f.title, "t": "формулы"})
+        for t in _pt:
+            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "задачи")})
+
+    if not catalog:
+        return jsonify({"ok": False, "error": "empty catalog"}), 400
+
+    # ── 2. Student progress: weak items ──
+    weak_keys = []
+    user = _get_session_user(_auth_token_from_request())
+    uid = _web_user_id("u" + str(user["id"])) if user else None
+    if uid:
+        try:
+            engine = get_db_engine()
+            with engine.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT card_key, streak, correct_count, wrong_count "
+                    "FROM study_progress WHERE user_id=:u AND module=:m"
+                ), {"u": uid, "m": module}).mappings().all()
+                for r in rows:
+                    s = int(r["streak"])
+                    c = int(r["correct_count"])
+                    w = int(r["wrong_count"])
+                    if s < 0 or w > c:
+                        weak_keys.append(r["card_key"])
+        except Exception:
+            pass
+
+    # ── 3. Build prompt for AI curator ──
+    topic_hint = ""
+    if topic:
+        catalog_filtered = [c for c in catalog if topic.lower() in c.get("t", "").lower()]
+        if catalog_filtered:
+            catalog = catalog_filtered
+            topic_hint = f"(ученик выбрал тему: {topic}) "
+
+    # Condensed catalog: key|short question — max 150 items to fit prompt
+    cat_lines = []
+    for c in catalog[:150]:
+        cat_lines.append(f'{c["key"]}|{c["q"]}')
+    cat_text = "\n".join(cat_lines)
+
+    weak_text = ", ".join(weak_keys[:20]) if weak_keys else "нет"
+    module_ru = {"history": "История", "informatics": "Информатика", "math": "Математика",
+                 "russian": "Русский язык", "physics": "Физика"}.get(module, module)
+
     prompt = (
-        "Ты — преподаватель, составляющий тест для ОГЭ.\n"
-        f"Предмет: {mod_name}.\n"
+        f"Ты — ИИ-куратор ученика, готовящегося к ОГЭ по {module_ru}.\n"
         f"{topic_hint}"
-        "Сгенерируй ОДИН вопрос с 4 вариантами ответа (A, B, C, D). "
-        "Один правильный. Уровень — ОГЭ (9 класс).\n"
-        "Ответь СТРОГО в формате JSON без пояснений:\n"
-        '{"question":"текст вопроса","options":["A","B","C","D"],"correct":0,"explanation":"краткое объяснение"}\n'
-        "где correct — индекс правильного ответа (0-3)."
+        f"Слабые карточки ученика: {weak_text}.\n\n"
+        "Выбери ОДНУ карточку из каталога, которая больше всего подходит ученику прямо сейчас.\n"
+        "Приоритет: 1) слабые карточки (если есть), 2) новые (не встречались), 3) повтор.\n\n"
+        f"Каталог (ключ|вопрос):\n{cat_text}\n\n"
+        "Верни ТОЛЬКО JSON:\n"
+        '{"key":"выбранный ключ"}\n'
+        "Без пояснений."
     )
+
+    # ── 4. Call AI (NOT saved to chat history) ──
     reply = None
     for _attempt in range(3):
-        reply = call_ai_api(prompt, max_tokens=400, temperature=0.8)
+        reply = call_ai_api(prompt, max_tokens=200, temperature=0.5)
         if reply and not reply.startswith("\u274C"):
             break
         time.sleep(min(4, 1 * (2 ** _attempt)))
     if not reply or reply.startswith("\u274C"):
-        return jsonify({"ok": False, "error": "AI unavailable"}), 503
-    try:
-        match = re.search(r"\{.*\}", reply, re.DOTALL)
-        if not match:
-            return jsonify({"ok": False, "error": "bad AI response"}), 502
-        q = json.loads(match.group(0))
-        options = q.get("options", [])
-        if len(options) < 4:
-            return jsonify({"ok": False, "error": "not enough options"}), 502
-        return jsonify({
-            "ok": True,
-            "question": q.get("question", ""),
-            "options": options[:4],
-            "correct": int(q.get("correct", 0)),
-            "explanation": q.get("explanation", ""),
-            "module": module,
-        })
-    except Exception as exc:
-        print(f"[QUIZ] ai-generate parse error: {exc}")
-        return jsonify({"ok": False, "error": "parse error"}), 502
+        # Fallback: pick a weak item or random
+        if weak_keys:
+            chosen_key = random.choice(weak_keys)
+        else:
+            chosen_key = random.choice(catalog)["key"]
+    else:
+        try:
+            match = re.search(r'\{"key"\s*:\s*"([^"]+)"\}', reply)
+            if match:
+                chosen_key = match.group(1)
+            else:
+                chosen_key = random.choice(weak_keys) if weak_keys else random.choice(catalog)["key"]
+        except Exception:
+            chosen_key = random.choice(weak_keys) if weak_keys else random.choice(catalog)["key"]
+
+    # ── 5. Look up full question from pool ──
+    pool = []
+    if module == "history":
+        from core.history import EVENTS as _HE, PERSONS as _HP
+        from core.history.terms import TERMS as _HT
+        for it in _HE:
+            pool.append({"key": "event::" + it.title, "question": it.title,
+                         "_answer": it.emperor_id, "type": "mcq",
+                         "context": it.note, "explanation": f"{it.year}, {it.emperor_id}"})
+        for it in _HP:
+            pool.append({"key": "person::" + it.name, "question": it.name,
+                         "_answer": it.emperor_id, "type": "mcq",
+                         "context": it.description, "explanation": it.description[:100]})
+        for it in _HT:
+            pool.append({"key": "term::" + it.term, "question": it.definition,
+                         "_answer": it.term, "type": "mcq", "context": ""})
+    elif module == "informatics":
+        from core.informatics.tasks import get_all_tasks as _info_tasks
+        for t in _info_tasks():
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+    elif module == "math":
+        from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
+        for t in _mt:
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+        for f in _mf:
+            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
+                         "_answer": f.formula, "type": "mcq", "context": f.note})
+    elif module == "russian":
+        from core.russian.rules import TASKS as _rt, RULES as _rr
+        for t in _rt:
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+        for r in _rr:
+            pool.append({"key": "rule::" + r.id, "question": r.title,
+                         "_answer": r.rule, "type": "mcq", "context": r.example})
+    elif module == "physics":
+        from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
+        for t in _pt:
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+        for f in _pf:
+            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
+                         "_answer": f.formula, "type": "mcq", "context": f.note})
+
+    chosen = None
+    for p in pool:
+        if p["key"] == chosen_key:
+            chosen = p
+            break
+    if not chosen:
+        chosen = random.choice(pool) if pool else None
+    if not chosen:
+        return jsonify({"ok": False, "error": "no question found"}), 500
+
+    # ── 6. Format response ──
+    q = {"question": chosen["question"], "type": chosen.get("type", "text"),
+         "explanation": chosen.get("explanation", ""), "hint": chosen.get("hint", ""),
+         "context": chosen.get("context", ""), "key": chosen["key"], "module": module}
+    if chosen.get("type") == "mcq":
+        correct = chosen["_answer"]
+        distractors = list({p["_answer"] for p in pool
+                           if p["_answer"] != correct and p.get("type") == "mcq"})
+        random.shuffle(distractors)
+        options = [correct] + distractors[:3]
+        random.shuffle(options)
+        q["options"] = options
+        q["correct"] = options.index(correct)
+    else:
+        q["answer"] = chosen["_answer"]
+
+    return jsonify({"ok": True, **q})
 
 
 @app.route("/exam")
