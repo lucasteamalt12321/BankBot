@@ -66,7 +66,7 @@ def test_anon_401_on_all_curator_endpoints():
     try:
         assert c.get("/api/study/plan").status_code == 401
         assert c.post("/api/study/plan", json={}).status_code == 401
-        assert c.post("/api/study/plan/done", json={"delta": 1}).status_code == 401
+        assert c.post("/api/study/plan/done", json={"delta": 1}).status_code == 404
         assert c.get("/api/study/chat").status_code == 401
         assert c.post("/api/study/chat", json={"message": "привет"}).status_code == 401
         assert c.get("/api/study/today").status_code == 401
@@ -122,19 +122,34 @@ def test_plan_post_explicit_regen_and_fallback_to_rules():
         _stop(patches)
 
 
-def test_done_delta_updates_counter():
+def test_auto_done_from_study_activity_and_route_removed():
     m, c, patches = _setup()
     try:
+        import time as _t
         with patch.object(m, "call_ai_api", return_value=_ai_plan_json(3)):
-            c.get("/api/study/plan", headers=AUTH_HEADERS)
-        d1 = c.post("/api/study/plan/done", json={"delta": 1}, headers=AUTH_HEADERS).get_json()
-        d2 = c.post("/api/study/plan/done", json={"delta": 1}, headers=AUTH_HEADERS).get_json()
-        d3 = c.post("/api/study/plan/done", json={"delta": -1}, headers=AUTH_HEADERS).get_json()
-        d4 = c.post("/api/study/plan/done", json={"delta": -1}, headers=AUTH_HEADERS).get_json()
-        d5 = c.post("/api/study/plan/done", json={"delta": -1}, headers=AUTH_HEADERS).get_json()
-        assert (d1["done"], d2["done"], d3["done"], d4["done"], d5["done"]) == (1, 2, 1, 0, 0)
-        today = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
-        assert today["done"] == 0
+            first = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
+        assert first["ok"] and first["done"] == 0 and first["total"] == 3
+        uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
+        now = _t.time()
+        with m.get_db_engine().begin() as conn:
+            conn.execute(m.text(
+                "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
+                " due, streak, correct_count, wrong_count, counter, updated_at)"
+                " VALUES (:u,'math','formula::a',1,0,2.5,0,1,1,0,1,:ts),"
+                " (:u,'math','formula::b',1,0,2.5,0,1,2,0,2,:ts),"
+                " (:u,'math','formula::c',1,0,2.5,0,1,3,0,3,:ts),"
+                " (:u,'math','formula::d',1,0,2.5,0,1,4,0,4,:ts),"
+                " (:u,'math','formula::e',1,0,2.5,0,1,5,0,5,:ts)"
+            ), {"u": uid, "ts": now})
+        second = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
+        math_it = [x for x in second["items"] if x["module"] == "math"][0]
+        assert math_it["target"] >= 3
+        assert math_it["done"] == 5  # 5 карточек математики тронуто сегодня
+        assert second["done"] == 1   # закрыт только математический пункт
+        assert c.post("/api/study/plan/done", json={"delta": 1}, headers=AUTH_HEADERS).status_code == 404
+        # снапшот автозачёта пишется в done_count (история для облегчения завтрашнего плана)
+        row = m._load_plan_row(m.get_db_engine().connect(), uid, _t.strftime("%Y-%m-%d"))
+        assert int(row["done_count"]) == 1
     finally:
         _stop(patches)
 
