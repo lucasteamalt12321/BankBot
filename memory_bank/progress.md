@@ -6,16 +6,10 @@
 
 ## Changelog
 
-### 2026-08-26 (Session 7: ИИ-алгоритм генерации вопросов во всех модулях)
-- **Новый эндпоинт `/api/quiz/ai-generate`** (POST): генерирует ОДИН MCQ-вопрос через `call_ai_api` с промптом, специфичным для каждого модуля. НЕ сохраняется в историю чата куратора. Ретраи 3x с exponential backoff. Возвращает `{ok, question, options[4], correct, explanation, module}`.
-- **Кнопка "ИИ (генерация)"** добавленна во все 5 модулей:
-  - **Математика/Физика:** `<option value="ai">ИИ (генерация)</option>` в `f-algo` + `renderAiQuestion()` (fetch → MCQ → `record('ai::<module>::<topic>', ok)`)
-  - **Русский язык:** `<option value="ai">ИИ (генерация)</option>` в `r-algo` + `renderAiQuestion()` (аналогично)
-  - **История/Экзамены:** `<option value="ai">ИИ (генерация)</option>` в `algo-select` + `loadAiQuestion()` (fetch → MCQ → `recordAnswer(fakeItem, ok)`)
-  - **Информатика:** добавлен НОВЫЙ algo-selector `<select id="info-algo">` (Перемешать / ИИ) + `loadInfoAiQuestion()` (fetch → MCQ → `infoRecord('ai::informatics', ok)`)
-- **Next/Prev кнопки** делегируют в AI-режим: `nextFormula()` / `nextRule()` проверяют `algo === 'ai'` и вызывают `renderAiQuestion()` вместо синхронного pick.
-- **Algo persistence** в localStorage: `math_f_algo`, `physics_f_algo`, `russian_r_algo`, `emperors_algo`, `info_algo`.
-- **53 тестов passed**, ruff clean. Деплой `4749fb8` ✓ Ready.
+### 2026-08-26 (Session 7: ИИ-алгоритм — куратор выбирает вопрос из БД)
+- **`/api/quiz/ai-generate`** (POST): ИИ-куратор **выбирает лучший вопрос из БД** для ученика, а не генерирует новый. Алгоритм: (1) строит каталог всех вопросов модуля (ключ + текст + тема), (2) получает слабые карточки ученика из `study_progress`, (3) отправляет каталог + слабые куратору с проритетами: слабые → новые → повтор, (4) куратор возвращает ключ, (5) сервер ищет полный вопрос в пуле и отдаёт с MCQ-опциями. Фоллбэк при недоступном AI: случайная слабая или случайная из каталога. Промпт НЕ сохраняется в историю чата.
+- **Кнопка "ИИ (генерация)"** во всех 5 модулях: Math/Physics/Russian — `renderAiQuestion()`, History/emperors — `loadAiQuestion()`, Informatics — `loadInfoAiQuestion()`. Informatics также получил НОВЫЙ algo-selector (Перемешать / ИИ).
+- **53 тестов passed**, ruff clean. Деплой `be76752` ✓ Ready.
 
 ### 2026-08-26 (Session 6b: Алгоритм smart/flash/deck на страницах ОГЭ)
 - **Выбор алгоритма** добавлен на страницы Математика, Физика и Русский язык: `<select id="f-algo">` / `<select id="r-algo">` с тремя вариантами — `smart` (слабые первые, по умолчанию), `flash` (интервалы), `deck` (колода). Каждая страница хранит свой выбор в localStorage (`math_f_algo`, `physics_f_algo`, `russian_r_algo`).
@@ -1740,7 +1734,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - Тесты: 83 зелёных по моим модулям; node --check ок; прод: /emperors 200 c вкладками и терминами, /terms 302, карточки в хабе чисты. Задеплоено 7bae239.
 
 ## last_checked_commit
-4749fb8 (2026-08-26; ИИ-алгоритм генерации вопросов во всех 5 модулях: /api/quiz/ai-generate endpoint + кнопка "ИИ (генерация)" в Math/Physics/Russian/History/Informatics; ранее b90bf5d: куратор: mdLite + инструменты-lookup, OGE-08…12)
+be76752 (2026-08-26; ИИ-алгоритм: куратор выбирает вопрос из БД для ученика, не генерирует; /api/quiz/ai-generate переделан; кнопка "ИИ" во всех 5 модулях; ранее 4749fb8)
 ### Задача 1. Ачивки
 - **Статус:** Готово
 - **Количество:** 227 ачивок
