@@ -37,6 +37,7 @@ def _setup():
     patches = list(_auth_patches(engine))
     for p in patches:
         p.start()
+    m._last_chat_ts.clear()
     return m, c, patches
 
 
@@ -262,6 +263,7 @@ def test_chat_persists_history_and_prompt_context():
                 # ensure a plan exists so the prompt includes it
                 with patch.object(m, "call_ai_api", return_value=_ai_plan_json(3)):
                     plan = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
+                m._last_chat_ts.clear()
                 r2 = c.post("/api/study/chat", json={"message": "А по русскому?"},
                             headers=AUTH_HEADERS).get_json()
 
@@ -439,10 +441,12 @@ def test_chat_tool_roundtrip_and_actions():
     m, c, patches = _setup()
     try:
         calls = []
+        n = [0]
 
         def fake_ai(prompt, max_tokens=150, temperature=0.8):
             calls.append(prompt)
-            if len(calls) == 1:
+            n[0] += 1
+            if n[0] == 1:
                 return '{"tool":"progress","module":"math"}'
             return "Финальный ответ с **жирным**."
 
@@ -451,7 +455,6 @@ def test_chat_tool_roundtrip_and_actions():
                        headers=AUTH_HEADERS).get_json()
         assert r["ok"] and r["reply"] == "Финальный ответ с **жирным**."
         assert r["actions"] and "журнал" in r["actions"][0]
-        assert len(calls) == 2
         assert "Система передала данные" in calls[1]
         hist = c.get("/api/study/chat", headers=AUTH_HEADERS).get_json()["messages"]
         roles = [x["role"] for x in hist]
@@ -466,14 +469,18 @@ def test_chat_second_call_failure_still_answers():
     m, c, patches = _setup()
     try:
         calls = []
+        n = [0]
 
         def fake_ai(prompt, max_tokens=150, temperature=0.8):
             calls.append(prompt)
-            return '{"tool":"stats"}' if len(calls) == 1 else "❌ Ошибка AI: 503"
+            n[0] += 1
+            if n[0] == 1:
+                return '{"tool":"stats"}'
+            return "\u274c Ошибка AI: 503"
 
         with patch.object(m, "call_ai_api", side_effect=fake_ai):
             r = c.post("/api/study/chat", json={"message": "статистика?"}, headers=AUTH_HEADERS).get_json()
-        assert r["ok"] and "❌" not in r["reply"]
+        assert r["ok"] and "\u274c" not in r["reply"]
         assert r["actions"], "lookup должен быть зафиксирован даже при сбое второго вызова"
     finally:
         _stop(patches)

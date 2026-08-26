@@ -5228,6 +5228,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     e = e.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>');
                     e = e.replace(/(^|[^*])\\*([^*\\n]+)\\*(?!\\*)/g, '$1<i>$2</i>');
                     e = e.replace(/(^|\\n)- /g, '$1\u2022 ');
+                    e = e.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
                     return e.replace(/\\n/g, '<br>');
                 }
                 function bubble(role, text) {
@@ -5259,7 +5260,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var v = (inp.value || '').trim(); if (!v) return;
                     inp.value = ''; bubble('user', v);
                     var btn = document.getElementById('cur-send'); btn.disabled = true;
-                    var status = bubble('assistant', '\U0001F4D6 \u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0441\u043C\u043E\u0442\u0440\u0438\u0442 \u0442\u0432\u043E\u0439 \u0436\u0443\u0440\u043D\u0430\u043B\u2026');
+                    var log = document.getElementById('cur-log'); var status = document.createElement('div'); status.className = 'cur-typing'; status.innerHTML = '<span></span><span></span><span></span>'; if(log){log.appendChild(status); log.scrollTop=log.scrollHeight;}
                     fetch('/api/study/chat', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ message: v }) })
                         .then(function (r) { return r.json().then(function (j) { return { st: r.status, ok: r.ok, j: j }; }); })
                         .then(function (res) {
@@ -14824,6 +14825,114 @@ def api_study_today():
 
 _OGE_CHAT_KEEP = 80
 _OGE_CHAT_CONTEXT = 12
+_OGE_RATE_LIMIT = 3
+_last_chat_ts: dict = {}
+
+
+def _oge_weak_topics_summary(uid):
+    lines = []
+    try:
+        with get_db_engine().connect() as conn:
+            for mod, meta in OGE_MODULES.items():
+                rows = conn.execute(text(
+                    "SELECT card_key, correct_count, wrong_count FROM study_progress"
+                    " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
+                    " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
+                ), {"u": uid, "m": mod}).mappings().all()
+                if not rows:
+                    continue
+                weak = []
+                for r in rows:
+                    name = _card_display_name(r["card_key"])
+                    c, w = int(r["correct_count"] or 0), int(r["wrong_count"] or 0)
+                    total = c + w
+                    pct = round(100 * c / total) if total else 0
+                    weak.append(f"{name} ({pct}%)")
+                lines.append(f"{meta['label']}: {', '.join(weak)}")
+    except Exception:
+        pass
+    return lines
+
+
+def _oge_streak_info(uid, now):
+    result = {"current": 0, "best": 0, "accuracy": 0, "total_answers": 0}
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT correct_count, wrong_count, updated_at FROM study_progress"
+                " WHERE user_id=:u AND updated_at > 0"
+            ), {"u": uid}).mappings().all()
+            if not rows:
+                return result
+            total_c = sum(int(r["correct_count"] or 0) for r in rows)
+            total_w = sum(int(r["wrong_count"] or 0) for r in rows)
+            result["total_answers"] = total_c + total_w
+            result["accuracy"] = round(100 * total_c / max(1, total_c + total_w))
+            days = set()
+            for r in rows:
+                ts = float(r["updated_at"] or 0)
+                if ts > 0:
+                    days.add(int(ts // 86400))
+            if not days:
+                return result
+            sorted_days = sorted(days, reverse=True)
+            today = int(now // 86400)
+            streak = 0
+            expected = today
+            for d in sorted_days:
+                if d == expected:
+                    streak += 1
+                    expected -= 1
+                elif d < expected:
+                    break
+            result["current"] = streak
+            best = 1
+            cur = 1
+            for i in range(1, len(sorted_days)):
+                if sorted_days[i - 1] - sorted_days[i] == 1:
+                    cur += 1
+                    best = max(best, cur)
+                else:
+                    cur = 1
+            result["best"] = max(best, streak)
+    except Exception:
+        pass
+    return result
+
+
+def _oge_exam_countdown(now):
+    import datetime as _dt
+    lines = []
+    for mod, meta in OGE_MODULES.items():
+        exam = OGE_EXAM_DATES.get(mod)
+        if not exam:
+            continue
+        try:
+            exam_dt = _dt.datetime.strptime(exam, "%Y-%m-%d")
+            days_left = (exam_dt - _dt.datetime.now()).days
+            if days_left > 0:
+                lines.append(f"{meta['label']}: {days_left} дн.")
+        except Exception:
+            pass
+    return lines
+
+
+def _oge_yesterday_summary(uid):
+    import datetime as _dt
+    yesterday = (_dt.datetime.now() - _dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    result = {"touched": 0, "correct": 0, "wrong": 0}
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT correct_count, wrong_count FROM study_progress"
+                " WHERE user_id=:u AND DATE(updated_at, 'unixepoch') = :d"
+            ), {"u": uid, "d": yesterday}).mappings().all()
+            result["touched"] = len(rows)
+            result["correct"] = sum(int(r["correct_count"] or 0) for r in rows)
+            result["wrong"] = sum(int(r["wrong_count"] or 0) for r in rows)
+    except Exception:
+        pass
+    return result
 
 
 def _curator_fallback_reply(subjects, plan_lines):
@@ -14879,12 +14988,22 @@ def _curator_tool_action(directive):
     if tool == "card":
         key = str(directive.get("key") or "")
         return f"проверяет карточку {key} \U0001F0CF"
+    if tool == "due":
+        module = str(directive.get("module") or "")
+        meta = OGE_MODULES.get(module)
+        return f"смотрит повторение: {meta['label'] if meta else 'все'} \U0001F504"
+    if tool == "weak":
+        return "ищет слабые темы \U0001F50D"
+    if tool == "topics":
+        module = str(directive.get("module") or "")
+        meta = OGE_MODULES.get(module)
+        return f"листает темы предмета {meta['label'] if meta else ''} \U0001F4DA"
     module = str(directive.get("module") or "")
     meta = OGE_MODULES.get(module)
     topic = str(directive.get("topic") or "").strip()
     scope = meta["label"] if meta else "все предметы"
     if topic:
-        return f"листает журнал: {scope}, тема «{topic}» \U0001F4D6"
+        return f"листает журнал: {scope}, тема \u00AB{topic}\u00BB \U0001F4D6"
     return f"листает журнал по предмету {scope} \U0001F4D6"
 
 
@@ -15011,6 +15130,65 @@ def _curator_tool_data(directive, uid, today):
                 b.append(f"Ключи ({len(all_keys)}): {shown}. Любую можно запросить инструментом card.")
                 blocks.append(" ".join(b))
         return "\n".join(blocks) if blocks else "Журнал пока пуст — ученик ещё не начинал занятия."
+        if tool == "due":
+            module = str(directive.get("module") or "").strip()
+            mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
+            now_t = time.time()
+            blocks = []
+            with get_db_engine().connect() as conn:
+                for mod in mods:
+                    rows = conn.execute(text(
+                        "SELECT card_key, streak, due, correct_count, wrong_count FROM study_progress"
+                        " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
+                        " ORDER BY due ASC"
+                    ), {"u": uid, "m": mod, "now": now_t}).mappings().all()
+                    if not rows:
+                        continue
+                    label = OGE_MODULES[mod]["label"]
+                    names = [_card_display_name(r["card_key"]) for r in rows[:10]]
+                    blocks.append(f"{label} — к повторению {len(rows)}: {', '.join(names)}{'...' if len(rows) > 10 else ''}.")
+            return "\n".join(blocks) if blocks else "Нет карточек на повторение сейчас."
+
+        if tool == "weak":
+            blocks = []
+            with get_db_engine().connect() as conn:
+                for mod, meta in OGE_MODULES.items():
+                    rows = conn.execute(text(
+                        "SELECT card_key, correct_count, wrong_count FROM study_progress"
+                        " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
+                        " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
+                    ), {"u": uid, "m": mod}).mappings().all()
+                    if not rows:
+                        continue
+                    items = []
+                    for r in rows:
+                        name = _card_display_name(r["card_key"])
+                        c, w = int(r["correct_count"] or 0), int(r["wrong_count"] or 0)
+                        items.append(f"{name} ({c}✓/{w}✗)")
+                    blocks.append(f"{meta['label']}: {'; '.join(items)}")
+            return "\n".join(blocks) if blocks else "Слабых тем пока нет — всё чисто!"
+
+        if tool == "topics":
+            module = str(directive.get("module") or "").strip()
+            if module not in OGE_MODULES:
+                return f"Неизвестный предмет: {module}. Доступны: {', '.join(OGE_MODULES.keys())}"
+            meta = OGE_MODULES[module]
+            with get_db_engine().connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
+                    " WHERE user_id=:u AND module=:m"
+                ), {"u": uid, "m": module}).mappings().all()
+            now_t = time.time()
+            total = meta["total"]
+            if not rows:
+                return f"{meta['label']}: ещё не начато ({total} карточек всего)."
+            mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
+            due_cnt = sum(1 for r in rows if float(r["due"] or 0) > 0 and float(r["due"]) <= now_t)
+            weak = sum(1 for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0))
+            return (f"{meta['label']}: {len(rows)}/{total} начато, {mastered} выучено, "
+                    f"{due_cnt} к повторению, {weak} слабых.")
+
+
     except Exception as exc:
         print(f"[OGE] curator tool error ({tool}): {exc}")
         return "Данные временно недоступны."
@@ -15055,6 +15233,9 @@ def api_study_chat_send():
         return jsonify({"ok": False, "error": "empty message"}), 400
     msg = msg[:2000]
     now = time.time()
+    if uid in _last_chat_ts and now - _last_chat_ts[uid] < _OGE_RATE_LIMIT:
+        return jsonify({"ok": False, "error": "Подождите немного перед следующим сообщением."}), 429
+    _last_chat_ts[uid] = now
     today = time.strftime("%Y-%m-%d")
     budget_lines, plan_lines = [], []
     minutes = 10
@@ -15101,6 +15282,18 @@ def api_study_chat_send():
             history = _chat_history(conn, uid)
     except Exception:
         history = []
+    if len(history) > 20:
+        old_part = history[:len(history) - 6]
+        recent = history[len(history) - 6:]
+        old_summary = " ".join(h["content"][:100] for h in old_part[:8])
+        summary_call = call_ai_api(
+            "Кратко (3-5 предложений) опиши суть этого диалога:\n" + old_summary,
+            max_tokens=200, temperature=0.3
+        )
+        if summary_call and not summary_call.startswith("\u274C"):
+            history = [{"role": "system", "content": summary_call}] + recent
+        else:
+            history = recent
     if history:
         hist_lines = ["История переписки:"]
         for h in history:
@@ -15108,33 +15301,52 @@ def api_study_chat_send():
             hist_lines.append(f"{who}: {h['content'][:400]}")
     else:
         hist_lines = ["История переписки: -"]
+    streak = _oge_streak_info(uid, now)
+    weak_t = _oge_weak_topics_summary(uid)
+    countdown = _oge_exam_countdown(now)
+    yesterday = _oge_yesterday_summary(uid)
+    streak_line = f"Серия учёбы: {streak['current']} дн. (рекорд: {streak['best']}), точность: {streak['accuracy']}% ({streak['total_answers']} ответов)." if streak["total_answers"] else ""
+    weak_line = "Слабые темы:\n" + "\n".join(weak_t) if weak_t else ""
+    countdown_line = "До экзаменов: " + ", ".join(countdown) if countdown else ""
+    yest_line = ""
+    if yesterday["touched"]:
+        yest_line = f"Вчера: тронуто {yesterday['touched']} карточек, точность {round(100*yesterday['correct']/max(1,yesterday['correct']+yesterday['wrong']))}%."
     prompt = (
-        "Ты - ИИ-куратор подготовки девятиклассника к ОГЭ. Отвечай по-русски, кратко "
-        "(до 150 слов), поддерживающе и конкретно; предлагай следующий шаг (предмет/тему/режим "
-        "на сайте). Доступные предметы: Математика, Русский язык, Информатика, Физика, История; "
-        "режимы: карточки, тренажёр задач, сопоставление, экзамен.\n\n"
-        "Нормы времени: одна карточка занимает около 0,5-1 минуты, одна задача - 2-4 минуты. "
-        "Не советуй тратить 5 минут на одну карточку - группируй карточки в пачки под бюджет "
-        "(например, «повтори все слабые карточки по реформам, это ~4 минуты»). "
-        "Не показывай ученику технические ключи карточек (event::..., formula::f01, task::lesson1_o1) - "
-        "называй темы и события обычными словами.\n\n"
-        "Если тебе не хватает данных (журнал карточек, прогресс по предмету или теме, отдельная карточка, "
-        "статистика, план на день), запроси их у системы: ответь ТОЛЬКО JSON-объектом, без пояснений, "
-        "одним из видов: "
-        '{"tool":"stats"} - общая статистика по всем предметам; '
-        '{"tool":"progress","module":"math|russian|informatics|history|physics"} - журнал карточек '
-        "по предмету (без module - по всем), в ответе видны ключи карточек; "
-        '{"tool":"progress","module":"...","topic":"фрагмент"} - только записи по теме '
-        "(topic - подстрока ключа или темы, например lesson1); "
-        '{"tool":"card","key":"formula::f01"} - состояние одной карточки '
-        "(module уточняет предмет; ключ бери из ответа progress); "
-        '{"tool":"plan"} - план на день. '
-        "Система пришлёт данные следующим сообщением - тогда дай финальный ответ ученику уже без JSON.\n\n"
-        "Данные ученика:\n" + "\n".join(budget_lines) + "\n" + "\n".join(subj_lines) +
-        "\n" + "\n".join(plan_lines) + "\n" + "\n".join(hist_lines) +
-        f"\n\nУченик: {msg}\nКуратор:"
+        "Ты — ИИ-куратор Луки, готовишь его к ОГЭ по 5 предметам. Говори по-русски, "
+        "кратко (до 150 слов), по-дружески и конкретно. Всегда предлагай конкретный следующий шаг "
+        "(предмет + тема + режим на сайте).\n\n"
+        "ПРИОРИТЕТЫ: 1) повторение просроченных карточек, 2) исправление слабых тем, 3) новые темы.\n"
+        "НОРМЫ ВРЕМЕНИ: карточка ~0,5-1 мин, задача ~2-4 мин. Группируй карточки в пачки под бюджет.\n"
+        "СТИЛЬ: Не называй технические ключи (formula::f01, event::...) — говори темами и событиями. "
+        "Используй ссылки: [Математика](/math), [Русский](/russian), [Информатика](/informatics), "
+        "[Физика](/physics), [История](/emperors).\n\n"
+        "ИНСТРУМЕНТЫ (запроси JSON если нужны данные):\n"
+        '- {"tool":"stats"} — общая статистика\n'
+        '- {"tool":"progress","module":"math"} — журнал по предмету\n'
+        '- {"tool":"progress","module":"...","topic":"фрагмент"} — по теме\n'
+        '- {"tool":"card","key":"formula::f01"} — одна карточка\n'
+        '- {"tool":"plan"} — план на день\n'
+        '- {"tool":"due","module":"math"} — карточки на повторение\n'
+        '- {"tool":"weak"} — топ слабых тем\n'
+        '- {"tool":"topics","module":"math"} — все темы модуля с прогрессом\n'
+        "Ответь JSON без пояснений. Система пришлёт данные — дай финальный ответ без JSON.\n\n"
+        "ДАННЫЕ УЧЕНИКА:\n"
+        + "\n".join(budget_lines) + "\n"
+        + "\n".join(subj_lines) + "\n"
+        + "\n".join(plan_lines) + "\n"
+        + (streak_line + "\n" if streak_line else "")
+        + (weak_line + "\n" if weak_line else "")
+        + (countdown_line + "\n" if countdown_line else "")
+        + (yest_line + "\n" if yest_line else "")
+        + "\n".join(hist_lines)
+        + f"\n\nУченик: {msg}\nКуратор:"
     )
-    reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
+    reply = None
+    for _attempt in range(3):
+        reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
+        if reply and not reply.startswith("\u274C"):
+            break
+        time.sleep(min(4, 1 * (2 ** _attempt)))
     actions = []
     if reply and not reply.startswith("❌"):
         directive = _tool_directive(reply)
@@ -15148,7 +15360,12 @@ def api_study_chat_send():
                 + ":\n" + data_text
                 + "\n\nДай ученику финальный краткий ответ (до 150 слов), используя эти данные. Без JSON."
             )
-            second = call_ai_api(followup, max_tokens=500, temperature=0.7)
+            second = None
+            for _a2 in range(2):
+                second = call_ai_api(followup, max_tokens=500, temperature=0.7)
+                if second and not second.startswith("\u274C") and not _tool_directive(second):
+                    break
+                time.sleep(min(2, 1 * (2 ** _a2)))
             if second and not second.startswith("❌") and not _tool_directive(second):
                 reply = second
     if not reply or reply.startswith("❌"):
