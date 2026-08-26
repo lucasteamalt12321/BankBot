@@ -13527,10 +13527,15 @@ def api_study_ai_plan():
 # ---------------- OGE curator: persistent daily plan + chat (OGE-08/09) ----------------
 
 
+_OGE_CURATOR_TABLES_OK = False
+_OGE_CURATOR_TABLES_ERR = ""
+
+
 def _ensure_oge_curator_tables(engine):
     """Tables for the persistent daily plan and curator chat history."""
+    global _OGE_CURATOR_TABLES_ERR
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS oge_daily_plans (
                     user_id INTEGER NOT NULL,
@@ -13554,6 +13559,7 @@ def _ensure_oge_curator_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_oge_chat_user ON oge_chat_messages(user_id, id)"))
     except Exception as exc:
+        _OGE_CURATOR_TABLES_ERR = "DDL: " + str(exc)[:400]
         print(f"[OGE] curator tables skipped: {exc}")
 
 

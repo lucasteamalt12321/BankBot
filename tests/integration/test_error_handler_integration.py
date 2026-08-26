@@ -1,14 +1,45 @@
 """
-Integration тесты для ErrorHandlerMiddleware (Task 6.3.2)
+Integration тесты для ErrorHandlerMiddleware (PTB-based, Task 6.3.2)
+
+Текущая реализация (bot/middleware/error_handler.py):
+- ErrorHandlerMiddleware.__call__(update, context) — обработчик ошибок PTB,
+  ошибка передаётся через context.error.
+- Уведомляет пользователя через update.effective_message.reply_text.
+- Уведомляет администратора через context.bot.send_message, если настроен
+  settings.ADMIN_TELEGRAM_ID.
 """
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aiogram import types
-from aiogram.types import TelegramObject
+from telegram import Update
+from telegram.error import TelegramError
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from bot.middleware.error_handler import ErrorHandlerMiddleware
+
+
+def make_update_context(error, admin_id=999999, with_message=True):
+    """Строит mock update/context в стиле python-telegram-bot."""
+    update = MagicMock(spec=Update)
+    update.effective_user = MagicMock(id=67890, username="testuser", full_name="Test User")
+    update.effective_chat = MagicMock(id=12345, type="private")
+    update.to_dict = MagicMock(return_value={"update_id": 1})
+
+    if with_message:
+        update.effective_message = MagicMock()
+        update.effective_message.text = "/test_command"
+        update.effective_message.reply_text = AsyncMock()
+    else:
+        update.effective_message = None
+        update.effective_callback_query = MagicMock()
+
+    context = MagicMock()
+    context.error = error
+    context.bot = MagicMock()
+    context.bot.send_message = AsyncMock()
+    return update, context
 
 
 @pytest.fixture
@@ -17,192 +48,122 @@ def middleware():
     return ErrorHandlerMiddleware()
 
 
-@pytest.fixture
-def mock_bot():
-    """Создает мок объекта бота"""
-    bot = MagicMock()
-    bot.send_message = AsyncMock()
-    return bot
-
-
 class TestErrorHandlerIntegration:
     """Integration тесты ErrorHandlerMiddleware"""
 
-    async def test_error_handler_full_flow(self, middleware, mock_bot):
+    async def test_error_handler_full_flow(self, middleware):
         """Тест: полный цикл обработки ошибки от начала до конца"""
 
-        async def failing_callback(event, data):
-            raise RuntimeError("Integration test error")
+        update, context = make_update_context(RuntimeError("Integration test error"))
 
-        message = MagicMock(spec=types.Message)
-        message.chat = MagicMock()
-        message.chat.id = 12345
-        message.from_user = MagicMock()
-        message.from_user.id = 67890
-        message.from_user.username = "testuser"
-        message.text = "/test_command"
-
-        data = {"bot": mock_bot}
-
-        with patch('bot.middleware.error_handler.settings') as mock_settings:
+        with patch('bot.middleware.error_handler.settings', new=MagicMock()) as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
 
-            result = await middleware(failing_callback, message, data)
+            result = await middleware(update, context)
 
-            # Проверяем, что middleware вернул None
+            # Middleware возвращает None
             assert result is None
 
-            # Проверяем, что send_message был вызван (пользователю и админу)
-            assert mock_bot.send_message.call_count >= 1
+            # Пользователю отправлено сообщение об ошибке
+            update.effective_message.reply_text.assert_called_once()
+            # Администратору отправлено уведомление
+            context.bot.send_message.assert_called_once()
 
-    async def test_error_handler_with_database_error(self, middleware, mock_bot):
+    async def test_error_handler_with_database_error(self, middleware):
         """Тест: обработка ошибки базы данных"""
 
-        async def failing_callback(event, data):
-            from sqlalchemy.exc import SQLAlchemyError
-            raise SQLAlchemyError("Database connection failed")
+        update, context = make_update_context(
+            SQLAlchemyError("Database connection failed")
+        )
 
-        message = MagicMock(spec=types.Message)
-        message.chat = MagicMock()
-        message.chat.id = 12345
-        message.from_user = MagicMock()
-        message.from_user.id = 67890
-        message.from_user.username = "testuser"
-        message.text = "/balance"
-
-        data = {"bot": mock_bot}
-
-        with patch('bot.middleware.error_handler.settings') as mock_settings:
+        with patch('bot.middleware.error_handler.settings', new=MagicMock()) as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
 
-            result = await middleware(failing_callback, message, data)
+            result = await middleware(update, context)
 
             assert result is None
-            assert mock_bot.send_message.called
+            update.effective_message.reply_text.assert_called_once()
+            context.bot.send_message.assert_called_once()
 
-    async def test_error_handler_with_telegram_error(self, middleware, mock_bot):
+    async def test_error_handler_with_telegram_error(self, middleware):
         """Тест: обработка ошибки Telegram API"""
 
-        async def failing_callback(event, data):
-            from aiogram.exceptions import TelegramAPIError
-            raise TelegramAPIError("Message too long")
+        update, context = make_update_context(TelegramError("Message too long"))
 
-        message = MagicMock(spec=types.Message)
-        message.chat = MagicMock()
-        message.chat.id = 12345
-        message.from_user = MagicMock()
-        message.from_user.id = 67890
-        message.from_user.username = "testuser"
-        message.text = "/test"
-
-        data = {"bot": mock_bot}
-
-        with patch('bot.middleware.error_handler.settings') as mock_settings:
+        with patch('bot.middleware.error_handler.settings', new=MagicMock()) as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
 
-            result = await middleware(failing_callback, message, data)
+            result = await middleware(update, context)
 
             assert result is None
-            assert mock_bot.send_message.called
+            update.effective_message.reply_text.assert_called_once()
+            context.bot.send_message.assert_called_once()
 
-    async def test_error_handler_with_multiple_admins(self, middleware, mock_bot):
-        """Тест: уведомление нескольких администраторов"""
+    async def test_error_handler_with_multiple_admins(self, middleware):
+        """Тест: уведомление администратора (поддержка нескольких не реализована,
+        проверяем, что уведомление отправляется настроенному админу)"""
 
-        async def failing_callback(event, data):
-            raise RuntimeError("Multiple admins test")
+        update, context = make_update_context(RuntimeError("Multiple admins test"))
 
-        message = MagicMock(spec=types.Message)
-        message.chat = MagicMock()
-        message.chat.id = 12345
-        message.from_user = MagicMock()
-        message.from_user.id = 67890
-        message.from_user.username = "testuser"
-        message.text = "/test"
-
-        data = {"bot": mock_bot}
-
-        with patch('bot.middleware.error_handler.settings') as mock_settings:
+        with patch('bot.middleware.error_handler.settings', new=MagicMock()) as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
 
-            result = await middleware(failing_callback, message, data)
+            result = await middleware(update, context)
 
             assert result is None
-            # Должен быть вызван send_message хотя бы один раз
-            assert mock_bot.send_message.called
+            context.bot.send_message.assert_called_once()
 
-    async def test_error_handler_callback_query_flow(self, middleware, mock_bot):
+    async def test_error_handler_callback_query_flow(self, middleware):
         """Тест: полный цикл обработки ошибки для CallbackQuery"""
 
-        async def failing_callback(event, data):
-            raise ValueError("Callback query error")
+        update, context = make_update_context(
+            ValueError("Callback query error"), with_message=False
+        )
 
-        callback_query = MagicMock(spec=types.CallbackQuery)
-        callback_query.message = MagicMock()
-        callback_query.message.chat = MagicMock()
-        callback_query.message.chat.id = 12345
-        callback_query.from_user = MagicMock()
-        callback_query.from_user.id = 67890
-        callback_query.from_user.username = "testuser"
-        callback_query.data = "test_callback_data"
-
-        data = {"bot": mock_bot}
-
-        with patch('bot.middleware.error_handler.settings') as mock_settings:
+        with patch('bot.middleware.error_handler.settings', new=MagicMock()) as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
 
-            result = await middleware(failing_callback, callback_query, data)
+            result = await middleware(update, context)
 
             assert result is None
-            assert mock_bot.send_message.called
+            # У пользователя нет effective_message (callback query) — уведомляем только админа
+            context.bot.send_message.assert_called_once()
 
-    async def test_error_handler_no_admin_configured(self, middleware, mock_bot):
+    async def test_error_handler_no_admin_configured(self, middleware):
         """Тест: обработка ошибки без настроенного администратора"""
 
-        async def failing_callback(event, data):
-            raise ValueError("No admin configured")
+        update, context = make_update_context(ValueError("No admin configured"))
 
-        message = MagicMock(spec=types.Message)
-        message.chat = MagicMock()
-        message.chat.id = 12345
-        message.from_user = MagicMock()
-        message.from_user.id = 67890
-        message.from_user.username = "testuser"
-        message.text = "/test"
-
-        data = {"bot": mock_bot}
-
-        with patch('bot.middleware.error_handler.settings') as mock_settings:
+        with patch('bot.middleware.error_handler.settings', new=MagicMock()) as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = None
 
-            result = await middleware(failing_callback, message, data)
+            result = await middleware(update, context)
 
             assert result is None
             # Пользователю должно быть отправлено сообщение
-            assert mock_bot.send_message.called
+            update.effective_message.reply_text.assert_called_once()
+            # Администратору НЕ отправляется (не настроен)
+            context.bot.send_message.assert_not_called()
 
-    async def test_error_handler_graceful_failure(self, middleware, mock_bot):
+    async def test_error_handler_graceful_failure(self, middleware):
         """Тест: graceful failure при отправке уведомлений"""
 
-        async def failing_callback(event, data):
-            raise ValueError("Test error")
-
-        message = MagicMock(spec=types.Message)
-        message.chat = MagicMock()
-        message.chat.id = 12345
-        message.from_user = MagicMock()
-        message.from_user.id = 67890
-        message.from_user.username = "testuser"
-        message.text = "/test"
-
+        update, context = make_update_context(ValueError("Test error"))
         # Настраиваем bot.send_message чтобы выбрасывал исключение
-        mock_bot.send_message.side_effect = Exception("Failed to send message")
+        context.bot.send_message.side_effect = Exception("Failed to send message")
 
-        data = {"bot": mock_bot}
-
-        with patch('bot.middleware.error_handler.settings') as mock_settings:
+        with patch('bot.middleware.error_handler.settings', new=MagicMock()) as mock_settings:
             mock_settings.ADMIN_TELEGRAM_ID = 999999
 
             # Middleware должен обработать ошибку отправки уведомлений
-            result = await middleware(failing_callback, message, data)
+            result = await middleware(update, context)
 
             assert result is None
+            # Пользователю сообщение всё равно ушло
+            update.effective_message.reply_text.assert_called_once()
+            # Попытка уведомить админа была предпринята
+            context.bot.send_message.assert_called_once()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

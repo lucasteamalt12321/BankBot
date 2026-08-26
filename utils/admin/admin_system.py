@@ -1,36 +1,84 @@
 # admin_system.py - Система проверки прав администратора
 import logging
+import os
 from functools import wraps
 from typing import Optional, Callable, Any
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, create_engine
+from sqlalchemy.orm import sessionmaker
 
 from database.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_DB_PATH = "data/bot.db"
+
 
 class AdminSystem:
     """Система проверки прав администратора для Telegram бота"""
 
-    def __init__(self, db_path: str = "data/bot.db"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self.db_path = db_path
+        self._init_engine()
         self._ensure_schema()
+
+    def _init_engine(self) -> None:
+        """Инициализирует движок БД для данного экземпляра.
+
+        По умолчанию используется глобальный пул соединений
+        (data/bot.db). При передаче явного пути (например, временного
+        файла в тестах) создаётся изолированный движок, а сессии
+        порождаются через общую фабрику ``SessionLocal`` с привязкой к
+        этому движку. Так сохраняется изоляция данных теста и при этом
+        продолжают работать патчи ``utils.admin.admin_system.SessionLocal``
+        (используемые другими тестами для симуляции сбоев БД).
+        """
+        if self.db_path is None or self.db_path == DEFAULT_DB_PATH:
+            from database.database import engine as global_engine
+
+            self._engine = global_engine
+            self._SessionLocal = lambda: SessionLocal()
+            self._owns_engine = False
+        else:
+            from sqlalchemy.pool import NullPool
+
+            db_url = f"sqlite:///{os.path.abspath(self.db_path)}"
+            self._engine = create_engine(
+                db_url,
+                connect_args={"check_same_thread": False},
+                poolclass=NullPool,
+                pool_pre_ping=False,
+            )
+            # Замыкание обращается к модулю-глобальному SessionLocal на
+            # момент вызова, поэтому патчи (MagicMock) корректно
+            # перехватывают создание сессий, а движок привязан к изолированной БД.
+            custom_engine = self._engine
+            self._SessionLocal = lambda: SessionLocal(bind=custom_engine)
+            self._owns_engine = True
+
+    def dispose(self) -> None:
+        """Освобождает ресурсы изолированного движка, если он принадлежит экземпляру.
+
+        Для глобального движка (data/bot.db) ничего не делает, чтобы не
+        нарушать работу других частей приложения.
+        """
+        if self._owns_engine and self._engine is not None:
+            self._engine.dispose()
 
     def _ensure_schema(self) -> None:
         """Создаёт необходимые таблицы, если они не существуют."""
         try:
-            from database.database import Base, engine
+            from database.database import Base
 
-            Base.metadata.create_all(bind=engine)
+            Base.metadata.create_all(bind=self._engine)
         except Exception as e:
             logger.error(f"Error ensuring schema: {e}")
 
     def _has_column(self, table_name: str, column_name: str) -> bool:
         """Check whether a column exists in current SQLAlchemy database."""
-        db = SessionLocal()
+        db = self._SessionLocal()
         try:
             inspector = inspect(db.bind)
             return column_name in [column["name"] for column in inspector.get_columns(table_name)]
@@ -55,7 +103,7 @@ class AdminSystem:
             bool: True если пользователь администратор, False иначе
         """
         try:
-            db = SessionLocal()
+            db = self._SessionLocal()
             try:
                 result = db.execute(
                     text("SELECT is_admin FROM users WHERE telegram_id = :telegram_id"),
@@ -91,7 +139,7 @@ class AdminSystem:
         try:
             from datetime import datetime
 
-            db = SessionLocal()
+            db = self._SessionLocal()
             try:
                 existing_user = db.execute(
                     text("SELECT id FROM users WHERE telegram_id = :telegram_id"),
@@ -146,7 +194,12 @@ class AdminSystem:
             # Убираем @ если есть
             clean_username = username.lstrip('@')
 
-            db = SessionLocal()
+            # Пустой или состоящий только из пробелов запрос не должен
+            # совпадать ни с одним пользователем (иначе LIKE '%%' найдёт всё).
+            if not clean_username or not clean_username.strip():
+                return None
+
+            db = self._SessionLocal()
             try:
                 result = db.execute(
                     text(
@@ -200,7 +253,7 @@ class AdminSystem:
             dict: Данные пользователя или None если не найден
         """
         try:
-            db = SessionLocal()
+            db = self._SessionLocal()
             try:
                 result = db.execute(
                     text(
@@ -244,7 +297,7 @@ class AdminSystem:
             float: Новый баланс или None при ошибке
         """
         try:
-            db = SessionLocal()
+            db = self._SessionLocal()
             try:
                 result = db.execute(
                     text("SELECT balance FROM users WHERE telegram_id = :telegram_id"),
@@ -282,7 +335,7 @@ class AdminSystem:
             bool: True если статус обновлен успешно
         """
         try:
-            db = SessionLocal()
+            db = self._SessionLocal()
             try:
                 result = db.execute(
                     text("UPDATE users SET is_admin = :is_admin WHERE telegram_id = :telegram_id"),
@@ -311,7 +364,7 @@ class AdminSystem:
             int: Количество пользователей
         """
         try:
-            db = SessionLocal()
+            db = self._SessionLocal()
             try:
                 result = db.execute(text("SELECT COUNT(*) AS count FROM users")).mappings().first()
             finally:
@@ -324,16 +377,16 @@ class AdminSystem:
             return 0
 
     def get_db_connection(self):
-        """Return a raw DBAPI connection to the global engine (compatibility shim)."""
-        from database.database import engine
+        """Return a raw sqlite3 connection to this instance's database.
 
-        raw = engine.raw_connection()
-        dbapi = raw.driver_connection
-        if hasattr(dbapi, "row_factory"):
-            import sqlite3
+        Compatibility shim: returns an owned connection (caller may close it)
+        bound directly to the database file used by this instance.
+        """
+        import sqlite3
 
-            dbapi.row_factory = sqlite3.Row
-        return dbapi
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def add_transaction(
         self,
@@ -359,7 +412,7 @@ class AdminSystem:
         try:
             from datetime import datetime
 
-            db = SessionLocal()
+            db = self._SessionLocal()
             try:
                 user_row = db.execute(
                     text("SELECT id FROM users WHERE telegram_id = :telegram_id"),

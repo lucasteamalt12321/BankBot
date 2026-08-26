@@ -1,8 +1,8 @@
 """
 Unit tests for game commands module.
 
-Tests the GameCommands class to ensure game-related commands are properly
-moved from bot.py to the dedicated module.
+Tests the game command functions (function-based module API) to ensure
+game-related commands are properly implemented and registered.
 
 Task 10.2.4: Переместить game команды
 """
@@ -12,13 +12,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from telegram import Update, User, Message
 from telegram.ext import ContextTypes
 
-from bot.commands.game_commands import GameCommands
-
-
-@pytest.fixture
-def game_commands():
-    """Create GameCommands instance for testing."""
-    return GameCommands()
+import bot.commands.game_commands as game_commands
 
 
 @pytest.fixture
@@ -43,14 +37,12 @@ def mock_context():
 
 
 @pytest.mark.asyncio
-async def test_games_command_displays_info(game_commands, mock_update, mock_context):
+async def test_games_command_displays_info(mock_update, mock_context):
     """Test that /games command displays game information."""
     await game_commands.games_command(mock_update, mock_context)
 
-    # Verify reply_text was called
     mock_update.message.reply_text.assert_called_once()
 
-    # Verify the message contains game information
     call_args = mock_update.message.reply_text.call_args
     message_text = call_args[0][0]
 
@@ -61,14 +53,12 @@ async def test_games_command_displays_info(game_commands, mock_update, mock_cont
 
 
 @pytest.mark.asyncio
-async def test_dnd_command_displays_info(game_commands, mock_update, mock_context):
+async def test_dnd_command_displays_info(mock_update, mock_context):
     """Test that /dnd command displays D&D information."""
     await game_commands.dnd_command(mock_update, mock_context)
 
-    # Verify reply_text was called
     mock_update.message.reply_text.assert_called_once()
 
-    # Verify the message contains D&D information
     call_args = mock_update.message.reply_text.call_args
     message_text = call_args[0][0]
 
@@ -79,14 +69,12 @@ async def test_dnd_command_displays_info(game_commands, mock_update, mock_contex
 
 
 @pytest.mark.asyncio
-async def test_play_command_requires_game_type(game_commands, mock_update, mock_context):
+async def test_play_command_requires_game_type(mock_update, mock_context):
     """Test that /play command requires a game type argument."""
-    # No arguments provided
     mock_context.args = []
 
     await game_commands.play_command(mock_update, mock_context)
 
-    # Verify error message was sent
     mock_update.message.reply_text.assert_called_once()
     call_args = mock_update.message.reply_text.call_args
     message_text = call_args[0][0]
@@ -95,14 +83,12 @@ async def test_play_command_requires_game_type(game_commands, mock_update, mock_
 
 
 @pytest.mark.asyncio
-async def test_play_command_validates_game_type(game_commands, mock_update, mock_context):
+async def test_play_command_validates_game_type(mock_update, mock_context):
     """Test that /play command validates game type."""
-    # Invalid game type
     mock_context.args = ["invalid_game"]
 
     await game_commands.play_command(mock_update, mock_context)
 
-    # Verify error message was sent
     mock_update.message.reply_text.assert_called_once()
     call_args = mock_update.message.reply_text.call_args
     message_text = call_args[0][0]
@@ -111,14 +97,12 @@ async def test_play_command_validates_game_type(game_commands, mock_update, mock
 
 
 @pytest.mark.asyncio
-async def test_join_command_requires_session_id(game_commands, mock_update, mock_context):
+async def test_join_command_requires_session_id(mock_update, mock_context):
     """Test that /join command requires a session ID."""
-    # No arguments provided
     mock_context.args = []
 
     await game_commands.join_command(mock_update, mock_context)
 
-    # Verify error message was sent
     mock_update.message.reply_text.assert_called_once()
     call_args = mock_update.message.reply_text.call_args
     message_text = call_args[0][0]
@@ -127,14 +111,12 @@ async def test_join_command_requires_session_id(game_commands, mock_update, mock
 
 
 @pytest.mark.asyncio
-async def test_dnd_create_command_requires_name(game_commands, mock_update, mock_context):
+async def test_dnd_create_command_requires_name(mock_update, mock_context):
     """Test that /dnd_create command requires a session name."""
-    # No arguments provided
     mock_context.args = []
 
     await game_commands.dnd_create_command(mock_update, mock_context)
 
-    # Verify error message was sent
     mock_update.message.reply_text.assert_called_once()
     call_args = mock_update.message.reply_text.call_args
     message_text = call_args[0][0]
@@ -143,14 +125,12 @@ async def test_dnd_create_command_requires_name(game_commands, mock_update, mock
 
 
 @pytest.mark.asyncio
-async def test_dnd_roll_command_requires_dice_input(game_commands, mock_update, mock_context):
+async def test_dnd_roll_command_requires_dice_input(mock_update, mock_context):
     """Test that /dnd_roll command requires dice input."""
-    # No arguments provided
     mock_context.args = []
 
     await game_commands.dnd_roll_command(mock_update, mock_context)
 
-    # Verify error message was sent
     mock_update.message.reply_text.assert_called_once()
     call_args = mock_update.message.reply_text.call_args
     message_text = call_args[0][0]
@@ -159,9 +139,7 @@ async def test_dnd_roll_command_requires_dice_input(game_commands, mock_update, 
 
 
 def test_game_commands_initialization():
-    """Test that GameCommands can be initialized."""
-    game_commands = GameCommands()
-    assert game_commands is not None
+    """Test that game commands module exposes the required functions."""
     assert hasattr(game_commands, 'games_command')
     assert hasattr(game_commands, 'play_command')
     assert hasattr(game_commands, 'dnd_command')

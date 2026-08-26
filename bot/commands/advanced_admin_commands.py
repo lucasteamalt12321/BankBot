@@ -38,7 +38,7 @@ class AdvancedAdminCommands:
 
             try:
                 from core.services.admin_stats_service import AdminStatsService
-                admin_stats_service = AdminStatsService(svc.user_repo)
+                admin_stats_service = AdminStatsService(svc.session)
                 parsing_stats = await admin_stats_service.get_parsing_stats(timeframe)
 
                 if not parsing_stats:
@@ -167,14 +167,9 @@ class AdvancedAdminCommands:
 
             try:
                 from core.services.admin_stats_service import AdminStatsService
-                from database.database import SessionLocal
 
-                db = SessionLocal()
-                try:
-                    admin_stats_service = AdminStatsService(db)
-                    user_stats = await admin_stats_service.get_user_stats(target_username)
-                finally:
-                    db.close()
+                admin_stats_service = AdminStatsService(svc.session)
+                user_stats = await admin_stats_service.get_user_stats(target_username)
 
                 if not user_stats:
                     await update.message.reply_text(

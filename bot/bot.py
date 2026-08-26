@@ -1338,7 +1338,7 @@ class TelegramBot:
         # D&D AI Master: intercept messages during active sessions
         if not is_hf_webhook_runtime():
             from bot.handlers.dnd_message_handler import handle_dnd_message
-            handled = await handle_dnd_message(update, context)
+            handled = await handle_dnd_message(update, context, get_db)
             if handled:
                 return
 

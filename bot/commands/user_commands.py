@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.middleware.dependency_injection import build_services
-from bot.commands.shop_commands_ptb import _handle_purchase_command
+from bot.commands.shop_commands_ptb import _handle_purchase_command as _handle_purchase_helper
 from utils.admin.admin_middleware import auto_registration_middleware
 from database.database import get_db
 
@@ -58,48 +58,48 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Buy commands - extracted from bot/bot.py
 async def buy_1_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 1, auto_registration_middleware, get_db
     )
 
 
 async def buy_2_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 2, auto_registration_middleware, get_db
     )
 
 
 async def buy_3_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 3, auto_registration_middleware, get_db
     )
 
 
 async def buy_4_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 4, auto_registration_middleware, get_db
     )
 
 
 async def buy_5_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 5, auto_registration_middleware, get_db
     )
 
 
 async def buy_6_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 6, auto_registration_middleware, get_db
     )
 
 
 async def buy_7_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 7, auto_registration_middleware, get_db
     )
 
 
 async def buy_8_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _handle_purchase_command(
+    await _handle_purchase_helper(
         update, context, 8, auto_registration_middleware, get_db
     )

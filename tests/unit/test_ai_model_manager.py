@@ -16,6 +16,8 @@ from bot.ai.model_manager import (
 def mock_env_no_providers(monkeypatch):
     """Mock environment with no AI providers configured."""
     monkeypatch.delenv("AI_PROVIDERS", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("HF_INFERENCE_TOKEN", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -28,6 +30,8 @@ def mock_env_hf_provider(monkeypatch):
     monkeypatch.setenv("HF_INFERENCE_TOKEN", "hf_test_token")
     monkeypatch.setenv("HF_INFERENCE_MODEL", "test-model")
     monkeypatch.delenv("AI_PROVIDERS", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("OLLAMA_ENABLED", "false")
 
@@ -80,6 +84,23 @@ def test_manager_init_multiple_providers(mock_env_multiple_providers):
     assert manager.providers[0].name == "hf"
     assert manager.providers[1].name == "openrouter"
     assert manager.is_available()
+
+
+def test_gemini_primary_before_groq(monkeypatch):
+    """Gemini must be loaded first, Groq second (fallback order)."""
+    monkeypatch.delenv("AI_PROVIDERS", raising=False)
+    monkeypatch.delenv("HF_INFERENCE_TOKEN", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("OLLAMA_ENABLED", "false")
+    monkeypatch.setenv("GEMINI_API_KEY", "gem_test")
+    monkeypatch.setenv("GROQ_API_KEY", "groq_test")
+
+    manager = AIModelManager()
+
+    assert [p.name for p in manager.providers] == ["gemini", "groq"]
+    assert manager.providers[0].provider_type == ProviderType.GEMINI
+    assert "generativelanguage.googleapis.com" in manager.providers[0].endpoint
 
 
 def test_get_available_providers(mock_env_hf_provider):

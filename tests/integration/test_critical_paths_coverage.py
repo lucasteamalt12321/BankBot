@@ -262,7 +262,7 @@ class TestUserRepositoryCriticalPaths:
 
     def test_get_or_create_pattern(self, session):
         """Test get_or_create pattern for user management."""
-        user_repo = UserRepository(User, session)
+        user_repo = UserRepository(session)
 
         # First call creates user
         user1 = user_repo.get_or_create(
@@ -283,7 +283,7 @@ class TestUserRepositoryCriticalPaths:
 
     def test_bulk_balance_update(self, session):
         """Test bulk balance updates for multiple users."""
-        user_repo = UserRepository(User, session)
+        user_repo = UserRepository(session)
 
         # Create multiple users
         users = []
@@ -308,7 +308,7 @@ class TestUserRepositoryCriticalPaths:
 
     def test_admin_and_vip_queries(self, session):
         """Test admin and VIP user queries."""
-        user_repo = UserRepository(User, session)
+        user_repo = UserRepository(session)
 
         # Create mixed users
         user_repo.create(

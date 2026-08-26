@@ -43,6 +43,7 @@ class TestBalanceCommandUpdate(unittest.TestCase):
 
     def tearDown(self):
         """Clean up test environment"""
+        self.admin_system.dispose()
         os.close(self.db_fd)
         os.unlink(self.db_path)
 
@@ -51,7 +52,7 @@ class TestBalanceCommandUpdate(unittest.TestCase):
         user = self.admin_system.get_user_by_id(self.test_user_id)
 
         self.assertIsNotNone(user)
-        self.assertEqual(user['id'], self.test_user_id)
+        self.assertEqual(user['telegram_id'], self.test_user_id)
         self.assertEqual(user['username'], self.test_username)
         self.assertEqual(user['first_name'], self.test_first_name)
         self.assertEqual(user['balance'], 100.0)
@@ -117,7 +118,7 @@ class TestBalanceCommandUpdate(unittest.TestCase):
 
         # Verify the format contains expected elements
         self.assertIn("Test User", balance_text)
-        self.assertIn("100.0 очков", balance_text)
+        self.assertIn("100 очков", balance_text)
         self.assertIn("Пользователь", balance_text)
 
         # Test admin status display

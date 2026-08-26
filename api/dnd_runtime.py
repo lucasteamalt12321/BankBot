@@ -63,9 +63,29 @@ def parse_dice(text: str) -> Optional[dict]:
     return {"count": count, "sides": sides, "modifier": mod}
 
 
-# ── AI call (Groq + HF fallback) ──────────────────────────────────
+# ── AI call (Gemini primary, Groq + OpenRouter + HF fallback) ─────
 
 def call_ai(prompt: str, max_tokens: int = 800) -> str:
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            resp = requests.post(
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                headers={"Authorization": f"Bearer {gemini_key}", "Content-Type": "application/json"},
+                json={
+                    "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.8,
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"]
+            print(f"[DND] Gemini error {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            print(f"[DND] Gemini exception: {e}")
+
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
         try:
@@ -73,7 +93,7 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": max_tokens,
                     "temperature": 0.8,
@@ -85,6 +105,52 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
             print(f"[DND] Groq error {resp.status_code}: {resp.text[:200]}")
         except Exception as e:
             print(f"[DND] Groq exception: {e}")
+
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    if openrouter_key:
+        models_env = os.getenv(
+            "OPENROUTER_MODEL",
+            "nvidia/nemotron-3-super-120b-a12b:free,minimax/minimax-m2.7:free",
+        )
+        for model in [m.strip() for m in models_env.split(",") if m.strip()]:
+            base_body = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": 0.8,
+            }
+            resp = None
+            # reasoning-модели жгут max_tokens на «мысли» — пробуем отключить;
+            # если модель не принимает параметр (400) — повторяем без него.
+            for attempt, body in enumerate(
+                ({"reasoning": {"enabled": False}, **base_body}, base_body)
+            ):
+                try:
+                    resp = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {openrouter_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=body,
+                        timeout=30,
+                    )
+                except Exception as e:
+                    print(f"[DND] OpenRouter exception ({model}): {e}")
+                    resp = None
+                    break
+                if resp.status_code == 400 and attempt == 0:
+                    continue
+                break
+            if resp is None:
+                continue
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"].get("content") or ""
+                if content.strip():
+                    return content
+                print(f"[DND] OpenRouter empty reply ({model})")
+            else:
+                print(f"[DND] OpenRouter error ({model}) {resp.status_code}: {resp.text[:200]}")
 
     hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
     if hf_token:
@@ -484,7 +550,7 @@ def cmd_dnd(user_id: int, chat_id: int) -> str:
         "  • Просто пиши что делаешь — бот поймёт\n"
         "  • Кидай кубики: <code>d20</code>, <code>2d6+3</code>\n"
         "  • Загрузи книгу приключения (PDF/DOCX/TXT)\n\n"
-        "🤖 ИИ: Groq (LLaMA 3.1) + HF fallback"
+        "🤖 ИИ: Gemini → Groq → HF fallback"
     )
 
 

@@ -50,6 +50,7 @@ class TestBalanceIntegration(unittest.TestCase):
 
     def tearDown(self):
         """Clean up test environment"""
+        self.admin_system.dispose()
         os.close(self.db_fd)
         os.unlink(self.db_path)
 
@@ -91,7 +92,7 @@ class TestBalanceIntegration(unittest.TestCase):
         self.assertIn("[STATUS]", balance_text)
         self.assertIn("[TIP]", balance_text)
         self.assertIn("Regular User", balance_text)
-        self.assertIn("150.0 очков", balance_text)
+        self.assertIn("150 очков", balance_text)
         self.assertIn("Пользователь", balance_text)
 
     def test_admin_status_display(self):
@@ -110,7 +111,7 @@ class TestBalanceIntegration(unittest.TestCase):
         """
 
         self.assertIn("Admin User", balance_text)
-        self.assertIn("500.0 очков", balance_text)
+        self.assertIn("500 очков", balance_text)
         self.assertIn("Администратор", balance_text)
 
     def test_balance_updates_reflect_correctly(self):

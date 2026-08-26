@@ -36,6 +36,7 @@ class TestShopEdgeCasesUnit(unittest.TestCase):
 
     def tearDown(self):
         """Clean up test database"""
+        self.admin_system.dispose()
         os.close(self.db_fd)
         os.unlink(self.db_path)
 
