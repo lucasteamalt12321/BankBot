@@ -10299,13 +10299,14 @@ def emperors_page():
             </div>
             <div class="score" id="quiz-score"></div>
             <div class="mode-row">
-                <label>Алгоритм:
-                    <select class="algo-select" id="algo-select" onchange="app.toggleAlgo()">
-                        <option value="deck">Классика (колода)</option>
-                        <option value="flash">Флешки (интервалы)</option>
-                        <option value="counter">Счётчик (вероятности)</option>
-                    </select>
-                </label>
+<label>Алгоритм:
+    <select class="algo-select" id="algo-select" onchange="app.toggleAlgo()">
+        <option value="deck">Классика (колода)</option>
+        <option value="flash">Флешки (интервалы)</option>
+        <option value="counter">Счётчик (вероятности)</option>
+        <option value="ai">ИИ (генерация)</option>
+    </select>
+</label>
                 <label>Правители:
                     <select class="algo-select scope-sel" id="scope-select" onchange="app.toggleScope(this)">
                         <option value="emperors">5 императоров</option>
@@ -10912,6 +10913,51 @@ function diffInfo() {
                 ];
             }
 
+            function loadAiQuestion() {
+                document.getElementById('info').style.display = 'none';
+                document.getElementById('hint-box').style.display = 'none';
+                document.getElementById('next-btn').style.display = 'none';
+                document.getElementById('question').textContent = '\u23F3 ИИ генерирует вопрос...';
+                document.getElementById('options').innerHTML = '';
+                var scopeVal = scope || '';
+                fetch('/api/quiz/ai-generate', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({module:'history', topic: scopeVal})
+                }).then(function(r){return r.json();}).then(function(d){
+                    if (!d.ok) { document.getElementById('question').textContent = '\u274C ' + (d.error || 'Ошибка'); return; }
+                    document.getElementById('question').textContent = d.question;
+                    var opts = document.getElementById('options');
+                    opts.innerHTML = '';
+                    var answered = false;
+                    var fakeItem = {type:'ai', text:'ai:'+scopeVal, emperor:'ai', label:'ИИ'};
+                    d.options.forEach(function(opt, i){
+                        var b = document.createElement('button');
+                        b.className = 'opt-btn';
+                        b.textContent = opt;
+                        b.addEventListener('click', function(){
+                            if (answered) return; answered = true;
+                            Array.prototype.forEach.call(opts.children, function(c){ c.disabled = true; });
+                            var ok = (i === d.correct);
+                            recordAnswer(fakeItem, ok);
+                            if (ok) {
+                                b.style.background = 'var(--bb-accent)';
+                                b.style.color = '#fff';
+                            } else {
+                                b.style.background = '#e07373';
+                                b.style.color = '#fff';
+                                Array.prototype.forEach.call(opts.children, function(c){
+                                    if (c.textContent === d.options[d.correct]) { c.style.background = 'var(--bb-accent)'; c.style.color = '#fff'; }
+                                });
+                            }
+                            updateScore();
+                            document.getElementById('next-btn').style.display = 'block';
+                        });
+                        opts.appendChild(b);
+                    });
+                    updateScore();
+                }).catch(function(){ document.getElementById('question').textContent = '\u274C Сеть недоступна'; });
+            }
+
             function pickItem() {
                 if (onlyErrors && wrongItems.length) {
                     return wrongItems[Math.floor(Math.random() * wrongItems.length)];
@@ -10923,6 +10969,7 @@ function diffInfo() {
             }
 
             function loadQuestion() {
+                if (algo === 'ai') { loadAiQuestion(); return; }
                 document.getElementById('info').style.display = 'none';
                 document.getElementById('hint-box').style.display = 'none';
                 document.getElementById('hint-btn').style.display = 'block';
@@ -11235,7 +11282,7 @@ function diffInfo() {
                     algo = document.getElementById('algo-select').value;
                     localStorage.setItem('emperors_algo', algo);
                     updateScore();
-                    loadQuestion();
+                    if (algo === 'ai') { loadAiQuestion(); } else { loadQuestion(); }
                 },
                 toggleScope: function(el) {
                     scope = el.value;
@@ -11409,7 +11456,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option><option value="ai">ИИ (генерация)</option></select>
 </div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
@@ -11584,7 +11631,8 @@ function fFlashUpdate(id, ok) {
   fFlash[id] = r; fFlashSave();
 }
 document.getElementById('f-algo').onchange = function() {
-  fAlgo = this.value; localStorage.setItem('math_f_algo', fAlgo); loadTopic();
+  fAlgo = this.value; localStorage.setItem('math_f_algo', fAlgo);
+  if (fAlgo === 'ai') { renderAiQuestion(); } else { loadTopic(); }
 };
 function pickFormula() {
   var now = Date.now();
@@ -11617,6 +11665,50 @@ function loadTopic() {
   const tp = topicSel.value;
   fList = MATH.topics[tp].map(function(id){ return MATH.formulas.find(function(f){ return f.id===id; }); });
   fDeck = []; pickFormula(); renderFormula();
+}
+function renderAiQuestion() {
+  var box = document.getElementById('f-opts');
+  var title = document.getElementById('f-title');
+  var note = document.getElementById('f-note');
+  var fb = document.getElementById('f-fb');
+  var prog = document.getElementById('f-progress');
+  title.textContent = '\u23F3 \u0418\u0418 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441...';
+  note.textContent = ''; fb.textContent = ''; fb.style.color = '';
+  box.innerHTML = ''; prog.textContent = '';
+  var topic = (typeof topicSel !== 'undefined') ? topicSel.value : '';
+  fetch('/api/quiz/ai-generate', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({module:'math', topic: topic})
+  }).then(function(r){return r.json();}).then(function(d){
+    if (!d.ok) { title.textContent = '\u274C ' + (d.error || '\u041E\u0448\u0438\u0431\u043A\u0430'); return; }
+    title.textContent = d.question;
+    note.textContent = d.explanation || '';
+    box.innerHTML = '';
+    var answered = false;
+    d.options.forEach(function(opt, i){
+      var b = document.createElement('button');
+      b.className = 'btn ghost'; b.style.textAlign = 'left'; b.style.whiteSpace = 'normal';
+      b.textContent = opt;
+      b.onclick = function(){
+        if (answered) return; answered = true;
+        Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
+        var ok = (i === d.correct);
+        record('ai::math::' + topic, ok);
+        if (ok) {
+          fb.textContent = '\u2705 \u0412\u0435\u0440\u043D\u043E!';
+          fb.style.color = 'var(--bb-accent)';
+          b.classList.remove('ghost'); b.classList.add('green');
+        } else {
+          fb.textContent = '\u274C \u041F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E: ' + d.options[d.correct];
+          fb.style.color = '#e07373';
+          Array.prototype.forEach.call(box.children, function(c){
+            if (c.textContent === d.options[d.correct]) { c.classList.remove('ghost'); c.classList.add('green'); }
+          });
+        }
+      };
+      box.appendChild(b);
+    });
+  }).catch(function(){ title.textContent = '\u274C \u0421\u0435\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430'; });
 }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 var fDeck = [];
@@ -11669,9 +11761,9 @@ function renderFormula() {
   const due = fList.filter(function(x){ return (fFlashRec(x.id).due <= Date.now() && fFlashRec(x.id).reps > 0); }).length;
   document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+due;
 }
-function nextFormula(){ renderFormula(); }
+function nextFormula(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } }
 document.getElementById('f-next').onclick = nextFormula;
-document.getElementById('f-prev').onclick = function(){ renderFormula(); };
+document.getElementById('f-prev').onclick = function(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } };
 topicSel.onchange = loadTopic;
 loadTopic();
 
@@ -11825,7 +11917,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option><option value="ai">ИИ (генерация)</option></select>
 </div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
@@ -12000,7 +12092,8 @@ function fFlashUpdate(id, ok) {
   fFlash[id] = r; fFlashSave();
 }
 document.getElementById('f-algo').onchange = function() {
-  fAlgo = this.value; localStorage.setItem('physics_f_algo', fAlgo); loadTopic();
+  fAlgo = this.value; localStorage.setItem('physics_f_algo', fAlgo);
+  if (fAlgo === 'ai') { renderAiQuestion(); } else { loadTopic(); }
 };
 function pickFormula() {
   var now = Date.now();
@@ -12032,9 +12125,53 @@ function pickFormula() {
 function loadTopic() {
   const tp = topicSel.value;
   fList = PH.topics[tp].map(function(id){ return PH.formulas.find(function(f){ return f.id===id; }); });
-  fDeck = []; pickFormula(); renderFormula();
+  fDeck = []; if (fAlgo !== 'ai') { pickFormula(); renderFormula(); } else { renderAiQuestion(); }
 }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function renderAiQuestion() {
+  var box = document.getElementById('f-opts');
+  var title = document.getElementById('f-title');
+  var note = document.getElementById('f-note');
+  var fb = document.getElementById('f-fb');
+  var prog = document.getElementById('f-progress');
+  title.textContent = '\u23F3 \u0418\u0418 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441...';
+  note.textContent = ''; fb.textContent = ''; fb.style.color = '';
+  box.innerHTML = ''; prog.textContent = '';
+  var topic = (typeof topicSel !== 'undefined') ? topicSel.value : '';
+  fetch('/api/quiz/ai-generate', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({module:'physics', topic: topic})
+  }).then(function(r){return r.json();}).then(function(d){
+    if (!d.ok) { title.textContent = '\u274C ' + (d.error || '\u041E\u0448\u0438\u0431\u043A\u0430'); return; }
+    title.textContent = d.question;
+    note.textContent = d.explanation || '';
+    box.innerHTML = '';
+    var answered = false;
+    d.options.forEach(function(opt, i){
+      var b = document.createElement('button');
+      b.className = 'btn ghost'; b.style.textAlign = 'left'; b.style.whiteSpace = 'normal';
+      b.textContent = opt;
+      b.onclick = function(){
+        if (answered) return; answered = true;
+        Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
+        var ok = (i === d.correct);
+        record('ai::physics::' + topic, ok);
+        if (ok) {
+          fb.textContent = '\u2705 \u0412\u0435\u0440\u043D\u043E!';
+          fb.style.color = 'var(--bb-accent)';
+          b.classList.remove('ghost'); b.classList.add('green');
+        } else {
+          fb.textContent = '\u274C \u041F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E: ' + d.options[d.correct];
+          fb.style.color = '#e07373';
+          Array.prototype.forEach.call(box.children, function(c){
+            if (c.textContent === d.options[d.correct]) { c.classList.remove('ghost'); c.classList.add('green'); }
+          });
+        }
+      };
+      box.appendChild(b);
+    });
+  }).catch(function(){ title.textContent = '\u274C \u0421\u0435\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430'; });
+}
 var fDeck = [];
 function renderFormula() {
   if (!fList.length) return;
@@ -12085,9 +12222,9 @@ function renderFormula() {
   const due = fList.filter(function(x){ return (fFlashRec(x.id).due <= Date.now() && fFlashRec(x.id).reps > 0); }).length;
   document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+due;
 }
-function nextFormula(){ renderFormula(); }
+function nextFormula(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } }
 document.getElementById('f-next').onclick = nextFormula;
-document.getElementById('f-prev').onclick = function(){ renderFormula(); };
+document.getElementById('f-prev').onclick = function(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } };
 topicSel.onchange = loadTopic;
 loadTopic();
 
@@ -12380,6 +12517,13 @@ def informatics_page():
         <!-- Trainer Tab: Solve problems -->
         <div id="panel-trainer" class="panel">
             <div class="score" id="trainer-score">Балл: 0/<span id="trainer-total">0</span></div>
+            <div style="margin-bottom:12px;text-align:center;">
+                <label class="muted" style="font-size:13px;">Алгоритм:</label>
+                <select id="info-algo" style="background:var(--bb-primary);color:var(--bb-text);border:1px solid var(--bb-link);border-radius:8px;padding:4px 8px;font-size:13px;font-family:inherit;">
+                    <option value="shuffle">Перемешать</option>
+                    <option value="ai">ИИ (генерация)</option>
+                </select>
+            </div>
             <div class="hint-box" id="hint-box">
                 <button class="hint-btn" id="hint-btn">Подсказка</button>
             </div>
@@ -12628,6 +12772,62 @@ def informatics_page():
         // --- Trainer tab: random tasks ---
         let trainQueue = [];
         let trainDone = [];
+        let infoAlgo = localStorage.getItem('info_algo') || 'shuffle';
+        document.getElementById('info-algo').value = infoAlgo;
+        document.getElementById('info-algo').onchange = function() {
+            infoAlgo = this.value;
+            localStorage.setItem('info_algo', infoAlgo);
+            if (infoAlgo === 'ai') { loadInfoAiQuestion(); } else { buildQueue(); showTrainerTask(); }
+        };
+
+        function loadInfoAiQuestion() {
+            const box = document.getElementById('current-task');
+            box.innerHTML = '<h3>\u23F3 ИИ генерирует вопрос...</h3>';
+            document.getElementById('next-btn').style.display = 'none';
+            document.getElementById('answer-btn').style.display = 'none';
+            var topic = topicsData.topics.find(function(t){return t.id===currentTopic;});
+            fetch('/api/quiz/ai-generate', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({module:'informatics', topic: topic ? topic.name : ''})
+            }).then(function(r){return r.json();}).then(function(d){
+                if (!d.ok) { box.innerHTML = '<h3>\u274C ' + (d.error || 'Ошибка') + '</h3>'; return; }
+                box.innerHTML = '';
+                var h3 = document.createElement('h3');
+                h3.textContent = d.question;
+                box.appendChild(h3);
+                if (d.explanation) {
+                    var exp = document.createElement('p');
+                    exp.className = 'hint';
+                    exp.textContent = d.explanation;
+                    box.appendChild(exp);
+                }
+                var answered = false;
+                d.options.forEach(function(opt, i){
+                    var b = document.createElement('button');
+                    b.className = 'answer-btn';
+                    b.textContent = opt;
+                    b.addEventListener('click', function(){
+                        if (answered) return; answered = true;
+                        Array.prototype.forEach.call(box.children, function(c){ if(c.tagName==='BUTTON') c.disabled=true; });
+                        var ok = (i === d.correct);
+                        totalSolved++;
+                        if (ok) correctStreak++; else correctStreak = 0;
+                        infoRecord('ai::informatics', ok);
+                        if (ok) {
+                            b.style.background = '#065f46'; b.style.color = '#fff';
+                        } else {
+                            b.style.background = '#991b1b'; b.style.color = '#fff';
+                            Array.prototype.forEach.call(box.children, function(c){
+                                if (c.textContent === d.options[d.correct]) { c.style.background = '#065f46'; c.style.color = '#fff'; }
+                            });
+                        }
+                        document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved + ' (точность: ' + (totalSolved ? Math.round(correctStreak / totalSolved * 100) : 0) + '%)';
+                        document.getElementById('next-btn').style.display = 'block';
+                    });
+                    box.appendChild(b);
+                });
+            }).catch(function(){ box.innerHTML = '<h3>\u274C Сеть недоступна</h3>'; });
+        }
 
         function shuffle(arr) {
             for (let i = arr.length - 1; i > 0; i--) {
@@ -12649,6 +12849,7 @@ def informatics_page():
         }
 
         function showTrainerTask() {
+            if (infoAlgo === 'ai') { loadInfoAiQuestion(); return; }
             const box = document.getElementById('current-task');
             box.innerHTML = '';
             if (!trainQueue.length) {
@@ -12838,7 +13039,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="r-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+<select id="r-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option><option value="ai">ИИ (генерация)</option></select>
 </div>
 <div class="progress-mini" id="r-progress"></div>
 <div class="card" id="r-card">
@@ -12982,11 +13183,54 @@ function rFlashUpdate(id, ok) {
   rFlash[id] = r; rFlashSave();
 }
 document.getElementById('r-algo').onchange = function() {
-  rAlgo = this.value; localStorage.setItem('russian_r_algo', rAlgo); loadCat();
+  rAlgo = this.value; localStorage.setItem('russian_r_algo', rAlgo);
+  if (rAlgo === 'ai') { renderAiQuestion(); } else { loadCat(); }
 };
-function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rDeck=[]; renderRule(); }
+function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rDeck=[]; if (rAlgo !== 'ai') { renderRule(); } else { renderAiQuestion(); } }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 var rDeck = [];
+function renderAiQuestion() {
+  var box = document.getElementById('r-opts');
+  var title = document.getElementById('r-title');
+  var fb = document.getElementById('r-fb');
+  var prog = document.getElementById('r-progress');
+  title.textContent = '\u23F3 ИИ генерирует вопрос...';
+  fb.textContent = ''; fb.style.color = '';
+  box.innerHTML = ''; prog.textContent = '';
+  var cat = (typeof catSel !== 'undefined') ? catSel.value : '';
+  fetch('/api/quiz/ai-generate', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({module:'russian', topic: cat})
+  }).then(function(r){return r.json();}).then(function(d){
+    if (!d.ok) { title.textContent = '\u274C ' + (d.error || 'Ошибка'); return; }
+    title.textContent = d.question;
+    box.innerHTML = '';
+    var answered = false;
+    d.options.forEach(function(opt, i){
+      var b = document.createElement('button');
+      b.className = 'btn ghost'; b.style.textAlign = 'left'; b.style.whiteSpace = 'normal';
+      b.textContent = opt;
+      b.onclick = function(){
+        if (answered) return; answered = true;
+        Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
+        var ok = (i === d.correct);
+        record('ai::russian::' + cat, ok);
+        if (ok) {
+          fb.textContent = '\u2705 Верно!';
+          fb.style.color = 'var(--bb-accent)';
+          b.classList.remove('ghost'); b.classList.add('green');
+        } else {
+          fb.textContent = '\u274C Правильно: ' + d.options[d.correct];
+          fb.style.color = '#e07373';
+          Array.prototype.forEach.call(box.children, function(c){
+            if (c.textContent === d.options[d.correct]) { c.classList.remove('ghost'); c.classList.add('green'); }
+          });
+        }
+      };
+      box.appendChild(b);
+    });
+  }).catch(function(){ title.textContent = '\u274C Сеть недоступна'; });
+}
 function pickRule() {
   var now = Date.now();
   if (rAlgo === 'deck') {
@@ -13061,9 +13305,9 @@ function renderRule() {
   const dueC = rList.filter(function(x){ return (rFlashRec(x.id).due <= Date.now() && rFlashRec(x.id).reps > 0); }).length;
   document.getElementById('r-progress').textContent = (rIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+dueC;
 }
-function nextRule(){ renderRule(); }
+function nextRule(){ if (rAlgo === 'ai') { renderAiQuestion(); } else { renderRule(); } }
 document.getElementById('r-next').onclick=nextRule;
-document.getElementById('r-prev').onclick=function(){ renderRule(); };
+document.getElementById('r-prev').onclick=function(){ if (rAlgo === 'ai') { renderAiQuestion(); } else { renderRule(); } };
 catSel.onchange=loadCat;
 
 // ---- Tasks ----
@@ -13474,6 +13718,62 @@ def api_quiz_check():
         resp["answer"] = it["_answer"]
     resp["explanation"] = it.get("explanation", "")
     return jsonify(resp)
+
+
+@app.route("/api/quiz/ai-generate", methods=["POST"])
+def api_quiz_ai_generate():
+    """Generate a single AI-powered quiz question for any module. NOT saved to chat history."""
+    data = request.get_json(silent=True) or {}
+    module = str(data.get("module") or "")
+    topic = str(data.get("topic") or "")
+    if module not in OGE_MODULES:
+        return jsonify({"ok": False, "error": "unknown module"}), 400
+    module_names = {
+        "history": "истории (ОГЭ, события, деятели, даты, термины)",
+        "informatics": "информатики (алгоритмы, Python, сети, данные)",
+        "math": "математике (алгебра, геометрия, формулы, задачи)",
+        "russian": "русскому языку (правила, орфография, пунктуация, термины)",
+        "physics": "физике (механика, электричество, оптика, формулы)",
+    }
+    mod_name = module_names.get(module, module)
+    topic_hint = f"Тема: {topic}.\n" if topic else ""
+    prompt = (
+        "Ты — преподаватель, составляющий тест для ОГЭ.\n"
+        f"Предмет: {mod_name}.\n"
+        f"{topic_hint}"
+        "Сгенерируй ОДИН вопрос с 4 вариантами ответа (A, B, C, D). "
+        "Один правильный. Уровень — ОГЭ (9 класс).\n"
+        "Ответь СТРОГО в формате JSON без пояснений:\n"
+        '{"question":"текст вопроса","options":["A","B","C","D"],"correct":0,"explanation":"краткое объяснение"}\n'
+        "где correct — индекс правильного ответа (0-3)."
+    )
+    reply = None
+    for _attempt in range(3):
+        reply = call_ai_api(prompt, max_tokens=400, temperature=0.8)
+        if reply and not reply.startswith("\u274C"):
+            break
+        time.sleep(min(4, 1 * (2 ** _attempt)))
+    if not reply or reply.startswith("\u274C"):
+        return jsonify({"ok": False, "error": "AI unavailable"}), 503
+    try:
+        match = re.search(r"\{.*\}", reply, re.DOTALL)
+        if not match:
+            return jsonify({"ok": False, "error": "bad AI response"}), 502
+        q = json.loads(match.group(0))
+        options = q.get("options", [])
+        if len(options) < 4:
+            return jsonify({"ok": False, "error": "not enough options"}), 502
+        return jsonify({
+            "ok": True,
+            "question": q.get("question", ""),
+            "options": options[:4],
+            "correct": int(q.get("correct", 0)),
+            "explanation": q.get("explanation", ""),
+            "module": module,
+        })
+    except Exception as exc:
+        print(f"[QUIZ] ai-generate parse error: {exc}")
+        return jsonify({"ok": False, "error": "parse error"}), 502
 
 
 @app.route("/exam")
