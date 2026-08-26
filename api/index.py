@@ -4991,6 +4991,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Идеи по улучшению или сообщить о баге</p>
                     </div>
                 </a>
+                <a class="card" href="/analytics">
+                    <div class="card-icon">📊</div>
+                    <div class="card-content">
+                        <h2>Аналитика ОГЭ</h2>
+                        <p>Прогресс, серия дней, прогноз повторений и слабые места</p>
+                    </div>
+                </a>
             </div>
             <script>
                 function toggleBeta() {
@@ -13081,11 +13088,202 @@ def api_exam_check():
                     "explanation": it["_explanation"], "recorded": recorded})
 
 
+_QUIZ_SESSIONS: dict = {}
+
+
+@app.route("/api/quiz/generate", methods=["POST"])
+def api_quiz_generate():
+    """Generate a quiz session for any OGE module with configurable algorithm and options."""
+    data = request.get_json(silent=True) or {}
+    module = str(data.get("module") or "")
+    algo = str(data.get("algo") or "smart")
+    n = max(3, min(30, int(data.get("n") or 10)))
+    if module not in OGE_MODULES:
+        return jsonify({"ok": False, "error": "unknown module"}), 400
+
+    pool = []
+    if module == "history":
+        from core.history import DATA as HDATA
+        for it in HDATA.get("events", []):
+            pool.append({"key": "event::" + it["text"], "question": it["text"],
+                         "_answer": it.get("emperor", ""), "type": "mcq",
+                         "context": it.get("note", "")})
+        for it in HDATA.get("persons", []):
+            pool.append({"key": "person::" + it["text"], "question": it["text"],
+                         "_answer": it.get("emperor", ""), "type": "mcq",
+                         "context": it.get("description", "")})
+        for it in HDATA.get("terms", []):
+            pool.append({"key": "term::" + it["text"], "question": it.get("definition", it["text"]),
+                         "_answer": it["text"], "type": "mcq", "context": ""})
+    elif module == "informatics":
+        from core.informatics.tasks import get_all_tasks as info_tasks
+        for t in info_tasks():
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+    elif module == "math":
+        from core.mathematics.formulas import TASKS as mt, FORMULAS as mf
+        for t in mt:
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+        for f in mf:
+            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
+                         "_answer": f.formula, "type": "mcq",
+                         "context": f.note})
+    elif module == "russian":
+        from core.russian.rules import TASKS as rt, RULES as rr
+        for t in rt:
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+        for r in rr:
+            pool.append({"key": "rule::" + r.id, "question": r.title,
+                         "_answer": r.rule, "type": "mcq", "context": r.example})
+    elif module == "physics":
+        from core.physics.formulas import TASKS as pt, FORMULAS as pf
+        for t in pt:
+            pool.append({"key": t.id, "question": t.question,
+                         "_answer": str(t.answer), "type": "text",
+                         "explanation": getattr(t, "explanation", ""),
+                         "hint": getattr(t, "hint", "")})
+        for f in pf:
+            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
+                         "_answer": f.formula, "type": "mcq",
+                         "context": f.note})
+
+    if not pool:
+        return jsonify({"ok": False, "error": "empty pool"}), 400
+
+    if algo == "smart" and len(pool) > n:
+        user = _get_session_user(_auth_token_from_request())
+        uid = _web_user_id("u" + str(user["id"])) if user else None
+        weights = []
+        if uid:
+            try:
+                engine = get_db_engine()
+                with engine.connect() as conn:
+                    for item in pool:
+                        row = conn.execute(text(
+                            "SELECT reps, streak, correct_count, wrong_count FROM study_progress "
+                            "WHERE user_id=:u AND module=:m AND card_key=:k"
+                        ), {"u": uid, "m": module, "k": item["key"]}).mappings().first()
+                        if row:
+                            w = 1.0
+                            if int(row["streak"]) < 3:
+                                w += 3.0
+                            if int(row["wrong_count"]) > int(row["correct_count"]):
+                                w += 5.0
+                            if float(row.get("reps", 0)) == 0:
+                                w += 2.0
+                            weights.append(w)
+                        else:
+                            weights.append(4.0)
+            except Exception:
+                weights = [1.0] * len(pool)
+        else:
+            weights = [1.0] * len(pool)
+        items = []
+        selected = set()
+        for _ in range(min(n, len(pool))):
+            remaining = [(i, weights[i]) for i in range(len(pool)) if i not in selected]
+            if not remaining:
+                break
+            total_w = sum(w for _, w in remaining)
+            r_val = random.random() * total_w
+            cumulative = 0
+            for idx, w in remaining:
+                cumulative += w
+                if cumulative >= r_val:
+                    selected.add(idx)
+                    items.append(pool[idx])
+                    break
+    else:
+        items = random.sample(pool, min(n, len(pool)))
+
+    sid = secrets.token_hex(6)
+    _QUIZ_SESSIONS[sid] = {"module": module, "items": items}
+    while len(_QUIZ_SESSIONS) > 300:
+        _QUIZ_SESSIONS.pop(next(iter(_QUIZ_SESSIONS)))
+
+    safe_items = []
+    for i, it in enumerate(items):
+        q = {"idx": i, "key": it["key"], "question": it["question"], "type": it.get("type", "text"),
+             "hint": it.get("hint", ""), "explanation": it.get("explanation", ""),
+             "context": it.get("context", "")}
+        if it.get("type") == "mcq":
+            correct = it["_answer"]
+            distractors = [p["_answer"] for p in pool if p["_answer"] != correct and p.get("type") == "mcq"]
+            distractors = list(set(distractors))
+            random.shuffle(distractors)
+            options = [correct] + distractors[:3]
+            random.shuffle(options)
+            q["options"] = options
+            q["correct_idx"] = options.index(correct)
+        safe_items.append(q)
+
+    return jsonify({"ok": True, "sid": sid, "items": safe_items, "module": module, "algo": algo})
+
+
+@app.route("/api/quiz/check", methods=["POST"])
+def api_quiz_check():
+    """Check one quiz answer and record progress."""
+    data = request.get_json(silent=True) or {}
+    sid = str(data.get("sid") or "")
+    session = _QUIZ_SESSIONS.get(sid)
+    if not session:
+        return jsonify({"ok": False, "error": "unknown session"}), 404
+    items = session["items"]
+    module = session.get("module", "")
+    try:
+        idx = int(data.get("idx"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "bad idx"}), 400
+    if not 0 <= idx < len(items):
+        return jsonify({"ok": False, "error": "bad idx"}), 400
+    it = items[idx]
+    answer_val = data.get("value", "")
+    if it.get("type") == "mcq":
+        try:
+            chosen_idx = int(answer_val)
+            ok = chosen_idx == it.get("correct_idx")
+        except (TypeError, ValueError):
+            ok = False
+    else:
+        ok = _exam_is_correct(answer_val, it["_answer"])
+    user = _get_session_user(_auth_token_from_request())
+    recorded = False
+    if user:
+        uid = _web_user_id("u" + str(user["id"]))
+        if uid and module:
+            try:
+                with get_db_engine().begin() as conn:
+                    _study_record_one(conn, uid, module, it["key"], ok)
+                recorded = True
+            except Exception as exc:
+                print(f"[QUIZ] progress record error: {exc}")
+    resp = {"ok": True, "correct": ok, "recorded": recorded}
+    if it.get("type") == "mcq":
+        resp["answer"] = it.get("correct_idx")
+    else:
+        resp["answer"] = it["_answer"]
+    resp["explanation"] = it.get("explanation", "")
+    return jsonify(resp)
+
+
 @app.route("/exam")
 def exam_page():
     auth_token_present = bool(_get_session_user(_auth_token_from_request()))
     html = EXAM_PAGE_TEMPLATE.replace("__AUTH_HINT__", "on" if auth_token_present else "off")
     return html
+
+
+@app.route("/analytics")
+def analytics_page():
+    return ANALYTICS_PAGE_TEMPLATE
 
 
 EXAM_PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -13184,6 +13382,182 @@ document.getElementById('ans').addEventListener('keydown',function(e){ if(e.key=
 </body>
 </html>
 """
+
+
+ANALYTICS_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Аналитика ОГЭ | LTHub</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bb-bg);color:var(--bb-text);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
+.container{max-width:720px;width:100%}
+.header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.header h1{font-size:22px;color:var(--bb-accent)}
+.header a{color:var(--bb-muted);text-decoration:none;font-size:14px;margin-left:auto}
+.card{background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:20px;margin-bottom:14px}
+.card h2{font-size:16px;color:var(--bb-accent);margin-bottom:12px}
+.muted{color:var(--bb-muted);font-size:13px}
+.streak-box{text-align:center;padding:20px}
+.streak-num{font-size:48px;font-weight:700;color:var(--bb-accent);line-height:1}
+.streak-label{font-size:14px;color:var(--bb-muted);margin-top:6px}
+.overall-bar{height:10px;border-radius:5px;background:var(--bb-elev);overflow:hidden;margin:12px 0}
+.overall-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--bb-accent),var(--bb-green3));transition:width 0.8s ease}
+.overall-pct{font-size:28px;font-weight:700;color:var(--bb-accent);text-align:center}
+.mod-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bb-border)}
+.mod-row:last-child{border-bottom:none}
+.mod-emoji{font-size:28px;width:40px;text-align:center}
+.mod-info{flex:1;min-width:0}
+.mod-name{font-weight:600;font-size:14px}
+.mod-stats{font-size:12px;color:var(--bb-muted);margin-top:3px}
+.mod-bar{height:6px;border-radius:3px;background:var(--bb-elev);overflow:hidden;margin-top:6px}
+.mod-fill{height:100%;border-radius:3px;transition:width 0.6s ease}
+.mod-pct{font-size:18px;font-weight:700;width:55px;text-align:right}
+.forecast-grid{display:grid;grid-template-columns:repeat(14,1fr);gap:4px;margin-top:12px}
+.fc-day{text-align:center;font-size:11px;padding:6px 2px;border-radius:6px}
+.fc-day .fc-date{color:var(--bb-muted);margin-bottom:4px}
+.fc-day .fc-num{font-weight:700}
+.fc-day.empty{background:var(--bb-elev);opacity:.3}
+.fc-day.active{background:rgba(91,141,239,.15);border:1px solid var(--bb-link)}
+.fc-day.hot{background:rgba(239,68,68,.15);border:1px solid #ef4444}
+.weak-list{max-height:300px;overflow-y:auto}
+.weak-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bb-border);font-size:13px}
+.weak-item:last-child{border-bottom:none}
+.weak-tag{font-size:11px;padding:2px 7px;border-radius:8px;font-weight:600;white-space:nowrap}
+.weak-acc{margin-left:auto;font-weight:600}
+.today-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center}
+.today-stat{padding:14px;border-radius:12px;background:var(--bb-elev)}
+.today-val{font-size:24px;font-weight:700}
+.today-lbl{font-size:11px;color:var(--bb-muted);margin-top:4px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>📊 Аналитика ОГЭ</h1>
+    <a href="/">← Назад</a>
+  </div>
+  <div id="loading" class="card"><p class="muted">Загрузка...</p></div>
+  <div id="content" style="display:none">
+    <div class="card streak-box">
+      <div class="streak-num" id="s-streak">0</div>
+      <div class="streak-label">дней подряд</div>
+      <p class="muted" id="s-best" style="margin-top:8px"></p>
+    </div>
+    <div class="card">
+      <h2>Общий прогресс</h2>
+      <div class="overall-pct" id="s-pct">0%</div>
+      <div class="overall-bar"><div class="overall-fill" id="s-fill" style="width:0%"></div></div>
+      <p class="muted" id="s-total" style="text-align:center"></p>
+    </div>
+    <div class="card">
+      <h2>Сегодня</h2>
+      <div class="today-grid" id="s-today"></div>
+    </div>
+    <div class="card">
+      <h2>По предметам</h2>
+      <div id="s-modules"></div>
+    </div>
+    <div class="card">
+      <h2>Прогноз повторений (14 дней)</h2>
+      <div class="forecast-grid" id="s-forecast"></div>
+    </div>
+    <div class="card">
+      <h2>Слабые места</h2>
+      <div class="weak-list" id="s-weak"></div>
+    </div>
+  </div>
+</div>
+<script>
+var AUTH = localStorage.getItem('web_token') || '';
+var COLORS = { history:'#8b5cf6', informatics:'#06b6d4', math:'#f59e0b', russian:'#ec4899', physics:'#10b981' };
+
+function init() {
+  if (!AUTH) {
+    document.getElementById('loading').innerHTML = '<p class="muted">Войдите, чтобы видеть аналитику</p>';
+    return;
+  }
+  fetch('/api/study/stats', { headers: { 'X-Auth-Token': AUTH } })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) {
+      if (!d) { document.getElementById('loading').innerHTML = '<p class="muted">Ошибка загрузки</p>'; return; }
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = 'block';
+      renderStats(d);
+    })
+    .catch(function() { document.getElementById('loading').innerHTML = '<p class="muted">Ошибка сети</p>'; });
+}
+
+function renderStats(d) {
+  document.getElementById('s-streak').textContent = d.streak.current;
+  document.getElementById('s-best').textContent = 'Лучшая серия: ' + d.streak.best + ' дн.';
+  document.getElementById('s-pct').textContent = d.overall_readiness + '%';
+  document.getElementById('s-fill').style.width = d.overall_readiness + '%';
+  var tm = 0, ts = 0;
+  for (var k in d.modules) { tm += d.modules[k].mastered; ts += d.modules[k].total; }
+  document.getElementById('s-total').textContent = tm + ' / ' + ts + ' карточек освоено';
+
+  var tg = document.getElementById('s-today');
+  tg.innerHTML = '<div class="today-stat"><div class="today-val">' + d.today.cards + '</div><div class="today-lbl">карточек</div></div>' +
+    '<div class="today-stat"><div class="today-val" style="color:var(--bb-green3)">' + d.today.correct_rate + '%</div><div class="today-lbl">точность</div></div>' +
+    '<div class="today-stat"><div class="today-val" style="color:var(--bb-accent2)">' + (d.today.correct - d.today.wrong) + '</div><div class="today-lbl">балл</div></div>';
+
+  var ml = document.getElementById('s-modules');
+  ml.innerHTML = '';
+  for (var mod in d.modules) {
+    var m = d.modules[mod];
+    var color = COLORS[mod] || 'var(--bb-accent)';
+    var pct = m.readiness;
+    ml.innerHTML += '<div class="mod-row" onclick="window.location.href=\'' + m.url + '\'">' +
+      '<div class="mod-emoji">' + m.emoji + '</div>' +
+      '<div class="mod-info"><div class="mod-name">' + m.label + '</div>' +
+      '<div class="mod-stats">' + m.mastered + '/' + m.total + ' освоено' +
+      (m.due_today > 0 ? ' · ' + m.due_today + ' на повторение' : '') +
+      (m.weak > 0 ? ' · <span style="color:#ef4444">' + m.weak + ' ошибок</span>' : '') +
+      ' · точность ' + m.accuracy + '%</div>' +
+      '<div class="mod-bar"><div class="mod-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
+      '<div class="mod-pct" style="color:' + color + '">' + pct + '%</div></div>';
+  }
+
+  var fg = document.getElementById('s-forecast');
+  fg.innerHTML = '';
+  for (var i = 0; i < d.forecast.length; i++) {
+    var f = d.forecast[i];
+    var cls = f.due === 0 ? 'empty' : (f.due > 5 ? 'hot' : 'active');
+    var dayLabel = f.date.slice(5);
+    fg.innerHTML += '<div class="fc-day ' + cls + '"><div class="fc-date">' + dayLabel + '</div><div class="fc-num">' + f.due + '</div></div>';
+  }
+
+  var wl = document.getElementById('s-weak');
+  wl.innerHTML = '';
+  var weakItems = [];
+  for (var mod2 in d.modules) {
+    var m2 = d.modules[mod2];
+    if (m2.weak > 0) {
+      weakItems.push({ mod: mod2, label: m2.label, emoji: m2.emoji, weak: m2.weak, accuracy: m2.accuracy, url: m2.url });
+    }
+  }
+  weakItems.sort(function(a,b) { return b.weak - a.weak; });
+  if (weakItems.length === 0) {
+    wl.innerHTML = '<p class="muted" style="padding:10px">Нет слабых мест — отличная работа!</p>';
+  } else {
+    for (var j = 0; j < weakItems.length; j++) {
+      var w = weakItems[j];
+      wl.innerHTML += '<div class="weak-item" onclick="window.location.href=\'' + w.url + '\'">' +
+        '<span class="weak-tag" style="background:' + (COLORS[w.mod] || 'var(--bb-accent)') + '22;color:' + (COLORS[w.mod] || 'var(--bb-accent)') + '">' + w.emoji + ' ' + w.label + '</span>' +
+        '<span>' + w.weak + ' слабых</span>' +
+        '<span class="weak-acc" style="color:#ef4444">' + w.accuracy + '%</span></div>';
+    }
+  }
+}
+init();
+</script>
+</body>
+</html>
+"""
+
 
 @app.route("/achievements")
 def achievements_page():
