@@ -4793,6 +4793,10 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
 .cur-row { display:flex; gap:8px; }
 .cur-row input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--bb-elev); background:var(--bb-bg); color:var(--bb-text); font-size:14px; }
 .card-badge { display: inline-block; min-width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 2px 7px; margin-left: 6px; vertical-align: middle; }
+.oge-progress { margin-top: 8px; }
+.oge-progress-bar { height: 6px; border-radius: 3px; background: var(--bb-elev); overflow: hidden; }
+.oge-progress-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--bb-accent), var(--bb-green3)); transition: width 0.6s ease; }
+.oge-progress-text { font-size: 11px; color: var(--bb-muted); margin-top: 3px; display: flex; justify-content: space-between; }
 </style>
 </head>
 <body>
@@ -5288,9 +5292,53 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     if (!b) { b = document.createElement('span'); b.className = 'card-badge'; h2.appendChild(b); }
                     b.textContent = cnt;
                 }
+                function addOgeProgress(url, readiness, due, weak, mastered, total) {
+                    var card = document.querySelector('.beta-cards .card[href="' + url + '"]');
+                    if (!card) return;
+                    var existing = card.querySelector('.oge-progress');
+                    if (existing) existing.remove();
+                    if (total === 0 && readiness === 0) return;
+                    var prog = document.createElement('div');
+                    prog.className = 'oge-progress';
+                    var bar = document.createElement('div');
+                    bar.className = 'oge-progress-bar';
+                    var fill = document.createElement('div');
+                    fill.className = 'oge-progress-fill';
+                    fill.style.width = readiness + '%';
+                    bar.appendChild(fill);
+                    prog.appendChild(bar);
+                    var txt = document.createElement('div');
+                    txt.className = 'oge-progress-text';
+                    txt.innerHTML = '<span>' + mastered + '/' + total + ' освоено (' + readiness + '%)</span>' +
+                        (due > 0 ? '<span style="color:var(--bb-accent2)">' + due + ' на повторение</span>' : '') +
+                        (weak > 0 ? '<span style="color:#ef4444">' + weak + ' ошибок</span>' : '');
+                    prog.appendChild(txt);
+                    card.appendChild(prog);
+                }
+                function loadOgeStats() {
+                    var token = localStorage.getItem('web_token');
+                    if (!token) return;
+                    fetch('/api/study/stats', { headers: { 'X-Auth-Token': token } })
+                        .then(function(r) { return r.ok ? r.json() : null; })
+                        .then(function(d) {
+                            if (!d || !d.modules) return;
+                            var urls = { history:'/emperors', informatics:'/informatics', math:'/math', russian:'/russian', physics:'/physics' };
+                            for (var mod in d.modules) {
+                                var m = d.modules[mod];
+                                if (urls[mod]) addOgeProgress(urls[mod], m.readiness, m.due_today, m.weak, m.mastered, m.total);
+                            }
+                            updateCardBadge('/emperors', d.modules.history ? d.modules.history.due_today : 0);
+                            updateCardBadge('/informatics', d.modules.informatics ? d.modules.informatics.due_today : 0);
+                            updateCardBadge('/math', d.modules.math ? d.modules.math.due_today : 0);
+                            updateCardBadge('/russian', d.modules.russian ? d.modules.russian.due_today : 0);
+                            updateCardBadge('/physics', d.modules.physics ? d.modules.physics.due_today : 0);
+                        })
+                        .catch(function(){});
+                }
                 loadUser();
                 loadAch();
                 loadOgePlan();
+                loadOgeStats();
                 window.addEventListener('error', function() { showBugBtn(); });
                 window.addEventListener('unhandledrejection', function() { showBugBtn(); });
                 function showBugBtn() {
@@ -10465,11 +10513,13 @@ __PANEL_TERMS__
                     else if (rec.reps === 2) rec.interval = 3;
                     else if (rec.reps === 3) rec.interval = 7;
                     else rec.interval = Math.round((rec.interval || 7) * rec.ease);
+                    rec.ease = Math.min(3.0, +(rec.ease + 0.1).toFixed(2));
                     rec.due = Date.now() + rec.interval * 86400000;
                 } else {
                     rec.streak = 0;
                     rec.reps = 0; rec.interval = 0; rec.due = Date.now() + 60000;
                     rec.wrong = (rec.wrong || 0) + 1;
+                    rec.ease = Math.max(1.3, +(rec.ease - 0.2).toFixed(2));
                 }
                 flash[key] = rec; pushFlash();
             }
@@ -11461,9 +11511,11 @@ function record(k, correct) {
     r.streak = (r.streak||0)+1; r.reps=(r.reps||0)+1; r.correct=(r.correct||0)+1;
     if (r.reps===1) r.interval=1; else if (r.reps===2) r.interval=3; else if (r.reps===3) r.interval=7;
     else r.interval=Math.round((r.interval||7)*r.ease);
+    r.ease = Math.min(3.0, +(r.ease + 0.1).toFixed(2));
     r.due = Date.now() + r.interval*86400000;
   } else {
     r.streak=0; r.reps=0; r.interval=0; r.due=Date.now()+60000; r.wrong=(r.wrong||0)+1;
+    r.ease = Math.max(1.3, +(r.ease - 0.2).toFixed(2));
   }
   prog[key(k)] = r; push();
 }
@@ -11775,7 +11827,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <script>
 const PH = __PHYSICS_DATA__;
 const AUTH = localStorage.getItem('web_token') || '';
-const MODULE = "math";
+const MODULE = "physics";
 
 let prog = {};
 try { prog = JSON.parse(localStorage.getItem('physics_prog') || '{}'); } catch(e) { prog = {}; }
@@ -11808,9 +11860,11 @@ function record(k, correct) {
     r.streak = (r.streak||0)+1; r.reps=(r.reps||0)+1; r.correct=(r.correct||0)+1;
     if (r.reps===1) r.interval=1; else if (r.reps===2) r.interval=3; else if (r.reps===3) r.interval=7;
     else r.interval=Math.round((r.interval||7)*r.ease);
+    r.ease = Math.min(3.0, +(r.ease + 0.1).toFixed(2));
     r.due = Date.now() + r.interval*86400000;
   } else {
     r.streak=0; r.reps=0; r.interval=0; r.due=Date.now()+60000; r.wrong=(r.wrong||0)+1;
+    r.ease = Math.max(1.3, +(r.ease - 0.2).toFixed(2));
   }
   prog[key(k)] = r; push();
 }
@@ -12238,9 +12292,11 @@ def informatics_page():
                 r.streak = (r.streak || 0) + 1; r.reps = (r.reps || 0) + 1; r.correct = (r.correct || 0) + 1;
                 if (r.reps === 1) r.interval = 1; else if (r.reps === 2) r.interval = 3; else if (r.reps === 3) r.interval = 7;
                 else r.interval = Math.round((r.interval || 7) * r.ease);
+                r.ease = Math.min(3.0, +(r.ease + 0.1).toFixed(2));
                 r.due = Date.now() + r.interval * 86400000;
             } else {
                 r.streak = 0; r.reps = 0; r.interval = 0; r.due = Date.now() + 60000; r.wrong = (r.wrong || 0) + 1;
+                r.ease = Math.max(1.3, +(r.ease - 0.2).toFixed(2));
             }
             infoProg[taskId] = r; infoPush();
         }
@@ -12496,14 +12552,34 @@ def informatics_page():
                     exp.textContent = 'Пояснение: ' + task.explanation;
                     box.appendChild(exp);
                 }
-                totalSolved++;
-                correctStreak++;
-                infoRecord(task.id, true);
-                trainDone.push(task);
-                trainQueue.shift();
-                document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved;
-                document.getElementById('next-btn').style.display = 'block';
                 reveal.style.display = 'none';
+                const selfRow = document.createElement('div');
+                selfRow.style.cssText = 'display:flex;gap:10px;margin-top:10px;justify-content:center;';
+                const yesBtn = document.createElement('button');
+                yesBtn.className = 'answer-btn';
+                yesBtn.textContent = '✅ Знал';
+                yesBtn.style.background = '#065f46';
+                yesBtn.style.color = '#fff';
+                const noBtn = document.createElement('button');
+                noBtn.className = 'answer-btn';
+                noBtn.textContent = '❌ Ошибся';
+                noBtn.style.background = '#991b1b';
+                noBtn.style.color = '#fff';
+                function finish(correct) {
+                    totalSolved++;
+                    if (correct) correctStreak++; else correctStreak = 0;
+                    infoRecord(task.id, correct);
+                    trainDone.push(task);
+                    trainQueue.shift();
+                    document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved + ' (точность: ' + (totalSolved ? Math.round(correctStreak / totalSolved * 100) : 0) + '%)';
+                    document.getElementById('next-btn').style.display = 'block';
+                    selfRow.remove();
+                }
+                yesBtn.addEventListener('click', function () { finish(true); });
+                noBtn.addEventListener('click', function () { finish(false); });
+                selfRow.appendChild(yesBtn);
+                selfRow.appendChild(noBtn);
+                box.appendChild(selfRow);
             });
             box.appendChild(reveal);
             document.getElementById('next-btn').style.display = 'none';
@@ -12700,9 +12776,11 @@ function record(k, correct) {
     r.streak = (r.streak||0)+1; r.reps=(r.reps||0)+1; r.correct=(r.correct||0)+1;
     if (r.reps===1) r.interval=1; else if (r.reps===2) r.interval=3; else if (r.reps===3) r.interval=7;
     else r.interval=Math.round((r.interval||7)*r.ease);
+    r.ease = Math.min(3.0, +(r.ease + 0.1).toFixed(2));
     r.due = Date.now() + r.interval*86400000;
   } else {
     r.streak=0; r.reps=0; r.interval=0; r.due=Date.now()+60000; r.wrong=(r.wrong||0)+1;
+    r.ease = Math.max(1.3, +(r.ease - 0.2).toFixed(2));
   }
   prog[key(k)] = r; push();
 }
@@ -12897,7 +12975,7 @@ def _exam_is_correct(user_val, answer) -> bool:
 
 
 def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
-    """Upsert one study_progress card applying simplified SM-2 scheduling."""
+    """Upsert one study_progress card applying standard SM-2 scheduling."""
     row = conn.execute(
         text("SELECT reps, interval_days, ease, streak FROM study_progress WHERE user_id=:u AND module=:m AND card_key=:k"),
         {"u": uid, "m": module, "k": key},
@@ -12909,9 +12987,11 @@ def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
             reps += 1
             streak += 1
             interval = 1 if reps == 1 else 3 if reps == 2 else 7 if reps == 3 else round(interval * ease)
+            ease = min(3.0, round(ease + 0.1, 2))
             due = now + interval * 86400
         else:
-            reps, interval, streak, ease = 0, 0, 0, max(2.0, ease - 0.2)
+            reps, interval, streak = 0, 0, 0
+            ease = max(1.3, round(ease - 0.2, 2))
             due = now + 60
         conn.execute(text("""
             UPDATE study_progress SET reps=:r, interval_days=:i, ease=:e, streak=:s, due=:d,
@@ -12944,9 +13024,10 @@ def api_exam_mixed():
     from core.informatics.tasks import get_all_tasks as info_tasks
     from core.mathematics.formulas import TASKS as math_tasks
     from core.russian.rules import TASKS as ru_tasks
+    from core.physics.formulas import TASKS as physics_tasks
 
     pool = []
-    for module, tasks in (("math", math_tasks), ("russian", ru_tasks), ("informatics", info_tasks())):
+    for module, tasks in (("math", math_tasks), ("russian", ru_tasks), ("informatics", info_tasks()), ("physics", physics_tasks)):
         for t in tasks:
             pool.append({
                 "module": module,
@@ -13463,6 +13544,189 @@ def api_study_progress_save():
     except Exception as exc:
         print(f"[STUDY] progress POST error: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/study/stats", methods=["GET"])
+def api_study_stats():
+    """Comprehensive study statistics: per-module readiness, streak, today summary, forecast."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"modules": {}, "streak": {"current": 0, "best": 0},
+                        "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0}, "forecast": []})
+    uid = _web_user_id("u" + str(user["id"]))
+    now = time.time()
+    today_start = now - (now % 86400)
+    modules = {}
+    total_mastered = 0
+    total_cards = 0
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            for mod, meta in OGE_MODULES.items():
+                rows = conn.execute(text("""
+                    SELECT card_key, reps, interval_days, ease, streak, due,
+                           correct_count, wrong_count, updated_at, created_at, last_correct_at
+                    FROM study_progress WHERE user_id=:u AND module=:m
+                """), {"u": uid, "m": mod}).mappings().all()
+                started = len(rows)
+                mastered = 0
+                weak = 0
+                due_today = 0
+                unseen = max(0, meta["total"] - started)
+                today_touched = 0
+                total_correct = 0
+                total_wrong = 0
+                for r in rows:
+                    s = int(r["streak"] or 0)
+                    w = int(r["wrong_count"] or 0)
+                    c = int(r["correct_count"] or 0)
+                    d = float(r["due"] or 0)
+                    ca = float(r["created_at"] or 0)
+                    lc = float(r["last_correct_at"] or 0)
+                    total_correct += c
+                    total_wrong += w
+                    if s >= 3:
+                        mastered += 1
+                    if w > c and s < 3:
+                        weak += 1
+                    if d <= now:
+                        due_today += 1
+                    if ca >= today_start or lc >= today_start:
+                        today_touched += 1
+                total = meta["total"]
+                readiness = round(mastered / total * 100) if total else 0
+                total_mastered += mastered
+                total_cards += total
+                modules[mod] = {
+                    "label": meta["label"],
+                    "emoji": meta["emoji"],
+                    "url": meta["url"],
+                    "total": total,
+                    "started": started,
+                    "mastered": mastered,
+                    "weak": weak,
+                    "due_today": due_today,
+                    "unseen": unseen,
+                    "today_touched": today_touched,
+                    "readiness": readiness,
+                    "correct": total_correct,
+                    "wrong": total_wrong,
+                    "accuracy": round(total_correct / max(1, total_correct + total_wrong) * 100),
+                }
+            # Streak calculation
+            streak_rows = conn.execute(text("""
+                SELECT DISTINCT CAST(updated_at / 86400 AS INTEGER) AS day_num
+                FROM study_progress WHERE user_id=:u AND updated_at > 0
+                ORDER BY day_num DESC LIMIT 60
+            """), {"u": uid}).mappings().all()
+            day_nums = [int(r["day_num"]) for r in streak_rows]
+            current_streak = 0
+            best_streak = 0
+            today_day = int(now / 86400)
+            if day_nums:
+                expected = today_day
+                for dn in day_nums:
+                    if dn == expected:
+                        current_streak += 1
+                        expected -= 1
+                    else:
+                        break
+                streak_b = 1
+                for i in range(1, len(day_nums)):
+                    if day_nums[i - 1] - day_nums[i] == 1:
+                        streak_b += 1
+                    else:
+                        best_streak = max(best_streak, streak_b)
+                        streak_b = 1
+                best_streak = max(best_streak, streak_b)
+    except Exception as exc:
+        print(f"[STUDY] stats error: {exc}")
+    # Today summary
+    today_cards = 0
+    today_correct = 0
+    today_wrong = 0
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            today_rows = conn.execute(text("""
+                SELECT correct_count, wrong_count, created_at, last_correct_at
+                FROM study_progress WHERE user_id=:u
+            """), {"u": uid}).mappings().all()
+            for r in today_rows:
+                ca = float(r["created_at"] or 0)
+                lc = float(r["last_correct_at"] or 0)
+                if ca >= today_start or lc >= today_start:
+                    today_cards += 1
+                    today_correct += int(r["correct_count"] or 0)
+                    today_wrong += int(r["wrong_count"] or 0)
+    except Exception:
+        pass
+    # Forecast: due cards per day for next 14 days
+    forecast = []
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            due_rows = conn.execute(text("""
+                SELECT due FROM study_progress WHERE user_id=:u AND due > :now
+            """), {"u": uid, "now": now}).mappings().all()
+            day_buckets = {}
+            for r in due_rows:
+                d = float(r["due"] or 0)
+                day_offset = int((d - now) / 86400)
+                if 0 <= day_offset < 14:
+                    day_buckets[day_offset] = day_buckets.get(day_offset, 0) + 1
+            for i in range(14):
+                fdate = (date.today() + __import__("datetime").timedelta(days=i)).isoformat()
+                forecast.append({"date": fdate, "due": day_buckets.get(i, 0)})
+    except Exception:
+        pass
+    overall_readiness = round(total_mastered / max(1, total_cards) * 100)
+    return jsonify({
+        "modules": modules,
+        "overall_readiness": overall_readiness,
+        "streak": {"current": current_streak, "best": best_streak},
+        "today": {"cards": today_cards, "correct": today_correct, "wrong": today_wrong,
+                  "correct_rate": round(today_correct / max(1, today_correct + today_wrong) * 100)},
+        "forecast": forecast,
+    })
+
+
+@app.route("/api/study/due-cards", methods=["GET"])
+def api_study_due_cards():
+    """List cards that are due for review across all OGE modules."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"due": [], "total": 0})
+    uid = _web_user_id("u" + str(user["id"]))
+    now = time.time()
+    due = []
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT module, card_key, reps, ease, due, streak, correct_count, wrong_count
+                FROM study_progress WHERE user_id=:u AND due <= :now AND reps > 0
+                ORDER BY due ASC LIMIT 100
+            """), {"u": uid, "now": now}).mappings().all()
+            for r in rows:
+                mod = r["module"]
+                meta = OGE_MODULES.get(mod, {})
+                overdue_min = round((now - float(r["due"])) / 60)
+                due.append({
+                    "module": mod,
+                    "label": meta.get("label", mod),
+                    "emoji": meta.get("emoji", ""),
+                    "url": meta.get("url", "/"),
+                    "key": r["card_key"],
+                    "reps": int(r["reps"]),
+                    "streak": int(r["streak"]),
+                    "ease": float(r["ease"]),
+                    "overdue_min": overdue_min,
+                    "accuracy": round(int(r["correct_count"]) / max(1, int(r["correct_count"]) + int(r["wrong_count"])) * 100),
+                })
+    except Exception as exc:
+        print(f"[STUDY] due-cards error: {exc}")
+    return jsonify({"due": due, "total": len(due)})
 
 
 def _oge_subjects_payload(uid, now: float) -> list:
