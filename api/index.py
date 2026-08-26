@@ -5195,11 +5195,11 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 }
                 function mdLite(s) {
                     var e = escHtml(String(s || ''));
-                    e = e.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-                    e = e.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
-                    e = e.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<i>$2</i>');
-                    e = e.replace(/(^|\n)- /g, '$1\u2022 ');
-                    return e.replace(/\n/g, '<br>');
+                    e = e.replace(/`([^`\\n]+)`/g, '<code>$1</code>');
+                    e = e.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>');
+                    e = e.replace(/(^|[^*])\\*([^*\\n]+)\\*(?!\\*)/g, '$1<i>$2</i>');
+                    e = e.replace(/(^|\\n)- /g, '$1\u2022 ');
+                    return e.replace(/\\n/g, '<br>');
                 }
                 function bubble(role, text) {
                     var log = document.getElementById('cur-log'); if (!log) return;
@@ -13882,7 +13882,7 @@ def _curator_fallback_reply(subjects, plan_lines):
     return " ".join(reply_parts)
 
 
-_CURATOR_TOOLS = {"stats", "progress", "plan"}
+_CURATOR_TOOLS = {"stats", "progress", "plan", "card"}
 
 
 def _tool_directive(text):
@@ -13903,20 +13903,67 @@ def _curator_tool_action(directive):
     """Human-readable description of what the curator looked up (for the chat UI)."""
     tool = str(directive.get("tool") or "")
     if tool == "stats":
-        return "смотрит твою статистику 📊"
+        return "смотрит твою статистику \U0001F4CA"
     if tool == "plan":
-        return "сверяется с планом на день 📌"
+        return "сверяется с планом на день \U0001F4CC"
+    if tool == "card":
+        key = str(directive.get("key") or "")
+        return f"проверяет карточку {key} \U0001F0CF"
     module = str(directive.get("module") or "")
     meta = OGE_MODULES.get(module)
-    if meta:
-        return f"листает журнал по предмету {meta['label']} 📖"
-    return "листает твой журнал 📖"
+    topic = str(directive.get("topic") or "").strip()
+    scope = meta["label"] if meta else "все предметы"
+    if topic:
+        return f"листает журнал: {scope}, тема «{topic}» \U0001F4D6"
+    return f"листает журнал по предмету {scope} \U0001F4D6"
+
+
+def _curator_card_report(row):
+    """Format one study_progress row for the curator card tool."""
+    label = OGE_MODULES.get(row["module"], {}).get("label", row["module"])
+    key = str(row["card_key"])
+    due = float(row["due"] or 0)
+    if due <= 0:
+        due_s = "не запланировано"
+    elif due <= time.time():
+        due_s = "к повторению сейчас"
+    else:
+        hrs = (due - time.time()) / 3600
+        due_s = f"примерно через {hrs:.0f} ч" if hrs < 48 else f"примерно через {hrs / 24:.0f} дн"
+    streak = int(row["streak"] or 0)
+    return (
+        f"Карточка {key} ({label}, тип {key.split('::', 1)[0]}): "
+        f"повторений {int(row['reps'] or 0)}, серия верных подряд {streak}"
+        f"{' - выучена' if streak >= 3 else ''}, "
+        f"верно {int(row['correct_count'] or 0)} / неверно {int(row['wrong_count'] or 0)}, "
+        f"интервал {float(row['interval_days'] or 0):.1f} дн, следующее повторение: {due_s}."
+    )
 
 
 def _curator_tool_data(directive, uid, today):
     """Fetch the data the curator asked for via a tool directive."""
     tool = str(directive.get("tool") or "")
     try:
+        if tool == "card":
+            key = str(directive.get("key") or "").strip()
+            if not key:
+                return 'Уточните карточку: {"tool":"card","module":"math","key":"formula::f01"}.'
+            sql = (
+                "SELECT module, card_key, reps, interval_days, ease, due, streak,"
+                " correct_count, wrong_count, updated_at FROM study_progress"
+                " WHERE user_id=:u AND card_key=:k"
+            )
+            params = {"u": uid, "k": key}
+            module = str(directive.get("module") or "").strip()
+            if module in OGE_MODULES:
+                sql += " AND module=:m"
+                params["m"] = module
+            with get_db_engine().connect() as conn:
+                row = conn.execute(text(sql), params).mappings().first()
+            if not row:
+                return f"Карточка {key} не найдена в журнале ученика."
+            return _curator_card_report(row)
+
         if tool == "plan":
             with get_db_engine().connect() as conn:
                 row = _load_plan_row(conn, uid, today)
@@ -13938,8 +13985,10 @@ def _curator_tool_data(directive, uid, today):
                 )
             return "\n".join(lines)
 
-        # tool == "progress": журнал study_progress по одному предмету или по всем.
+        # tool == "progress": журнал study_progress по одному предмету или по всем,
+        # с опциональным фильтром по теме (подстрока в card_key, без учёта регистра).
         module = str(directive.get("module") or "").strip()
+        topic = str(directive.get("topic") or "").strip().lower()
         mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
         now = time.time()
         blocks = []
@@ -13950,8 +13999,14 @@ def _curator_tool_data(directive, uid, today):
                     "FROM study_progress WHERE user_id=:u AND module=:m"
                 ), {"u": uid, "m": mod}).mappings().all()
                 total_cards = OGE_MODULES[mod]["total"]
+                label = OGE_MODULES[mod]["label"]
+                if topic:
+                    rows = [r for r in rows if topic in str(r["card_key"]).lower()]
+                    if not rows:
+                        blocks.append(f"{label}: по теме «{directive.get('topic')}» записей в журнале нет.")
+                        continue
                 if not rows:
-                    blocks.append(f"{OGE_MODULES[mod]['label']}: карточки ещё не начаты (всего {total_cards}).")
+                    blocks.append(f"{label}: карточки ещё не начаты (всего {total_cards}).")
                     continue
                 mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
                 due_cnt = sum(1 for r in rows if r["due"] and 0 < float(r["due"]) <= now)
@@ -13964,11 +14019,14 @@ def _curator_tool_data(directive, uid, today):
                     t = str(r["card_key"]).split("::", 1)[0]
                     types[t] = types.get(t, 0) + 1
                 type_line = ", ".join(f"{t}: {n}" for t, n in sorted(types.items()))
-                b = [f"{OGE_MODULES[mod]['label']}] карточек в журнале: {len(rows)} из {total_cards},"
+                b = [f"{label}] карточек в журнале: {len(rows)} из {total_cards},"
                      f" выучено (серия 3+): {mastered}, к повторению сегодня: {due_cnt}."
                      f" По типам: {type_line}."]
                 if weak_keys:
                     b.append("Слабые карточки: " + "; ".join(weak_keys) + ".")
+                all_keys = sorted({str(r["card_key"]) for r in rows})
+                shown = ", ".join(all_keys[:20]) + (" …" if len(all_keys) > 20 else "")
+                b.append(f"Ключи ({len(all_keys)}): {shown}. Любую можно запросить инструментом card.")
                 blocks.append(" ".join(b))
         return "\n".join(blocks) if blocks else "Журнал пока пуст — ученик ещё не начинал занятия."
     except Exception as exc:
@@ -14060,11 +14118,16 @@ def api_study_chat_send():
         "(до 150 слов), поддерживающе и конкретно; предлагай следующий шаг (предмет/тему/режим "
         "на сайте). Доступные предметы: Математика, Русский язык, Информатика, Физика, История; "
         "режимы: карточки, тренажёр задач, сопоставление, экзамен.\n\n"
-        "Если тебе не хватает данных (журнал карточек, прогресс по предмету, статистика, план на день), "
-        "запроси их у системы: ответь ТОЛЬКО JSON-объектом, без пояснений, одним из видов: "
+        "Если тебе не хватает данных (журнал карточек, прогресс по предмету или теме, отдельная карточка, "
+        "статистика, план на день), запроси их у системы: ответь ТОЛЬКО JSON-объектом, без пояснений, "
+        "одним из видов: "
         '{"tool":"stats"} - общая статистика по всем предметам; '
         '{"tool":"progress","module":"math|russian|informatics|history|physics"} - журнал карточек '
-        "по предмету (без module - по всем); "
+        "по предмету (без module - по всем), в ответе видны ключи карточек; "
+        '{"tool":"progress","module":"...","topic":"фрагмент"} - только записи по теме '
+        "(topic - подстрока ключа или темы, например lesson1); "
+        '{"tool":"card","key":"formula::f01"} - состояние одной карточки '
+        "(module уточняет предмет; ключ бери из ответа progress); "
         '{"tool":"plan"} - план на день. '
         "Система пришлёт данные следующим сообщением - тогда дай финальный ответ ученику уже без JSON.\n\n"
         "Данные ученика:\n" + "\n".join(budget_lines) + "\n" + "\n".join(subj_lines) +

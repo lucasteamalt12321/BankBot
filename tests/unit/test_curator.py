@@ -310,15 +310,30 @@ def test_curator_tool_data_progress_plan_stats():
                 "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
                 " due, streak, correct_count, wrong_count, counter, updated_at)"
                 " VALUES (:u,'math','formula::f01',2,1,2.5,:past,3,4,1,-1,:ts),"
-                " (:u,'math','task::lesson1_o1',0,0,2.5,:future,0,0,3,-2,:ts)"
+                " (:u,'math','task::lesson1_o1',0,0,2.5,:future,0,0,3,-2,:ts),"
+                " (:u,'math','task::lesson2_o3',1,0,2.5,:future,1,1,1,0,:ts)"
             ), {"u": uid, "past": _t.time() - 10, "future": _t.time() + 9999, "ts": _t.time()})
         data = m._curator_tool_data({"tool": "progress", "module": "math"}, uid, "2026-01-01")
         assert "Математика" in data
         assert "выучено" in data and "к повторению сегодня" in data
-        assert "task::lesson1_o1" in data          # слабая карточка перечислена
-        assert "formula::f01" not in data.split("Слабые")[1]  # выученная не в списке слабых
+        weak_part = data.split("Слабые карточки: ")[1].split(". Ключи")[0]
+        assert "lesson1_o1" in weak_part and "formula::f01" not in weak_part  # выученная не в слабых
+        # фильтр по теме
+        topic = m._curator_tool_data({"tool": "progress", "module": "math", "topic": "lesson1"}, uid, "x")
+        assert "lesson1_o1" in topic and "lesson2_o3" not in topic and "formula::f01" not in topic
+        empty = m._curator_tool_data({"tool": "progress", "module": "math", "topic": "nope"}, uid, "x")
+        assert "записей в журнале нет" in empty
+        # отдельная карточка
+        card = m._curator_tool_data({"tool": "card", "key": "formula::f01", "module": "math"}, uid, "x")
+        assert "выучена" in card and "серия верных подряд 3" in card and "неверно 1" in card
+        weak_card = m._curator_tool_data({"tool": "card", "key": "task::lesson1_o1"}, uid, "x")
+        assert "верно 0 / неверно 3" in weak_card and "выучена" not in weak_card
+        missing = m._curator_tool_data({"tool": "card", "key": "formula::zzz"}, uid, "x")
+        assert "не найдена" in missing
         assert m._curator_tool_action({"tool": "progress", "module": "math"})
         assert "Математика" in m._curator_tool_action({"tool": "progress", "module": "math"})
+        assert "lesson1" in m._curator_tool_action({"tool": "progress", "module": "math", "topic": "lesson1"})
+        assert "formula::f01" in m._curator_tool_action({"tool": "card", "key": "formula::f01"})
         assert m._curator_tool_action({"tool": "stats"}) == "смотрит твою статистику 📊"
         plan_data = m._curator_tool_data({"tool": "plan"}, uid, _t.strftime("%Y-%m-%d"))
         assert "План" in plan_data
