@@ -1,13 +1,11 @@
 # Active Context
 
-## ✅ ИИ-алгоритм генерации вопросов (2026-08-26, коммит `4749fb8`)
+## ✅ ИИ-алгоритм: куратор выбирает вопрос из БД (2026-08-26, коммит `be76752`)
 
 ### Сделано:
-- **`/api/quiz/ai-generate`** (POST): генерирует 1 MCQ-вопрос через `call_ai_api` с module-specific промптом. НЕ сохраняется в чат-историю. Ретраи 3x.
-- **Кнопка "ИИ (генерация)"** во всех 5 модулях: Math/Physics/Russian — в f-algo/r-algo dropdowns; History/emperors — в algo-select; Informatics — новый algo-selector (Перемешать / ИИ).
-- **`renderAiQuestion()`** (Math/Physics/Russian) и **`loadAiQuestion()`** (History/Informatics) — async fetch → MCQ render → feedback → progress record.
-- **Next/Prev** делегируют в AI-режим. Algo persistence в localStorage.
-- 53 tests pass, ruff clean. Deployed ✓ Ready.
+- **`/api/quiz/ai-generate`**: куратор видит каталог всех вопросов модуля + слабые карточки ученика → выбирает лучший. Не генерирует.
+- Кнопка "ИИ (генерация)" во всех 5 модулях. Informatics получил algo-selector.
+- 53 tests, ruff clean. Deployed ✓ Ready.
 
 ### Осталось:
 - Проверить на проде с реальным AI (Лука тестирует)
