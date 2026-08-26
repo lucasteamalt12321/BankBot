@@ -5126,11 +5126,14 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var list = document.getElementById('oge-plan-list'); if (!list) return;
                     var html = '';
                     p.items.forEach(function (it, i) {
+                        var t = it.target || 5, d = Math.min(it.done || 0, t);
+                        var prog = (d > 0 && d < t) ? ' <span class="oi-badge">' + d + '/' + t + '</span>' : '';
+                        var okmark = d >= t ? ' \u2705' : '';
                         html += '<div class="oge-item" data-i="' + i + '" style="cursor:pointer">' +
-                            escHtml(it.label) + ' \u2014 ' + escHtml(it.text) +
-                            ' <span class="oi-badge">' + it.minutes + '\u043C</span></div>';
+                            okmark + escHtml(it.label) + ' \u2014 ' + escHtml(it.text) +
+                            ' <span class="oi-badge">' + it.minutes + '\u043C</span>' + prog + '</div>';
                     });
-                    html += '<div class="oge-plan-empty">\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E ' + p.done + ' \u0438\u0437 ' + p.items.length + ' \u00B7 \u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u0430</div>';
+                    html += '<div class="oge-plan-empty">\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u043E ' + p.done + ' \u0438\u0437 ' + p.items.length + ' \u00B7 \u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u0430</div>';
                     list.innerHTML = html;
                     Array.prototype.forEach.call(list.querySelectorAll('.oge-item'), function (el) {
                         el.onclick = openCurator;
@@ -5148,25 +5151,20 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 function renderCurPlan(p) {
                     var el = document.getElementById('cur-plan'); if (!el) return;
                     var h = '';
-                    p.items.forEach(function (it, i) {
-                        var done = i < p.done;
-                        h += '<div class="cur-item' + (done ? ' done' : '') + '"><span>' + (done ? '\u2705' : '\u2B1C') +
+                    p.items.forEach(function (it) {
+                        var t = it.target || 5, d = Math.min(it.done || 0, t), ok = d >= t;
+                        h += '<div class="cur-item' + (ok ? ' done' : '') + '"><span>' + (ok ? '\u2705' : '\u2B1C') +
                             '</span><span>' + escHtml((it.label || '') + ' \u2014 ' + it.text) +
-                            '</span><span style="margin-left:auto;color:var(--bb-muted)">' + it.minutes + ' \u043C\u0438\u043D</span></div>';
+                            '</span><span style="margin-left:auto;color:var(--bb-muted);white-space:nowrap">' +
+                            (ok ? '\u2705 \u0433\u043E\u0442\u043E\u0432\u043E' : d + '/' + t + ' \u043A\u0430\u0440\u0442') + '</span></div>';
                     });
-                    var more = p.done < p.items.length;
-                    h += '<button class="cur-btn" id="cur-mark"' + (more ? '' : ' disabled') + '>' +
-                        (more ? '\u2713 \u041E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u043C (' + (p.done + 1) + ')' : '\U0001F389 \u041F\u043B\u0430\u043D \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D!') + '</button>';
+                    if (p.items.length && p.done >= p.items.length) {
+                        h += '<div class="oge-today-line">\U0001F389 \u041F\u043B\u0430\u043D \u0434\u043D\u044F \u043F\u043E\u043B\u043D\u043E\u0441\u0442\u044C\u044E \u0437\u0430\u043A\u0440\u044B\u0442! \u0422\u0430\u043A \u0434\u0435\u0440\u0436\u0430\u0442\u044C.</div>';
+                    } else {
+                        h += '<div class="oge-today-line">\U0001F4A1 \u041A\u043D\u043E\u043F\u043A\u0438 \u00AB\u043E\u0442\u043C\u0435\u0442\u0438\u0442\u044C\u00BB \u0431\u043E\u043B\u044C\u0448\u0435 \u043D\u0435\u0442: \u043F\u0443\u043D\u043A\u0442 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u0430\u043C, \u043A\u043E\u0433\u0434\u0430 \u0442\u044B \u043F\u0440\u043E\u0440\u0430\u0431\u043E\u043B \u043D\u0443\u0436\u043D\u043E\u0435 \u0447\u0438\u0441\u043B\u043E \u043A\u0430\u0440\u0442\u043E\u0447\u0435\u043A \u043F\u0440\u0435\u0434\u043C\u0435\u0442\u0430. \u0417\u0430\u043A\u0440\u044B\u0442\u043E ' +
+                            p.done + ' \u0438\u0437 ' + p.items.length + '.</div>';
+                    }
                     el.innerHTML = h;
-                    var mb = document.getElementById('cur-mark');
-                    if (mb && more) mb.onclick = markDone;
-                }
-                function markDone() {
-                    fetch('/api/study/plan/done', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ delta: 1 }) })
-                        .then(function (r) { return r.json(); })
-                        .then(function (d) {
-                            if (d && d.ok && PLAN) { PLAN.done = d.done; renderWidgetPlan(PLAN); renderCurPlan(PLAN); pollToday(); }
-                        }).catch(function () {});
                 }
                 function regenPlan() {
                     var l = document.getElementById('oge-plan-list');
@@ -5184,6 +5182,15 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 var todayTimer = null;
                 function pollToday() {
                     if (!localStorage.getItem('web_token')) return;
+                    fetch('/api/study/plan', { headers: curAuth() })
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .then(function (p) {
+                            if (p && p.ok) {
+                                PLAN = p; renderWidgetPlan(p);
+                                var ov = document.getElementById('cur-overlay');
+                                if (ov && ov.style.display !== 'none') renderCurPlan(p);
+                            }
+                        }).catch(function () {});
                     fetch('/api/study/today', { headers: curAuth() })
                         .then(function (r) { return r.json(); })
                         .then(function (d) {
@@ -13615,6 +13622,30 @@ def _clamp_minutes(v, default=10):
     return max(_OGE_PLAN_MIN_MIN, min(_OGE_PLAN_MAX_MIN, v))
 
 
+def _item_target(it):
+    """Сколько карточек предмета нужно тронуть сегодня для автозачёта пункта плана."""
+    try:
+        v = int(it.get("cards") or it.get("minutes") or 5)
+    except (TypeError, ValueError):
+        v = 5
+    return max(2, min(40, v))
+
+
+def _touched_today_by_module(uid):
+    """module -> число карточек, с которыми ученик работал сегодня (для автозачёта плана)."""
+    day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT module, COUNT(*) AS c FROM study_progress "
+                "WHERE user_id=:u AND updated_at >= :t GROUP BY module"
+            ), {"u": uid, "t": day_start}).mappings().all()
+        return {r["module"]: int(r["c"] or 0) for r in rows}
+    except Exception as exc:
+        print(f"[OGE] touched-today error: {exc}")
+        return {}
+
+
 def _plan_items_rule_based(subjects, minutes, ease):
     count = max(2, min(_OGE_PLAN_MAX_ITEMS, max(2, minutes // 5)))
     if ease == "light":
@@ -13632,6 +13663,7 @@ def _plan_items_rule_based(subjects, minutes, ease):
             "text": s["next_action"]["text"],
             "url": s["next_action"]["url"],
             "minutes": per,
+            "cards": max(3, per),
         })
     return items
 
@@ -13675,10 +13707,10 @@ def _plan_items_ai(subjects, minutes, ratio):
     prompt = (
         "Ты - методист подготовки к ОГЭ. Верни СТРОГО JSON-массив из 3-6 объектов вида "
         '{"module":"math|russian|informatics|history|physics","text":"что сделать сегодня",'
-        '"minutes":N}, без markdown, без пояснений. '
-        f"Общий бюджет времени: {minutes} минут; сумма minutes по пунктам не должна его заметно превышать. "
-        "Оценивай время реалистично: одна карточка ~1 минута, одна задача 2-4 минуты, разбор правила/термина "
-        "1-2 минуты - не ставь 5 минут на одиночную карточку." + hard + "\n\n"
+        '"cards":N}, без markdown, без пояснений. '
+        f"Общий бюджет времени: {minutes} минут (сумма cards не должна его заметно превышать - "
+        "одна карточка ~1 минута). cards - сколько карточек предмета нужно проработать в пункте "
+        "(целое 3-30); формулируй text под этот объём («повтори 5 карточек», а не «займись 5 минут»)." + hard + "\n\n"
         "Статистика ученика:\n" + "\n".join(stat_lines) +
         "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
     )
@@ -13702,15 +13734,16 @@ def _plan_items_ai(subjects, minutes, ratio):
         if mod in meta and txt:
             s = meta[mod]
             try:
-                mins = max(2, min(60, int(it.get("minutes") or 5)))
+                cards = max(3, min(30, int(it.get("cards") or it.get("minutes") or 5)))
             except (TypeError, ValueError):
-                mins = 5
+                cards = 5
             items.append({
                 "module": mod,
                 "label": f"{s['emoji']} {s['label']}",
                 "text": txt,
                 "url": s["url"],
-                "minutes": mins,
+                "minutes": cards,
+                "cards": cards,
             })
     return items or None
 
@@ -13748,15 +13781,48 @@ def _load_plan_row(conn, uid, day):
     ), {"u": uid, "d": day}).mappings().first()
 
 
-def _plan_payload(row):
+def _auto_plan_done(items, touched):
+    """Число пунктов, закрытых автоматически: тронуто >= target карточек предмета."""
+    done = 0
+    for it in items:
+        if min(_item_target(it), touched.get(str(it.get("module")), 0)) >= _item_target(it):
+            done += 1
+    return done
+
+
+def _plan_payload(row, uid=None):
+    """План дня с автозачётом: пункт выполнен, когда по его предмету сегодня
+    проработано >= target карточек (study_progress.updated_at >= начала суток)."""
+    items = json.loads(row["items_json"] or "[]")
+    touched = _touched_today_by_module(uid) if uid else {}
+    for it in items:
+        target = _item_target(it)
+        mod = str(it.get("module") or "")
+        it["target"] = target
+        it["done"] = min(target, touched.get(mod, 0))
     return {
         "ok": True,
         "date": row["plan_date"],
         "target_minutes": int(row["target_minutes"]),
         "source": row["source"],
-        "done": int(row["done_count"] or 0),
-        "items": json.loads(row["items_json"] or "[]"),
+        "done": sum(1 for it in items if it["done"] >= it["target"]),
+        "total": len(items),
+        "items": items,
     }
+
+
+def _snapshot_auto_done(uid, today, payload_row):
+    """Сохраняем автозачёт в done_count (история для облегчения завтрашнего плана)."""
+    try:
+        items = json.loads(payload_row["items_json"] or "[]")
+        auto = _auto_plan_done(items, _touched_today_by_module(uid))
+        if int(payload_row["done_count"] or 0) != auto:
+            with get_db_engine().begin() as conn:
+                conn.execute(text(
+                    "UPDATE oge_daily_plans SET done_count=:v WHERE user_id=:u AND plan_date=:d"
+                ), {"v": auto, "u": uid, "d": today})
+    except Exception as exc:
+        print(f"[OGE] auto-done snapshot error: {exc}")
 
 
 @app.route("/api/study/plan", methods=["GET"])
@@ -13777,13 +13843,17 @@ def api_study_plan_get():
         print(f"[OGE] plan load error: {exc}")
         return jsonify({"ok": False, "error": "db", "detail": (_OGE_CURATOR_TABLES_ERR or str(exc))[:400]}), 500
     if row and (not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])):
-        return jsonify(_plan_payload(row))
+        payload = _plan_payload(row, uid)
+        _snapshot_auto_done(uid, today, row)
+        return jsonify(payload)
     minutes = _clamp_minutes(minutes_arg or (row["target_minutes"] if row else 10))
     items, source = _generate_plan(uid, today, minutes)
     with engine.begin() as conn:
         _upsert_plan(conn, uid, today, minutes, items, source)
         row = _load_plan_row(conn, uid, today)
-    return jsonify(_plan_payload(row))
+    payload = _plan_payload(row, uid)
+    _snapshot_auto_done(uid, today, row)
+    return jsonify(payload)
 
 
 @app.route("/api/study/plan", methods=["POST"])
@@ -13804,35 +13874,9 @@ def api_study_plan_regenerate():
     with engine.begin() as conn:
         _upsert_plan(conn, uid, today, minutes, items, source)
         row = _load_plan_row(conn, uid, today)
-    return jsonify(_plan_payload(row))
-
-
-@app.route("/api/study/plan/done", methods=["POST"])
-def api_study_plan_done():
-    """Mark/unmark a plan item as completed (delta +1/-1)."""
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "auth required"}), 401
-    uid = _web_user_id("u" + str(user["id"]))
-    data = request.get_json(silent=True) or {}
-    try:
-        delta = 1 if int(data.get("delta")) > 0 else -1
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "error": "bad delta"}), 400
-    today = time.strftime("%Y-%m-%d")
-    _oge_curator_tables_ready()
-    engine = get_db_engine()
-    with engine.begin() as conn:
-        row = conn.execute(text(
-            "SELECT done_count FROM oge_daily_plans WHERE user_id=:u AND plan_date=:d"
-        ), {"u": uid, "d": today}).mappings().first()
-        if not row:
-            return jsonify({"ok": False, "error": "no plan"}), 404
-        new_done = max(0, int(row["done_count"] or 0) + delta)
-        conn.execute(text(
-            "UPDATE oge_daily_plans SET done_count=:v WHERE user_id=:u AND plan_date=:d"
-        ), {"v": new_done, "u": uid, "d": today})
-    return jsonify({"ok": True, "done": new_done})
+    payload = _plan_payload(row, uid)
+    _snapshot_auto_done(uid, today, row)
+    return jsonify(payload)
 
 
 @app.route("/api/study/today", methods=["GET"])
@@ -14096,10 +14140,20 @@ def api_study_chat_send():
             if row:
                 minutes = int(row["target_minutes"])
                 items = json.loads(row["items_json"] or "[]")
-                done = int(row["done_count"] or 0)
-                plan_lines.append(f"План на сегодня (выполнено {done} из {len(items)}):")
+                touched_today = _touched_today_by_module(uid)
+                auto_done = 0
+                plan_lines.append("План на сегодня (пункты закрываются автоматически):")
                 for i, it in enumerate(items, 1):
-                    plan_lines.append(f"{i}) [{it.get('label', '')}] {it.get('text', '')} ({it.get('minutes', 5)} мин)")
+                    target = _item_target(it)
+                    d = min(target, touched_today.get(str(it.get("module")), 0))
+                    if d >= target:
+                        auto_done += 1
+                    mark = " ✅" if d >= target else f" (прогресс {d}/{target})"
+                    plan_lines.append(
+                        f"{i}) [{it.get('label', '')}] {it.get('text', '')} "
+                        f"({target} карточек){mark}"
+                    )
+                plan_lines[0] += f" автоматически выполнено {auto_done} из {len(items)}."
             else:
                 plan_lines.append("План на сегодня ещё не составлен.")
     except Exception as exc:
