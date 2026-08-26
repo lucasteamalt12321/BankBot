@@ -4777,6 +4777,8 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
 .cur-msg { font-size:13px; line-height:1.5; padding:8px 11px; border-radius:12px; max-width:85%; white-space:pre-wrap; word-wrap:break-word; }
 .cur-msg.user { align-self:flex-end; background:rgba(91,141,239,.18); border:1px solid var(--bb-link); }
 .cur-msg.bot { align-self:flex-start; background:var(--bb-elev); border:1px solid var(--bb-border); }
+.cur-msg.bot code { background:var(--bb-bg); border:1px solid var(--bb-border); border-radius:5px; padding:0 4px; font-size:12px; }
+.cur-msg.sys { align-self:center; background:transparent; border:none; color:var(--bb-muted); font-size:11.5px; font-style:italic; max-width:95%; }
 .cur-row { display:flex; gap:8px; }
 .cur-row input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--bb-elev); background:var(--bb-bg); color:var(--bb-text); font-size:14px; }
 .card-badge { display: inline-block; min-width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 2px 7px; margin-left: 6px; vertical-align: middle; }
@@ -5191,13 +5193,22 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     clearTimeout(todayTimer);
                     todayTimer = setTimeout(pollToday, 60000);
                 }
+                function mdLite(s) {
+                    var e = escHtml(String(s || ''));
+                    e = e.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+                    e = e.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+                    e = e.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<i>$2</i>');
+                    e = e.replace(/(^|\n)- /g, '$1\u2022 ');
+                    return e.replace(/\n/g, '<br>');
+                }
                 function bubble(role, text) {
                     var log = document.getElementById('cur-log'); if (!log) return;
                     var div = document.createElement('div');
-                    div.className = 'cur-msg ' + (role === 'user' ? 'user' : 'bot');
-                    div.textContent = text;
+                    div.className = 'cur-msg ' + (role === 'user' ? 'user' : (role === 'sys' ? 'sys' : 'bot'));
+                    if (role === 'user') div.textContent = text; else div.innerHTML = mdLite(text);
                     log.appendChild(div);
                     log.scrollTop = log.scrollHeight;
+                    return div;
                 }
                 function loadChat() {
                     fetch('/api/study/chat', { headers: curAuth() })
@@ -5219,15 +5230,22 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var v = (inp.value || '').trim(); if (!v) return;
                     inp.value = ''; bubble('user', v);
                     var btn = document.getElementById('cur-send'); btn.disabled = true;
+                    var status = bubble('assistant', '\U0001F4D6 \u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0441\u043C\u043E\u0442\u0440\u0438\u0442 \u0442\u0432\u043E\u0439 \u0436\u0443\u0440\u043D\u0430\u043B\u2026');
                     fetch('/api/study/chat', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ message: v }) })
                         .then(function (r) { return r.json().then(function (j) { return { st: r.status, ok: r.ok, j: j }; }); })
                         .then(function (res) {
                             btn.disabled = false;
-                            if (res.st === 401) { bubble('assistant', '🔐 Войдите на сайте — куратор ведёт переписку в аккаунте.'); return; }
+                            if (status && status.parentNode) status.parentNode.removeChild(status);
+                            if (res.st === 401) { bubble('assistant', '\U0001F510 \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 \u2014 \u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u0432\u0435\u0434\u0451\u0442 \u043F\u0435\u0440\u0435\u043F\u0438\u0441\u043A\u0443 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0435.'); return; }
+                            if (res.j && res.j.actions && res.j.actions.length) bubble('sys', '\U0001F50E \u041A\u0443\u0440\u0430\u0442\u043E\u0440 ' + res.j.actions.join(', ') + '.');
                             if (res.j && res.j.reply) bubble('assistant', res.j.reply);
                             else bubble('assistant', '\u274C \u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.');
                         })
-                        .catch(function () { btn.disabled = false; bubble('assistant', '\u274C \u041D\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u043E\u043C.'); });
+                        .catch(function () {
+                            btn.disabled = false;
+                            if (status && status.parentNode) status.parentNode.removeChild(status);
+                            bubble('assistant', '\u274C \u041D\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u043E\u043C.');
+                        });
                 }
                 var curSend = document.getElementById('cur-send');
                 if (curSend) curSend.onclick = sendChat;
@@ -13864,6 +13882,100 @@ def _curator_fallback_reply(subjects, plan_lines):
     return " ".join(reply_parts)
 
 
+_CURATOR_TOOLS = {"stats", "progress", "plan"}
+
+
+def _tool_directive(text):
+    """Extract a {"tool": ...} JSON directive from an AI reply; dict or None."""
+    if not text:
+        return None
+    for m in re.finditer(r"\{[^{}]*\}", text):
+        try:
+            d = json.loads(m.group(0))
+        except Exception:
+            continue
+        if isinstance(d, dict) and str(d.get("tool") or "") in _CURATOR_TOOLS:
+            return d
+    return None
+
+
+def _curator_tool_action(directive):
+    """Human-readable description of what the curator looked up (for the chat UI)."""
+    tool = str(directive.get("tool") or "")
+    if tool == "stats":
+        return "смотрит твою статистику 📊"
+    if tool == "plan":
+        return "сверяется с планом на день 📌"
+    module = str(directive.get("module") or "")
+    meta = OGE_MODULES.get(module)
+    if meta:
+        return f"листает журнал по предмету {meta['label']} 📖"
+    return "листает твой журнал 📖"
+
+
+def _curator_tool_data(directive, uid, today):
+    """Fetch the data the curator asked for via a tool directive."""
+    tool = str(directive.get("tool") or "")
+    try:
+        if tool == "plan":
+            with get_db_engine().connect() as conn:
+                row = _load_plan_row(conn, uid, today)
+            if not row:
+                return "План на сегодня ещё не составлен."
+            items = json.loads(row["items_json"] or "[]")
+            lines = [f"План на {row['plan_date']} (выполнено {row['done_count']} из {len(items)}),"
+                     f" целевые {row['target_minutes']} мин/день:"]
+            for i, it in enumerate(items, 1):
+                lines.append(f"{i}) [{it.get('label', '')}] {it.get('text', '')} ({it.get('minutes', 5)} мин)")
+            return "\n".join(lines)
+
+        if tool == "stats":
+            lines = ["Статистика по предметам (начато/всего, к повторению сегодня, слабых тем):"]
+            for s in _oge_subjects_payload(uid, time.time()):
+                lines.append(
+                    f"- {s['label']}: начато {s['started']}/{s['total']},"
+                    f" к повторению {s['due']}, слабых тем {s['weak']}"
+                )
+            return "\n".join(lines)
+
+        # tool == "progress": журнал study_progress по одному предмету или по всем.
+        module = str(directive.get("module") or "").strip()
+        mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
+        now = time.time()
+        blocks = []
+        with get_db_engine().connect() as conn:
+            for mod in mods:
+                rows = conn.execute(text(
+                    "SELECT card_key, streak, correct_count, wrong_count, due "
+                    "FROM study_progress WHERE user_id=:u AND module=:m"
+                ), {"u": uid, "m": mod}).mappings().all()
+                total_cards = OGE_MODULES[mod]["total"]
+                if not rows:
+                    blocks.append(f"{OGE_MODULES[mod]['label']}: карточки ещё не начаты (всего {total_cards}).")
+                    continue
+                mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
+                due_cnt = sum(1 for r in rows if r["due"] and 0 < float(r["due"]) <= now)
+                weak_keys = [
+                    f"{r['card_key']} ({int(r['correct_count'] or 0)}✓/{int(r['wrong_count'] or 0)}✗)"
+                    for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0)
+                ][:5]
+                types = {}
+                for r in rows:
+                    t = str(r["card_key"]).split("::", 1)[0]
+                    types[t] = types.get(t, 0) + 1
+                type_line = ", ".join(f"{t}: {n}" for t, n in sorted(types.items()))
+                b = [f"{OGE_MODULES[mod]['label']}] карточек в журнале: {len(rows)} из {total_cards},"
+                     f" выучено (серия 3+): {mastered}, к повторению сегодня: {due_cnt}."
+                     f" По типам: {type_line}."]
+                if weak_keys:
+                    b.append("Слабые карточки: " + "; ".join(weak_keys) + ".")
+                blocks.append(" ".join(b))
+        return "\n".join(blocks) if blocks else "Журнал пока пуст — ученик ещё не начинал занятия."
+    except Exception as exc:
+        print(f"[OGE] curator tool error ({tool}): {exc}")
+        return "Данные временно недоступны."
+
+
 def _chat_history(conn, uid, limit=_OGE_CHAT_CONTEXT):
     rows = conn.execute(text(
         "SELECT role, content, created_at FROM ("
@@ -13948,11 +14060,34 @@ def api_study_chat_send():
         "(до 150 слов), поддерживающе и конкретно; предлагай следующий шаг (предмет/тему/режим "
         "на сайте). Доступные предметы: Математика, Русский язык, Информатика, Физика, История; "
         "режимы: карточки, тренажёр задач, сопоставление, экзамен.\n\n"
+        "Если тебе не хватает данных (журнал карточек, прогресс по предмету, статистика, план на день), "
+        "запроси их у системы: ответь ТОЛЬКО JSON-объектом, без пояснений, одним из видов: "
+        '{"tool":"stats"} - общая статистика по всем предметам; '
+        '{"tool":"progress","module":"math|russian|informatics|history|physics"} - журнал карточек '
+        "по предмету (без module - по всем); "
+        '{"tool":"plan"} - план на день. '
+        "Система пришлёт данные следующим сообщением - тогда дай финальный ответ ученику уже без JSON.\n\n"
         "Данные ученика:\n" + "\n".join(budget_lines) + "\n" + "\n".join(subj_lines) +
         "\n" + "\n".join(plan_lines) + "\n" + "\n".join(hist_lines) +
         f"\n\nУченик: {msg}\nКуратор:"
     )
     reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
+    actions = []
+    if reply and not reply.startswith("❌"):
+        directive = _tool_directive(reply)
+        if directive:
+            data_text = _curator_tool_data(directive, uid, today)
+            actions.append(_curator_tool_action(directive))
+            followup = (
+                prompt
+                + "\n\nСистема передала данные по запросу "
+                + json.dumps(directive, ensure_ascii=False)
+                + ":\n" + data_text
+                + "\n\nДай ученику финальный краткий ответ (до 150 слов), используя эти данные. Без JSON."
+            )
+            second = call_ai_api(followup, max_tokens=500, temperature=0.7)
+            if second and not second.startswith("❌") and not _tool_directive(second):
+                reply = second
     if not reply or reply.startswith("❌"):
         print("[OGE] curator AI unavailable, using rule fallback")
         reply = _curator_fallback_reply(subjects, plan_lines)
@@ -13973,7 +14108,7 @@ def api_study_chat_send():
     except Exception as exc:
         print(f"[OGE] chat persist error: {exc}")
         return jsonify({"ok": False, "error": "storage failed"}), 500
-    return jsonify({"ok": True, "reply": reply})
+    return jsonify({"ok": True, "reply": reply, "actions": actions})
 
 
 @app.route("/api/study/hint", methods=["GET"])
