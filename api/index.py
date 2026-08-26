@@ -13558,6 +13558,7 @@ def _ensure_oge_curator_tables(engine):
 
 
 _OGE_CURATOR_TABLES_OK = False
+_OGE_CURATOR_TABLES_ERR = ""
 
 
 def _oge_curator_tables_ready():
@@ -13572,6 +13573,8 @@ def _oge_curator_tables_ready():
             conn.execute(text("SELECT 1 FROM oge_chat_messages LIMIT 1"))
         _OGE_CURATOR_TABLES_OK = True
     except Exception as exc:
+        global _OGE_CURATOR_TABLES_ERR
+        _OGE_CURATOR_TABLES_ERR = str(exc)[:500]
         print(f"[OGE] curator tables still missing: {exc}")
 
 
@@ -13746,7 +13749,7 @@ def api_study_plan_get():
             row = _load_plan_row(conn, uid, today)
     except Exception as exc:
         print(f"[OGE] plan load error: {exc}")
-        return jsonify({"ok": False, "error": "db"}), 500
+        return jsonify({"ok": False, "error": "db", "detail": (_OGE_CURATOR_TABLES_ERR or str(exc))[:400]}), 500
     if row and (not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])):
         return jsonify(_plan_payload(row))
     minutes = _clamp_minutes(minutes_arg or (row["target_minutes"] if row else 10))
