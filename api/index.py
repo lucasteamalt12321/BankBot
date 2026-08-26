@@ -1195,11 +1195,22 @@ def _ensure_study_progress_tables(engine):
                     correct_count INTEGER NOT NULL DEFAULT 0,
                     wrong_count INTEGER NOT NULL DEFAULT 0,
                     counter INTEGER NOT NULL DEFAULT 0,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    created_at REAL NOT NULL DEFAULT 0,
+                    last_correct_at REAL NOT NULL DEFAULT 0
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_study_progress_user ON study_progress(user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_study_progress_user_module_card ON study_progress(user_id, module, card_key)"))
+            # Миграция существующих продовых таблиц (PostgreSQL IF NOT EXISTS; SQLite-фикстуры уже с колонками).
+            for ddl in (
+                "ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at REAL NOT NULL DEFAULT 0",
+                "ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS last_correct_at REAL NOT NULL DEFAULT 0",
+            ):
+                try:
+                    conn.execute(text(ddl))
+                except Exception as exc:
+                    print(f"[STUDY] alter skipped: {exc}")
             conn.commit()
         _migrate_emperors_progress_to_study(engine)
         print("[STUDY] Tables ensured")
@@ -5161,7 +5172,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     if (p.items.length && p.done >= p.items.length) {
                         h += '<div class="oge-today-line">\U0001F389 \u041F\u043B\u0430\u043D \u0434\u043D\u044F \u043F\u043E\u043B\u043D\u043E\u0441\u0442\u044C\u044E \u0437\u0430\u043A\u0440\u044B\u0442! \u0422\u0430\u043A \u0434\u0435\u0440\u0436\u0430\u0442\u044C.</div>';
                     } else {
-                        h += '<div class="oge-today-line">\U0001F4A1 \u041A\u043D\u043E\u043F\u043A\u0438 \u00AB\u043E\u0442\u043C\u0435\u0442\u0438\u0442\u044C\u00BB \u0431\u043E\u043B\u044C\u0448\u0435 \u043D\u0435\u0442: \u043F\u0443\u043D\u043A\u0442 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u0430\u043C, \u043A\u043E\u0433\u0434\u0430 \u0442\u044B \u043F\u0440\u043E\u0440\u0430\u0431\u043E\u043B \u043D\u0443\u0436\u043D\u043E\u0435 \u0447\u0438\u0441\u043B\u043E \u043A\u0430\u0440\u0442\u043E\u0447\u0435\u043A \u043F\u0440\u0435\u0434\u043C\u0435\u0442\u0430. \u0417\u0430\u043A\u0440\u044B\u0442\u043E ' +
+                        h += '<div class="oge-today-line">\U0001F4A1 \u0417\u0430\u0447\u0451\u0442 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439: \u00AB\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0438\u00BB - \u0432\u0435\u0440\u043D\u044B\u0439 \u043E\u0442\u0432\u0435\u0442 \u043D\u0430 \u0441\u043B\u0430\u0431\u0443\u044E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443 (\u043E\u0434\u0438\u043D \u0440\u0430\u0437 \u0432 \u0434\u0435\u043D\u044C); \u00AB\u0438\u0437\u0443\u0447\u0438\u0442\u044C \u043D\u043E\u0432\u044B\u0435\u00BB - \u043F\u0435\u0440\u0432\u0430\u044F \u0440\u0430\u0431\u043E\u0442\u0430 \u0441 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u043E\u0439. \u0417\u0430\u043A\u0440\u044B\u0442\u043E ' +
                             p.done + ' \u0438\u0437 ' + p.items.length + '.</div>';
                     }
                     el.innerHTML = h;
@@ -10425,16 +10436,16 @@ __PANEL_TERMS__
                 if (!authToken) return;
                 if (saveTimer) clearTimeout(saveTimer);
                 saveTimer = setTimeout(function() {
-                    fetch('/api/emperors/progress', {
+                    fetch('/api/study/progress', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-Auth-Token': authToken },
-                        body: JSON.stringify({ cards: flash })
+                        body: JSON.stringify({ module: 'history', cards: flash })
                     }).catch(function() {});
-                }, 600);
+                }, 800);
             }
             function recFor(it) {
                 var key = flashKey(it);
-                return flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0, streak: 0 };
+                return flash[key] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0, streak: 0, ts: 0 };
             }
             function isMastered(rec) {
                 if (!rec) return false;
@@ -10445,6 +10456,7 @@ __PANEL_TERMS__
                 var key = flashKey(it);
                 var rec = recFor(it);
                 rec.counter = (rec.counter || 0) + (correct ? 1 : -1);
+                rec.ts = Date.now();
                 if (correct) {
                     rec.streak = (rec.streak || 0) + 1;
                     rec.reps = (rec.reps || 0) + 1;
@@ -10510,16 +10522,23 @@ __PANEL_TERMS__
                 return items[items.length - 1];
             }
             if (authToken) {
-                fetch('/api/emperors/progress', { headers: { 'X-Auth-Token': authToken } })
+                fetch('/api/study/progress', { headers: { 'X-Auth-Token': authToken } })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
-                        if (d && d.cards) {
-                            var merged = false;
-                            for (var k in d.cards) {
-                                if (!flash[k] || d.cards[k].due > (flash[k].due || 0)) { flash[k] = d.cards[k]; merged = true; }
+                        var server = d && d.cards && d.cards.history;
+                        if (!server) return;
+                        var changed = false;
+                        Object.keys(server).forEach(function(k) {
+                            var loc = flash[k];
+                            // Источник истины - сервер; локаль заменяется, если запись сервера
+                            // не старее локальной (ts проставляется при каждом ответе).
+                            if (!loc || ((server[k].ts || 0) >= (loc.ts || 0))) {
+                                flash[k] = server[k];
+                                changed = true;
                             }
-                            if (merged) { saveFlashLocal(); updateScore(); }
-                        }
+                        });
+                        if (changed) { saveFlashLocal(); updateScore(); }
+                        pushFlash(); // доливаем локальные более свежие ответы на сервер
                     }).catch(function() {});
             }
             var deck = [];
@@ -11197,10 +11216,10 @@ function diffInfo() {
                     flash = {}; saveFlashLocal();
                     localStorage.removeItem('emperors_flash');
                     if (authToken) {
-                        fetch('/api/emperors/progress', {
+                        fetch('/api/study/progress', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': authToken },
-                            body: JSON.stringify({ cards: {}, reset: true })
+                            body: JSON.stringify({ module: 'history', cards: {}, reset: true })
                         }).catch(function() {});
                     }
                     saveScore(); saveWrong(); updateScore(); loadQuestion();
@@ -12896,21 +12915,23 @@ def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
             due = now + 60
         conn.execute(text("""
             UPDATE study_progress SET reps=:r, interval_days=:i, ease=:e, streak=:s, due=:d,
-                   correct_count=correct_count+:c, wrong_count=wrong_count+:w, counter=counter+:co, updated_at=:t
+                   correct_count=correct_count+:c, wrong_count=wrong_count+:w, counter=counter+:co,
+                   updated_at=:t, last_correct_at=COALESCE(:lc, last_correct_at)
             WHERE user_id=:u AND module=:m AND card_key=:k
         """), {"r": reps, "i": interval, "e": ease, "s": streak, "d": due,
                "c": 1 if correct else 0, "w": 0 if correct else 1,
-               "co": 1 if correct else -1, "t": now, "u": uid, "m": module, "k": key})
+               "co": 1 if correct else -1, "t": now, "lc": now if correct else None,
+               "u": uid, "m": module, "k": key})
     else:
         conn.execute(text("""
             INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease, due, streak,
-                                        correct_count, wrong_count, counter, updated_at)
-            VALUES (:u, :m, :k, :r, :i, :e, :d, :s, :c, :w, :co, :t)
+                                        correct_count, wrong_count, counter, updated_at, created_at, last_correct_at)
+            VALUES (:u, :m, :k, :r, :i, :e, :d, :s, :c, :w, :co, :t, :ct, :lc)
         """), {"u": uid, "m": module, "k": key,
                "r": 1 if correct else 0, "i": 1 if correct else 0, "e": 2.5,
                "d": now + (86400 if correct else 60), "s": 1 if correct else 0,
                "c": 1 if correct else 0, "w": 0 if correct else 1,
-               "co": 1 if correct else -1, "t": now})
+               "co": 1 if correct else -1, "t": now, "ct": now, "lc": now if correct else 0})
 
 
 @app.route("/api/exam/mixed", methods=["GET"])
@@ -13362,7 +13383,7 @@ def api_study_progress():
                 rows = conn.execute(
                     text("""
                         SELECT module, card_key, reps, interval_days, ease, due, streak,
-                               correct_count, wrong_count, counter
+                               correct_count, wrong_count, counter, updated_at
                         FROM study_progress WHERE user_id = :uid
                     """),
                     {"uid": uid},
@@ -13377,6 +13398,7 @@ def api_study_progress():
                         "correct": r["correct_count"],
                         "wrong": r["wrong_count"],
                         "counter": r["counter"],
+                        "ts": float(r["updated_at"] or 0),
                     }
         except Exception as exc:
             print(f"[STUDY] progress GET error: {exc}")
@@ -13631,19 +13653,51 @@ def _item_target(it):
     return max(2, min(40, v))
 
 
-def _touched_today_by_module(uid):
-    """module -> число карточек, с которыми ученик работал сегодня (для автозачёта плана)."""
-    day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
+def _norm_topic(topic):
+    """Нормализованный topic-фильтр пункта плана (подстрока card_key, нижний регистр)."""
+    return str(topic or "").strip().lower()[:60]
+
+
+def _item_kind(it):
+    """Тип задания пункта: fix (исправить ошибки) | new (изучить новые)."""
+    k = str(it.get("kind") or "").strip().lower()
+    if k in ("fix", "new"):
+        return k
+    # Совместимость со старыми пунктами без kind.
+    text_l = str(it.get("text") or "").lower()
+    return "fix" if "ошиб" in text_l or "слаб" in text_l else "new"
+
+
+def _compute_item_done(uid, it, day_start=None):
+    """Сколько карточек закрыто для пункта плана.
+
+    fix: слабые карточки (wrong_count > 0), отвеченные верно сегодня
+         (last_correct_at >= начала суток; одна карточка = один зачёт в день).
+    new: новые карточки предмета, впервые открытые сегодня (created_at >= начала суток).
+    topic: необязательный фильтр-подстрока по card_key.
+    """
+    mod = str(it.get("module") or "")
+    if not uid or not mod:
+        return 0
+    if day_start is None:
+        day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
+    sql = "SELECT COUNT(*) AS c FROM study_progress WHERE user_id=:u AND module=:m"
+    params = {"u": uid, "m": mod}
+    topic = _norm_topic(it.get("topic"))
+    if topic:
+        sql += " AND LOWER(card_key) LIKE :pat"
+        params["pat"] = f"%{topic}%"
+    if _item_kind(it) == "fix":
+        sql += " AND wrong_count > 0 AND last_correct_at >= :ds"
+    else:
+        sql += " AND created_at >= :ds"
+    params["ds"] = day_start
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(text(
-                "SELECT module, COUNT(*) AS c FROM study_progress "
-                "WHERE user_id=:u AND updated_at >= :t GROUP BY module"
-            ), {"u": uid, "t": day_start}).mappings().all()
-        return {r["module"]: int(r["c"] or 0) for r in rows}
+            return int(conn.execute(text(sql), params).scalar() or 0)
     except Exception as exc:
-        print(f"[OGE] touched-today error: {exc}")
-        return {}
+        print(f"[OGE] item progress error: {exc}")
+        return 0
 
 
 def _plan_items_rule_based(subjects, minutes, ease):
@@ -13657,14 +13711,30 @@ def _plan_items_rule_based(subjects, minutes, ease):
     per = max(2, round(minutes / max(1, len(picked))))
     items = []
     for s in picked:
-        items.append({
-            "module": s["module"],
-            "label": f"{s['emoji']} {s['label']}",
-            "text": s["next_action"]["text"],
-            "url": s["next_action"]["url"],
-            "minutes": per,
-            "cards": max(3, per),
-        })
+        weak = int(s.get("weak", 0))
+        unstarted = max(0, int(s.get("total", 0)) - int(s.get("started", 0)))
+        if weak > 0:
+            target = max(3, min(per, weak))
+            items.append({
+                "module": s["module"],
+                "label": f"{s['emoji']} {s['label']}",
+                "text": f"\U0001F6E0 Исправить ошибки: {target} слабых карточек",
+                "url": s["next_action"]["url"],
+                "minutes": per,
+                "cards": target,
+                "kind": "fix",
+            })
+        else:
+            target = max(3, min(max(per, 3), unstarted)) if unstarted else max(3, per)
+            items.append({
+                "module": s["module"],
+                "label": f"{s['emoji']} {s['label']}",
+                "text": f"\u2728 Изучить новые: {target} карточек",
+                "url": s["next_action"]["url"],
+                "minutes": per,
+                "cards": target,
+                "kind": "new",
+            })
     return items
 
 
@@ -13706,11 +13776,15 @@ def _plan_items_ai(subjects, minutes, ratio):
         hard = " Вчера ученик выполнил весь план - можно немного усложнить."
     prompt = (
         "Ты - методист подготовки к ОГЭ. Верни СТРОГО JSON-массив из 3-6 объектов вида "
-        '{"module":"math|russian|informatics|history|physics","text":"что сделать сегодня",'
-        '"cards":N}, без markdown, без пояснений. '
-        f"Общий бюджет времени: {minutes} минут (сумма cards не должна его заметно превышать - "
-        "одна карточка ~1 минута). cards - сколько карточек предмета нужно проработать в пункте "
-        "(целое 3-30); формулируй text под этот объём («повтори 5 карточек», а не «займись 5 минут»)." + hard + "\n\n"
+        '{"module":"math|russian|informatics|history|physics","kind":"fix|new","cards":N,'
+        '"topic":""}, без markdown, без пояснений. '
+        'kind:"fix" - исправить ошибки: N слабых карточек, зачёт - верный ответ на карточку '
+        "с ошибкой (одна карточка считается один раз в день); "
+        'kind:"new" - изучить новые: N новых карточек, зачёт - первая работа с карточкой. '
+        "topic - НЕобязательный фильтр по теме (подстрока идентификатора/названия темы, например "
+        '"lesson1" или "реформа"); ставь, когда хочешь ограничить пункт конкретной темой. '
+        f"Общий бюджет времени: {minutes} минут (~1 минута на карточку), cards целое 3-30, "
+        "формулируй text не нужно - текст построит система." + hard + "\n\n"
         "Статистика ученика:\n" + "\n".join(stat_lines) +
         "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
     )
@@ -13730,21 +13804,32 @@ def _plan_items_ai(subjects, minutes, ratio):
         if not isinstance(it, dict):
             continue
         mod = str(it.get("module", "")).strip()
-        txt = str(it.get("text", "")).strip()
-        if mod in meta and txt:
-            s = meta[mod]
-            try:
-                cards = max(3, min(30, int(it.get("cards") or it.get("minutes") or 5)))
-            except (TypeError, ValueError):
-                cards = 5
-            items.append({
-                "module": mod,
-                "label": f"{s['emoji']} {s['label']}",
-                "text": txt,
-                "url": s["url"],
-                "minutes": cards,
-                "cards": cards,
-            })
+        if mod not in meta:
+            continue
+        s = meta[mod]
+        try:
+            cards = max(3, min(30, int(it.get("cards") or it.get("minutes") or 5)))
+        except (TypeError, ValueError):
+            cards = 5
+        kind = str(it.get("kind") or "").strip().lower()
+        if kind not in ("fix", "new"):
+            kind = "fix" if int(s.get("weak", 0)) > 0 else "new"
+        topic = _norm_topic(it.get("topic"))
+        suffix = f" (тема «{topic}»)" if topic else ""
+        if kind == "fix":
+            text = f"\U0001F6E0 Исправить ошибки: {cards} слабых карточек{suffix}"
+        else:
+            text = f"\u2728 Изучить новые: {cards} карточек{suffix}"
+        items.append({
+            "module": mod,
+            "label": f"{s['emoji']} {s['label']}",
+            "text": text,
+            "url": s["url"],
+            "minutes": cards,
+            "cards": cards,
+            "kind": kind,
+            "topic": topic,
+        })
     return items or None
 
 
@@ -13781,25 +13866,25 @@ def _load_plan_row(conn, uid, day):
     ), {"u": uid, "d": day}).mappings().first()
 
 
-def _auto_plan_done(items, touched):
-    """Число пунктов, закрытых автоматически: тронуто >= target карточек предмета."""
+def _auto_plan_done(items, uid):
+    """Число пунктов, закрытых автоматически по типам fix/new."""
     done = 0
     for it in items:
-        if min(_item_target(it), touched.get(str(it.get("module")), 0)) >= _item_target(it):
+        if _compute_item_done(uid, it) >= _item_target(it):
             done += 1
     return done
 
 
 def _plan_payload(row, uid=None):
-    """План дня с автозачётом: пункт выполнен, когда по его предмету сегодня
-    проработано >= target карточек (study_progress.updated_at >= начала суток)."""
+    """План дня с автозачётом: fix — верный ответ сегодня на слабую карточку,
+    new — новая карточка, впервые открытая сегодня; опциональный topic-фильтр."""
     items = json.loads(row["items_json"] or "[]")
-    touched = _touched_today_by_module(uid) if uid else {}
     for it in items:
         target = _item_target(it)
-        mod = str(it.get("module") or "")
         it["target"] = target
-        it["done"] = min(target, touched.get(mod, 0))
+        it["kind"] = _item_kind(it)
+        it["topic"] = _norm_topic(it.get("topic"))
+        it["done"] = min(target, _compute_item_done(uid, it))
     return {
         "ok": True,
         "date": row["plan_date"],
@@ -13815,7 +13900,7 @@ def _snapshot_auto_done(uid, today, payload_row):
     """Сохраняем автозачёт в done_count (история для облегчения завтрашнего плана)."""
     try:
         items = json.loads(payload_row["items_json"] or "[]")
-        auto = _auto_plan_done(items, _touched_today_by_module(uid))
+        auto = _auto_plan_done(items, uid)
         if int(payload_row["done_count"] or 0) != auto:
             with get_db_engine().begin() as conn:
                 conn.execute(text(
@@ -14140,20 +14225,23 @@ def api_study_chat_send():
             if row:
                 minutes = int(row["target_minutes"])
                 items = json.loads(row["items_json"] or "[]")
-                touched_today = _touched_today_by_module(uid)
                 auto_done = 0
-                plan_lines.append("План на сегодня (пункты закрываются автоматически):")
+                plan_lines.append("План на сегодня (зачёт автоматический):")
                 for i, it in enumerate(items, 1):
                     target = _item_target(it)
-                    d = min(target, touched_today.get(str(it.get("module")), 0))
+                    d = min(target, _compute_item_done(uid, it))
+                    kind = _item_kind(it)
                     if d >= target:
                         auto_done += 1
                     mark = " ✅" if d >= target else f" (прогресс {d}/{target})"
+                    topic = _norm_topic(it.get("topic"))
+                    kind_ru = "исправить ошибки" if kind == "fix" else "изучить новые"
+                    topic_part = f", тема «{topic}»" if topic else ""
                     plan_lines.append(
-                        f"{i}) [{it.get('label', '')}] {it.get('text', '')} "
-                        f"({target} карточек){mark}"
+                        f"{i}) [{it.get('label', '')}] {kind_ru}: {it.get('text', '')} "
+                        f"({target} карточек{topic_part}){mark}"
                     )
-                plan_lines[0] += f" автоматически выполнено {auto_done} из {len(items)}."
+                plan_lines[0] += f" выполнено {auto_done} из {len(items)}."
             else:
                 plan_lines.append("План на сегодня ещё не составлен.")
     except Exception as exc:

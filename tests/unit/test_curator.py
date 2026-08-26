@@ -122,34 +122,101 @@ def test_plan_post_explicit_regen_and_fallback_to_rules():
         _stop(patches)
 
 
-def test_auto_done_from_study_activity_and_route_removed():
+def _insert_card(m, conn_params: dict):
+    """Вставить запись study_progress с новыми колонками времени."""
+    m_obj, uid, spec = conn_params["m"], conn_params["u"], conn_params["row"]
+    import time as _t
+    now = _t.time()
+    base = {"reps": 1, "interval_days": 0, "ease": 2.5, "due": 0, "streak": 0,
+            "correct_count": 0, "wrong_count": 0, "counter": 1,
+            "updated_at": now, "created_at": now, "last_correct_at": 0}
+    base.update(spec)
+    with m_obj.get_db_engine().begin() as conn:
+        conn.execute(m_obj.text(
+            "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
+            " due, streak, correct_count, wrong_count, counter, updated_at, created_at, last_correct_at)"
+            " VALUES (:u,:module,:card_key,:reps,:interval_days,:ease,:due,:streak,"
+            ":correct_count,:wrong_count,:counter,:updated_at,:created_at,:last_correct_at)"
+        ), {"u": uid, **base})
+
+
+def test_item_kinds_fix_new_topic_counting():
+    m, c, patches = _setup()
+    try:
+        uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
+        # fix: слабая карточка (ошибки были), отвеченная верно сегодня (создана давно)
+        _insert_card(m, {"m": m, "u": uid, "row": {
+            "module": "math", "card_key": "formula::a", "created_at": 0,
+            "correct_count": 1, "wrong_count": 5, "last_correct_at": _import_time().time()}})
+        # fix-не-зачёт: верная сегодня, но ошибок никогда не было
+        _insert_card(m, {"m": m, "u": uid, "row": {
+            "module": "math", "card_key": "formula::b",
+            "correct_count": 3, "wrong_count": 0, "last_correct_at": _import_time().time()}})
+        # fix-не-зачёт: слабая, но сегодня верного ответа не было (создана давно)
+        _insert_card(m, {"m": m, "u": uid, "row": {
+            "module": "math", "card_key": "task::lesson2_o3", "created_at": 0,
+            "correct_count": 1, "wrong_count": 4, "last_correct_at": 0}})
+        # new: новая карточка, впервые открытая сегодня
+        _insert_card(m, {"m": m, "u": uid, "row": {
+            "module": "math", "card_key": "task::lesson1_o1",
+            "correct_count": 0, "wrong_count": 2, "created_at": _import_time().time()}})
+        assert m._compute_item_done(uid, {"module": "math", "kind": "fix"}) == 1
+        assert m._compute_item_done(uid, {"module": "math", "kind": "new"}) == 2
+        # topic-фильтр
+        assert m._compute_item_done(uid, {"module": "math", "kind": "new", "topic": "lesson1"}) == 1
+        assert m._compute_item_done(uid, {"module": "math", "kind": "new", "topic": "lesson9"}) == 0
+        assert m._compute_item_done(uid, {"module": "math", "kind": "fix", "topic": "lesson2"}) == 0
+        assert m._item_kind({"text": "Разобрать ошибки"}) == "fix"      # легаси-эвристика
+        assert m._item_kind({}) == "new"
+    finally:
+        _stop(patches)
+
+
+def _import_time():
+    import time
+    return time
+
+
+def test_plan_auto_done_by_kinds_and_route_removed():
     m, c, patches = _setup()
     try:
         import time as _t
-        with patch.object(m, "call_ai_api", return_value=_ai_plan_json(3)):
-            first = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
-        assert first["ok"] and first["done"] == 0 and first["total"] == 3
         uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
-        now = _t.time()
+        today = _t.strftime("%Y-%m-%d")
+        items = [
+            {"module": "math", "label": "\U0001F4D0 Математика",
+             "text": "\U0001F6E0 Исправить ошибки: 2 слабых карточек", "url": "/math",
+             "minutes": 2, "cards": 2, "kind": "fix"},
+            {"module": "russian", "label": "\U0001F4DD Русский язык",
+             "text": "\u2728 Изучить новые: 2 карточек", "url": "/russian",
+             "minutes": 2, "cards": 2, "kind": "new"},
+        ]
         with m.get_db_engine().begin() as conn:
             conn.execute(m.text(
-                "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
-                " due, streak, correct_count, wrong_count, counter, updated_at)"
-                " VALUES (:u,'math','formula::a',1,0,2.5,0,1,1,0,1,:ts),"
-                " (:u,'math','formula::b',1,0,2.5,0,1,2,0,2,:ts),"
-                " (:u,'math','formula::c',1,0,2.5,0,1,3,0,3,:ts),"
-                " (:u,'math','formula::d',1,0,2.5,0,1,4,0,4,:ts),"
-                " (:u,'math','formula::e',1,0,2.5,0,1,5,0,5,:ts)"
-            ), {"u": uid, "ts": now})
+                "INSERT INTO oge_daily_plans (user_id, plan_date, target_minutes, items_json, source, done_count, created_at)"
+                " VALUES (:u, :d, 10, :j, 'rule', 0, 0)"
+            ), {"u": uid, "d": today, "j": json.dumps(items)})
+        first = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
+        assert first["ok"] and first["done"] == 0 and first["total"] == 2
+
+        # fix-зачёт: слабая карточка математики отвечена верно сегодня
+        _insert_card(m, {"m": m, "u": uid, "row": {
+            "module": "math", "card_key": "formula::a",
+            "correct_count": 1, "wrong_count": 5, "last_correct_at": _t.time()}})
         second = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
         math_it = [x for x in second["items"] if x["module"] == "math"][0]
-        assert math_it["target"] >= 3
-        assert math_it["done"] == 5  # 5 карточек математики тронуто сегодня
-        assert second["done"] == 1   # закрыт только математический пункт
+        assert math_it["done"] == 1 and math_it["target"] == 2 and math_it["kind"] == "fix"
+        assert second["done"] == 0  # цель 2, пока закрыта только 1
+
+        _insert_card(m, {"m": m, "u": uid, "row": {
+            "module": "math", "card_key": "formula::c",
+            "correct_count": 2, "wrong_count": 3, "last_correct_at": _t.time()}})
+        third = c.get("/api/study/plan", headers=AUTH_HEADERS).get_json()
+        assert third["done"] == 1  # math закрыт, russian ещё нет
+
         assert c.post("/api/study/plan/done", json={"delta": 1}, headers=AUTH_HEADERS).status_code == 404
-        # снапшот автозачёта пишется в done_count (история для облегчения завтрашнего плана)
-        row = m._load_plan_row(m.get_db_engine().connect(), uid, _t.strftime("%Y-%m-%d"))
-        assert int(row["done_count"]) == 1
+        row = m._load_plan_row(m.get_db_engine().connect(), uid, today)
+        assert int(row["done_count"]) == 1  # снапшот для завтрашнего облегчения
     finally:
         _stop(patches)
 

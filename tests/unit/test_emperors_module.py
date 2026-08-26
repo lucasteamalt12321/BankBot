@@ -160,7 +160,8 @@ def test_emperors_page_has_new_features():
     assert "function startMatch" in body
     assert "function placeMatchChip" in body
     assert "pushFlash" in body
-    assert "/api/emperors/progress" in body
+    assert "/api/study/progress" in body          # единая таблица: синк между устройствами
+    assert "module: 'history'" in body
     assert 'id="debug-panel"' in body
     assert "toggleDebug" in body
     assert "renderDebug" in body
