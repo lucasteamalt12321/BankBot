@@ -6,6 +6,17 @@
 
 ## Changelog
 
+### 2026-08-26 (Session 7: ИИ-алгоритм генерации вопросов во всех модулях)
+- **Новый эндпоинт `/api/quiz/ai-generate`** (POST): генерирует ОДИН MCQ-вопрос через `call_ai_api` с промптом, специфичным для каждого модуля. НЕ сохраняется в историю чата куратора. Ретраи 3x с exponential backoff. Возвращает `{ok, question, options[4], correct, explanation, module}`.
+- **Кнопка "ИИ (генерация)"** добавленна во все 5 модулей:
+  - **Математика/Физика:** `<option value="ai">ИИ (генерация)</option>` в `f-algo` + `renderAiQuestion()` (fetch → MCQ → `record('ai::<module>::<topic>', ok)`)
+  - **Русский язык:** `<option value="ai">ИИ (генерация)</option>` в `r-algo` + `renderAiQuestion()` (аналогично)
+  - **История/Экзамены:** `<option value="ai">ИИ (генерация)</option>` в `algo-select` + `loadAiQuestion()` (fetch → MCQ → `recordAnswer(fakeItem, ok)`)
+  - **Информатика:** добавлен НОВЫЙ algo-selector `<select id="info-algo">` (Перемешать / ИИ) + `loadInfoAiQuestion()` (fetch → MCQ → `infoRecord('ai::informatics', ok)`)
+- **Next/Prev кнопки** делегируют в AI-режим: `nextFormula()` / `nextRule()` проверяют `algo === 'ai'` и вызывают `renderAiQuestion()` вместо синхронного pick.
+- **Algo persistence** в localStorage: `math_f_algo`, `physics_f_algo`, `russian_r_algo`, `emperors_algo`, `info_algo`.
+- **53 тестов passed**, ruff clean. Деплой `4749fb8` ✓ Ready.
+
 ### 2026-08-26 (Session 6b: Алгоритм smart/flash/deck на страницах ОГЭ)
 - **Выбор алгоритма** добавлен на страницы Математика, Физика и Русский язык: `<select id="f-algo">` / `<select id="r-algo">` с тремя вариантами — `smart` (слабые первые, по умолчанию), `flash` (интервалы), `deck` (колода). Каждая страница хранит свой выбор в localStorage (`math_f_algo`, `physics_f_algo`, `russian_r_algo`).
 - **`pickFormula()` / `pickRule()`** — новый пикер, заменяющий последовательный `fIdx++`. Алгоритм `smart` приоритизирует: weak (streak < 0) → unseen (reps = 0) → due (due <= now) → rest. Алгоритм `flash` — аналог Emperors page (overdue/new/not-yet-due). `deck` — перемешанная колода.
@@ -1729,7 +1740,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - Тесты: 83 зелёных по моим модулям; node --check ок; прод: /emperors 200 c вкладками и терминами, /terms 302, карточки в хабе чисты. Задеплоено 7bae239.
 
 ## last_checked_commit
-b90bf5d (2026-08-26; код — куратор: markdown-рендер mdLite + инструменты-lookup {"tool":stats|progress|plan} с двухфазным вызовом ИИ, UI-статус «смотрит твой журнал», поле actions; ранее 2266eea/e79a988: фолбэк куратора + устойчивый call_ai_api; OGE-08…12 реализованы (53ed71f…fca5b62), EXAM-BUG-1/AICHAT-BUG-1 закрыты (83082af); AI-цепочка Gemini→Groq→OpenRouter на проде)
+4749fb8 (2026-08-26; ИИ-алгоритм генерации вопросов во всех 5 модулях: /api/quiz/ai-generate endpoint + кнопка "ИИ (генерация)" в Math/Physics/Russian/History/Informatics; ранее b90bf5d: куратор: mdLite + инструменты-lookup, OGE-08…12)
 ### Задача 1. Ачивки
 - **Статус:** Готово
 - **Количество:** 227 ачивок

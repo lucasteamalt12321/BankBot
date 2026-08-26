@@ -1,6 +1,19 @@
 # Active Context
 
-## ✅ Максимальная прокачка OGE-системы (2026-08-26, коммиты `64189e9`, `73fa99d`, `c9e4021`)
+## ✅ ИИ-алгоритм генерации вопросов (2026-08-26, коммит `4749fb8`)
+
+### Сделано:
+- **`/api/quiz/ai-generate`** (POST): генерирует 1 MCQ-вопрос через `call_ai_api` с module-specific промптом. НЕ сохраняется в чат-историю. Ретраи 3x.
+- **Кнопка "ИИ (генерация)"** во всех 5 модулях: Math/Physics/Russian — в f-algo/r-algo dropdowns; History/emperors — в algo-select; Informatics — новый algo-selector (Перемешать / ИИ).
+- **`renderAiQuestion()`** (Math/Physics/Russian) и **`loadAiQuestion()`** (History/Informatics) — async fetch → MCQ render → feedback → progress record.
+- **Next/Prev** делегируют в AI-режим. Algo persistence в localStorage.
+- 53 tests pass, ruff clean. Deployed ✓ Ready.
+
+### Осталось:
+- Проверить на проде с реальным AI (Лука тестирует)
+- Обновить projectbrief.md deliverables
+
+## ✅ Максимальная прокачка OGE-системы (2026-08-26, коммиты `64189e9`, `73fa99d`, `c9e4021`, `675d947`)
 
 ### Сделано:
 - **SM-2 стандартный**: ease растёт +0.1 при правильном, −0.2 при ошибке (пол 1.3, потолок 3.0). Обновлено на сервере (Python `_study_record_one`) и во всех 5 клиентских копиях JS (emperors/math/physics/russian/informatics).
