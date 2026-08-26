@@ -1,6 +1,23 @@
 # Active Context
 
+# Active Context
+
+## ✅ ЗАДЕПЛОЕНО: AI через OpenRouter работает на проде (2026-08-25, вечер)
+
+- **Итог цепочки:** Gemini → Groq → **OpenRouter** (ключ добавлен в Vercel env). Gemini так и не получен (AI Studio недоступен из РФ даже с VPN), Groq мёртв — реально отвечает OpenRouter: `nvidia/nemotron-3-super-120b-a12b:free` и др.
+- **Прод проверен:** `/api/test_ai` → 200 «Hello» чисто; локально `_ai_chat` на русском → «Париж». Два `vercel --prod` Ready.
+- **Ключевые грабли (в progress.md подробно):** free-модели — reasoning, лечится `reasoning:{enabled:false}` (+ретрай без параметра для тех, кто даёт 400); пулы :free часто 429 → перебор списка моделей из `OPENROUTER_MODEL` (через запятую); PowerShell 5.1 ломает UTF-8 в тестах — не путать с продом.
+- **Незакрытое:** ключ в чате (можно ротировать).
+
+## ✅ AI-провайдер: Gemini первичный, Groq/HF фоллбэки (2026-08-25)
+
+- **Повод:** «groq api сдох» → замена на бесплатный **Google Gemini** (free tier AI Studio), по уточнению пользователя: **Gemini — primary, Groq и HF — fallback**.
+- **Как работает:** единый хелпер `_ai_chat(payload, timeout)` в `api/index.py` — цепочка Gemini (`GEMINI_API_KEY`, `generativelanguage.googleapis.com/v1beta/openai/chat/completions`, модель `GEMINI_MODEL` default `gemini-2.5-flash`) → Groq (старый ключ/модель). OpenAI-совместимый формат не изменился. Все точки вызова переведены: `call_ai_with_memory`, `call_ai_api` (+ deep-fallback `_GROQ_MODEL_CANDIDATES` при 404), `_get_ai_recommendation`, `_call_ai_api_fast`, `_pc_ai_chat` (AI Chat с tools), `/api/test_ai`, `/api/reading_generate` (там последним фоллбэком остался HF). В `bot/ai/model_manager.py` gemini загружается первым провайдером; D&D (`dnd_ai_master`, `dnd_runtime`) = Gemini → Groq → HF. Финально рабочим провайдером стал **OpenRouter** (`OPENROUTER_API_KEY`, список моделей в `OPENROUTER_MODEL`).
+- **Для деплоя на Vercel:** env уже добавлены (`OPENROUTER_API_KEY`/`OPENROUTER_MODEL`; GEMINI — опционально).
+
 ## ✅ Итерация «ИИ-куратор + UX» ОГЭ-центра (2026-08-25) — реализована (OGE-08…12, коммиты 53ed71f…fca5b62); фиксы багов 83082af; куратор получил rule-based фолбэк (e79a988)
+
+**ТЗ от пользователя (дословно, суммарно):**
 
 **ТЗ от пользователя (дословно, суммарно):**
 1. **ИИ-куратор:** клик по виджету «План на день» на хабе открывает чат с ИИ. В промпт подаются: прогресс ученика (из данных карточек `study_progress`), история переписки (хранится в БД, выдаётся в рамках промпта куратору; при отсутствии данных — прочерк), сколько времени в день ученик готов уделять подготовке, слабые предметы/темы и т.п.
