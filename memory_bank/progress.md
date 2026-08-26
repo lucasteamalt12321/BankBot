@@ -2,7 +2,23 @@
 
 ## Статус проекта
 **Процент выполнения:** 73% по Phase 6 `projectbrief.md` (`## Project Deliverables`; веса пересчитаны 2026-08-25: база OGE-00…07+FULL = 73 completed, итерация OGE-08…12 = 27 pending — код итерации уже в репо, статусы deliverables предстоит переключить при следующей синхронизации)
-**Текущая фаза:** Phase 6 OGE Center — база готова (ядро, 5 предметов, контент FULL, ИИ-план, экзаменатор); **итерация «ИИ-куратор + UX» (OGE-08…12) реализована в коде; баги [EXAM-BUG-1], [AICHAT-BUG-1] исправлены**
+**Текущая фаза:** Phase 6 OGE Center — **Максимальная прокачка OGE-системы** (SM-2标准算法, тренажёр инфо с самооценкой, физика в экзамене, аналитика, серверный квиз-движок, due-cards, хаб-прогрессбары)
+
+## Changelog
+
+### 2026-08-26 (Session 6: Максимальная прокачка OGE-системы)
+- **SM-2 → стандартный алгоритм.** Ease factor теперь растёт (+0.1 при правильном ответе, потолок 3.0) и падает (−0.2 при ошибке, пол 1.3). Обновлено на сервере (`_study_record_one` Python) и во всех 5 клиентских копиях (emperors `recordAnswer`, math/physics/russian `record`, informatics `infoRecord`). Раньше ease никогда не рос — теперь повторение интервалов геометрически растёт при хорошем знании.
+- **Информатика-тренажёр: самооценка вместо автопревращения.** Было: `infoRecord(task.id, true)` — невозможно ошибиться. Стало: 2 кнопки «✅ Знал» / «❌ Ошибся» после показа ответа; точность отображается в счёте.
+- **Физика: MODULE='math' → 'physics'.** Косметический баг в константе (не влиял на push, но путал).
+- **Физика добавлена в смешанный экзамен.** `api_exam_mixed` теперь тянет задачи из 4 предметов (math, russian, informatics, physics) вместо 3.
+- **Новый эндпоинт `/api/study/stats`** (GET): per-module readiness (mastered/total * 100%), streak (current/best), today summary (cards/correct/wrong/correct_rate), forecast на 14 дней. Требует авторизацию.
+- **Новый эндпоинт `/api/study/due-cards`** (GET): список карточек на повторение (due <= now), с overdue_min и accuracy по модулям.
+- **Серверный квиз-движок `/api/quiz/generate` + `/api/quiz/check`**: генерация квизов для всех 5 модулей ОГЭ. MCQ (история, формулы, правила) с автоматическими distractors из данных; free-text (задачи). Алгоритм `smart` — адаптивный (приоритет weak/unseen через study_progress). Сессии хранятся в `_QUIZ_SESSIONS` (макс. 300).
+- **Аналитический дашборд `/analytics`**: полная страница — серия дней (streak), общий прогресс (readiness bar), сегодня (cards/correct_rate/score), per-module progress bars (clickable), forecast grid (14 дней, hot/active/empty), слабые места (clickable).
+- **Хаб: прогресс-бары на OGE-карточках** + ссылка на Аналитику ОГЭ. Функция `loadOgeStats()` тянет `/api/study/stats` и рендерит mastered/total + due + weak на каждой карточке.
+- **Тесты:** 8 новых в test_study_progress.py (stats, due-cards, quiz generate/check, analytics). Итого: test_curator 17 + test_study_progress 16 + test_emperors_module 20 = **53 passed**. ruff clean, node --check OK для хаба и analytics.
+- **Деплои:** `64189e9` (SM-2 + инфо + физика + stats + хаб), `73fa99d` (аналитика + квиз + due-cards), `c9e4021` (fix analytics JS escape). Все на проде ✓ Ready.
+- **⚠️ Паттерн:** `\'` в Python triple-quoted template → `'` в JS (Python consumed backslash). Для onclick handlers нужен `\\'` → `\'` в JS (escaped quote inside single-quoted string). Обнаружено через `node --check` на отрендеренном output.
 
 ## Changelog
 
@@ -1149,6 +1165,7 @@
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+c9e4021 (2026-08-26; максимальная прокачка OGE: SM-2 с ростом ease, инфо-тренажёр с самооценкой, физика в экзамене, /api/study/stats, /api/study/due-cards, /api/quiz/generate+check, /analytics, хаб-прогрессбары; деплой через CLI)
 ce28185 (2026-08-26; типы заданий fix/new + topic-фильтр ИИ-плана, study_progress += created_at/last_correct_at; /emperors -> единая /api/study/progress с ts-мерджем — фикс разного ранга на устройствах; ранее f2ef98e автозачёт без кнопки; прод: деплой через CLI)
 f2ef98e (2026-08-26; автозачёт плана дня: пункт закрыт когда по предмету сегодня тронуто >= cards карточек, кнопка/роут plan/done удалены, снапшот в done_count; ранее fbbc59d — нормы времени + названия без ключей; 68249a9 — тулы topic/card + фикс JS хаба; прод: деплой через CLI по мере сессий)
 fbbc59d (2026-08-26; куратор: реалистичные нормы времени + названия карточек без ключей + планер 2 мин/пункт; ранее 68249a9 — тулы topic/card и фикс JS хаба; b90bf5d — mdLite + lookup-инструменты; прод задеплоен через CLI и смоукнут)
