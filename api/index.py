@@ -13715,8 +13715,12 @@ def api_study_plan_get():
     today = time.strftime("%Y-%m-%d")
     minutes_arg = request.args.get("minutes")
     engine = get_db_engine()
-    with engine.connect() as conn:
-        row = _load_plan_row(conn, uid, today)
+    try:
+        with engine.connect() as conn:
+            row = _load_plan_row(conn, uid, today)
+    except Exception as exc:
+        print(f"[OGE] plan load error: {exc}")
+        return jsonify({"ok": False, "error": "db", "detail": str(exc)[:400]}), 500
     if row and (not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])):
         return jsonify(_plan_payload(row))
     minutes = _clamp_minutes(minutes_arg or (row["target_minutes"] if row else 10))
