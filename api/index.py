@@ -5201,9 +5201,15 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 }
                 function loadChat() {
                     fetch('/api/study/chat', { headers: curAuth() })
-                        .then(function (r) { return r.json(); })
-                        .then(function (d) {
+                        .then(function (r) { return r.json().then(function (j) { return { st: r.status, j: j }; }); })
+                        .then(function (res) {
+                            var d = res.j;
                             var log = document.getElementById('cur-log'); if (!log) return;
+                            if (res.st === 401) {
+                                log.innerHTML = '';
+                                bubble('assistant', '🔐 Войдите на сайте — куратор ведёт переписку в аккаунте.');
+                                return;
+                            }
                             log.innerHTML = '';
                             (d.messages || []).forEach(function (m) { bubble(m.role, m.content); });
                         }).catch(function () {});
@@ -5214,9 +5220,10 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     inp.value = ''; bubble('user', v);
                     var btn = document.getElementById('cur-send'); btn.disabled = true;
                     fetch('/api/study/chat', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ message: v }) })
-                        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                        .then(function (r) { return r.json().then(function (j) { return { st: r.status, ok: r.ok, j: j }; }); })
                         .then(function (res) {
                             btn.disabled = false;
+                            if (res.st === 401) { bubble('assistant', '🔐 Войдите на сайте — куратор ведёт переписку в аккаунте.'); return; }
                             if (res.j && res.j.reply) bubble('assistant', res.j.reply);
                             else bubble('assistant', '\u274C \u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.');
                         })
@@ -13550,6 +13557,24 @@ def _ensure_oge_curator_tables(engine):
         print(f"[OGE] curator tables skipped: {exc}")
 
 
+_OGE_CURATOR_TABLES_OK = False
+
+
+def _oge_curator_tables_ready():
+    """Cold-start-safe: retry DDL lazily until tables really exist."""
+    global _OGE_CURATOR_TABLES_OK
+    if _OGE_CURATOR_TABLES_OK:
+        return
+    _ensure_oge_curator_tables(get_db_engine())
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(text("SELECT 1 FROM oge_daily_plans LIMIT 1"))
+            conn.execute(text("SELECT 1 FROM oge_chat_messages LIMIT 1"))
+        _OGE_CURATOR_TABLES_OK = True
+    except Exception as exc:
+        print(f"[OGE] curator tables still missing: {exc}")
+
+
 _OGE_PLAN_MIN_MIN = 5
 _OGE_PLAN_MAX_MIN = 120
 _OGE_PLAN_MAX_ITEMS = 6
@@ -13714,13 +13739,14 @@ def api_study_plan_get():
     uid = _web_user_id("u" + str(user["id"]))
     today = time.strftime("%Y-%m-%d")
     minutes_arg = request.args.get("minutes")
+    _oge_curator_tables_ready()
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
             row = _load_plan_row(conn, uid, today)
     except Exception as exc:
         print(f"[OGE] plan load error: {exc}")
-        return jsonify({"ok": False, "error": "db", "detail": str(exc)[:400]}), 500
+        return jsonify({"ok": False, "error": "db"}), 500
     if row and (not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])):
         return jsonify(_plan_payload(row))
     minutes = _clamp_minutes(minutes_arg or (row["target_minutes"] if row else 10))
@@ -13740,6 +13766,7 @@ def api_study_plan_regenerate():
     uid = _web_user_id("u" + str(user["id"]))
     data = request.get_json(silent=True) or {}
     today = time.strftime("%Y-%m-%d")
+    _oge_curator_tables_ready()
     engine = get_db_engine()
     with engine.connect() as conn:
         row = _load_plan_row(conn, uid, today)
@@ -13764,6 +13791,7 @@ def api_study_plan_done():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "bad delta"}), 400
     today = time.strftime("%Y-%m-%d")
+    _oge_curator_tables_ready()
     engine = get_db_engine()
     with engine.begin() as conn:
         row = conn.execute(text(
@@ -13843,6 +13871,7 @@ def api_study_chat_history():
     if not user:
         return jsonify({"ok": False, "error": "auth required"}), 401
     uid = _web_user_id("u" + str(user["id"]))
+    _oge_curator_tables_ready()
     try:
         with get_db_engine().connect() as conn:
             msgs = _chat_history(conn, uid, 30)
@@ -13891,6 +13920,7 @@ def api_study_chat_send():
             f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
             f"слабых тем {s['weak']} → {s['next_action']['text']}"
         )
+    _oge_curator_tables_ready()
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
