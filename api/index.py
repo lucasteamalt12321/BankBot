@@ -11406,6 +11406,10 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <label class="muted">Тема:</label>
 <select id="f-topic"></select>
 </div>
+<div class="topic-sel">
+<label class="muted">Алгоритм:</label>
+<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+</div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
 <h2 id="f-title"></h2>
@@ -11552,15 +11556,75 @@ Object.keys(MATH.topics).forEach(function(tp){
   const o = document.createElement('option'); o.value=tp; o.textContent=tp+' ('+MATH.topics[tp].length+')'; topicSel.appendChild(o);
 });
 let fList = [], fIdx = 0;
+let fAlgo = localStorage.getItem('math_f_algo') || 'smart';
+document.getElementById('f-algo').value = fAlgo;
+let fFlash = {};
+try { fFlash = JSON.parse(localStorage.getItem('math_f_flash') || '{}'); } catch(e) { fFlash = {}; }
+function fFlashSave() { localStorage.setItem('math_f_flash', JSON.stringify(fFlash)); }
+function fFlashRec(id) { return fFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0 }; }
+function fFlashUpdate(id, ok) {
+  var r = fFlashRec(id);
+  r.ts = Date.now();
+  if (ok) {
+    r.streak = (r.streak || 0) + 1;
+    r.reps = (r.reps || 0) + 1;
+    r.correct = (r.correct || 0) + 1;
+    if (r.reps === 1) r.interval = 1;
+    else if (r.reps === 2) r.interval = 3;
+    else if (r.reps === 3) r.interval = 7;
+    else r.interval = Math.round((r.interval || 7) * r.ease);
+    r.ease = Math.min(3.0, +(r.ease + 0.1).toFixed(2));
+    r.due = Date.now() + r.interval * 86400000;
+  } else {
+    r.streak = 0; r.reps = 0; r.interval = 0; r.due = Date.now() + 60000;
+    r.wrong = (r.wrong || 0) + 1;
+    r.ease = Math.max(1.3, +(r.ease - 0.2).toFixed(2));
+  }
+  fFlash[id] = r; fFlashSave();
+}
+document.getElementById('f-algo').onchange = function() {
+  fAlgo = this.value; localStorage.setItem('math_f_algo', fAlgo); loadTopic();
+};
+function pickFormula() {
+  var now = Date.now();
+  if (fAlgo === 'deck') {
+    if (!fDeck.length) { fDeck = fList.slice(); fShuffle(fDeck); }
+    return fDeck.pop();
+  }
+  if (fAlgo === 'flash') {
+    var cands = fList.map(function(f) {
+      var r = fFlashRec(f.id);
+      var prio = (r.due <= now) ? 0 : (r.reps === 0 ? 1 : 2);
+      return { f: f, due: r.due, prio: prio };
+    });
+    cands.sort(function(a, b) { return a.prio !== b.prio ? a.prio - b.prio : a.due - b.due; });
+    return cands.length ? cands[0].f : null;
+  }
+  var weak = [], unseen = [], due = [], rest = [];
+  fList.forEach(function(f) {
+    var r = fFlashRec(f.id);
+    if (r.streak < 0) weak.push(f);
+    else if (r.reps === 0) unseen.push(f);
+    else if (r.due <= now) due.push(f);
+    else rest.push(f);
+  });
+  var pool = weak.concat(unseen).concat(due).concat(rest);
+  if (!pool.length) return null;
+  return pool[0];
+}
 function loadTopic() {
   const tp = topicSel.value;
   fList = MATH.topics[tp].map(function(id){ return MATH.formulas.find(function(f){ return f.id===id; }); });
-  fIdx = 0; renderFormula();
+  fDeck = []; pickFormula(); renderFormula();
 }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+var fDeck = [];
 function renderFormula() {
   if (!fList.length) return;
-  const f = fList[fIdx];
+  var f = pickFormula();
+  if (!f) { document.getElementById('f-title').textContent = 'Все формулы выучены!'; document.getElementById('f-opts').innerHTML = ''; return; }
+  fIdx = fList.indexOf(f);
+  if (fIdx < 0) fIdx = 0;
   document.getElementById('f-title').textContent = f.title;
   document.getElementById('f-note').textContent = '';
   const fb = document.getElementById('f-fb');
@@ -11584,6 +11648,7 @@ function renderFormula() {
       if (b.disabled) return;
       Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
       record('formula::' + f.id, o.ok);
+      fFlashUpdate(f.id, o.ok);
       if (o.ok) {
         fb.textContent = '✅ Верно!';
         fb.style.color = 'var(--bb-accent)';
@@ -11600,10 +11665,12 @@ function renderFormula() {
   });
   const total = fList.length;
   const done = fList.filter(function(x){ return (prog[key('formula::'+x.id)]||{}).streak>=3; }).length;
-  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' • выучено: '+done;
-}function nextFormula(){ if (fIdx < fList.length-1) { fIdx++; renderFormula(); } else { fIdx=0; renderFormula(); } }
+  const due = fList.filter(function(x){ return (fFlashRec(x.id).due <= Date.now() && fFlashRec(x.id).reps > 0); }).length;
+  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+due;
+}
+function nextFormula(){ renderFormula(); }
 document.getElementById('f-next').onclick = nextFormula;
-document.getElementById('f-prev').onclick = function(){ fIdx = (fIdx>0)?fIdx-1:fList.length-1; renderFormula(); };
+document.getElementById('f-prev').onclick = function(){ renderFormula(); };
 topicSel.onchange = loadTopic;
 loadTopic();
 
@@ -11755,6 +11822,10 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <label class="muted">Тема:</label>
 <select id="f-topic"></select>
 </div>
+<div class="topic-sel">
+<label class="muted">Алгоритм:</label>
+<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+</div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
 <h2 id="f-title"></h2>
@@ -11901,15 +11972,75 @@ Object.keys(PH.topics).forEach(function(tp){
   const o = document.createElement('option'); o.value=tp; o.textContent=tp+' ('+PH.topics[tp].length+')'; topicSel.appendChild(o);
 });
 let fList = [], fIdx = 0;
+let fAlgo = localStorage.getItem('physics_f_algo') || 'smart';
+document.getElementById('f-algo').value = fAlgo;
+let fFlash = {};
+try { fFlash = JSON.parse(localStorage.getItem('physics_f_flash') || '{}'); } catch(e) { fFlash = {}; }
+function fFlashSave() { localStorage.setItem('physics_f_flash', JSON.stringify(fFlash)); }
+function fFlashRec(id) { return fFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0 }; }
+function fFlashUpdate(id, ok) {
+  var r = fFlashRec(id);
+  r.ts = Date.now();
+  if (ok) {
+    r.streak = (r.streak || 0) + 1;
+    r.reps = (r.reps || 0) + 1;
+    r.correct = (r.correct || 0) + 1;
+    if (r.reps === 1) r.interval = 1;
+    else if (r.reps === 2) r.interval = 3;
+    else if (r.reps === 3) r.interval = 7;
+    else r.interval = Math.round((r.interval || 7) * r.ease);
+    r.ease = Math.min(3.0, +(r.ease + 0.1).toFixed(2));
+    r.due = Date.now() + r.interval * 86400000;
+  } else {
+    r.streak = 0; r.reps = 0; r.interval = 0; r.due = Date.now() + 60000;
+    r.wrong = (r.wrong || 0) + 1;
+    r.ease = Math.max(1.3, +(r.ease - 0.2).toFixed(2));
+  }
+  fFlash[id] = r; fFlashSave();
+}
+document.getElementById('f-algo').onchange = function() {
+  fAlgo = this.value; localStorage.setItem('physics_f_algo', fAlgo); loadTopic();
+};
+function pickFormula() {
+  var now = Date.now();
+  if (fAlgo === 'deck') {
+    if (!fDeck.length) { fDeck = fList.slice(); fShuffle(fDeck); }
+    return fDeck.pop();
+  }
+  if (fAlgo === 'flash') {
+    var cands = fList.map(function(f) {
+      var r = fFlashRec(f.id);
+      var prio = (r.due <= now) ? 0 : (r.reps === 0 ? 1 : 2);
+      return { f: f, due: r.due, prio: prio };
+    });
+    cands.sort(function(a, b) { return a.prio !== b.prio ? a.prio - b.prio : a.due - b.due; });
+    return cands.length ? cands[0].f : null;
+  }
+  var weak = [], unseen = [], due = [], rest = [];
+  fList.forEach(function(f) {
+    var r = fFlashRec(f.id);
+    if (r.streak < 0) weak.push(f);
+    else if (r.reps === 0) unseen.push(f);
+    else if (r.due <= now) due.push(f);
+    else rest.push(f);
+  });
+  var pool = weak.concat(unseen).concat(due).concat(rest);
+  if (!pool.length) return null;
+  return pool[0];
+}
 function loadTopic() {
   const tp = topicSel.value;
   fList = PH.topics[tp].map(function(id){ return PH.formulas.find(function(f){ return f.id===id; }); });
-  fIdx = 0; renderFormula();
+  fDeck = []; pickFormula(); renderFormula();
 }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+var fDeck = [];
 function renderFormula() {
   if (!fList.length) return;
-  const f = fList[fIdx];
+  var f = pickFormula();
+  if (!f) { document.getElementById('f-title').textContent = 'Все формулы выучены!'; document.getElementById('f-opts').innerHTML = ''; return; }
+  fIdx = fList.indexOf(f);
+  if (fIdx < 0) fIdx = 0;
   document.getElementById('f-title').textContent = f.title;
   document.getElementById('f-note').textContent = '';
   const fb = document.getElementById('f-fb');
@@ -11933,6 +12064,7 @@ function renderFormula() {
       if (b.disabled) return;
       Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
       record('formula::' + f.id, o.ok);
+      fFlashUpdate(f.id, o.ok);
       if (o.ok) {
         fb.textContent = '✅ Верно!';
         fb.style.color = 'var(--bb-accent)';
@@ -11949,10 +12081,12 @@ function renderFormula() {
   });
   const total = fList.length;
   const done = fList.filter(function(x){ return (prog[key('formula::'+x.id)]||{}).streak>=3; }).length;
-  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' • выучено: '+done;
-}function nextFormula(){ if (fIdx < fList.length-1) { fIdx++; renderFormula(); } else { fIdx=0; renderFormula(); } }
+  const due = fList.filter(function(x){ return (fFlashRec(x.id).due <= Date.now() && fFlashRec(x.id).reps > 0); }).length;
+  document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+due;
+}
+function nextFormula(){ renderFormula(); }
 document.getElementById('f-next').onclick = nextFormula;
-document.getElementById('f-prev').onclick = function(){ fIdx = (fIdx>0)?fIdx-1:fList.length-1; renderFormula(); };
+document.getElementById('f-prev').onclick = function(){ renderFormula(); };
 topicSel.onchange = loadTopic;
 loadTopic();
 
@@ -12701,6 +12835,10 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 <label class="muted">Раздел:</label>
 <select id="r-cat"></select>
 </div>
+<div class="topic-sel">
+<label class="muted">Алгоритм:</label>
+<select id="r-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+</div>
 <div class="progress-mini" id="r-progress"></div>
 <div class="card" id="r-card">
 <h2 id="r-title"></h2>
@@ -12816,11 +12954,71 @@ Object.keys(RU.categories).forEach(function(c){
   const o=document.createElement('option'); o.value=c; o.textContent=c+' ('+RU.categories[c].length+')'; catSel.appendChild(o);
 });
 let rList=[], rIdx=0;
-function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rIdx=0; renderRule(); }
+let rAlgo = localStorage.getItem('russian_r_algo') || 'smart';
+document.getElementById('r-algo').value = rAlgo;
+let rFlash = {};
+try { rFlash = JSON.parse(localStorage.getItem('russian_r_flash') || '{}'); } catch(e) { rFlash = {}; }
+function rFlashSave() { localStorage.setItem('russian_r_flash', JSON.stringify(rFlash)); }
+function rFlashRec(id) { return rFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0 }; }
+function rFlashUpdate(id, ok) {
+  var r = rFlashRec(id);
+  r.ts = Date.now();
+  if (ok) {
+    r.streak = (r.streak || 0) + 1;
+    r.reps = (r.reps || 0) + 1;
+    r.correct = (r.correct || 0) + 1;
+    if (r.reps === 1) r.interval = 1;
+    else if (r.reps === 2) r.interval = 3;
+    else if (r.reps === 3) r.interval = 7;
+    else r.interval = Math.round((r.interval || 7) * r.ease);
+    r.ease = Math.min(3.0, +(r.ease + 0.1).toFixed(2));
+    r.due = Date.now() + r.interval * 86400000;
+  } else {
+    r.streak = 0; r.reps = 0; r.interval = 0; r.due = Date.now() + 60000;
+    r.wrong = (r.wrong || 0) + 1;
+    r.ease = Math.max(1.3, +(r.ease - 0.2).toFixed(2));
+  }
+  rFlash[id] = r; rFlashSave();
+}
+document.getElementById('r-algo').onchange = function() {
+  rAlgo = this.value; localStorage.setItem('russian_r_algo', rAlgo); loadCat();
+};
+function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rDeck=[]; renderRule(); }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+var rDeck = [];
+function pickRule() {
+  var now = Date.now();
+  if (rAlgo === 'deck') {
+    if (!rDeck.length) { rDeck = rList.slice(); fShuffle(rDeck); }
+    return rDeck.pop();
+  }
+  if (rAlgo === 'flash') {
+    var cands = rList.map(function(r) {
+      var rec = rFlashRec(r.id);
+      var prio = (rec.due <= now) ? 0 : (rec.reps === 0 ? 1 : 2);
+      return { r: r, due: rec.due, prio: prio };
+    });
+    cands.sort(function(a, b) { return a.prio !== b.prio ? a.prio - b.prio : a.due - b.due; });
+    return cands.length ? cands[0].r : null;
+  }
+  var weak = [], unseen = [], due = [], rest = [];
+  rList.forEach(function(r) {
+    var rec = rFlashRec(r.id);
+    if (rec.streak < 0) weak.push(r);
+    else if (rec.reps === 0) unseen.push(r);
+    else if (rec.due <= now) due.push(r);
+    else rest.push(r);
+  });
+  var pool = weak.concat(unseen).concat(due).concat(rest);
+  if (!pool.length) return null;
+  return pool[0];
+}
 function renderRule() {
   if (!rList.length) return;
-  const r = rList[rIdx];
+  var r = pickRule();
+  if (!r) { document.getElementById('r-title').textContent = 'Все правила выучены!'; document.getElementById('r-opts').innerHTML = ''; return; }
+  rIdx = rList.indexOf(r);
+  if (rIdx < 0) rIdx = 0;
   document.getElementById('r-title').textContent = r.title;
   const fb = document.getElementById('r-fb');
   fb.textContent = ''; fb.style.color = '';
@@ -12842,6 +13040,7 @@ function renderRule() {
       if (b.disabled) return;
       Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
       record('rule::' + r.id, o.ok);
+      rFlashUpdate(r.id, o.ok);
       if (o.ok) {
         fb.textContent = '✅ Верно!';
         fb.style.color = 'var(--bb-accent)';
@@ -12858,10 +13057,12 @@ function renderRule() {
   });
   const total = rList.length;
   const done = rList.filter(function(x){ return (prog[key('rule::'+x.id)]||{}).streak>=3; }).length;
-  document.getElementById('r-progress').textContent = (rIdx+1)+' / '+total+' • выучено: '+done;
-}function nextRule(){ if(rIdx<rList.length-1){rIdx++;} else {rIdx=0;} renderRule(); }
+  const dueC = rList.filter(function(x){ return (rFlashRec(x.id).due <= Date.now() && rFlashRec(x.id).reps > 0); }).length;
+  document.getElementById('r-progress').textContent = (rIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+dueC;
+}
+function nextRule(){ renderRule(); }
 document.getElementById('r-next').onclick=nextRule;
-document.getElementById('r-prev').onclick=function(){ rIdx=(rIdx>0)?rIdx-1:rList.length-1; renderRule(); };
+document.getElementById('r-prev').onclick=function(){ renderRule(); };
 catSel.onchange=loadCat;
 
 // ---- Tasks ----
