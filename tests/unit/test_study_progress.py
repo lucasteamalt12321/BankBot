@@ -245,3 +245,126 @@ def test_ai_plan_generates_caches_and_forces():
             assert r4.status_code == 200
             d4 = r4.get_json()
             assert d4["ok"] is False and d4["source"] == "fallback" and d4["plan"] == ""
+
+
+def test_stats_endpoint_returns_module_readiness():
+    from api.index import app
+
+    engine = _make_engine()
+    c = app.test_client()
+    p1, p2, p3 = _auth_patches(engine)
+    with p1, p2, p3:
+        c.post("/api/study/progress", headers=AUTH_HEADERS, json={
+            "module": "math",
+            "cards": {
+                "task::t1": {"reps": 3, "streak": 3, "correct": 3, "wrong": 0,
+                             "due": time.time() + 86400, "ts": time.time() * 1000},
+            },
+        })
+        resp = c.get("/api/study/stats", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        d = resp.get_json()
+        assert "modules" in d
+        assert "overall_readiness" in d
+        assert "streak" in d
+        assert "today" in d
+        assert "forecast" in d
+        math_mod = d["modules"]["math"]
+        assert math_mod["started"] == 1
+        assert math_mod["mastered"] == 1
+        assert math_mod["readiness"] > 0
+
+
+def test_stats_anon_returns_empty():
+    from api.index import app
+
+    c = app.test_client()
+    resp = c.get("/api/study/stats")
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["modules"] == {}
+    assert d["streak"]["current"] == 0
+
+
+def test_due_cards_endpoint():
+    from api.index import app
+
+    engine = _make_engine()
+    c = app.test_client()
+    p1, p2, p3 = _auth_patches(engine)
+    with p1, p2, p3:
+        c.post("/api/study/progress", headers=AUTH_HEADERS, json={
+            "module": "informatics",
+            "cards": {
+                "lesson1_o1": {"reps": 2, "streak": 1, "correct": 2, "wrong": 1,
+                               "due": time.time() - 100},
+            },
+        })
+        resp = c.get("/api/study/due-cards", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        d = resp.get_json()
+        assert d["total"] >= 1
+        assert d["due"][0]["module"] == "informatics"
+        assert d["due"][0]["key"] == "lesson1_o1"
+
+
+def test_due_cards_anon():
+    from api.index import app
+
+    c = app.test_client()
+    resp = c.get("/api/study/due-cards")
+    assert resp.status_code == 200
+    assert resp.get_json()["total"] == 0
+
+
+def test_quiz_generate_and_check():
+    from api.index import app
+
+    c = app.test_client()
+    p1, p2, p3 = _auth_patches(engine=_make_engine())
+    with p1, p2, p3:
+        resp = c.post("/api/quiz/generate", json={"module": "math", "n": 5})
+        assert resp.status_code == 200
+        d = resp.get_json()
+        assert d["ok"] is True
+        assert len(d["items"]) == 5
+        sid = d["sid"]
+
+        first = d["items"][0]
+        if first["type"] == "mcq":
+            assert "options" in first
+            assert "correct_idx" in first
+            check_resp = c.post("/api/quiz/check", json={"sid": sid, "idx": 0, "value": first["correct_idx"]})
+        else:
+            check_resp = c.post("/api/quiz/check", json={"sid": sid, "idx": 0, "value": first["answer"] if "answer" in first else "wrong"})
+        assert check_resp.status_code == 200
+        cd = check_resp.get_json()
+        assert cd["ok"] is True
+        assert "correct" in cd
+
+
+def test_quiz_generate_unknown_module():
+    from api.index import app
+
+    c = app.test_client()
+    resp = c.post("/api/quiz/generate", json={"module": "fake"})
+    assert resp.status_code == 400
+
+
+def test_quiz_check_unknown_session():
+    from api.index import app
+
+    c = app.test_client()
+    resp = c.post("/api/quiz/check", json={"sid": "abc123", "idx": 0, "value": "x"})
+    assert resp.status_code == 404
+
+
+def test_analytics_page_renders():
+    from api.index import app
+
+    c = app.test_client()
+    resp = c.get("/analytics")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert "Аналитика ОГЭ" in html
+    assert "s-streak" in html
