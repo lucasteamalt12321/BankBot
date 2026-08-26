@@ -28,7 +28,9 @@ def _make_engine():
                 correct_count INTEGER NOT NULL DEFAULT 0,
                 wrong_count INTEGER NOT NULL DEFAULT 0,
                 counter INTEGER NOT NULL DEFAULT 0,
-                updated_at REAL NOT NULL
+                updated_at REAL NOT NULL,
+                created_at REAL NOT NULL DEFAULT 0,
+                last_correct_at REAL NOT NULL DEFAULT 0
             )
         """))
         conn.execute(text("CREATE UNIQUE INDEX uq_study_progress_user_module_card ON study_progress(user_id, module, card_key)"))
