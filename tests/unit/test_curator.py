@@ -287,3 +287,86 @@ def test_subject_pages_get_hint_snippet_injected():
             assert 'id="ai-hint-bar"' not in html  # создаётся только из JS
     finally:
         _stop(patches)
+
+
+def test_tool_directive_parsing():
+    import api.index as m
+
+    assert m._tool_directive('{"tool":"progress","module":"math"}') == {"tool": "progress", "module": "math"}
+    assert m._tool_directive('Вот ответ.\n{"tool":"stats"}')["tool"] == "stats"
+    assert m._tool_directive("Обычный текст без JSON") is None
+    assert m._tool_directive('{"tool":"unknown_tool"}') is None
+    assert m._tool_directive("") is None
+    assert m._tool_directive(None) is None
+
+
+def test_curator_tool_data_progress_plan_stats():
+    m, c, patches = _setup()
+    try:
+        uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
+        import time as _t
+        with m.get_db_engine().begin() as conn:
+            conn.execute(m.text(
+                "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
+                " due, streak, correct_count, wrong_count, counter, updated_at)"
+                " VALUES (:u,'math','formula::f01',2,1,2.5,:past,3,4,1,-1,:ts),"
+                " (:u,'math','task::lesson1_o1',0,0,2.5,:future,0,0,3,-2,:ts)"
+            ), {"u": uid, "past": _t.time() - 10, "future": _t.time() + 9999, "ts": _t.time()})
+        data = m._curator_tool_data({"tool": "progress", "module": "math"}, uid, "2026-01-01")
+        assert "Математика" in data
+        assert "выучено" in data and "к повторению сегодня" in data
+        assert "task::lesson1_o1" in data          # слабая карточка перечислена
+        assert "formula::f01" not in data.split("Слабые")[1]  # выученная не в списке слабых
+        assert m._curator_tool_action({"tool": "progress", "module": "math"})
+        assert "Математика" in m._curator_tool_action({"tool": "progress", "module": "math"})
+        assert m._curator_tool_action({"tool": "stats"}) == "смотрит твою статистику 📊"
+        plan_data = m._curator_tool_data({"tool": "plan"}, uid, _t.strftime("%Y-%m-%d"))
+        assert "План" in plan_data
+        stats = m._curator_tool_data({"tool": "stats"}, uid, "x")
+        assert "Физика" in stats and "История" in stats
+    finally:
+        _stop(patches)
+
+
+def test_chat_tool_roundtrip_and_actions():
+    m, c, patches = _setup()
+    try:
+        calls = []
+
+        def fake_ai(prompt, max_tokens=150, temperature=0.8):
+            calls.append(prompt)
+            if len(calls) == 1:
+                return '{"tool":"progress","module":"math"}'
+            return "Финальный ответ с **жирным**."
+
+        with patch.object(m, "call_ai_api", side_effect=fake_ai):
+            r = c.post("/api/study/chat", json={"message": "Как мой прогресс по математике?"},
+                       headers=AUTH_HEADERS).get_json()
+        assert r["ok"] and r["reply"] == "Финальный ответ с **жирным**."
+        assert r["actions"] and "журнал" in r["actions"][0]
+        assert len(calls) == 2
+        assert "Система передала данные" in calls[1]
+        hist = c.get("/api/study/chat", headers=AUTH_HEADERS).get_json()["messages"]
+        roles = [x["role"] for x in hist]
+        assert roles.count("user") == 1 and roles.count("assistant") == 1
+        assert hist[-1]["content"] == "Финальный ответ с **жирным**."
+        assert '{"tool"' not in "\n".join(x["content"] for x in hist)
+    finally:
+        _stop(patches)
+
+
+def test_chat_second_call_failure_still_answers():
+    m, c, patches = _setup()
+    try:
+        calls = []
+
+        def fake_ai(prompt, max_tokens=150, temperature=0.8):
+            calls.append(prompt)
+            return '{"tool":"stats"}' if len(calls) == 1 else "❌ Ошибка AI: 503"
+
+        with patch.object(m, "call_ai_api", side_effect=fake_ai):
+            r = c.post("/api/study/chat", json={"message": "статистика?"}, headers=AUTH_HEADERS).get_json()
+        assert r["ok"] and "❌" not in r["reply"]
+        assert r["actions"], "lookup должен быть зафиксирован даже при сбое второго вызова"
+    finally:
+        _stop(patches)
