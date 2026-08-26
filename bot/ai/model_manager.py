@@ -1,6 +1,6 @@
 """AI Model Manager with automatic provider switching.
 
-Supports multiple AI providers (Hugging Face, OpenRouter, Ollama) with automatic
+Supports multiple AI providers (Gemini, Groq, Hugging Face, OpenRouter, Ollama) with automatic
 fallback when one provider fails. Designed for Phase 2 modules (Mom, Universe, AI).
 """
 
@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 class ProviderType(Enum):
     """Supported AI provider types."""
+    GEMINI = "gemini"
     HUGGINGFACE = "huggingface"
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
@@ -99,9 +100,43 @@ class AIModelManager:
         
     def _load_individual_providers(self) -> None:
         """Load providers from individual environment variables."""
-        # Groq (add first for priority)
+        # Google Gemini (primary — free tier, OpenAI-compatible endpoint)
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        if gemini_key:
+            self.providers.append(ProviderConfig(
+                name="gemini",
+                provider_type=ProviderType.GEMINI,
+                api_key=gemini_key,
+                endpoint="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                model=gemini_model,
+                timeout=15,
+                max_tokens=150,
+            ))
+            logger.info("Loaded Gemini provider")
+
+        # OpenRouter (fallback, free :free models)
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        openrouter_model = os.getenv(
+            "OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free"
+        )
+
+        if openrouter_key:
+            self.providers.append(ProviderConfig(
+                name="openrouter",
+                provider_type=ProviderType.OPENROUTER,
+                api_key=openrouter_key,
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+                model=openrouter_model,
+                timeout=30,
+                max_tokens=150,
+            ))
+            logger.info("Loaded OpenRouter provider")
+
+        # Groq (fallback)
         groq_key = os.getenv("GROQ_API_KEY")
-        groq_model = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+        groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         
         if groq_key:
             self.providers.append(ProviderConfig(
@@ -130,22 +165,6 @@ class AIModelManager:
                 max_tokens=150,
             ))
             logger.info("Loaded Hugging Face provider")
-        
-        # OpenRouter
-        openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        openrouter_model = os.getenv("OPENROUTER_MODEL", "openai/gpt-3.5-turbo")
-        
-        if openrouter_key:
-            self.providers.append(ProviderConfig(
-                name="openrouter",
-                provider_type=ProviderType.OPENROUTER,
-                api_key=openrouter_key,
-                endpoint="https://openrouter.ai/api/v1/chat/completions",
-                model=openrouter_model,
-                timeout=10,
-                max_tokens=150,
-            ))
-            logger.info("Loaded OpenRouter provider")
         
         # Ollama (local)
         ollama_endpoint = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
@@ -283,6 +302,26 @@ class AIModelManager:
             data = response.json()
             return data["choices"][0]["message"]["content"].strip()
     
+    async def _call_gemini(self, provider: ProviderConfig, prompt: str) -> str:
+        """Call Google Gemini API (OpenAI-compatible endpoint)."""
+        headers = {
+            "Authorization": f"Bearer {provider.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": provider.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": provider.max_tokens,
+            "temperature": 0.7,
+        }
+
+        async with httpx.AsyncClient(timeout=provider.timeout) as client:
+            response = await client.post(provider.endpoint, headers=headers, json=payload)
+            response.raise_for_status()
+
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+
     async def get_response(
         self,
         prompt: str,
@@ -343,7 +382,9 @@ class AIModelManager:
                     )
 
                 # Call appropriate provider
-                if provider.provider_type == ProviderType.HUGGINGFACE:
+                if provider.provider_type == ProviderType.GEMINI:
+                    text = await self._call_gemini(provider, prompt)
+                elif provider.provider_type == ProviderType.HUGGINGFACE:
                     text = await self._call_huggingface(provider, prompt)
                 elif provider.provider_type == ProviderType.OPENROUTER:
                     text = await self._call_openrouter(provider, prompt)

@@ -1,13 +1,14 @@
 """
 Integration tests for main.py startup validation and signal handling
 
-Tests cover:
-- Startup validation is called before bot initialization
-- Different configuration scenarios (valid, missing env, invalid settings)
-- Error handling and exit behavior
-- Integration with StartupValidator
-- Signal handling (SIGTERM, SIGINT)
-- ProcessManager integration
+Покрывает реальное поведение bot/main.py:
+- Startup validation (validate_startup) вызывается перед запуском бота
+  и при провале — main завершается с ненулевым кодом (печатает ошибку).
+- Порядок операций при старте: миграция схемы БД -> валидация -> завершение
+  старых процессов -> создание и запуск бота.
+- BotApplication.shutdown() корректно останавливает ресурсы и удаляет PID-файл.
+- BotApplication.setup_signal_handlers() регистрирует SIGTERM/SIGINT и
+  устанавливает shutdown_event (graceful shutdown, Requirements 9.2, 9.4).
 
 Validates: Requirements 8.2 - Integration of validation in main.py
 Validates: Requirements 9.2, 9.4 - Signal handling for graceful shutdown
@@ -26,48 +27,58 @@ from unittest.mock import patch, MagicMock, call, Mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def run_main_with_mocks(validate_return=True, kill_return=False, run_raises=KeyboardInterrupt()):
+    """
+    Запускает main() с замоканными зависимостями и возвращает использованные моки.
+    run_raises — исключение, которое бросает bot.run() (по умолчанию KeyboardInterrupt,
+    чтобы имитировать штатную остановку).
+    """
+    with patch('bot.main.validate_startup') as mock_validate, \
+         patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+         patch('bot.main.ensure_schema_up_to_date') as mock_schema, \
+         patch('bot.main.TelegramBot') as mock_bot:
+
+        mock_validate.return_value = validate_return
+        mock_kill.return_value = kill_return
+        mock_bot_instance = MagicMock()
+        mock_bot.return_value = mock_bot_instance
+        if run_raises is not None:
+            mock_bot_instance.run.side_effect = run_raises
+
+        try:
+            from bot.main import main
+            main()
+        except KeyboardInterrupt:
+            pass
+        except Exception:
+            pass
+
+        return {
+            'validate': mock_validate,
+            'kill': mock_kill,
+            'schema': mock_schema,
+            'bot': mock_bot,
+            'bot_instance': mock_bot_instance,
+        }
+
+
 class TestMainStartupValidation:
     """Test startup validation integration in main.py"""
 
     def test_main_calls_startup_validator(self):
-        """Test that main() calls StartupValidator.validate_all()"""
-        from bot.main import main
-
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
-             patch('bot.main.TelegramBot') as mock_bot:
-
-            mock_validate.return_value = True
-            mock_kill.return_value = False
-            mock_bot_instance = MagicMock()
-            mock_bot.return_value = mock_bot_instance
-
-            # Mock run to prevent actual bot startup
-            mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
-            try:
-                main()
-            except KeyboardInterrupt:
-                pass
-
-            # Verify validation was called
-            mock_validate.assert_called_once()
+        """Test that main() calls validate_startup()"""
+        mocks = run_main_with_mocks()
+        mocks['validate'].assert_called_once()
 
     def test_main_exits_on_validation_failure(self):
         """Test that main() exits when validation fails"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing'), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot'):
 
-            # Simulate validation failure
             mock_validate.side_effect = SystemExit(1)
 
             with pytest.raises(SystemExit) as exc_info:
@@ -79,14 +90,11 @@ class TestMainStartupValidation:
         """Test that bot is not started if validation fails"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
 
-            # Simulate validation failure
             mock_validate.side_effect = SystemExit(1)
 
             with pytest.raises(SystemExit):
@@ -94,7 +102,7 @@ class TestMainStartupValidation:
 
             # Bot should not be created or started
             mock_bot.assert_not_called()
-            # Process killing should not happen (validation happens first)
+            # Process killing should not happen (validation happens before kill)
             mock_kill.assert_not_called()
 
     def test_main_validates_before_killing_processes(self):
@@ -111,59 +119,55 @@ class TestMainStartupValidation:
             call_order.append('kill')
             return False
 
-        with patch('bot.main.StartupValidator.validate_all', side_effect=track_validate), \
-             patch('bot.main.ProcessManager.kill_existing', side_effect=track_kill), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup', side_effect=track_validate), \
+             patch('bot.main.kill_existing_bot_processes', side_effect=track_kill), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
-
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
 
             # Validation should happen before killing processes
-            assert call_order == ['validate', 'kill']
+            assert call_order.index('validate') < call_order.index('kill')
 
-    def test_main_validates_before_creating_tables(self):
-        """Test that validation happens before creating database tables"""
+    def test_main_schema_migration_runs_before_validation(self):
+        """Test that DB schema migration runs before validation (and both before bot)"""
         from bot.main import main
 
         call_order = []
+
+        def track_schema(*args, **kwargs):
+            call_order.append('schema')
 
         def track_validate(*args, **kwargs):
             call_order.append('validate')
             return True
 
-        def track_create(*args, **kwargs):
-            call_order.append('create_tables')
+        def track_kill(*args, **kwargs):
+            call_order.append('kill')
+            return False
 
-        with patch('bot.main.StartupValidator.validate_all', side_effect=track_validate), \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables', side_effect=track_create), \
+        with patch('bot.main.validate_startup', side_effect=track_validate), \
+             patch('bot.main.kill_existing_bot_processes', side_effect=track_kill), \
+             patch('bot.main.ensure_schema_up_to_date', side_effect=track_schema), \
              patch('bot.main.TelegramBot') as mock_bot:
-
-            mock_kill.return_value = False
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
 
-            # Validation should happen before creating tables
+            # Schema migration (DB setup) runs first, then validation, then kill
+            assert 'schema' in call_order
             assert 'validate' in call_order
-            assert 'create_tables' in call_order
-            assert call_order.index('validate') < call_order.index('create_tables')
+            assert call_order.index('schema') < call_order.index('validate')
+            assert call_order.index('validate') < call_order.index('kill')
 
 
 class TestSignalHandling:
@@ -180,11 +184,10 @@ class TestSignalHandling:
             app = BotApplication()
             app.setup_signal_handlers()
 
-            # Verify both signals are registered
             assert mock_signal.call_count == 2
-            calls = [call[0] for call in mock_signal.call_args_list]
-            assert (signal.SIGTERM, ) in [c[:1] for c in calls]
-            assert (signal.SIGINT, ) in [c[:1] for c in calls]
+            calls = [c[0][0] for c in mock_signal.call_args_list]
+            assert signal.SIGTERM in calls
+            assert signal.SIGINT in calls
 
     def test_sigterm_sets_shutdown_event(self):
         """
@@ -195,11 +198,9 @@ class TestSignalHandling:
 
         app = BotApplication()
 
-        # Capture the signal handler
         with patch('signal.signal') as mock_signal:
             app.setup_signal_handlers()
 
-            # Get the SIGTERM handler
             sigterm_handler = None
             for call_args in mock_signal.call_args_list:
                 if call_args[0][0] == signal.SIGTERM:
@@ -207,11 +208,7 @@ class TestSignalHandling:
                     break
 
             assert sigterm_handler is not None
-
-            # Call the handler
             sigterm_handler(signal.SIGTERM, None)
-
-            # Verify shutdown event is set
             assert app.shutdown_event.is_set()
 
     def test_sigint_sets_shutdown_event(self):
@@ -223,11 +220,9 @@ class TestSignalHandling:
 
         app = BotApplication()
 
-        # Capture the signal handler
         with patch('signal.signal') as mock_signal:
             app.setup_signal_handlers()
 
-            # Get the SIGINT handler
             sigint_handler = None
             for call_args in mock_signal.call_args_list:
                 if call_args[0][0] == signal.SIGINT:
@@ -235,11 +230,7 @@ class TestSignalHandling:
                     break
 
             assert sigint_handler is not None
-
-            # Call the handler
             sigint_handler(signal.SIGINT, None)
-
-            # Verify shutdown event is set
             assert app.shutdown_event.is_set()
 
     @pytest.mark.asyncio
@@ -253,8 +244,6 @@ class TestSignalHandling:
         with patch('bot.main.ProcessManager.remove_pid') as mock_remove:
             app = BotApplication()
             await app.shutdown()
-
-            # Verify PID file is removed
             mock_remove.assert_called_once()
 
     @pytest.mark.asyncio
@@ -267,12 +256,10 @@ class TestSignalHandling:
 
         app = BotApplication()
 
-        # Create mock bot with application
         mock_bot = MagicMock()
         mock_application = MagicMock()
         mock_application.running = True
 
-        # Create async mock for stop
         async def mock_stop():
             pass
 
@@ -283,8 +270,6 @@ class TestSignalHandling:
         with patch('bot.main.ProcessManager.remove_pid'), \
              patch.object(mock_application, 'stop', wraps=mock_stop) as mock_stop_spy:
             await app.shutdown()
-
-            # Verify bot application stop was called
             mock_stop_spy.assert_called_once()
 
     @pytest.mark.asyncio
@@ -299,10 +284,7 @@ class TestSignalHandling:
         app.bot = None
 
         with patch('bot.main.ProcessManager.remove_pid') as mock_remove:
-            # Should not raise exception
             await app.shutdown()
-
-            # PID file should still be removed
             mock_remove.assert_called_once()
 
     @pytest.mark.asyncio
@@ -315,7 +297,6 @@ class TestSignalHandling:
 
         app = BotApplication()
 
-        # Create mock bot that raises error on stop
         mock_bot = MagicMock()
         mock_application = MagicMock()
         mock_application.running = True
@@ -328,42 +309,12 @@ class TestSignalHandling:
         app.bot = mock_bot
 
         with patch('bot.main.ProcessManager.remove_pid') as mock_remove:
-            # Should not raise exception
             await app.shutdown()
-
-            # PID file should still be removed even on error
             mock_remove.assert_called_once()
 
 
 class TestProcessManagerIntegration:
     """Test ProcessManager integration in main.py (Task 9.1, 9.2)"""
-
-    def test_main_writes_pid_on_startup(self):
-        """
-        Test that main writes PID file on startup
-        Validates: Requirements 9.1, 9.2
-        """
-        from bot.main import main
-
-        with patch('bot.main.StartupValidator.validate_all'), \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid') as mock_write_pid, \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
-             patch('bot.main.TelegramBot') as mock_bot:
-
-            mock_kill.return_value = False
-            mock_bot_instance = MagicMock()
-            mock_bot.return_value = mock_bot_instance
-            mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
-            try:
-                main()
-            except KeyboardInterrupt:
-                pass
-
-            # Verify PID was written
-            mock_write_pid.assert_called_once()
 
     def test_main_kills_existing_process_before_startup(self):
         """
@@ -372,79 +323,80 @@ class TestProcessManagerIntegration:
         """
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all'), \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup'), \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
-
             mock_kill.return_value = True
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
-
-            # Verify existing process was killed
             mock_kill.assert_called_once()
 
-    def test_main_removes_pid_on_exit(self):
+    def test_main_runs_schema_migration_on_startup(self):
         """
-        Test that main removes PID file on exit
-        Validates: Requirements 9.2, 9.3
+        Test that main runs DB schema migration on startup
+        Validates: Requirements 8.2
         """
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all'), \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid') as mock_remove_pid, \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup'), \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date') as mock_schema, \
              patch('bot.main.TelegramBot') as mock_bot:
-
             mock_kill.return_value = False
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
+            mock_schema.assert_called_once()
 
-            # Verify PID was removed on exit
-            mock_remove_pid.assert_called()
-
-    def test_main_removes_pid_on_error(self):
+    def test_main_creates_bot_instance(self):
         """
-        Test that main removes PID file even on error
+        Test that main creates and runs the bot instance
+        Validates: Requirements 9.1, 9.2
+        """
+        from bot.main import main
+
+        with patch('bot.main.validate_startup'), \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date'), \
+             patch('bot.main.TelegramBot') as mock_bot:
+            mock_kill.return_value = False
+            mock_bot_instance = MagicMock()
+            mock_bot.return_value = mock_bot_instance
+            mock_bot_instance.run.side_effect = KeyboardInterrupt()
+            try:
+                main()
+            except KeyboardInterrupt:
+                pass
+            mock_bot.assert_called_once()
+            mock_bot_instance.run.assert_called_once()
+
+    def test_main_propagates_bot_run_errors(self):
+        """
+        Test that main propagates errors raised during bot.run()
         Validates: Requirements 9.2, 9.3
         """
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all'), \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid') as mock_remove_pid, \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup'), \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
-
-            mock_kill.return_value = False
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
-            mock_bot_instance.run.side_effect = Exception("Test error")
+            mock_bot_instance.run.side_effect = RuntimeError("Bot crashed")
 
-            try:
+            with pytest.raises(RuntimeError):
                 main()
-            except Exception:
-                pass
-
-            # Verify PID was removed even on error
-            mock_remove_pid.assert_called()
 
 
 class TestMainWithDifferentConfigurations:
@@ -460,82 +412,58 @@ class TestMainWithDifferentConfigurations:
             'DATABASE_URL': 'sqlite:///test.db',
             'ENV': 'test'
         }), \
-             patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+             patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
-
             mock_validate.return_value = True
             mock_kill.return_value = False
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
-
-            # Should proceed to bot creation
             mock_bot.assert_called_once()
 
     def test_main_with_missing_env_file(self):
-        """Test main() exits when .env file is missing"""
+        """Test main() exits when startup validation fails (env/.env missing)"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing'), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot'):
-
-            # Simulate missing env file
             mock_validate.side_effect = SystemExit(1)
-
             with pytest.raises(SystemExit) as exc_info:
                 main()
-
             assert exc_info.value.code == 1
 
     def test_main_with_missing_bot_token(self):
-        """Test main() exits when BOT_TOKEN is missing"""
+        """Test main() exits when BOT_TOKEN validation fails"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing'), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot'):
-
-            # Simulate missing BOT_TOKEN
             mock_validate.side_effect = SystemExit(1)
-
             with pytest.raises(SystemExit) as exc_info:
                 main()
-
             assert exc_info.value.code == 1
 
     def test_main_with_invalid_database_url(self):
-        """Test main() exits when database connection fails"""
+        """Test main() exits when database validation fails"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing'), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot'):
-
-            # Simulate database connection failure
             mock_validate.side_effect = SystemExit(1)
-
             with pytest.raises(SystemExit) as exc_info:
                 main()
-
             assert exc_info.value.code == 1
 
     def test_main_with_development_environment(self):
@@ -543,25 +471,19 @@ class TestMainWithDifferentConfigurations:
         from bot.main import main
 
         with patch.dict(os.environ, {'ENV': 'development'}), \
-             patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+             patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
-
             mock_validate.return_value = True
             mock_kill.return_value = False
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
-
-            # Validation should be called
             mock_validate.assert_called_once()
 
     def test_main_with_production_environment(self):
@@ -569,25 +491,19 @@ class TestMainWithDifferentConfigurations:
         from bot.main import main
 
         with patch.dict(os.environ, {'ENV': 'production'}), \
-             patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+             patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
-
             mock_validate.return_value = True
             mock_kill.return_value = False
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
-
-            # Validation should be called
             mock_validate.assert_called_once()
 
     def test_main_with_test_environment(self):
@@ -595,25 +511,19 @@ class TestMainWithDifferentConfigurations:
         from bot.main import main
 
         with patch.dict(os.environ, {'ENV': 'test'}), \
-             patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing') as mock_kill, \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+             patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes') as mock_kill, \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot') as mock_bot:
-
             mock_validate.return_value = True
             mock_kill.return_value = False
             mock_bot_instance = MagicMock()
             mock_bot.return_value = mock_bot_instance
             mock_bot_instance.run.side_effect = KeyboardInterrupt()
-
             try:
                 main()
             except KeyboardInterrupt:
                 pass
-
-            # Validation should be called
             mock_validate.assert_called_once()
 
 
@@ -621,71 +531,51 @@ class TestMainErrorHandling:
     """Test error handling in main.py"""
 
     def test_main_catches_system_exit_from_validator(self):
-        """Test that main() catches SystemExit from validator"""
+        """Test that main() surfaces SystemExit from validator"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing'), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot'), \
              patch('builtins.print') as mock_print:
-
             mock_validate.side_effect = SystemExit(1)
-
             with pytest.raises(SystemExit) as exc_info:
                 main()
-
-            # Should print error message
-            error_calls = [call for call in mock_print.call_args_list 
-                          if 'ERROR' in str(call) or 'validation failed' in str(call).lower()]
+            error_calls = [c for c in mock_print.call_args_list
+                           if 'ERROR' in str(c) or 'validation failed' in str(c).lower()]
             assert len(error_calls) > 0
-
-            # Should exit with same code
             assert exc_info.value.code == 1
 
     def test_main_preserves_exit_code(self):
         """Test that main() preserves the exit code from validator"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing'), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot'):
-
-            # Test different exit codes
             for exit_code in [1, 2, 3]:
                 mock_validate.side_effect = SystemExit(exit_code)
-
                 with pytest.raises(SystemExit) as exc_info:
                     main()
-
                 assert exc_info.value.code == exit_code
 
     def test_main_prints_error_message_on_validation_failure(self):
         """Test that main() prints helpful error message on validation failure"""
         from bot.main import main
 
-        with patch('bot.main.StartupValidator.validate_all') as mock_validate, \
-             patch('bot.main.ProcessManager.kill_existing'), \
-             patch('bot.main.ProcessManager.write_pid'), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables'), \
+        with patch('bot.main.validate_startup') as mock_validate, \
+             patch('bot.main.kill_existing_bot_processes'), \
+             patch('bot.main.ensure_schema_up_to_date'), \
              patch('bot.main.TelegramBot'), \
              patch('builtins.print') as mock_print:
-
             mock_validate.side_effect = SystemExit(1)
-
             with pytest.raises(SystemExit):
                 main()
-
-            # Check that error message was printed
-            print_calls = [str(call) for call in mock_print.call_args_list]
-            error_printed = any('ERROR' in call or 'validation failed' in call.lower() 
-                              for call in print_calls)
+            print_calls = [str(c) for c in mock_print.call_args_list]
+            error_printed = any('ERROR' in call or 'validation failed' in call.lower()
+                                for call in print_calls)
             assert error_printed, f"No error message found in: {print_calls}"
 
 
@@ -693,41 +583,36 @@ class TestMainValidationOrder:
     """Test the order of operations in main.py"""
 
     def test_validation_is_first_operation(self):
-        """Test that validation is the very first operation after print"""
+        """Test that schema migration and validation are the first operations"""
         from bot.main import main
 
         operations = []
 
-        def track_operation(name):
+        def track(name):
             def wrapper(*args, **kwargs):
                 operations.append(name)
                 if name == 'bot_run':
                     raise KeyboardInterrupt()
                 if name == 'bot_init':
-                    mock_instance = MagicMock()
-                    mock_instance.run.side_effect = lambda: operations.append('bot_run') or (_ for _ in ()).throw(KeyboardInterrupt())
-                    return mock_instance
+                    inst = MagicMock()
+                    inst.run.side_effect = lambda: operations.append('bot_run') or (_ for _ in ()).throw(KeyboardInterrupt())
+                    return inst
                 if name == 'kill':
                     return False
                 return MagicMock()
             return wrapper
 
-        with patch('bot.main.StartupValidator.validate_all', side_effect=track_operation('validate')), \
-             patch('bot.main.ProcessManager.kill_existing', side_effect=track_operation('kill')), \
-             patch('bot.main.ProcessManager.write_pid', side_effect=track_operation('write_pid')), \
-             patch('bot.main.ProcessManager.remove_pid'), \
-             patch('bot.main.create_tables', side_effect=track_operation('create_tables')), \
-             patch('bot.main.TelegramBot', side_effect=track_operation('bot_init')):
-
+        with patch('bot.main.validate_startup', side_effect=track('validate')), \
+             patch('bot.main.kill_existing_bot_processes', side_effect=track('kill')), \
+             patch('bot.main.ensure_schema_up_to_date', side_effect=track('schema')), \
+             patch('bot.main.TelegramBot', side_effect=track('bot_init')):
             try:
                 main()
             except KeyboardInterrupt:
                 pass
 
-            # Validation should be first
-            assert operations[0] == 'validate'
-            # Followed by kill, write_pid, create_tables, bot_init, bot_run
-            assert operations == ['validate', 'kill', 'write_pid', 'create_tables', 'bot_init', 'bot_run']
+        # Schema migration -> validation -> kill -> bot init -> bot run
+        assert operations == ['schema', 'validate', 'kill', 'bot_init', 'bot_run']
 
 
 if __name__ == '__main__':

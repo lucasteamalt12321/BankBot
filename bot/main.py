@@ -3,6 +3,7 @@
 
 import os
 import sys
+import signal
 import structlog
 import psutil
 import time
@@ -29,6 +30,7 @@ class BotApplication:
 
     def __init__(self):
         self.bot: Optional[TelegramBot] = None
+        self.shutdown_event = asyncio.Event()
 
     async def shutdown(self) -> bool:
         """Perform graceful shutdown of all resources.
@@ -104,6 +106,26 @@ class BotApplication:
         logger.info("Shutdown completed successfully")
         return True
 
+    def setup_signal_handlers(self) -> None:
+        """
+        Регистрирует обработчики сигналов SIGINT/SIGTERM для graceful shutdown.
+
+        При получении сигнала устанавливается shutdown_event, что позволяет
+        координировать корректное завершение работы бота (Requirement 9.2, 9.4).
+        """
+
+        def _handler(signum, frame):
+            logger.info("Shutdown signal received", signal=signum)
+            self.shutdown_event.set()
+
+        try:
+            signal.signal(signal.SIGINT, _handler)
+            signal.signal(signal.SIGTERM, _handler)
+            logger.info("Signal handlers configured for graceful shutdown")
+        except ValueError:
+            # Webhook runtime runs in a daemon thread where signals are unavailable
+            logger.info("Signal handlers skipped: not in main thread")
+
 
 def kill_existing_bot_processes():
     """Убивает все существующие процессы, связанные с ботом"""
@@ -160,7 +182,15 @@ def main():
     ensure_schema_up_to_date()
 
     # Валидируем окружение перед запуском
-    validate_startup()
+    try:
+        validation_ok = validate_startup()
+    except SystemExit:
+        # Валидатор сам инициировал выход (например, отсутствует .env)
+        print("ERROR: Startup validation failed. See logs above.")
+        raise
+    if not validation_ok:
+        print("ERROR: Startup validation failed. See logs above.")
+        sys.exit(1)
 
     # Убиваем старые процессы бота
     kill_existing_bot_processes()

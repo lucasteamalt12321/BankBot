@@ -10,7 +10,9 @@ from aiogram import Router as _Router
 
 from bot.commands import config_commands  # noqa: F401
 from bot.commands.balance import router as user_router
-from bot.commands.shop_commands import router as shop_router
+
+# Stub router: shop commands are registered via python-telegram-bot setup_routers
+shop_router = _Router(name="shop")
 
 # Stub routers для game и system (aiogram, пока не реализованы)
 game_router = _Router(name="game")

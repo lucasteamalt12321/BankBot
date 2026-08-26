@@ -120,7 +120,7 @@ class DndAiMaster:
             response = await self.model_manager.get_response(
                 prompt=prompt,
                 user_id=player_id,
-                preferred_provider="groq",
+                preferred_provider="gemini",
                 max_tokens=settings.DND_AI_MAX_TOKENS,
             )
             answer = response.text[:800] if response.text else "Мастер погрузился в раздумья..."
@@ -166,7 +166,7 @@ class DndAiMaster:
             response = await self.model_manager.get_response(
                 prompt=prompt,
                 user_id=player_id,
-                preferred_provider="groq",
+                preferred_provider="gemini",
                 max_tokens=settings.DND_AI_MAX_TOKENS,
             )
             answer = response.text[:800] if response.text else f"🎲 Результат: {dice_result}!"

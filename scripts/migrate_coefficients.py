@@ -17,7 +17,9 @@ from decimal import Decimal
 import argparse
 
 from database.database import get_db, ParsingRule
-from utils.logging.logging_config import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # Default coefficients from coefficients.json

@@ -125,9 +125,12 @@ class TestUnitOfWork:
 class TestTransactionContextManager:
     """Test transaction() context manager."""
 
-    def test_transaction_commits_on_success(self, engine):
+    def test_transaction_commits_on_success(self, engine, monkeypatch):
         """Test that transaction commits on success."""
         Session = sessionmaker(bind=engine)
+        monkeypatch.setattr(
+            "src.repository.unit_of_work.SessionLocal", Session
+        )
 
         # Create user in transaction
         with transaction() as session:
@@ -141,9 +144,12 @@ class TestTransactionContextManager:
         assert user.balance == 100
         session.close()
 
-    def test_transaction_rolls_back_on_error(self, engine):
+    def test_transaction_rolls_back_on_error(self, engine, monkeypatch):
         """Test that transaction rolls back on error."""
         Session = sessionmaker(bind=engine)
+        monkeypatch.setattr(
+            "src.repository.unit_of_work.SessionLocal", Session
+        )
 
         with pytest.raises(ValueError):
             with transaction() as session:
@@ -174,8 +180,13 @@ class TestTransactionContextManager:
 class TestAtomicDecorator:
     """Test @atomic decorator."""
 
-    def test_atomic_function_commits(self, engine):
+    def test_atomic_function_commits(self, engine, monkeypatch):
         """Test that atomic function commits changes."""
+        Session = sessionmaker(bind=engine)
+        monkeypatch.setattr(
+            "src.repository.unit_of_work.SessionLocal", Session
+        )
+
         @atomic
         def create_user(session, telegram_id, username, balance):
             user = User(telegram_id=telegram_id, username=username, balance=balance)
@@ -192,8 +203,13 @@ class TestAtomicDecorator:
         assert found_user.balance == 150
         session.close()
 
-    def test_atomic_function_rolls_back_on_error(self, engine):
+    def test_atomic_function_rolls_back_on_error(self, engine, monkeypatch):
         """Test that atomic function rolls back on error."""
+        Session = sessionmaker(bind=engine)
+        monkeypatch.setattr(
+            "src.repository.unit_of_work.SessionLocal", Session
+        )
+
         @atomic
         def create_user_with_error(session, telegram_id):
             user = User(telegram_id=telegram_id, username="user4", balance=100)

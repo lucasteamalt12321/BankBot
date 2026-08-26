@@ -134,12 +134,16 @@ class Settings(BaseSettings):
     HF_TOKEN: Optional[str] = Field(default=None)
     HF_INFERENCE_MODEL: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
     OPENROUTER_API_KEY: Optional[str] = Field(default=None)
-    OPENROUTER_MODEL: str = Field(default="openai/gpt-3.5-turbo")
+    OPENROUTER_MODEL: str = Field(default="nvidia/nemotron-3-super-120b-a12b:free")
     OLLAMA_ENABLED: bool = Field(default=False)
     OLLAMA_ENDPOINT: str = Field(default="http://localhost:11434")
     OLLAMA_MODEL: str = Field(default="llama2")
 
-    # Groq (used as primary for D&D AI Master)
+    # Google Gemini (primary for D&D AI Master, free tier)
+    GEMINI_API_KEY: Optional[str] = Field(default=None)
+    GEMINI_MODEL: str = Field(default="gemini-2.5-flash")
+
+    # Groq (fallback after Gemini)
     GROQ_API_KEY: Optional[str] = Field(default=None)
     GROQ_MODEL: str = Field(default="llama-3.1-70b-versatile")
 

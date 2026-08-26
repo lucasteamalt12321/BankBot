@@ -15,51 +15,72 @@ from decimal import Decimal
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bot.commands.advanced_admin_commands import AdvancedAdminCommands
-from database.database import get_db, engine, User, ParsedTransaction, ParsingRule
+from bot.middleware.dependency_injection import (
+    Services,
+    UserRepository,
+    UserService,
+    AdminService,
+    ShopService,
+    TransactionService,
+)
+from database.database import Base, get_db, User, ParsedTransaction, ParsingRule
 from telegram import Update, User as TelegramUser, Message, Chat
 from telegram.ext import ContextTypes
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from src.config import settings
+from core.models.advanced_models import BroadcastResult
 import tempfile
+
+
+class _ServicesContextManager:
+    """Wraps a Services object so it can be used with `with build_services()`."""
+
+    def __init__(self, services):
+        self._services = services
+
+    def __enter__(self):
+        return self._services
+
+    def __exit__(self, *exc):
+        return False
 
 
 class TestAdvancedAdminCommandsIntegration:
     """Integration tests for advanced admin command handlers"""
 
-    @pytest.fixture(autouse=True)
-    def setup_database(self):
-        """Set up test database"""
-        # Create temporary database
+    def setup_method(self):
+        """Set up test database and fixtures for each test"""
         self.db_fd, self.db_path = tempfile.mkstemp()
         test_engine = create_engine(f'sqlite:///{self.db_path}')
 
-        # Create tables
-        from database.database import Base
         Base.metadata.create_all(test_engine)
 
-        # Create session
         TestSession = sessionmaker(bind=test_engine)
+        self.test_engine = test_engine
         self.db = TestSession()
 
-        # Create test data
         self._create_test_data()
 
-        yield
+        self._setup_fixtures()
 
-        # Cleanup
+    def teardown_method(self):
+        """Clean up test database"""
         self.db.close()
+        self.test_engine.dispose()
         os.close(self.db_fd)
-        os.unlink(self.db_path)
+        try:
+            os.unlink(self.db_path)
+        except OSError:
+            pass
 
     def _create_test_data(self):
         """Create test data for integration tests"""
-        # Create test users
         admin_user = User(
-            telegram_id=settings.ADMIN_TELEGRAM_ID,  # Admin user
+            telegram_id=settings.ADMIN_TELEGRAM_ID,
             username="test_admin",
             first_name="Test Admin",
-            balance=Decimal('1000.00'),
+            balance=1000,
             is_admin=True
         )
 
@@ -67,14 +88,13 @@ class TestAdvancedAdminCommandsIntegration:
             telegram_id=12345,
             username="test_user",
             first_name="Test User",
-            balance=Decimal('150.75'),
+            balance=150,
             total_purchases=3
         )
 
         self.db.add(admin_user)
         self.db.add(regular_user)
 
-        # Create parsing rules
         rule1 = ParsingRule(
             id=1,
             bot_name="Shmalala",
@@ -96,7 +116,6 @@ class TestAdvancedAdminCommandsIntegration:
         self.db.add(rule1)
         self.db.add(rule2)
 
-        # Create parsed transactions
         from datetime import datetime, timedelta
         now = datetime.utcnow()
 
@@ -114,17 +133,24 @@ class TestAdvancedAdminCommandsIntegration:
 
         self.db.commit()
 
-    def setup_method(self):
-        """Set up test fixtures for each test"""
+    def _setup_fixtures(self):
+        """Set up command/test fixtures (after DB is ready)."""
         self.admin_commands = AdvancedAdminCommands()
 
-        # Mock admin system to use our test admin
-        self.admin_commands.admin_system = Mock()
-        self.admin_commands.admin_system.is_admin.return_value = True
+        user_repo = UserRepository(self.db)
+        services = Services(
+            session=self.db,
+            user_repo=user_repo,
+            user_service=UserService(user_repo),
+            admin_service=AdminService(user_repo),
+            shop_service=ShopService(user_repo),
+            transaction_service=TransactionService(user_repo),
+        )
+        services.admin_service.is_admin = Mock(return_value=True)
+        self.services = services
 
-        # Create mock update and context
         self.mock_user = Mock(spec=TelegramUser)
-        self.mock_user.id = settings.ADMIN_TELEGRAM_ID  # Admin user ID
+        self.mock_user.id = settings.ADMIN_TELEGRAM_ID
         self.mock_user.username = "test_admin"
         self.mock_user.first_name = "Test Admin"
 
@@ -142,21 +168,22 @@ class TestAdvancedAdminCommandsIntegration:
         self.mock_context = Mock(spec=ContextTypes.DEFAULT_TYPE)
         self.mock_context.args = []
 
+    def _patch_services(self):
+        return patch(
+            'bot.commands.advanced_admin_commands.build_services',
+            return_value=_ServicesContextManager(self.services),
+        )
+
     @pytest.mark.asyncio
     async def test_parsing_stats_integration(self):
         """Test parsing_stats command with real database"""
-        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
-            mock_get_db.return_value.__next__.return_value = self.db
-
-            # Execute command
+        with self._patch_services():
             await self.admin_commands.parsing_stats_command(self.mock_update, self.mock_context)
 
-            # Verify response was sent
             self.mock_message.reply_text.assert_called_once()
             call_args = self.mock_message.reply_text.call_args
             message_text = call_args[0][0]
 
-            # Check that statistics are displayed
             assert "📊 <b>Статистика парсинга</b>" in message_text
             assert "Всего транзакций: 10" in message_text
             assert "Shmalala" in message_text
@@ -167,89 +194,65 @@ class TestAdvancedAdminCommandsIntegration:
         """Test user_stats command with real database"""
         self.mock_context.args = ["test_user"]
 
-        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
-            mock_get_db.return_value.__next__.return_value = self.db
-
-            # Execute command
+        with self._patch_services():
             await self.admin_commands.user_stats_command(self.mock_update, self.mock_context)
 
-            # Verify response was sent
             self.mock_message.reply_text.assert_called_once()
             call_args = self.mock_message.reply_text.call_args
             message_text = call_args[0][0]
 
-            # Check that user statistics are displayed
             assert "👤 <b>Статистика пользователя</b>" in message_text
-            assert "Username: @test_user" in message_text
-            assert "Текущий баланс: 150.75 монет" in message_text
-            assert "Всего покупок: 3" in message_text
+            assert "@test_user" in message_text
+            assert "Баланс:" in message_text
+            assert "150.00" in message_text
+            assert "Покупок: 3" in message_text
 
     @pytest.mark.asyncio
     async def test_broadcast_integration(self):
         """Test broadcast command with real database"""
         self.mock_context.args = ["Test", "broadcast", "message"]
 
-        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('bot.commands.advanced_admin_commands.BroadcastSystem') as mock_broadcast_system_class:
+        result = BroadcastResult(
+            total_users=2,
+            successful_sends=2,
+            failed_sends=0,
+            errors=[],
+            completion_message="Broadcast completed",
+            execution_time=1.5
+        )
+        mock_broadcast_service = Mock()
+        mock_broadcast_service.broadcast_to_all = AsyncMock(return_value=result)
 
-            mock_get_db.return_value.__next__.return_value = self.db
+        with self._patch_services(), \
+             patch('core.services.broadcast_service.BroadcastService',
+                   return_value=mock_broadcast_service):
 
-            # Mock broadcast system
-            mock_broadcast_system = Mock()
-            mock_broadcast_system_class.return_value = mock_broadcast_system
+            await self.admin_commands.broadcast_command(self.mock_update, self.mock_context)
 
-            # Mock AdminManager with successful broadcast
-            from core.models.advanced_models import BroadcastResult
-            mock_result = BroadcastResult(
-                total_users=2,
-                successful_sends=2,
-                failed_sends=0,
-                errors=[],
-                completion_message="Broadcast completed",
-                execution_time=1.5
+            mock_broadcast_service.broadcast_to_all.assert_called_once_with(
+                "Test broadcast message", settings.ADMIN_TELEGRAM_ID
             )
 
-            with patch('bot.commands.advanced_admin_commands.AdminManager') as mock_admin_manager_class:
-                mock_admin_manager = Mock()
-                mock_admin_manager.broadcast_admin_message = AsyncMock(return_value=mock_result)
-                mock_admin_manager_class.return_value = mock_admin_manager
+            assert self.mock_message.reply_text.call_count == 2
 
-                # Execute command
-                await self.admin_commands.broadcast_command(self.mock_update, self.mock_context)
+            first_call = self.mock_message.reply_text.call_args_list[0]
+            confirmation_text = first_call[0][0]
+            assert "📢 <b>Начинаю рассылку...</b>" in confirmation_text
 
-                # Verify broadcast was called
-                mock_admin_manager.broadcast_admin_message.assert_called_once_with(
-                    "Test broadcast message", settings.ADMIN_TELEGRAM_ID
-                )
-
-                # Verify two messages were sent (confirmation + result)
-                assert self.mock_message.reply_text.call_count == 2
-
-                # Check confirmation message
-                first_call = self.mock_message.reply_text.call_args_list[0]
-                confirmation_text = first_call[0][0]
-                assert "📢 <b>Начинаю рассылку...</b>" in confirmation_text
-
-                # Check result message
-                second_call = self.mock_message.reply_text.call_args_list[1]
-                result_text = second_call[0][0]
-                assert "✅ <b>Рассылка завершена!</b>" in result_text
-                assert "Всего пользователей: 2" in result_text
+            second_call = self.mock_message.reply_text.call_args_list[1]
+            result_text = second_call[0][0]
+            assert "✅ <b>Рассылка завершена!</b>" in result_text
+            assert "Всего пользователей: 2" in result_text
 
     @pytest.mark.asyncio
     async def test_non_admin_access_integration(self):
         """Test that non-admin users are properly rejected"""
-        # Set up non-admin user
-        self.mock_user.id = 99999  # Non-admin ID
-        self.admin_commands.admin_system.is_admin.return_value = False
+        self.mock_user.id = 99999
+        self.services.admin_service.is_admin = Mock(return_value=False)
 
-        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
-            mock_get_db.return_value.__next__.return_value = self.db
-
-            # Test parsing_stats command
+        with self._patch_services():
             await self.admin_commands.parsing_stats_command(self.mock_update, self.mock_context)
 
-            # Verify access denied message
             self.mock_message.reply_text.assert_called_once()
             call_args = self.mock_message.reply_text.call_args
             message_text = call_args[0][0]

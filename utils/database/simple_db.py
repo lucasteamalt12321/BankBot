@@ -42,8 +42,11 @@ def get_db_connection() -> sqlite3.Connection:
     """
     DEPRECATED: Используйте database.connection.get_connection()
     Get database connection with proper configuration
+
+    Использует модульный ``DB_PATH``, чтобы тесты могли переопределять
+    базу данных через ``utils.database.simple_db.DB_PATH``.
     """
-    return get_connection()
+    return get_connection(DB_PATH)
 
 def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     """Get user by Telegram ID"""
@@ -207,10 +210,18 @@ def init_database():
     DEPRECATED: Database initialization is handled by database.connection module
     
     This function is kept for backward compatibility with tests.
+    Создаёт таблицы в базе, на которую указывает модульный ``DB_PATH``
+    (используется изолированными тестами через переопределение ``DB_PATH``).
     """
-    # Database initialization is now handled by database.connection
-    # This is a no-op for backward compatibility
-    pass
+    try:
+        from sqlalchemy import create_engine
+        from database.database import Base
+
+        engine = create_engine(f"sqlite:///{DB_PATH}")
+        Base.metadata.create_all(bind=engine)
+        engine.dispose()
+    except Exception as e:
+        logger.error(f"Error initializing database: {e}")
 
 # УДАЛЕНО: Дублирует функциональность AdminSystem
 # Используйте utils.admin.admin_system.AdminSystem.is_admin()

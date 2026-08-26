@@ -46,7 +46,27 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         self.original_db_path = utils.database.simple_db.DB_PATH
         utils.database.simple_db.DB_PATH = self.temp_db.name
 
-        # Initialize test database
+        # Initialize test database with a guaranteed-isolated schema.
+        # Use raw SQL so isolation does not depend on SQLAlchemy metadata
+        # state shared across the whole test process.
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id INTEGER UNIQUE,
+                    username TEXT,
+                    first_name TEXT,
+                    balance REAL DEFAULT 0,
+                    is_admin INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
         init_database()
 
     def tearDown(self):
@@ -75,6 +95,16 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         username = f"testuser_{user_id}"
         first_name = f"TestUser{user_id}"
 
+        # Ensure a clean slate for this example (the DB persists across
+        # hypothesis examples, so a previous example may have registered
+        # this user_id already). This keeps each example self-contained.
+        conn = get_db_connection()
+        try:
+            conn.execute('DELETE FROM users WHERE telegram_id = ?', (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
         # First registration
         result1 = register_user(user_id, username, first_name)
 
@@ -93,14 +123,14 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) as count FROM users WHERE id = ?', (user_id,))
+            cursor.execute('SELECT COUNT(*) as count FROM users WHERE telegram_id = ?', (user_id,))
             count = cursor.fetchone()['count']
             self.assertEqual(count, 1, f"Expected exactly 1 user record, found {count}")
 
             # Verify user data is correct
             user = get_user_by_id(user_id)
             self.assertIsNotNone(user, "User should exist in database")
-            self.assertEqual(user['id'], user_id)
+            self.assertEqual(user['telegram_id'], user_id)
             self.assertEqual(user['username'], username)
             self.assertEqual(user['first_name'], first_name)
             self.assertEqual(user['balance'], 0.0)
@@ -130,7 +160,7 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         existing_user = get_user_by_id(user_id)
         if existing_user:
             # User already exists, verify idempotence by checking data integrity
-            self.assertEqual(existing_user['id'], user_id, "User ID should match")
+            self.assertEqual(existing_user['telegram_id'], user_id, "User ID should match")
             # For existing users, we can't verify username/first_name match since they might be different
             # This is expected behavior for idempotent registration
             return
@@ -142,7 +172,7 @@ class TestAutoRegistrationPBT(unittest.TestCase):
         # Verify data integrity
         user = get_user_by_id(user_id)
         self.assertIsNotNone(user, "User should exist after registration")
-        self.assertEqual(user['id'], user_id, "User ID should match")
+        self.assertEqual(user['telegram_id'], user_id, "User ID should match")
         self.assertEqual(user['username'], clean_username, "Username should be cleaned and stored correctly")
         self.assertEqual(user['first_name'], first_name, "First name should be stored correctly")
         self.assertEqual(user['balance'], 0.0, "Initial balance should be 0")
@@ -173,7 +203,7 @@ class TestAutoRegistrationPBT(unittest.TestCase):
                 conn = get_db_connection()
                 try:
                     cursor = conn.cursor()
-                    cursor.execute('SELECT COUNT(*) as count FROM users WHERE id = ?', (user_id,))
+                    cursor.execute('SELECT COUNT(*) as count FROM users WHERE telegram_id = ?', (user_id,))
                     count = cursor.fetchone()['count']
                     self.assertEqual(count, 1, f"Expected exactly 1 user record, found {count}")
                 finally:

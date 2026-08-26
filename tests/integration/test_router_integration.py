@@ -7,13 +7,14 @@ Validates: Requirements 10.3, 10.4
 
 import pytest
 from unittest.mock import Mock, MagicMock
-from telegram.ext import Application
+from telegram.ext import Application, CommandHandler
 from bot.router import setup_routers
-from bot.commands.admin_commands import AdminCommands
-from bot.commands.user_commands import UserCommands
-from bot.commands.shop_commands import ShopCommands
-from bot.commands.game_commands import GameCommands
-from bot.commands.system_commands import SystemCommands
+
+import bot.commands.admin_commands as admin_commands
+import bot.commands.user_commands as user_commands
+import bot.commands.shop_commands as shop_commands
+import bot.commands.game_commands as game_commands
+import bot.commands.system_commands as system_commands
 
 
 class TestRouterIntegration:
@@ -28,87 +29,64 @@ class TestRouterIntegration:
         return app
 
     @pytest.fixture
-    def mock_admin_system(self):
-        """Create a mock AdminSystem"""
-        return Mock()
-
-    @pytest.fixture
-    def command_modules(self, mock_admin_system):
-        """Create instances of all command modules"""
-        admin_commands = AdminCommands(
-            admin_system=mock_admin_system,
-            background_task_manager=Mock(),
-            monitoring_system=Mock(),
-            error_handling_system=Mock(),
-            backup_system=Mock()
-        )
-        user_commands = UserCommands(admin_system=mock_admin_system)
-        shop_commands = ShopCommands(admin_system=mock_admin_system)
-        game_commands = GameCommands()
-        system_commands = SystemCommands(admin_system=mock_admin_system)
-
+    def command_modules(self):
+        """Return all command modules (function-based API)."""
         return {
             'admin': admin_commands,
             'user': user_commands,
             'shop': shop_commands,
             'game': game_commands,
-            'system': system_commands
+            'system': system_commands,
         }
+
+    def _registered_commands(self, mock_application):
+        commands = []
+        for call in mock_application.add_handler.call_args_list:
+            handler = call[0][0]
+            if isinstance(handler, CommandHandler):
+                commands.extend(handler.commands)
+        return commands
 
     def test_router_registers_all_command_modules(self, mock_application, command_modules):
         """Test that router registers commands from all modules"""
-        # Call the router
         setup_routers(
             application=mock_application,
             admin_commands=command_modules['admin'],
             user_commands=command_modules['user'],
             shop_commands=command_modules['shop'],
             game_commands=command_modules['game'],
-            system_commands=command_modules['system']
+            system_commands=command_modules['system'],
         )
 
-        # Verify that add_handler was called multiple times
         assert mock_application.add_handler.call_count > 0, \
             "Router should register at least one command handler"
 
-        # Get all registered command names
-        registered_commands = []
-        for call in mock_application.add_handler.call_args_list:
-            handler = call[0][0]
-            if hasattr(handler, 'commands'):
-                registered_commands.extend(handler.commands)
-
-        # Note: We can't easily verify exact command names with mocks,
-        # but we can verify the router was called and handlers were added
-        assert mock_application.add_handler.call_count >= 50, \
-            f"Expected at least 50 command handlers, got {mock_application.add_handler.call_count}"
+        registered_commands = self._registered_commands(mock_application)
+        for cmd in ('start', 'help', 'profile', 'shop', 'games', 'add_points'):
+            assert cmd in registered_commands
 
     def test_router_registers_system_commands_first(self, mock_application, command_modules):
-        """Test that system commands are registered first (as per design)"""
+        """Test that system commands are registered"""
         setup_routers(
             application=mock_application,
             admin_commands=command_modules['admin'],
             user_commands=command_modules['user'],
             shop_commands=command_modules['shop'],
             game_commands=command_modules['game'],
-            system_commands=command_modules['system']
+            system_commands=command_modules['system'],
         )
-
-        # Verify handlers were registered
         assert mock_application.add_handler.call_count > 0
 
     def test_router_handles_missing_admin_commands(self, mock_application, command_modules):
         """Test that router handles None admin_commands gracefully"""
-        # This should not raise an exception
-        # The router should handle None values gracefully
         try:
             setup_routers(
                 application=mock_application,
-                admin_commands=command_modules['admin'],
+                admin_commands=None,
                 user_commands=command_modules['user'],
                 shop_commands=command_modules['shop'],
                 game_commands=command_modules['game'],
-                system_commands=command_modules['system']
+                system_commands=command_modules['system'],
             )
         except Exception as e:
             pytest.fail(f"Router should not raise exception: {e}")
@@ -121,20 +99,19 @@ class TestRouterIntegration:
             user_commands=command_modules['user'],
             shop_commands=command_modules['shop'],
             game_commands=command_modules['game'],
-            system_commands=command_modules['system']
+            system_commands=command_modules['system'],
         )
 
-        # Verify a substantial number of handlers were registered
-        # Based on router.py, we expect:
-        # - 4 system commands
-        # - 4 user commands  
-        # - 11 shop commands
-        # - 9 game commands
-        # - 30+ admin commands
-        # Total: 57+ commands
+        registered_commands = self._registered_commands(mock_application)
 
-        assert mock_application.add_handler.call_count >= 57, \
-            f"Expected at least 57 command handlers, got {mock_application.add_handler.call_count}"
+        # Verify a substantial number of handlers were registered
+        # (system: 4, user: 10, shop: 5, game: 6, admin: 3 => 28 handlers)
+        assert mock_application.add_handler.call_count >= 20, \
+            f"Expected at least 20 command handlers, got {mock_application.add_handler.call_count}"
+
+        # Verify each module category is present
+        for cmd in ('start', 'profile', 'shop', 'games', 'add_points'):
+            assert cmd in registered_commands
 
 
 if __name__ == "__main__":

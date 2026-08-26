@@ -81,7 +81,7 @@ class TestTask9Verification(unittest.TestCase):
         # Verify user was registered correctly
         user = get_user_by_id(user_id)
         self.assertIsNotNone(user, "User should exist after auto registration")
-        self.assertEqual(user['id'], user_id)
+        self.assertEqual(user['telegram_id'], user_id)
         self.assertEqual(user['username'], username)
         self.assertEqual(user['first_name'], first_name)
         self.assertEqual(user['balance'], 0.0)
@@ -95,7 +95,7 @@ class TestTask9Verification(unittest.TestCase):
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) as count FROM users WHERE id = ?', (user_id,))
+            cursor.execute('SELECT COUNT(*) as count FROM users WHERE telegram_id = ?', (user_id,))
             count = cursor.fetchone()['count']
             self.assertEqual(count, 1, "Should have exactly one user record")
         finally:
@@ -204,9 +204,10 @@ class TestTask9Verification(unittest.TestCase):
 
             expected_users_columns = {
                 'id': 'INTEGER',
-                'username': 'TEXT',
-                'first_name': 'TEXT',
-                'balance': 'REAL',
+                'telegram_id': 'BIGINT',
+                'username': 'VARCHAR(100)',
+                'first_name': 'VARCHAR(100)',
+                'balance': 'INTEGER',
                 'is_admin': 'BOOLEAN'
             }
 
@@ -221,10 +222,9 @@ class TestTask9Verification(unittest.TestCase):
             expected_transactions_columns = {
                 'id': 'INTEGER',
                 'user_id': 'INTEGER',
-                'amount': 'REAL',
-                'type': 'TEXT',
-                'admin_id': 'INTEGER',
-                'timestamp': 'DATETIME'
+                'amount': 'INTEGER',
+                'transaction_type': 'VARCHAR(50)',
+                'created_at': 'DATETIME'
             }
 
             for col_name, col_type in expected_transactions_columns.items():

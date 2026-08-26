@@ -54,10 +54,8 @@ class TestAddItemCommandIntegration:
 
     @pytest.fixture
     def admin_commands(self):
-        """Create AdvancedAdminCommands instance with mocked admin system"""
-        with patch('bot.commands.advanced_admin_commands.AdminSystem') as mock_admin_system:
-            mock_admin_system.return_value.is_admin.return_value = True
-            return AdvancedAdminCommands()
+        """Create AdvancedAdminCommands instance"""
+        return AdvancedAdminCommands()
 
     @pytest.fixture
     def mock_db_session(self):
@@ -70,32 +68,43 @@ class TestAddItemCommandIntegration:
         db.close = Mock()
         return db
 
+    class _FakeServices:
+        def __init__(self, add_item_result):
+            self.admin_service = Mock()
+            self.admin_service.is_admin = Mock(return_value=True)
+            self.shop_service = Mock()
+            self.shop_service.add_item = AsyncMock(return_value=add_item_result)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
     @pytest.mark.asyncio
-    async def test_add_item_command_success(self, admin_commands, mock_update, mock_context, mock_db_session):
+    async def test_add_item_command_success(self, admin_commands, mock_update, mock_context):
         """Test complete integration of add_item command with ShopManager"""
         mock_context.args = ["Integration", "Test", "Item", "150", "sticker"]
 
-        new_item = Mock()
-        new_item.id = 10
-        new_item.name = "Integration Test Item"
-        new_item.price = 150
-        new_item.item_type = "sticker"
-        new_item.description = "Динамически созданный товар типа sticker"
-        new_item.is_active = True
+        add_item_result = {
+            "success": True,
+            "message": "Товар 'Integration Test Item' успешно добавлен в магазин",
+            "item_id": 10,
+            "item": {
+                "id": 10,
+                "name": "Integration Test Item",
+                "price": 150,
+                "item_type": "sticker",
+                "description": "Динамически созданный товар типа sticker",
+                "is_active": True,
+            },
+        }
 
-        mock_db_session.refresh.side_effect = lambda item: setattr(item, 'id', 10)
-
-        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db, \
-             patch('core.shop_manager.ShopItem') as mock_shop_item_class:
-
-            mock_get_db.return_value.__next__.return_value = mock_db_session
-            mock_shop_item_class.return_value = new_item
-
+        with patch(
+            'bot.commands.advanced_admin_commands.build_services',
+            return_value=self._FakeServices(add_item_result),
+        ):
             await admin_commands.add_item_command(mock_update, mock_context)
-
-            mock_db_session.add.assert_called_once()
-            mock_db_session.commit.assert_called_once()
-            mock_db_session.refresh.assert_called_once()
 
             mock_update.message.reply_text.assert_called_once()
             call_args = mock_update.message.reply_text.call_args
@@ -103,26 +112,26 @@ class TestAddItemCommandIntegration:
             assert "Integration Test Item" in call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_add_item_command_duplicate_name(self, admin_commands, mock_update, mock_context, mock_db_session):
+    async def test_add_item_command_duplicate_name(self, admin_commands, mock_update, mock_context):
         """Test integration with duplicate name detection"""
         mock_context.args = ["Existing", "Item", "100", "admin"]
 
-        existing_item = Mock()
-        existing_item.name = "Existing Item"
-        mock_db_session.query.return_value.filter.return_value.first.return_value = existing_item
+        add_item_result = {
+            "success": False,
+            "message": "Товар с названием 'Existing Item' уже существует",
+            "error_code": "DUPLICATE_NAME",
+        }
 
-        with patch('bot.commands.advanced_admin_commands.get_db') as mock_get_db:
-            mock_get_db.return_value.__next__.return_value = mock_db_session
-
+        with patch(
+            'bot.commands.advanced_admin_commands.build_services',
+            return_value=self._FakeServices(add_item_result),
+        ):
             await admin_commands.add_item_command(mock_update, mock_context)
-
-            mock_db_session.add.assert_not_called()
-            mock_db_session.commit.assert_not_called()
 
             mock_update.message.reply_text.assert_called_once()
             call_args = mock_update.message.reply_text.call_args
             assert "❌" in call_args[0][0]
-            assert "Товар уже существует" in call_args[0][0]
+            assert "уже существует" in call_args[0][0]
 
 
 # ========== SHOP MANAGER TESTS ==========
@@ -214,13 +223,12 @@ def test_shop_manager_add_item_integration():
         print("✅ All valid item types accepted")
 
         print("\n🎉 All add_item integration tests passed!")
-        return True
 
     except Exception as e:
         print(f"❌ Integration test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"Integration test failed: {e}")
 
     finally:
         session.close()

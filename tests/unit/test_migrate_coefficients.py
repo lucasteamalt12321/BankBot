@@ -1,263 +1,199 @@
-"""Unit tests for the coefficients migration script."""
+"""Unit tests for the coefficients migration script.
+
+The migration script exposes:
+- ``load_coefficients_from_file`` - safe JSON loader (returns ``{}`` on errors)
+- ``migrate_coefficients`` - applies coefficients to the DB, returns a stats dict
+- ``DEFAULT_COEFFICIENTS`` - fallback mapping used when no file is present
+"""
 
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
+from decimal import Decimal
+from unittest.mock import Mock, patch
+
 from scripts.migrate_coefficients import (
-    load_coefficients_json,
+    load_coefficients_from_file,
     migrate_coefficients,
-    GAME_NAME_MAPPING,
-    PARSER_CLASS_MAPPING
+    DEFAULT_COEFFICIENTS,
 )
 
 
-class TestLoadCoefficientsJson:
-    """Tests for load_coefficients_json function."""
+class TestLoadCoefficientsFromFile:
+    """Tests for load_coefficients_from_file function."""
 
     def test_load_valid_json(self, tmp_path):
         """Test loading a valid coefficients.json file."""
-        # Create a temporary JSON file
-        test_data = {
-            "GD Cards": 2,
-            "Shmalala": 1
-        }
+        test_data = {"gdcards": {"coefficient": 2}, "shmalala": {"coefficient": 1}}
         json_file = tmp_path / "coefficients.json"
         json_file.write_text(json.dumps(test_data))
 
-        # Load and verify
-        result = load_coefficients_json(str(json_file))
+        result = load_coefficients_from_file(Path(json_file))
         assert result == test_data
 
-    def test_load_nonexistent_file(self):
-        """Test loading a file that doesn't exist."""
-        with pytest.raises(FileNotFoundError):
-            load_coefficients_json("/nonexistent/path/coefficients.json")
+    def test_load_nonexistent_file(self, tmp_path):
+        """Test loading a file that doesn't exist returns empty dict."""
+        missing = tmp_path / "does_not_exist.json"
+        result = load_coefficients_from_file(missing)
+        assert result == {}
 
     def test_load_invalid_json(self, tmp_path):
-        """Test loading a file with invalid JSON."""
+        """Test loading a file with invalid JSON returns empty dict."""
         json_file = tmp_path / "invalid.json"
         json_file.write_text("{ invalid json }")
 
-        with pytest.raises(json.JSONDecodeError):
-            load_coefficients_json(str(json_file))
+        result = load_coefficients_from_file(Path(json_file))
+        assert result == {}
 
     def test_load_empty_json(self, tmp_path):
         """Test loading an empty JSON object."""
         json_file = tmp_path / "empty.json"
         json_file.write_text("{}")
 
-        result = load_coefficients_json(str(json_file))
+        result = load_coefficients_from_file(Path(json_file))
         assert result == {}
 
 
-class TestGameNameMapping:
-    """Tests for game name mapping configuration."""
+class TestDefaultCoefficients:
+    """Tests for the default coefficients configuration."""
 
-    def test_all_games_have_mapping(self):
-        """Test that all expected games have name mappings."""
-        expected_games = ["GD Cards", "Shmalala", "Shmalala Karma", "True Mafia", "Bunker RP"]
-
+    def test_expected_games_present(self):
+        """Test that all expected games have coefficient configs."""
+        expected_games = ["gdcards", "shmalala", "truemafia", "bunkerrp"]
         for game in expected_games:
-            assert game in GAME_NAME_MAPPING
+            assert game in DEFAULT_COEFFICIENTS
 
-    def test_mapped_names_are_lowercase(self):
-        """Test that all mapped names are lowercase."""
-        for mapped_name in GAME_NAME_MAPPING.values():
-            assert mapped_name == mapped_name.lower()
+    def test_coefficients_are_decimal(self):
+        """Test that all coefficients are Decimal values."""
+        for config in DEFAULT_COEFFICIENTS.values():
+            assert isinstance(config["coefficient"], Decimal)
 
-    def test_mapped_names_use_underscores(self):
-        """Test that multi-word games use underscores."""
-        assert GAME_NAME_MAPPING["Shmalala Karma"] == "shmalala_karma"
-
-    def test_all_mapped_games_have_parser(self):
-        """Test that all mapped game names have corresponding parser classes."""
-        for mapped_name in GAME_NAME_MAPPING.values():
-            assert mapped_name in PARSER_CLASS_MAPPING
-
-
-class TestParserClassMapping:
-    """Tests for parser class mapping configuration."""
-
-    def test_parser_classes_follow_naming_convention(self):
-        """Test that parser class names follow the naming convention."""
-        for game_name, parser_class in PARSER_CLASS_MAPPING.items():
-            # Parser class should end with "Parser"
-            assert parser_class.endswith("Parser")
-            # Parser class should be in PascalCase
-            assert parser_class[0].isupper()
+    def test_currency_type_is_defined(self):
+        """Test that each config defines a currency type."""
+        for config in DEFAULT_COEFFICIENTS.values():
+            assert "currency_type" in config
 
 
 class TestMigrateCoefficients:
-    """Integration tests for the migrate_coefficients function."""
+    """Tests for the migrate_coefficients function."""
 
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_new_rules(self, mock_load_json, mock_session_local):
+    def _fake_get_db(self, mock_db):
+        def _gen():
+            yield mock_db
+        return _gen
+
+    @patch('scripts.migrate_coefficients.load_coefficients_from_file')
+    @patch('scripts.migrate_coefficients.get_db')
+    def test_migrate_creates_new_rules(self, mock_get_db, mock_load):
         """Test migrating coefficients when no rules exist."""
-        # Setup mocks
-        mock_load_json.return_value = {
-            "GD Cards": 2,
-            "Shmalala": 1
+        mock_load.return_value = {
+            "gdcards": {"pattern": ".*", "coefficient": 2, "currency_type": "coins"},
+            "shmalala": {"pattern": ".*", "coefficient": 1, "currency_type": "coins"},
         }
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_get_db.side_effect = self._fake_get_db(mock_db)
 
-        mock_session = Mock()
-        mock_session_local.return_value = mock_session
+        stats = migrate_coefficients()
 
-        mock_rule1 = Mock(id=1, game_name="gdcards", coefficient=2.0, enabled=True)
-        mock_rule2 = Mock(id=2, game_name="shmalala", coefficient=1.0, enabled=True)
+        assert stats["total"] == 2
+        assert stats["created"] == 2
+        assert stats["errors"] == 0
+        assert mock_db.add.call_count == 2
+        mock_db.commit.assert_called_once()
 
-        mock_manager = Mock()
-        mock_manager.get_rule.return_value = None  # No existing rules
-        mock_manager.create_rule.side_effect = [mock_rule1, mock_rule2]
-        mock_manager.get_all_rules.return_value = {
-            "gdcards": mock_rule1,
-            "shmalala": mock_rule2
-        }
+    @patch('scripts.migrate_coefficients.load_coefficients_from_file')
+    @patch('scripts.migrate_coefficients.get_db')
+    def test_migrate_skips_existing_rules(self, mock_get_db, mock_load):
+        """Test migrating when rules already exist (no force)."""
+        mock_load.return_value = {"gdcards": {"pattern": ".*", "coefficient": 2}}
+        existing = Mock()
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = existing
+        mock_get_db.side_effect = self._fake_get_db(mock_db)
 
-        with patch('scripts.migrate_coefficients.ParsingConfigManager', return_value=mock_manager):
-            result = migrate_coefficients()
+        stats = migrate_coefficients()
 
-        # Verify create_rule was called for each game
-        assert mock_manager.create_rule.call_count == 2
-        assert result is True
+        assert stats["created"] == 0
+        assert stats["skipped"] == 1
+        assert stats["errors"] == 0
+        mock_db.add.assert_not_called()
+        mock_db.commit.assert_called_once()
 
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_existing_rules_no_changes(self, mock_load_json, mock_session_local):
-        """Test migrating when rules exist with same coefficients."""
-        # Setup mocks
-        mock_load_json.return_value = {
-            "GD Cards": 2
-        }
+    @patch('scripts.migrate_coefficients.load_coefficients_from_file')
+    @patch('scripts.migrate_coefficients.get_db')
+    def test_migrate_force_updates_existing(self, mock_get_db, mock_load):
+        """Test migrating with force updates existing rules."""
+        mock_load.return_value = {"gdcards": {"pattern": ".*", "coefficient": 3}}
+        existing = Mock()
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = existing
+        mock_get_db.side_effect = self._fake_get_db(mock_db)
 
-        mock_session = Mock()
-        mock_session_local.return_value = mock_session
+        stats = migrate_coefficients(force=True)
 
-        existing_rule = Mock(id=1, coefficient=2.0)
-        mock_manager = Mock()
-        mock_manager.get_rule.return_value = existing_rule
-        mock_manager.get_all_rules.return_value = {"gdcards": existing_rule}
+        assert stats["updated"] == 1
+        assert stats["created"] == 0
+        assert existing.multiplier == Decimal("3")
+        mock_db.commit.assert_called_once()
 
-        with patch('scripts.migrate_coefficients.ParsingConfigManager', return_value=mock_manager):
-            result = migrate_coefficients()
+    @patch('scripts.migrate_coefficients.load_coefficients_from_file')
+    @patch('scripts.migrate_coefficients.get_db')
+    def test_migrate_dry_run_rolls_back(self, mock_get_db, mock_load):
+        """Test dry run does not commit and rolls back."""
+        mock_load.return_value = {"gdcards": {"pattern": ".*", "coefficient": 2}}
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_get_db.side_effect = self._fake_get_db(mock_db)
 
-        # Verify no create or update was called
-        mock_manager.create_rule.assert_not_called()
-        mock_manager.update_coefficient.assert_not_called()
-        assert result is True
+        stats = migrate_coefficients(dry_run=True)
 
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_existing_rules_with_changes(self, mock_load_json, mock_session_local):
-        """Test migrating when rules exist with different coefficients."""
-        # Setup mocks
-        mock_load_json.return_value = {
-            "GD Cards": 3  # Different from existing
-        }
+        assert stats["created"] == 1
+        mock_db.commit.assert_not_called()
+        mock_db.rollback.assert_called_once()
 
-        mock_session = Mock()
-        mock_session_local.return_value = mock_session
-
-        existing_rule = Mock(id=1, coefficient=2.0)
-        mock_manager = Mock()
-        mock_manager.get_rule.return_value = existing_rule
-        mock_manager.get_all_rules.return_value = {"gdcards": existing_rule}
-
-        with patch('scripts.migrate_coefficients.ParsingConfigManager', return_value=mock_manager):
-            result = migrate_coefficients()
-
-        # Verify update was called
-        mock_manager.update_coefficient.assert_called_once_with("gdcards", 3.0)
-        assert result is True
-
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_handles_file_not_found(self, mock_load_json, mock_session_local):
-        """Test migration handles missing coefficients.json gracefully."""
-        mock_load_json.side_effect = FileNotFoundError("File not found")
-
-        result = migrate_coefficients()
-
-        assert result is False
-
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_handles_json_decode_error(self, mock_load_json, mock_session_local):
-        """Test migration handles invalid JSON gracefully."""
-        mock_load_json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
-
-        result = migrate_coefficients()
-
-        assert result is False
-
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_handles_database_error(self, mock_load_json, mock_session_local):
+    @patch('scripts.migrate_coefficients.load_coefficients_from_file')
+    @patch('scripts.migrate_coefficients.get_db')
+    def test_migrate_handles_database_error(self, mock_get_db, mock_load):
         """Test migration handles database errors gracefully."""
-        mock_load_json.return_value = {"GD Cards": 2}
+        mock_load.return_value = {"gdcards": {"pattern": ".*", "coefficient": 2}}
+        mock_db = Mock()
+        mock_db.query.side_effect = Exception("DB Error")
+        mock_get_db.side_effect = self._fake_get_db(mock_db)
 
-        mock_session = Mock()
-        mock_session_local.return_value = mock_session
+        stats = migrate_coefficients()
 
-        # Simulate database error
-        with patch('scripts.migrate_coefficients.BaseRepository', side_effect=Exception("DB Error")):
-            result = migrate_coefficients()
+        assert stats["errors"] == 1
+        mock_db.rollback.assert_called_once()
 
-        assert result is False
-
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_closes_session(self, mock_load_json, mock_session_local):
+    @patch('scripts.migrate_coefficients.load_coefficients_from_file')
+    @patch('scripts.migrate_coefficients.get_db')
+    def test_migrate_closes_session(self, mock_get_db, mock_load):
         """Test that database session is always closed."""
-        mock_load_json.return_value = {"GD Cards": 2}
+        mock_load.return_value = {"gdcards": {"pattern": ".*", "coefficient": 2}}
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_get_db.side_effect = self._fake_get_db(mock_db)
 
-        mock_session = Mock()
-        mock_session_local.return_value = mock_session
+        migrate_coefficients()
 
-        mock_manager = Mock()
-        mock_manager.get_rule.return_value = None
-        mock_manager.create_rule.return_value = Mock(id=1)
+        mock_db.close.assert_called_once()
 
-        with patch('scripts.migrate_coefficients.ParsingConfigManager', return_value=mock_manager):
-            migrate_coefficients()
+    @patch('scripts.migrate_coefficients.load_coefficients_from_file')
+    @patch('scripts.migrate_coefficients.get_db')
+    def test_migrate_uses_defaults_when_empty(self, mock_get_db, mock_load):
+        """Test migration falls back to defaults when load returns empty."""
+        mock_load.return_value = {}
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_get_db.side_effect = self._fake_get_db(mock_db)
 
-        # Verify session was closed
-        mock_session.close.assert_called_once()
+        stats = migrate_coefficients()
 
-    @patch('scripts.migrate_coefficients.SessionLocal')
-    @patch('scripts.migrate_coefficients.load_coefficients_json')
-    def test_migrate_partial_failure(self, mock_load_json, mock_session_local):
-        """Test migration continues after individual game errors."""
-        mock_load_json.return_value = {
-            "GD Cards": 2,
-            "Shmalala": 1
-        }
-
-        mock_session = Mock()
-        mock_session_local.return_value = mock_session
-
-        mock_manager = Mock()
-        # First call raises error, second succeeds
-        mock_manager.get_rule.side_effect = [Exception("DB Error"), None]
-        mock_manager.create_rule.return_value = Mock(id=2)
-        mock_manager.get_all_rules.return_value = {}
-
-        with patch('scripts.migrate_coefficients.ParsingConfigManager', return_value=mock_manager):
-            result = migrate_coefficients()
-
-        # Should complete but report errors
-        assert result is False  # Because there was at least one error
-        # Second game should still be processed
-        mock_manager.create_rule.assert_called_once()
+        assert stats["total"] == len(DEFAULT_COEFFICIENTS)
+        assert stats["created"] == len(DEFAULT_COEFFICIENTS)
+        mock_db.commit.assert_called_once()
 
 
-class TestMigrationScriptIntegration:
-    """Integration tests using real database (if available)."""
-
-    @pytest.mark.integration
-    def test_full_migration_flow(self, tmp_path):
-        """Test complete migration flow with temporary database."""
-        # This test would require setting up a temporary database
-        # and is marked as integration test
-        pytest.skip("Integration test - requires database setup")
+if __name__ == "__main__":
+    pytest.main([__file__])

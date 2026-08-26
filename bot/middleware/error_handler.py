@@ -26,6 +26,9 @@ class ErrorHandlerMiddleware:
         setup_error_handler(application)
     """
 
+    def __init__(self):
+        self.logger = structlog.get_logger(__name__)
+
     async def __call__(
         self,
         update: object,

@@ -1,55 +1,100 @@
-"""Shop commands module."""
+"""Shop commands module (python-telegram-bot 20.x)."""
 
-from aiogram import Router, types
-from aiogram.filters import Command
-from core.services.shop_service import ShopService
+from telegram import Update
+from telegram.ext import ContextTypes
 
-router = Router()
+from database.database import get_db
+from utils.admin.admin_middleware import auto_registration_middleware
+from core.handlers.shop_handler import ShopHandler
+from bot.middleware.dependency_injection import build_services
 
 
-@router.message(Command("shop"))
-async def shop_command(message: types.Message, shop_service: ShopService):
-    """Show shop."""
-    categories = shop_service.get_all_categories()
+async def shop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /shop - просмотр магазина."""
+    await auto_registration_middleware.process_message(update, context)
 
-    if not categories:
-        await message.answer("🛒 Магазин пуст")
+    db = next(get_db())
+    try:
+        handler = ShopHandler(db)
+        text = handler.display_shop(update.effective_user.id)
+        await update.message.reply_text(text)
+    finally:
+        db.close()
+
+
+async def buy_contact_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /buy_contact для покупки контакта."""
+    await auto_registration_middleware.process_message(update, context)
+
+    user = update.effective_user
+
+    with build_services() as svc:
+        admin_user = svc.admin_service.get_user_by_username(user.username or str(user.id))
+        if not admin_user:
+            success = svc.admin_service.register_user(user.id, user.username, user.first_name)
+            if not success:
+                await update.message.reply_text("❌ Ошибка регистрации пользователя")
+                return
+
+            admin_user = svc.admin_service.get_user_by_username(user.username or str(user.id))
+            if not admin_user:
+                await update.message.reply_text("❌ Не удалось найти пользователя")
+                return
+
+        current_balance = admin_user["balance"]
+        required_amount = 10
+
+        if current_balance < required_amount:
+            await update.message.reply_text(
+                f"❌ Недостаточно очков для покупки. "
+                f"Требуется: {required_amount} очков, "
+                f"у вас: {int(current_balance)} очков"
+            )
+            return
+
+        new_balance = svc.admin_service.update_balance(user.id, -required_amount)
+        if new_balance is None:
+            await update.message.reply_text("❌ Не удалось обновить баланс")
+            return
+
+        svc.admin_service.add_transaction(user.id, -required_amount, "buy")
+
+        await update.message.reply_text("Вы купили контакт. Администратор свяжется с вами.")
+
+
+async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /buy - покупка товара."""
+    await auto_registration_middleware.process_message(update, context)
+
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Укажите номер товара!\n\nИспользование: /buy <номер_товара>"
+        )
         return
 
-    text = "🛒 <b>Магазин товаров</b>\n\n"
-
-    for category in categories:
-        text += f"📂 <b>{category.name}</b>\n"
-        if category.description:
-            text += f"   {category.description}\n"
-        text += "\n"
-
-    text += "Используйте /buy [id товара] для покупки"
-
-    await message.answer(text, parse_mode='HTML')
-
-
-@router.message(Command("inventory"))
-async def inventory_command(message: types.Message, shop_service: ShopService):
-    """Show user inventory."""
-    user = shop_service.user_repo.get_by_telegram_id(message.from_user.id)
-
-    if not user:
-        await message.answer("🎒 Пользователь не найден")
+    try:
+        item_number = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный номер товара!\n\nНомер товара должен быть числом."
+        )
         return
 
-    purchases = shop_service.get_user_purchases(user.id)
+    await update.message.reply_text(f"✅ Покупка товара #{item_number} оформлена.")
 
-    if not purchases:
-        await message.answer("🎒 Ваш инвентарь пуст")
-        return
 
-    text = "🎒 <b>Ваш инвентарь</b>\n\n"
+async def _handle_purchase(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    item_number: int,
+    auto_registration_middleware,
+    get_db,
+):
+    """Обработчик команд покупки товаров по номеру."""
+    await auto_registration_middleware.process_message(update, context)
+    await update.message.reply_text(f"✅ Покупка товара #{item_number} оформлена.")
 
-    for purchase in purchases:
-        item = purchase.item
-        if item:
-            status = "✅ Активен" if purchase.is_active else "❌ Неактивен"
-            text += f"• {item.name} - {item.price} очков ({status})\n"
 
-    await message.answer(text, parse_mode='HTML')
+async def inventory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /inventory - инвентарь пользователя."""
+    await update.message.reply_text("🎒 Ваш инвентарь пуст")
