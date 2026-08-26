@@ -13623,7 +13623,7 @@ def _plan_items_rule_based(subjects, minutes, ease):
         count = min(_OGE_PLAN_MAX_ITEMS, count + 1)
     count = min(count, len(subjects))
     picked = [s for s in subjects[:count] if s["score"] > 0] or subjects[:count]
-    per = max(5, round(minutes / max(1, len(picked))))
+    per = max(2, round(minutes / max(1, len(picked))))
     items = []
     for s in picked:
         items.append({
@@ -13676,7 +13676,9 @@ def _plan_items_ai(subjects, minutes, ratio):
         "Ты - методист подготовки к ОГЭ. Верни СТРОГО JSON-массив из 3-6 объектов вида "
         '{"module":"math|russian|informatics|history|physics","text":"что сделать сегодня",'
         '"minutes":N}, без markdown, без пояснений. '
-        f"Общий бюджет времени: {minutes} минут." + hard + "\n\n"
+        f"Общий бюджет времени: {minutes} минут; сумма minutes по пунктам не должна его заметно превышать. "
+        "Оценивай время реалистично: одна карточка ~1 минута, одна задача 2-4 минуты, разбор правила/термина "
+        "1-2 минуты - не ставь 5 минут на одиночную карточку." + hard + "\n\n"
         "Статистика ученика:\n" + "\n".join(stat_lines) +
         "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
     )
@@ -13700,7 +13702,7 @@ def _plan_items_ai(subjects, minutes, ratio):
         if mod in meta and txt:
             s = meta[mod]
             try:
-                mins = max(_OGE_PLAN_MIN_MIN, min(60, int(it.get("minutes") or 5)))
+                mins = max(2, min(60, int(it.get("minutes") or 5)))
             except (TypeError, ValueError):
                 mins = 5
             items.append({
@@ -13918,6 +13920,13 @@ def _curator_tool_action(directive):
     return f"листает журнал по предмету {scope} \U0001F4D6"
 
 
+def _card_display_name(key):
+    """Human-readable card name for the curator chat: strip type:: when the tail is a real name."""
+    k = str(key)
+    tail = k.split("::", 1)[1] if "::" in k else ""
+    return tail if re.search(r"[а-яё]", tail, re.I) else k
+
+
 def _curator_card_report(row):
     """Format one study_progress row for the curator card tool."""
     label = OGE_MODULES.get(row["module"], {}).get("label", row["module"])
@@ -14010,8 +14019,8 @@ def _curator_tool_data(directive, uid, today):
                     continue
                 mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
                 due_cnt = sum(1 for r in rows if r["due"] and 0 < float(r["due"]) <= now)
-                weak_keys = [
-                    f"{r['card_key']} ({int(r['correct_count'] or 0)}✓/{int(r['wrong_count'] or 0)}✗)"
+                weak_names = [
+                    f"{_card_display_name(r['card_key'])} ({int(r['correct_count'] or 0)}✓/{int(r['wrong_count'] or 0)}✗)"
                     for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0)
                 ][:5]
                 types = {}
@@ -14022,8 +14031,13 @@ def _curator_tool_data(directive, uid, today):
                 b = [f"{label}] карточек в журнале: {len(rows)} из {total_cards},"
                      f" выучено (серия 3+): {mastered}, к повторению сегодня: {due_cnt}."
                      f" По типам: {type_line}."]
-                if weak_keys:
-                    b.append("Слабые карточки: " + "; ".join(weak_keys) + ".")
+                if weak_names:
+                    b.append(
+                        "Слабые карточки (ошибок больше, чем верных): "
+                        + "; ".join(weak_names)
+                        + f". Всего слабых {sum(1 for r in rows if int(r['wrong_count'] or 0) > int(r['correct_count'] or 0))};"
+                          " повторение одной карточки занимает ~1 минуту."
+                    )
                 all_keys = sorted({str(r["card_key"]) for r in rows})
                 shown = ", ".join(all_keys[:20]) + (" …" if len(all_keys) > 20 else "")
                 b.append(f"Ключи ({len(all_keys)}): {shown}. Любую можно запросить инструментом card.")
@@ -14118,6 +14132,11 @@ def api_study_chat_send():
         "(до 150 слов), поддерживающе и конкретно; предлагай следующий шаг (предмет/тему/режим "
         "на сайте). Доступные предметы: Математика, Русский язык, Информатика, Физика, История; "
         "режимы: карточки, тренажёр задач, сопоставление, экзамен.\n\n"
+        "Нормы времени: одна карточка занимает около 0,5-1 минуты, одна задача - 2-4 минуты. "
+        "Не советуй тратить 5 минут на одну карточку - группируй карточки в пачки под бюджет "
+        "(например, «повтори все слабые карточки по реформам, это ~4 минуты»). "
+        "Не показывай ученику технические ключи карточек (event::..., formula::f01, task::lesson1_o1) - "
+        "называй темы и события обычными словами.\n\n"
         "Если тебе не хватает данных (журнал карточек, прогресс по предмету или теме, отдельная карточка, "
         "статистика, план на день), запроси их у системы: ответь ТОЛЬКО JSON-объектом, без пояснений, "
         "одним из видов: "
