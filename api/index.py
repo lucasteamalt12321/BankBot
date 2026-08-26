@@ -13510,7 +13510,7 @@ function renderStats(d) {
     var m = d.modules[mod];
     var color = COLORS[mod] || 'var(--bb-accent)';
     var pct = m.readiness;
-    ml.innerHTML += '<div class="mod-row" onclick="window.location.href=\'' + m.url + '\'">' +
+    ml.innerHTML += '<div class="mod-row" style="cursor:pointer" onclick="window.location.href=\\'' + m.url + '\\'">' +
       '<div class="mod-emoji">' + m.emoji + '</div>' +
       '<div class="mod-info"><div class="mod-name">' + m.label + '</div>' +
       '<div class="mod-stats">' + m.mastered + '/' + m.total + ' освоено' +
@@ -13545,7 +13545,7 @@ function renderStats(d) {
   } else {
     for (var j = 0; j < weakItems.length; j++) {
       var w = weakItems[j];
-      wl.innerHTML += '<div class="weak-item" onclick="window.location.href=\'' + w.url + '\'">' +
+      wl.innerHTML += '<div class="weak-item" style="cursor:pointer" onclick="window.location.href=\\'' + w.url + '\\'">' +
         '<span class="weak-tag" style="background:' + (COLORS[w.mod] || 'var(--bb-accent)') + '22;color:' + (COLORS[w.mod] || 'var(--bb-accent)') + '">' + w.emoji + ' ' + w.label + '</span>' +
         '<span>' + w.weak + ' слабых</span>' +
         '<span class="weak-acc" style="color:#ef4444">' + w.accuracy + '%</span></div>';
