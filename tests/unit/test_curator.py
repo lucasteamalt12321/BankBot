@@ -198,14 +198,17 @@ def test_chat_persists_history_and_prompt_context():
         _stop(patches)
 
 
-def test_chat_ai_failure_returns_502_and_stores_nothing():
+def test_chat_ai_failure_falls_back_to_rule_reply_and_persists():
     m, c, patches = _setup()
     try:
         with patch.object(m, "call_ai_api", return_value="❌ Ошибка AI: 404"):
             r = c.post("/api/study/chat", json={"message": "тест"}, headers=AUTH_HEADERS)
-        assert r.status_code == 502
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] and d.get("reply") and "❌" not in d["reply"]
         hist = c.get("/api/study/chat", headers=AUTH_HEADERS).get_json()["messages"]
-        assert hist == []
+        roles = [x["role"] for x in hist]
+        assert roles.count("user") == 1 and roles.count("assistant") == 1
     finally:
         _stop(patches)
 
