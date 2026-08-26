@@ -311,13 +311,23 @@ def test_curator_tool_data_progress_plan_stats():
                 " due, streak, correct_count, wrong_count, counter, updated_at)"
                 " VALUES (:u,'math','formula::f01',2,1,2.5,:past,3,4,1,-1,:ts),"
                 " (:u,'math','task::lesson1_o1',0,0,2.5,:future,0,0,3,-2,:ts),"
-                " (:u,'math','task::lesson2_o3',1,0,2.5,:future,1,1,1,0,:ts)"
-            ), {"u": uid, "past": _t.time() - 10, "future": _t.time() + 9999, "ts": _t.time()})
+                " (:u,'math','task::lesson2_o3',1,0,2.5,:future,1,1,1,0,:ts),"
+                " (:u,'history','event::Крымская война',2,0,2.5,:past2,0,2,3,-1,:ts)"
+            ), {"u": uid, "past": _t.time() - 10, "future": _t.time() + 9999,
+                "past2": _t.time() + 50, "ts": _t.time()})
         data = m._curator_tool_data({"tool": "progress", "module": "math"}, uid, "2026-01-01")
         assert "Математика" in data
         assert "выучено" in data and "к повторению сегодня" in data
-        weak_part = data.split("Слабые карточки: ")[1].split(". Ключи")[0]
+        # слабые карточки: технический ключ остаётся как есть...
+        assert "task::lesson1_o1" in data.split("Ключи")[0]
+        weak_part = data.split("Слабые карточки")[1].split(". Ключи")[0]
         assert "lesson1_o1" in weak_part and "formula::f01" not in weak_part  # выученная не в слабых
+        assert "~1 минут" in weak_part  # норма времени передана модели
+        # ...а «именованная» карточка показывается без префикса event:: (ключи остаются только в Ключах)
+        hist = m._curator_tool_data({"tool": "progress", "module": "history"}, uid, "x")
+        hist_weak = hist.split("Слабые карточки")[1].split(". Ключи")[0]
+        assert "Крымская война (2✓/3✗)" in hist_weak and "event::" not in hist_weak
+        assert "event::Крымская война" in hist  # ключ доступен для {"tool":"card"}
         # фильтр по теме
         topic = m._curator_tool_data({"tool": "progress", "module": "math", "topic": "lesson1"}, uid, "x")
         assert "lesson1_o1" in topic and "lesson2_o3" not in topic and "formula::f01" not in topic
