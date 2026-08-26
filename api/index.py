@@ -2714,17 +2714,17 @@ def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str
 
     # Build messages with memory
     messages = []
-    
+
     # Add global chat context (last 50 messages from all users)
     global_memory = get_global_chat_memory()
     if global_memory:
         messages.extend(global_memory)
-    
+
     # Add personal conversation memory (last 10 messages)
     personal_memory = get_chat_memory(user_id)
     if personal_memory:
         messages.extend(personal_memory)
-    
+
     # Add current message
     messages.append({"role": "user", "content": prompt})
 
@@ -3855,30 +3855,30 @@ def fetch_lichess_user(username: str) -> dict | None:
     normalized_username = username.strip()
     if not normalized_username:
         return None
-    
+
     url = f"{LICHESS_API_BASE_URL}/user/{normalized_username}"
     headers = {"Accept": "application/json", "User-Agent": "LTHub/ChessModule"}
-    
+
     try:
         response = requests.get(url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
-        
+
         if response.status_code == 404:
             return None
-        
+
         if response.status_code != 200:
             print(f"Lichess API error {response.status_code}: {response.text[:200]}")
             raise RuntimeError(f"Lichess API returned HTTP {response.status_code}")
-        
+
         payload = response.json()
-        
+
         if not isinstance(payload, dict):
             raise RuntimeError("Lichess API returned invalid payload")
-        
+
         # Parse user data
         lichess_username = payload.get("username") or payload.get("id")
         if not lichess_username or not isinstance(lichess_username, str):
             return None
-        
+
         title = payload.get("title")
         online_raw = payload.get("online", False)
         online = online_raw if isinstance(online_raw, bool) else (online_raw == "true")
@@ -3909,7 +3909,7 @@ def get_chess_account(user_id: int) -> dict | None:
                 text("SELECT lichess_username, linked_at FROM chess_accounts WHERE user_id = :user_id"),
                 {"user_id": user_id},
             ).mappings().first()
-            
+
             if row:
                 return {
                     "lichess_username": row["lichess_username"],
@@ -3929,7 +3929,7 @@ def get_user_coins(user_id: int) -> dict | None:
                 text("SELECT balance, last_puzzle_at FROM user_coins WHERE user_id = :user_id"),
                 {"user_id": user_id},
             ).mappings().first()
-            
+
             if row:
                 return {
                     "balance": row["balance"],
@@ -3949,7 +3949,7 @@ def update_user_coins(user_id: int, balance_delta: int, puzzle_time: datetime) -
                 text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
                 {"user_id": user_id},
             ).mappings().first()
-            
+
             if existing:
                 conn.execute(
                     text(
@@ -3964,7 +3964,7 @@ def update_user_coins(user_id: int, balance_delta: int, puzzle_time: datetime) -
                     ),
                     {"user_id": user_id, "delta": balance_delta, "now": puzzle_time},
                 )
-            
+
             conn.commit()
             return True
     except Exception as exc:
@@ -4008,7 +4008,7 @@ def log_chess_game(user_id: int, lichess_username: str, puzzle_id: str, puzzle_r
                 ),
                 {"user_id": user_id, "username": lichess_username, "puzzle_id": puzzle_id, "rating": puzzle_rating, "themes": puzzle_themes},
             ).mappings().first()
-            
+
             conn.commit()
             return result["id"] if result else 0
     except Exception as exc:
@@ -4031,16 +4031,16 @@ def link_chess_account(user_id: int, lichess_username: str, force: bool = False)
                 text("SELECT user_id FROM chess_accounts WHERE lichess_username = :username"),
                 {"username": lichess_username},
             ).mappings().first()
-            
+
             if existing and existing["user_id"] != user_id and not force:
                 return False
-            
+
             # Check if user already has an account linked
             current = conn.execute(
                 text("SELECT user_id FROM chess_accounts WHERE user_id = :user_id"),
                 {"user_id": user_id},
             ).mappings().first()
-            
+
             if force and existing:
                 # Take over the account linked to another user
                 conn.execute(
@@ -4065,7 +4065,7 @@ def link_chess_account(user_id: int, lichess_username: str, force: bool = False)
                     ),
                     {"user_id": user_id, "username": lichess_username, "now": datetime.utcnow()},
                 )
-            
+
             conn.commit()
             return True
     except Exception as exc:
@@ -5228,7 +5228,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     e = e.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>');
                     e = e.replace(/(^|[^*])\\*([^*\\n]+)\\*(?!\\*)/g, '$1<i>$2</i>');
                     e = e.replace(/(^|\\n)- /g, '$1\u2022 ');
-                    e = e.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+                    e = e.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2">$1</a>');
                     return e.replace(/\\n/g, '<br>');
                 }
                 function bubble(role, text) {
@@ -6541,7 +6541,7 @@ def health():
 def debug_puzzle():
     """Debug endpoint to test puzzle system."""
     results = {"bot_token_set": bool(BOT_TOKEN), "bot_id": BOT_ID}
-    
+
     # Test send_telegram_message
     if BOT_TOKEN:
         try:
@@ -6549,7 +6549,7 @@ def debug_puzzle():
             results["getMe"] = {"status": resp.status_code, "ok": resp.ok}
         except Exception as e:
             results["getMe"] = {"error": str(e)}
-    
+
     # Test DB connection
     try:
         with get_db_engine().connect() as conn:
@@ -6557,7 +6557,7 @@ def debug_puzzle():
             results["chess_accounts_count"] = row["cnt"] if row else -1
     except Exception as e:
         results["db_error"] = str(e)
-    
+
     return jsonify(results)
 
 
@@ -6575,7 +6575,7 @@ def test_send(chat_id):
 def test_puzzle(user_id):
     """Simulate puzzle handler step by step."""
     results = {"user_id": user_id}
-    
+
     # Step 1: get_chess_account
     try:
         account = get_chess_account(user_id)
@@ -6583,11 +6583,11 @@ def test_puzzle(user_id):
     except Exception as e:
         results["account_error"] = str(e)
         return jsonify(results)
-    
+
     if not account:
         results["action"] = "no_account"
         return jsonify(results)
-    
+
     # Step 2: get_user_coins
     try:
         coins_data = get_user_coins(user_id)
@@ -6595,7 +6595,7 @@ def test_puzzle(user_id):
     except Exception as e:
         results["coins_error"] = str(e)
         return jsonify(results)
-    
+
     # Step 3: cooldown check
     now = datetime.utcnow()
     if coins_data and coins_data.get("last_puzzle_at"):
@@ -6609,7 +6609,7 @@ def test_puzzle(user_id):
         if diff < timedelta(hours=24):
             results["action"] = "cooldown"
             return jsonify(results)
-    
+
     # Step 4: fetch Lichess puzzle
     try:
         import requests as req
@@ -6628,7 +6628,7 @@ def test_puzzle(user_id):
     except Exception as e:
         results["lichess_error"] = str(e)
         results["action"] = "lichess_exception"
-    
+
     return jsonify(results)
 
 
@@ -7810,7 +7810,7 @@ def ai_chat_page():
         for k, v in CHARACTER_PROMPTS_AI_CHAT.items()
     )
     first_char = list(CHARACTER_PROMPTS_AI_CHAT.items())[0]
-    html = """<!DOCTYPE html>
+    html = r"""<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -9156,7 +9156,7 @@ def api_auth_register():
         return jsonify({"error": "Логин: только латиница, цифры и _"}), 400
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Неверный формат email"}), 400
-    
+
     display_name = (data.get("display_name") or "").strip() or login
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
     lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
@@ -9166,7 +9166,7 @@ def api_auth_register():
         return jsonify({"error": "GD ник слишком длинный (макс. 50 символов)"}), 400
     if lichess_nickname and len(lichess_nickname) > 50:
         return jsonify({"error": "Lichess ник слишком длинный (макс. 50 символов)"}), 400
-    
+
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -10021,7 +10021,7 @@ def trivia_page():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
-TERMS_FRAGMENT = """
+TERMS_FRAGMENT = r"""
 <div style="max-width:760px;margin:0 auto;padding:0 4px 30px;">
 <select id="t-cat" onchange="loadTCat()" style="width:100%;padding:9px 11px;border-radius:9px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:15px;margin-bottom:12px;"></select>
 <div style="background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:24px;">
@@ -10304,7 +10304,7 @@ def emperors_page():
         <option value="deck">Классика (колода)</option>
         <option value="flash">Флешки (интервалы)</option>
         <option value="counter">Счётчик (вероятности)</option>
-        <option value="ai">ИИ (генерация)</option>
+        
     </select>
 </label>
                 <label>Правители:
@@ -10913,51 +10913,6 @@ function diffInfo() {
                 ];
             }
 
-            function loadAiQuestion() {
-                document.getElementById('info').style.display = 'none';
-                document.getElementById('hint-box').style.display = 'none';
-                document.getElementById('next-btn').style.display = 'none';
-                document.getElementById('question').textContent = '\u23F3 ИИ генерирует вопрос...';
-                document.getElementById('options').innerHTML = '';
-                var scopeVal = scope || '';
-                fetch('/api/quiz/ai-generate', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({module:'history', topic: scopeVal})
-                }).then(function(r){return r.json();}).then(function(d){
-                    if (!d.ok) { document.getElementById('question').textContent = '\u274C ' + (d.error || 'Ошибка'); return; }
-                    document.getElementById('question').textContent = d.question;
-                    var opts = document.getElementById('options');
-                    opts.innerHTML = '';
-                    var answered = false;
-                    var fakeItem = {type:'ai', text:'ai:'+scopeVal, emperor:'ai', label:'ИИ'};
-                    d.options.forEach(function(opt, i){
-                        var b = document.createElement('button');
-                        b.className = 'opt-btn';
-                        b.textContent = opt;
-                        b.addEventListener('click', function(){
-                            if (answered) return; answered = true;
-                            Array.prototype.forEach.call(opts.children, function(c){ c.disabled = true; });
-                            var ok = (i === d.correct);
-                            recordAnswer(fakeItem, ok);
-                            if (ok) {
-                                b.style.background = 'var(--bb-accent)';
-                                b.style.color = '#fff';
-                            } else {
-                                b.style.background = '#e07373';
-                                b.style.color = '#fff';
-                                Array.prototype.forEach.call(opts.children, function(c){
-                                    if (c.textContent === d.options[d.correct]) { c.style.background = 'var(--bb-accent)'; c.style.color = '#fff'; }
-                                });
-                            }
-                            updateScore();
-                            document.getElementById('next-btn').style.display = 'block';
-                        });
-                        opts.appendChild(b);
-                    });
-                    updateScore();
-                }).catch(function(){ document.getElementById('question').textContent = '\u274C Сеть недоступна'; });
-            }
-
             function pickItem() {
                 if (onlyErrors && wrongItems.length) {
                     return wrongItems[Math.floor(Math.random() * wrongItems.length)];
@@ -10969,7 +10924,6 @@ function diffInfo() {
             }
 
             function loadQuestion() {
-                if (algo === 'ai') { loadAiQuestion(); return; }
                 document.getElementById('info').style.display = 'none';
                 document.getElementById('hint-box').style.display = 'none';
                 document.getElementById('hint-btn').style.display = 'block';
@@ -11282,7 +11236,7 @@ function diffInfo() {
                     algo = document.getElementById('algo-select').value;
                     localStorage.setItem('emperors_algo', algo);
                     updateScore();
-                    if (algo === 'ai') { loadAiQuestion(); } else { loadQuestion(); }
+                    loadQuestion();
                 },
                 toggleScope: function(el) {
                     scope = el.value;
@@ -11456,7 +11410,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option><option value="ai">ИИ (генерация)</option></select>
+<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
 </div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
@@ -11631,8 +11585,7 @@ function fFlashUpdate(id, ok) {
   fFlash[id] = r; fFlashSave();
 }
 document.getElementById('f-algo').onchange = function() {
-  fAlgo = this.value; localStorage.setItem('math_f_algo', fAlgo);
-  if (fAlgo === 'ai') { renderAiQuestion(); } else { loadTopic(); }
+  fAlgo = this.value; localStorage.setItem('math_f_algo', fAlgo); loadTopic();
 };
 function pickFormula() {
   var now = Date.now();
@@ -11665,50 +11618,6 @@ function loadTopic() {
   const tp = topicSel.value;
   fList = MATH.topics[tp].map(function(id){ return MATH.formulas.find(function(f){ return f.id===id; }); });
   fDeck = []; pickFormula(); renderFormula();
-}
-function renderAiQuestion() {
-  var box = document.getElementById('f-opts');
-  var title = document.getElementById('f-title');
-  var note = document.getElementById('f-note');
-  var fb = document.getElementById('f-fb');
-  var prog = document.getElementById('f-progress');
-  title.textContent = '\u23F3 \u0418\u0418 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441...';
-  note.textContent = ''; fb.textContent = ''; fb.style.color = '';
-  box.innerHTML = ''; prog.textContent = '';
-  var topic = (typeof topicSel !== 'undefined') ? topicSel.value : '';
-  fetch('/api/quiz/ai-generate', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({module:'math', topic: topic})
-  }).then(function(r){return r.json();}).then(function(d){
-    if (!d.ok) { title.textContent = '\u274C ' + (d.error || '\u041E\u0448\u0438\u0431\u043A\u0430'); return; }
-    title.textContent = d.question;
-    note.textContent = d.explanation || '';
-    box.innerHTML = '';
-    var answered = false;
-    d.options.forEach(function(opt, i){
-      var b = document.createElement('button');
-      b.className = 'btn ghost'; b.style.textAlign = 'left'; b.style.whiteSpace = 'normal';
-      b.textContent = opt;
-      b.onclick = function(){
-        if (answered) return; answered = true;
-        Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
-        var ok = (i === d.correct);
-        record('ai::math::' + topic, ok);
-        if (ok) {
-          fb.textContent = '\u2705 \u0412\u0435\u0440\u043D\u043E!';
-          fb.style.color = 'var(--bb-accent)';
-          b.classList.remove('ghost'); b.classList.add('green');
-        } else {
-          fb.textContent = '\u274C \u041F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E: ' + d.options[d.correct];
-          fb.style.color = '#e07373';
-          Array.prototype.forEach.call(box.children, function(c){
-            if (c.textContent === d.options[d.correct]) { c.classList.remove('ghost'); c.classList.add('green'); }
-          });
-        }
-      };
-      box.appendChild(b);
-    });
-  }).catch(function(){ title.textContent = '\u274C \u0421\u0435\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430'; });
 }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 var fDeck = [];
@@ -11761,9 +11670,9 @@ function renderFormula() {
   const due = fList.filter(function(x){ return (fFlashRec(x.id).due <= Date.now() && fFlashRec(x.id).reps > 0); }).length;
   document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+due;
 }
-function nextFormula(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } }
+function nextFormula(){ renderFormula(); }
 document.getElementById('f-next').onclick = nextFormula;
-document.getElementById('f-prev').onclick = function(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } };
+document.getElementById('f-prev').onclick = function(){ renderFormula(); };
 topicSel.onchange = loadTopic;
 loadTopic();
 
@@ -11917,7 +11826,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option><option value="ai">ИИ (генерация)</option></select>
+<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
 </div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
@@ -12092,8 +12001,7 @@ function fFlashUpdate(id, ok) {
   fFlash[id] = r; fFlashSave();
 }
 document.getElementById('f-algo').onchange = function() {
-  fAlgo = this.value; localStorage.setItem('physics_f_algo', fAlgo);
-  if (fAlgo === 'ai') { renderAiQuestion(); } else { loadTopic(); }
+  fAlgo = this.value; localStorage.setItem('physics_f_algo', fAlgo); loadTopic();
 };
 function pickFormula() {
   var now = Date.now();
@@ -12125,54 +12033,9 @@ function pickFormula() {
 function loadTopic() {
   const tp = topicSel.value;
   fList = PH.topics[tp].map(function(id){ return PH.formulas.find(function(f){ return f.id===id; }); });
-  fDeck = []; if (fAlgo !== 'ai') { pickFormula(); renderFormula(); } else { renderAiQuestion(); }
+  fDeck = []; pickFormula(); renderFormula();
 }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
-function renderAiQuestion() {
-  var box = document.getElementById('f-opts');
-  var title = document.getElementById('f-title');
-  var note = document.getElementById('f-note');
-  var fb = document.getElementById('f-fb');
-  var prog = document.getElementById('f-progress');
-  title.textContent = '\u23F3 \u0418\u0418 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441...';
-  note.textContent = ''; fb.textContent = ''; fb.style.color = '';
-  box.innerHTML = ''; prog.textContent = '';
-  var topic = (typeof topicSel !== 'undefined') ? topicSel.value : '';
-  fetch('/api/quiz/ai-generate', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({module:'physics', topic: topic})
-  }).then(function(r){return r.json();}).then(function(d){
-    if (!d.ok) { title.textContent = '\u274C ' + (d.error || '\u041E\u0448\u0438\u0431\u043A\u0430'); return; }
-    title.textContent = d.question;
-    note.textContent = d.explanation || '';
-    box.innerHTML = '';
-    var answered = false;
-    d.options.forEach(function(opt, i){
-      var b = document.createElement('button');
-      b.className = 'btn ghost'; b.style.textAlign = 'left'; b.style.whiteSpace = 'normal';
-      b.textContent = opt;
-      b.onclick = function(){
-        if (answered) return; answered = true;
-        Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
-        var ok = (i === d.correct);
-        record('ai::physics::' + topic, ok);
-        if (ok) {
-          fb.textContent = '\u2705 \u0412\u0435\u0440\u043D\u043E!';
-          fb.style.color = 'var(--bb-accent)';
-          b.classList.remove('ghost'); b.classList.add('green');
-        } else {
-          fb.textContent = '\u274C \u041F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E: ' + d.options[d.correct];
-          fb.style.color = '#e07373';
-          Array.prototype.forEach.call(box.children, function(c){
-            if (c.textContent === d.options[d.correct]) { c.classList.remove('ghost'); c.classList.add('green'); }
-          });
-        }
-      };
-      box.appendChild(b);
-    });
-  }).catch(function(){ title.textContent = '\u274C \u0421\u0435\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430'; });
-}
-var fDeck = [];
 function renderFormula() {
   if (!fList.length) return;
   var f = pickFormula();
@@ -12222,9 +12085,9 @@ function renderFormula() {
   const due = fList.filter(function(x){ return (fFlashRec(x.id).due <= Date.now() && fFlashRec(x.id).reps > 0); }).length;
   document.getElementById('f-progress').textContent = (fIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+due;
 }
-function nextFormula(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } }
+function nextFormula(){ renderFormula(); }
 document.getElementById('f-next').onclick = nextFormula;
-document.getElementById('f-prev').onclick = function(){ if (fAlgo === 'ai') { renderAiQuestion(); } else { renderFormula(); } };
+document.getElementById('f-prev').onclick = function(){ renderFormula(); };
 topicSel.onchange = loadTopic;
 loadTopic();
 
@@ -12391,7 +12254,7 @@ def math_page():
 @app.route("/informatics")
 def informatics_page():
     import json
-    from core.informatics.tasks import MATH_TOPICS, task_by_id, tasks_for_topic, get_random_task, get_tasks_by_difficulty
+    from core.informatics.tasks import MATH_TOPICS
 
     # Get all topic names for the study tab
     topic_names = {t.id: t.name for t in MATH_TOPICS}
@@ -12521,7 +12384,7 @@ def informatics_page():
                 <label class="muted" style="font-size:13px;">Алгоритм:</label>
                 <select id="info-algo" style="background:var(--bb-primary);color:var(--bb-text);border:1px solid var(--bb-link);border-radius:8px;padding:4px 8px;font-size:13px;font-family:inherit;">
                     <option value="shuffle">Перемешать</option>
-                    <option value="ai">ИИ (генерация)</option>
+                    
                 </select>
             </div>
             <div class="hint-box" id="hint-box">
@@ -12772,64 +12635,7 @@ def informatics_page():
         // --- Trainer tab: random tasks ---
         let trainQueue = [];
         let trainDone = [];
-        let infoAlgo = localStorage.getItem('info_algo') || 'shuffle';
-        document.getElementById('info-algo').value = infoAlgo;
-        document.getElementById('info-algo').onchange = function() {
-            infoAlgo = this.value;
-            localStorage.setItem('info_algo', infoAlgo);
-            if (infoAlgo === 'ai') { loadInfoAiQuestion(); } else { buildQueue(); showTrainerTask(); }
-        };
-
-        function loadInfoAiQuestion() {
-            const box = document.getElementById('current-task');
-            box.innerHTML = '<h3>\u23F3 ИИ генерирует вопрос...</h3>';
-            document.getElementById('next-btn').style.display = 'none';
-            document.getElementById('answer-btn').style.display = 'none';
-            var topic = topicsData.topics.find(function(t){return t.id===currentTopic;});
-            fetch('/api/quiz/ai-generate', {
-                method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({module:'informatics', topic: topic ? topic.name : ''})
-            }).then(function(r){return r.json();}).then(function(d){
-                if (!d.ok) { box.innerHTML = '<h3>\u274C ' + (d.error || 'Ошибка') + '</h3>'; return; }
-                box.innerHTML = '';
-                var h3 = document.createElement('h3');
-                h3.textContent = d.question;
-                box.appendChild(h3);
-                if (d.explanation) {
-                    var exp = document.createElement('p');
-                    exp.className = 'hint';
-                    exp.textContent = d.explanation;
-                    box.appendChild(exp);
-                }
-                var answered = false;
-                d.options.forEach(function(opt, i){
-                    var b = document.createElement('button');
-                    b.className = 'answer-btn';
-                    b.textContent = opt;
-                    b.addEventListener('click', function(){
-                        if (answered) return; answered = true;
-                        Array.prototype.forEach.call(box.children, function(c){ if(c.tagName==='BUTTON') c.disabled=true; });
-                        var ok = (i === d.correct);
-                        totalSolved++;
-                        if (ok) correctStreak++; else correctStreak = 0;
-                        infoRecord('ai::informatics', ok);
-                        if (ok) {
-                            b.style.background = '#065f46'; b.style.color = '#fff';
-                        } else {
-                            b.style.background = '#991b1b'; b.style.color = '#fff';
-                            Array.prototype.forEach.call(box.children, function(c){
-                                if (c.textContent === d.options[d.correct]) { c.style.background = '#065f46'; c.style.color = '#fff'; }
-                            });
-                        }
-                        document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved + ' (точность: ' + (totalSolved ? Math.round(correctStreak / totalSolved * 100) : 0) + '%)';
-                        document.getElementById('next-btn').style.display = 'block';
-                    });
-                    box.appendChild(b);
-                });
-            }).catch(function(){ box.innerHTML = '<h3>\u274C Сеть недоступна</h3>'; });
-        }
-
-        function shuffle(arr) {
+                function shuffle(arr) {
             for (let i = arr.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
@@ -12849,7 +12655,6 @@ def informatics_page():
         }
 
         function showTrainerTask() {
-            if (infoAlgo === 'ai') { loadInfoAiQuestion(); return; }
             const box = document.getElementById('current-task');
             box.innerHTML = '';
             if (!trainQueue.length) {
@@ -13039,7 +12844,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="r-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option><option value="ai">ИИ (генерация)</option></select>
+<select id="r-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
 </div>
 <div class="progress-mini" id="r-progress"></div>
 <div class="card" id="r-card">
@@ -13183,54 +12988,11 @@ function rFlashUpdate(id, ok) {
   rFlash[id] = r; rFlashSave();
 }
 document.getElementById('r-algo').onchange = function() {
-  rAlgo = this.value; localStorage.setItem('russian_r_algo', rAlgo);
-  if (rAlgo === 'ai') { renderAiQuestion(); } else { loadCat(); }
+  rAlgo = this.value; localStorage.setItem('russian_r_algo', rAlgo); loadCat();
 };
-function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rDeck=[]; if (rAlgo !== 'ai') { renderRule(); } else { renderAiQuestion(); } }
+function loadCat(){ const c=catSel.value; rList=RU.categories[c].map(function(id){ return RU.rules.find(function(x){return x.id===id;}); }); rDeck=[]; renderRule(); }
 function fShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 var rDeck = [];
-function renderAiQuestion() {
-  var box = document.getElementById('r-opts');
-  var title = document.getElementById('r-title');
-  var fb = document.getElementById('r-fb');
-  var prog = document.getElementById('r-progress');
-  title.textContent = '\u23F3 ИИ генерирует вопрос...';
-  fb.textContent = ''; fb.style.color = '';
-  box.innerHTML = ''; prog.textContent = '';
-  var cat = (typeof catSel !== 'undefined') ? catSel.value : '';
-  fetch('/api/quiz/ai-generate', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({module:'russian', topic: cat})
-  }).then(function(r){return r.json();}).then(function(d){
-    if (!d.ok) { title.textContent = '\u274C ' + (d.error || 'Ошибка'); return; }
-    title.textContent = d.question;
-    box.innerHTML = '';
-    var answered = false;
-    d.options.forEach(function(opt, i){
-      var b = document.createElement('button');
-      b.className = 'btn ghost'; b.style.textAlign = 'left'; b.style.whiteSpace = 'normal';
-      b.textContent = opt;
-      b.onclick = function(){
-        if (answered) return; answered = true;
-        Array.prototype.forEach.call(box.children, function(c){ c.disabled = true; });
-        var ok = (i === d.correct);
-        record('ai::russian::' + cat, ok);
-        if (ok) {
-          fb.textContent = '\u2705 Верно!';
-          fb.style.color = 'var(--bb-accent)';
-          b.classList.remove('ghost'); b.classList.add('green');
-        } else {
-          fb.textContent = '\u274C Правильно: ' + d.options[d.correct];
-          fb.style.color = '#e07373';
-          Array.prototype.forEach.call(box.children, function(c){
-            if (c.textContent === d.options[d.correct]) { c.classList.remove('ghost'); c.classList.add('green'); }
-          });
-        }
-      };
-      box.appendChild(b);
-    });
-  }).catch(function(){ title.textContent = '\u274C Сеть недоступна'; });
-}
 function pickRule() {
   var now = Date.now();
   if (rAlgo === 'deck') {
@@ -13305,9 +13067,9 @@ function renderRule() {
   const dueC = rList.filter(function(x){ return (rFlashRec(x.id).due <= Date.now() && rFlashRec(x.id).reps > 0); }).length;
   document.getElementById('r-progress').textContent = (rIdx+1)+' / '+total+' \u2022 выучено: '+done+' \u2022 повтор: '+dueC;
 }
-function nextRule(){ if (rAlgo === 'ai') { renderAiQuestion(); } else { renderRule(); } }
+function nextRule(){ renderRule(); }
 document.getElementById('r-next').onclick=nextRule;
-document.getElementById('r-prev').onclick=function(){ if (rAlgo === 'ai') { renderAiQuestion(); } else { renderRule(); } };
+document.getElementById('r-prev').onclick=function(){ renderRule(); };
 catSel.onchange=loadCat;
 
 // ---- Tasks ----
@@ -13720,207 +13482,225 @@ def api_quiz_check():
     return jsonify(resp)
 
 
-@app.route("/api/quiz/ai-generate", methods=["POST"])
-def api_quiz_ai_generate():
-    """AI curator picks the best existing question from the DB for this student. NOT saved to chat history."""
-    data = request.get_json(silent=True) or {}
-    module = str(data.get("module") or "")
-    topic = str(data.get("topic") or "")
-    if module not in OGE_MODULES:
-        return jsonify({"ok": False, "error": "unknown module"}), 400
+def _exam_build_catalog():
+    """Build catalog of all questions across all OGE modules for AI exam."""
+    catalog = []
+    pool = []
+    from core.history import EVENTS as _HE, PERSONS as _HP
+    from core.history.terms import TERMS as _HT
+    for it in _HE:
+        key = "event::" + it.title
+        catalog.append({"key": key, "q": it.title + " (" + it.year + ")", "m": "history"})
+        pool.append({"key": key, "question": it.title,
+                     "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
+                     "module": "history", "explanation": getattr(it, "explanation", ""),
+                     "_answer": it.emperor_id})
+    for it in _HP:
+        key = "person::" + it.name
+        catalog.append({"key": key, "q": it.name, "m": "history"})
+        pool.append({"key": key, "question": it.name,
+                     "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
+                     "module": "history", "explanation": getattr(it, "explanation", ""),
+                     "_answer": getattr(it, "role", "")})
+    for it in _HT:
+        key = "term::" + it.term
+        catalog.append({"key": key, "q": it.term + " — " + it.definition[:60], "m": "history"})
+        pool.append({"key": key, "question": "Что такое " + it.term + "?",
+                     "type": "text", "answer": it.definition,
+                     "module": "history", "explanation": it.definition,
+                     "hint": it.category})
+    from core.informatics.tasks import get_all_tasks as _info_tasks
+    for t in _info_tasks():
+        catalog.append({"key": t.id, "q": t.question[:80], "m": "informatics"})
+        pool.append({"key": t.id, "question": t.question,
+                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                     "module": "informatics", "explanation": getattr(t, "explanation", "")})
+    from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
+    for f in _mf:
+        key = "formula::" + f.id
+        catalog.append({"key": key, "q": f.title, "m": "math"})
+        opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
+        random.shuffle(opts)
+        pool.append({"key": key, "question": f.title,
+                     "type": "mcq", "options": opts[:4], "correct_idx": 0,
+                     "module": "math", "explanation": f.result})
+    for t in _mt:
+        catalog.append({"key": t.id, "q": t.question[:80], "m": "math"})
+        pool.append({"key": t.id, "question": t.question,
+                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                     "module": "math", "explanation": getattr(t, "explanation", "")})
+    from core.russian.rules import TASKS as _rt, RULES as _rr
+    for r in _rr:
+        key = "rule::" + r.id
+        catalog.append({"key": key, "q": r.title, "m": "russian"})
+        opts = [r.name, "Не орфограмма"] + (getattr(r, "distractors", None) or ["Другое"])[:2]
+        random.shuffle(opts)
+        pool.append({"key": key, "question": r.title,
+                     "type": "mcq", "options": opts[:4], "correct_idx": 0,
+                     "module": "russian", "explanation": getattr(r, "explanation", r.name),
+                     "hint": getattr(r, "hint", "")})
+    for t in _rt:
+        catalog.append({"key": t.id, "q": t.question[:80], "m": "russian"})
+        pool.append({"key": t.id, "question": t.question,
+                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                     "module": "russian", "explanation": getattr(t, "explanation", "")})
+    from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
+    for f in _pf:
+        key = "formula::" + f.id
+        catalog.append({"key": key, "q": f.title, "m": "physics"})
+        opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
+        random.shuffle(opts)
+        pool.append({"key": key, "question": f.title,
+                     "type": "mcq", "options": opts[:4], "correct_idx": 0,
+                     "module": "physics", "explanation": f.result})
+    for t in _pt:
+        catalog.append({"key": t.id, "q": t.question[:80], "m": "physics"})
+        pool.append({"key": t.id, "question": t.question,
+                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                     "module": "physics", "explanation": getattr(t, "explanation", "")})
+    return catalog, pool
 
-    # ── 1. Build condensed catalog of available questions ──
-    catalog = []  # list of {"key": ..., "q": short question, "t": topic}
-    if module == "history":
-        from core.history import EVENTS as _HE, PERSONS as _HP
-        from core.history.terms import TERMS as _HT
-        for it in _HE:
-            catalog.append({"key": "event::" + it.title, "q": it.title + " (" + it.year + ")", "t": "события"})
-        for it in _HP:
-            catalog.append({"key": "person::" + it.name, "q": it.name, "t": "деятели"})
-        for it in _HT:
-            catalog.append({"key": "term::" + it.term, "q": it.term + " — " + it.definition[:60], "t": it.category})
-    elif module == "informatics":
-        from core.informatics.tasks import get_all_tasks as _info_tasks
-        for t in _info_tasks():
-            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "")})
-    elif module == "math":
-        from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
-        for f in _mf:
-            catalog.append({"key": "formula::" + f.id, "q": f.title, "t": "формулы"})
-        for t in _mt:
-            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "задачи")})
-    elif module == "russian":
-        from core.russian.rules import TASKS as _rt, RULES as _rr
-        for r in _rr:
-            catalog.append({"key": "rule::" + r.id, "q": r.title, "t": "правила"})
-        for t in _rt:
-            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "задачи")})
-    elif module == "physics":
-        from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
-        for f in _pf:
-            catalog.append({"key": "formula::" + f.id, "q": f.title, "t": "формулы"})
-        for t in _pt:
-            catalog.append({"key": t.id, "q": t.question[:80], "t": getattr(t, "topic", "задачи")})
 
-    if not catalog:
-        return jsonify({"ok": False, "error": "empty catalog"}), 400
-
-    # ── 2. Student progress: weak items ──
+def _exam_student_context(uid, now):
+    """Gather student context for AI exam prompt."""
+    lines = []
     weak_keys = []
-    user = _get_session_user(_auth_token_from_request())
-    uid = _web_user_id("u" + str(user["id"])) if user else None
-    if uid:
-        try:
-            engine = get_db_engine()
-            with engine.connect() as conn:
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            for mod in OGE_MODULES:
                 rows = conn.execute(text(
                     "SELECT card_key, streak, correct_count, wrong_count "
                     "FROM study_progress WHERE user_id=:u AND module=:m"
-                ), {"u": uid, "m": module}).mappings().all()
+                ), {"u": uid, "m": mod}).mappings().all()
+                total = len(rows)
+                mastered = sum(1 for r in rows if int(r["streak"]) >= 3)
+                if total:
+                    lines.append(f"{mod}: {total} cards, {mastered} mastered")
                 for r in rows:
-                    s = int(r["streak"])
-                    c = int(r["correct_count"])
-                    w = int(r["wrong_count"])
-                    if s < 0 or w > c:
+                    if int(r["streak"]) < 0 or int(r["wrong_count"]) > int(r["correct_count"]):
                         weak_keys.append(r["card_key"])
-        except Exception:
-            pass
+    except Exception:
+        pass
+    return "\n".join(lines) if lines else "No progress data.", weak_keys
 
-    # ── 3. Build prompt for AI curator ──
-    topic_hint = ""
-    if topic:
-        catalog_filtered = [c for c in catalog if topic.lower() in c.get("t", "").lower()]
-        if catalog_filtered:
-            catalog = catalog_filtered
-            topic_hint = f"(ученик выбрал тему: {topic}) "
 
-    # Condensed catalog: key|short question — max 150 items to fit prompt
-    cat_lines = []
-    for c in catalog[:150]:
-        cat_lines.append(f'{c["key"]}|{c["q"]}')
+@app.route("/api/exam/ai-batch", methods=["POST"])
+def api_exam_ai_batch():
+    """AI curator picks a batch of questions from the DB for this student. NOT saved to chat history."""
+    data = request.get_json(silent=True) or {}
+    n = max(1, min(10, int(data.get("n") or 3)))
+    seen = set(data.get("seen") or [])
+    user = _get_session_user(_auth_token_from_request())
+    uid = _web_user_id("u" + str(user["id"])) if user else None
+    now = time.time()
+
+    catalog, pool = _exam_build_catalog()
+    if not catalog:
+        return jsonify({"ok": False, "error": "empty catalog"}), 400
+
+    # Student context
+    if uid:
+        context_text, weak_keys = _exam_student_context(uid, now)
+    else:
+        context_text, weak_keys = "Ученик не авторизован.", []
+
+    # Filter catalog: remove already-seen keys
+    avail = [c for c in catalog if c["key"] not in seen]
+    if not avail:
+        avail = catalog  # reset if all seen
+
+    # Condensed catalog for prompt
+    cat_lines = [f'{c["key"]}|{c["q"]}|{c["m"]}' for c in avail[:200]]
     cat_text = "\n".join(cat_lines)
 
-    weak_text = ", ".join(weak_keys[:20]) if weak_keys else "нет"
-    module_ru = {"history": "История", "informatics": "Информатика", "math": "Математика",
-                 "russian": "Русский язык", "physics": "Физика"}.get(module, module)
-
     prompt = (
-        f"Ты — ИИ-куратор ученика, готовящегося к ОГЭ по {module_ru}.\n"
-        f"{topic_hint}"
-        f"Слабые карточки ученика: {weak_text}.\n\n"
-        "Выбери ОДНУ карточку из каталога, которая больше всего подходит ученику прямо сейчас.\n"
-        "Приоритет: 1) слабые карточки (если есть), 2) новые (не встречались), 3) повтор.\n\n"
-        f"Каталог (ключ|вопрос):\n{cat_text}\n\n"
-        "Верни ТОЛЬКО JSON:\n"
-        '{"key":"выбранный ключ"}\n'
+        "Ты — ИИ-куратор, подбираешь вопросы для экзамена-тренировки ОГЭ.\n\n"
+        f"ДАННЫЕ УЧЕНИКА:\n{context_text}\n\n"
+        f"ВЫБРАТЬ: {n} вопросов из каталога.\n"
+        "ПРИОРИТЕТЫ: 1) слабые карточки ученика, 2) новые (не встречались), 3) повтор.\n"
+        "РАСПРЕДЕЛЕНИЕ: чередуй предметы (мат, рус, инфо, физ, ист).\n\n"
+        f"КАТАЛОГ (ключ|вопрос|предмет):\n{cat_text}\n\n"
+        f"Верни СТРОГО JSON-массив из {n} ключей:\n"
+        f'["ключ1","ключ2","ключ3"]\n'
         "Без пояснений."
     )
 
-    # ── 4. Call AI (NOT saved to chat history) ──
     reply = None
     for _attempt in range(3):
-        reply = call_ai_api(prompt, max_tokens=200, temperature=0.5)
+        reply = call_ai_api(prompt, max_tokens=300, temperature=0.5)
         if reply and not reply.startswith("\u274C"):
             break
         time.sleep(min(4, 1 * (2 ** _attempt)))
-    if not reply or reply.startswith("\u274C"):
-        # Fallback: pick a weak item or random
-        if weak_keys:
-            chosen_key = random.choice(weak_keys)
-        else:
-            chosen_key = random.choice(catalog)["key"]
-    else:
+
+    # Parse AI response or fallback
+    chosen_keys = []
+    if reply and not reply.startswith("\u274C"):
         try:
-            match = re.search(r'\{"key"\s*:\s*"([^"]+)"\}', reply)
+            match = re.search(r"\[.*?\]", reply, re.DOTALL)
             if match:
-                chosen_key = match.group(1)
-            else:
-                chosen_key = random.choice(weak_keys) if weak_keys else random.choice(catalog)["key"]
+                chosen_keys = json.loads(match.group(0))
+                chosen_keys = [str(k) for k in chosen_keys if isinstance(k, str)]
         except Exception:
-            chosen_key = random.choice(weak_keys) if weak_keys else random.choice(catalog)["key"]
+            pass
 
-    # ── 5. Look up full question from pool ──
-    pool = []
-    if module == "history":
-        from core.history import EVENTS as _HE, PERSONS as _HP
-        from core.history.terms import TERMS as _HT
-        for it in _HE:
-            pool.append({"key": "event::" + it.title, "question": it.title,
-                         "_answer": it.emperor_id, "type": "mcq",
-                         "context": it.note, "explanation": f"{it.year}, {it.emperor_id}"})
-        for it in _HP:
-            pool.append({"key": "person::" + it.name, "question": it.name,
-                         "_answer": it.emperor_id, "type": "mcq",
-                         "context": it.description, "explanation": it.description[:100]})
-        for it in _HT:
-            pool.append({"key": "term::" + it.term, "question": it.definition,
-                         "_answer": it.term, "type": "mcq", "context": ""})
-    elif module == "informatics":
-        from core.informatics.tasks import get_all_tasks as _info_tasks
-        for t in _info_tasks():
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
-    elif module == "math":
-        from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
-        for t in _mt:
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
-        for f in _mf:
-            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
-                         "_answer": f.formula, "type": "mcq", "context": f.note})
-    elif module == "russian":
-        from core.russian.rules import TASKS as _rt, RULES as _rr
-        for t in _rt:
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
-        for r in _rr:
-            pool.append({"key": "rule::" + r.id, "question": r.title,
-                         "_answer": r.rule, "type": "mcq", "context": r.example})
-    elif module == "physics":
-        from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
-        for t in _pt:
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
-        for f in _pf:
-            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
-                         "_answer": f.formula, "type": "mcq", "context": f.note})
+    # Fallback: weak first, then random
+    if not chosen_keys:
+        fallback_pool = [c["key"] for c in avail if c["key"] in weak_keys]
+        if not fallback_pool:
+            fallback_pool = [c["key"] for c in avail]
+        random.shuffle(fallback_pool)
+        chosen_keys = fallback_pool[:n]
 
-    chosen = None
-    for p in pool:
-        if p["key"] == chosen_key:
-            chosen = p
-            break
-    if not chosen:
-        chosen = random.choice(pool) if pool else None
-    if not chosen:
-        return jsonify({"ok": False, "error": "no question found"}), 500
+    # Build full questions
+    pool_by_key = {p["key"]: p for p in pool}
+    result_items = []
+    for key in chosen_keys:
+        it = pool_by_key.get(key)
+        if not it:
+            continue
+        q = {"key": it["key"], "module": it["module"], "question": it["question"],
+             "type": it.get("type", "text"), "hint": it.get("hint", ""),
+             "explanation": it.get("explanation", "")}
+        if it.get("type") == "mcq":
+            correct = it["_answer"]
+            distractors = list({p["_answer"] for p in pool
+                               if p["_answer"] != correct and p.get("type") == "mcq" and p["module"] == it["module"]})
+            if len(distractors) < 3:
+                distractors += [p["_answer"] for p in pool
+                               if p["_answer"] != correct and p.get("type") == "mcq" and p["module"] != it["module"]]
+            random.shuffle(distractors)
+            options = [correct] + distractors[:3]
+            random.shuffle(options)
+            q["options"] = options
+            q["correct_idx"] = options.index(correct)
+        else:
+            q["answer"] = it["_answer"]
+        result_items.append(q)
 
-    # ── 6. Format response ──
-    q = {"question": chosen["question"], "type": chosen.get("type", "text"),
-         "explanation": chosen.get("explanation", ""), "hint": chosen.get("hint", ""),
-         "context": chosen.get("context", ""), "key": chosen["key"], "module": module}
-    if chosen.get("type") == "mcq":
-        correct = chosen["_answer"]
-        distractors = list({p["_answer"] for p in pool
-                           if p["_answer"] != correct and p.get("type") == "mcq"})
-        random.shuffle(distractors)
-        options = [correct] + distractors[:3]
-        random.shuffle(options)
-        q["options"] = options
-        q["correct"] = options.index(correct)
-    else:
-        q["answer"] = chosen["_answer"]
+    return jsonify({"ok": True, "items": result_items})
 
-    return jsonify({"ok": True, **q})
+
+@app.route("/api/exam/ai-record", methods=["POST"])
+def api_exam_ai_record():
+    """Record progress for an AI exam answer."""
+    data = request.get_json(silent=True) or {}
+    key = str(data.get("key") or "")
+    module = str(data.get("module") or "")
+    correct = bool(data.get("correct"))
+    if not key or not module:
+        return jsonify({"ok": False, "error": "missing key/module"}), 400
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": True, "recorded": False})
+    uid = _web_user_id("u" + str(user["id"]))
+    try:
+        with get_db_engine().begin() as conn:
+            _study_record_one(conn, uid, module, key, correct)
+        return jsonify({"ok": True, "recorded": True})
+    except Exception as exc:
+        print(f"[EXAM] ai-record error: {exc}")
+        return jsonify({"ok": True, "recorded": False})
 
 
 @app.route("/exam")
@@ -13942,8 +13722,8 @@ EXAM_PAGE_TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Экзаменатор | LTHub</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Segoe UI',Arial,sans-serif; background:var(--bb-bg); color:var(--bb-text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:20px; }
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bb-bg);color:var(--bb-text);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px;}
 .container{max-width:700px;width:100%;}
 .header{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
 .header h1{font-size:22px;color:var(--bb-accent);}
@@ -13951,82 +13731,187 @@ body { font-family:'Segoe UI',Arial,sans-serif; background:var(--bb-bg); color:v
 .card{background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:24px;margin-bottom:14px;}
 .muted{color:var(--bb-muted);font-size:14px;}
 .modtag{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:10px;background:var(--bb-elev);color:var(--bb-accent);margin-bottom:8px;}
-input{width:100%;padding:11px;border-radius:10px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:16px;margin-top:8px;}
+input[type=text]{width:100%;padding:11px;border-radius:10px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:16px;margin-top:8px;}
 .btn{padding:10px 18px;border-radius:10px;border:1px solid var(--bb-primary);background:var(--bb-primary);color:#fff;cursor:pointer;font-size:14px;margin-top:12px;}
 .btn.green{background:var(--bb-accent);border-color:var(--bb-accent);}
-.btn.ghost{background:transparent;color:var(--bb-text);}
+.btn:disabled{opacity:0.5;cursor:default;}
+.mcq-btn{display:block;width:100%;text-align:left;padding:12px;border-radius:10px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:14px;margin-top:8px;cursor:pointer;transition:all .15s;}
+.mcq-btn:hover:not(:disabled){border-color:var(--bb-accent);background:var(--bb-elev);}
+.mcq-btn:disabled{cursor:default;}
+.mcq-btn.correct{background:#065f46;color:#fff;border-color:#065f46;}
+.mcq-btn.wrong{background:#991b1b;color:#fff;border-color:#991b1b;}
 .progress-mini{font-size:13px;color:var(--bb-muted);margin-bottom:8px;}
 .explain{font-size:13px;color:var(--bb-muted);margin-top:8px;}
+.hint-text{font-size:13px;color:var(--bb-muted);margin-top:6px;font-style:italic;}
 .ok{color:var(--bb-accent);font-weight:600;}
 .bad{color:#e07373;font-weight:600;}
+.prefetch-note{font-size:11px;color:var(--bb-muted);text-align:center;margin-top:4px;}
 </style>
 </head>
 <body>
 <div class="container">
-<div class="header"><h1>🎯 Экзаменатор</h1><a href="/">← На главную</a></div>
+<div class="header"><h1>\U0001F3AF \u042D\u043A\u0437\u0430\u043C\u0435\u043D\u0430\u0442\u043E\u0440</h1><a href="/">\u2190 \u041D\u0430 \u0433\u043B\u0430\u0432\u043D\u0443\u044E</a></div>
 <div class="card" id="start-card">
-<h2>Сводный экзамен</h2>
-<p class="muted">Случайные задания из математики, русского и информатики с серверной проверкой. Прогресс учитывается в ОГЭ-центре.</p>
+<h2>\U0001F4DA \u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441\u044B</h2>
+<p class="muted">\u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u0430\u043D\u0430\u043B\u0438\u0437\u0438\u0440\u0443\u0435\u0442 \u0442\u0432\u043E\u0438 \u0441\u043B\u0430\u0431\u044B\u0435 \u043C\u0435\u0441\u0442\u0430 \u0438 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441\u044B \u0438\u0437 \u0411\u0414 \u043F\u043E\u0434 \u0442\u0432\u043E\u0439 \u0443\u0440\u043E\u0432\u0435\u043D\u044C. \u0412\u043E\u043F\u0440\u043E\u0441\u044B \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u044E\u0442\u0441\u044F \u0432\u043F\u0435\u0440\u0435\u0434\u043A\u0443.</p>
 <p class="muted" id="auth-note"></p>
-<button class="btn green" id="start">Начать (15 заданий)</button>
+<button class="btn green" id="start">\u041D\u0430\u0447\u0430\u0442\u044C</button>
 </div>
 <div class="card" id="quiz" style="display:none;">
 <div class="progress-mini" id="status"></div>
 <span class="modtag" id="modtag"></span>
 <h2 id="q"></h2>
-<input id="ans" placeholder="Ваш ответ">
-<button class="btn" id="check">Ответить</button>
+<div id="opts"></div>
+<input type="text" id="ans" placeholder="\u0412\u0430\u0448 \u043E\u0442\u0432\u0435\u0442" style="display:none;">
+<button class="btn" id="check" style="display:none;">\u041E\u0442\u0432\u0435\u0442\u0438\u0442\u044C</button>
 <div id="fb"></div>
-<button class="btn green" id="next" style="display:none;">Дальше →</button>
+<div id="hint-box" style="display:none;"></div>
+<button class="btn green" id="next" style="display:none;">\u0414\u0430\u043B\u044C\u0448\u0435 \u2192</button>
+<div class="prefetch-note" id="prefetch-status"></div>
 </div>
 <div id="result"></div>
 </div>
 <script>
-var sid=null, items=[], idx=0, score=0;
 var AUTH_HINT = '__AUTH_HINT__';
-document.getElementById('auth-note').textContent = AUTH_HINT === 'on' ? '✓ Вы вошли — прогресс сохранится.' : 'Войдите на сайте, чтобы сохранять прогресс.';
-document.getElementById('start').onclick=function(){
-  fetch('/api/exam/mixed?n=15').then(function(r){return r.json();}).then(function(d){
-    sid=d.sid; items=d.items; idx=0; score=0;
-    document.getElementById('start-card').style.display='none';
-    document.getElementById('quiz').style.display='';
-    document.getElementById('result').innerHTML='';
-    render();
-  }).catch(function(){ alert('Не удалось загрузить задания'); });
-};
-function render(){
-  var it=items[idx];
-  document.getElementById('status').textContent='Задание '+(idx+1)+' / '+items.length+' • счёт: '+score;
-  document.getElementById('modtag').textContent=({math:'Математика',russian:'Русский язык',informatics:'Информатика'})[it.module]||it.module;
-  document.getElementById('q').textContent=it.question;
-  document.getElementById('ans').value='';
-  document.getElementById('fb').innerHTML='';
-  document.getElementById('check').style.display='';
-  document.getElementById('next').style.display='none';
+var seen = [];
+var queue = [];
+var idx = 0;
+var score = 0;
+var total = 0;
+var prefetching = false;
+
+document.getElementById('auth-note').textContent = AUTH_HINT === 'on'
+  ? '\u2713 \u0412\u044B \u0432\u043E\u0448\u043B\u0438 \u2014 \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F.'
+  : '\u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0442\u044C \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0442\u0440\u0435\u0441\u0441.';
+
+var modNames = {math:'\u041C\u0430\u0442\u0435\u043C\u0430\u0442\u0438\u043A\u0430',russian:'\u0420\u0443\u0441\u0441\u043A\u0438\u0439 \u044F\u0437\u044B\u043A',informatics:'\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0442\u0438\u043A\u0430',physics:'\u0424\u0438\u0437\u0438\u043A\u0430',history:'\u0418\u0441\u0442\u043E\u0440\u0438\u044F'};
+
+function prefetch() {
+  if (prefetching || queue.length > 2) return;
+  prefetching = true;
+  document.getElementById('prefetch-status').textContent = '\u23F3 \u0418\u0418 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0435...';
+  fetch('/api/exam/ai-batch', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({n: 3, seen: seen})
+  }).then(function(r){return r.json();}).then(function(d){
+    prefetching = false;
+    document.getElementById('prefetch-status').textContent = '';
+    if (d.ok && d.items && d.items.length) {
+      d.items.forEach(function(it){ queue.push(it); });
+      document.getElementById('prefetch-status').textContent = '\u2713 \u0415\u0449\u0451 ' + d.items.length + ' \u0432\u043E\u043F\u0440\u043E\u0441\u043E\u0432 \u0433\u043E\u0442\u043E\u0432\u043E';
+    }
+  }).catch(function(){ prefetching = false; });
 }
-document.getElementById('check').onclick=function(){
-  var v=document.getElementById('ans').value;
-  fetch('/api/exam/check',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({sid:sid,idx:idx,value:v})})
-   .then(function(r){return r.json();})
-   .then(function(d){
-     if(!d.ok){ document.getElementById('fb').textContent='Сессия истекла'; return; }
-     if(d.correct) score++;
-     document.getElementById('fb').innerHTML=(d.correct?'<span class="ok">✓ Верно!</span>':'<span class="bad">✗ Неверно. Ответ: '+d.answer+'</span>')
-       +(d.explanation?'<div class="explain">'+d.explanation+'</div>':'');
-     document.getElementById('check').style.display='none';
-     document.getElementById('next').style.display='';
-   });
+
+document.getElementById('start').onclick = function() {
+  document.getElementById('start-card').style.display = 'none';
+  document.getElementById('quiz').style.display = '';
+  document.getElementById('result').innerHTML = '';
+  prefetching = false;
+  prefetch();
+  var waitInterval = setInterval(function(){
+    if (queue.length > 0) {
+      clearInterval(waitInterval);
+      total = 0;
+      idx = 0;
+      score = 0;
+      showNext();
+    }
+  }, 300);
 };
-document.getElementById('next').onclick=function(){
-  if(idx<items.length-1){ idx++; render(); }
-  else {
-    document.getElementById('quiz').style.display='none';
-    var pct=Math.round(score/items.length*100);
-    document.getElementById('result').innerHTML='<div class="card"><h2>Результат: '+score+' / '+items.length+' ('+pct+'%)</h2><p class="muted">Слабые места подскажет «План на сегодня» на главной.</p></div>';
+
+function showNext() {
+  if (queue.length === 0) {
+    document.getElementById('quiz').style.display = 'none';
+    var pct = total ? Math.round(score / total * 100) : 0;
+    document.getElementById('result').innerHTML = '<div class="card"><h2>\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442: ' + score + ' / ' + total + ' (' + pct + '%)</h2>'
+      + '<p class="muted">\u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u043B \u0432\u043E\u043F\u0440\u043E\u0441\u044B \u0438\u0437 \u0411\u0414 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u0442\u0432\u043E\u0438\u0445 \u0441\u043B\u0430\u0431\u044B\u0445 \u043C\u0435\u0441\u0442.</p></div>';
+    return;
   }
-};
-document.getElementById('ans').addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); if(document.getElementById('check').style.display!=='none')document.getElementById('check').click(); else document.getElementById('next').click(); }});
+  var it = queue.shift();
+  seen.push(it.key);
+  total++;
+  document.getElementById('status').textContent = '\u0412\u043E\u043F\u0440\u043E\u0441 ' + total;
+  document.getElementById('modtag').textContent = modNames[it.module] || it.module;
+  document.getElementById('q').textContent = it.question;
+  document.getElementById('fb').innerHTML = '';
+  document.getElementById('hint-box').style.display = 'none';
+  document.getElementById('hint-box').innerHTML = '';
+  document.getElementById('check').style.display = 'none';
+  document.getElementById('next').style.display = 'none';
+  document.getElementById('ans').value = '';
+  document.getElementById('ans').disabled = false;
+  currentIt = it;
+
+  var opts = document.getElementById('opts');
+  opts.innerHTML = '';
+
+  if (it.type === 'mcq' && it.options) {
+    document.getElementById('ans').style.display = 'none';
+    it.options.forEach(function(opt, i) {
+      var b = document.createElement('button');
+      b.className = 'mcq-btn';
+      b.textContent = opt;
+      b.onclick = function() {
+        if (b.disabled) return;
+        var btns = opts.querySelectorAll('.mcq-btn');
+        btns.forEach(function(x){ x.disabled = true; });
+        var ok = (i === it.correct_idx);
+        if (ok) { score++; b.classList.add('correct'); }
+        else {
+          b.classList.add('wrong');
+          btns.forEach(function(x){ if (x.textContent === it.options[it.correct_idx]) x.classList.add('correct'); });
+        }
+        showFeedback(ok, it);
+      };
+      opts.appendChild(b);
+    });
+  } else {
+    document.getElementById('ans').style.display = '';
+    document.getElementById('check').style.display = '';
+  }
+
+  if (it.hint) {
+    var hb = document.getElementById('hint-box');
+    hb.style.display = 'block';
+    hb.innerHTML = '<button class="mcq-btn" style="font-style:italic;color:var(--bb-muted);" onclick="this.nextElementSibling.style.display=\'block\';this.style.display=\'none\';">\U0001F4A1 \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443</button><div class="hint-text" style="display:none;">' + it.hint + '</div>';
+  }
+
+  prefetch();
+}
+
+function showFeedback(ok, it) {
+  var fb = document.getElementById('fb');
+  fb.innerHTML = (ok
+    ? '<span class="ok">\u2705 \u0412\u0435\u0440\u043D\u043E!</span>'
+    : '<span class="bad">\u274C \u041D\u0435\u0432\u0435\u0440\u043E. \u041E\u0442\u0432\u0435\u0442: ' + (it.type === 'mcq' ? it.options[it.correct_idx] : (it.answer || '')) + '</span>')
+    + (it.explanation ? '<div class="explain">' + it.explanation + '</div>' : '');
+  document.getElementById('next').style.display = '';
+  fetch('/api/exam/ai-record', {method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:it.key, module:it.module, correct:ok})}).catch(function(){});
+}
+
+var currentIt = null;
+
+function checkTextAnswer() {
+  var v = document.getElementById('ans').value.trim();
+  if (!v || !currentIt) return;
+  var ok = (v.toLowerCase().replace(/,/g,'.').replace(/\\s+/g,' ').trim()
+    === String(currentIt.answer || '').toLowerCase().replace(/,/g,'.').replace(/\\s+/g,' ').trim());
+  if (ok) score++;
+  document.getElementById('check').style.display = 'none';
+  document.getElementById('ans').disabled = true;
+  showFeedback(ok, currentIt);
+}
+
+document.getElementById('check').onclick = checkTextAnswer;
+
+document.getElementById('next').onclick = function() { showNext(); };
+
+document.getElementById('ans').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); checkTextAnswer(); }
+});
 </script>
 </body>
 </html>
@@ -18035,7 +17920,7 @@ def irregular_verbs_page():
                 }
             };
 
-            var exParam = (window.location.search.match(/[?&]exercise=(\d+)/) || [])[1];
+            var exParam = (window.location.search.match(/[?&]exercise=(\\d+)/) || [])[1];
             if (exParam) {
                 if (studentName) {
                     app.startExercise(exParam);
@@ -18224,7 +18109,7 @@ def telegram_webhook(secret: str):
     update = request.get_json()
     if not update:
         return jsonify({"ok": True})
-    
+
     # Handle callback_query
     callback_query = update.get("callback_query", {})
     callback_data = callback_query.get("data", "")
@@ -18450,12 +18335,12 @@ def telegram_webhook(secret: str):
         # AI response on reply to bot message or @mention
         if BOT_ID is None:
             _load_bot_id()
-        
+
         # Check for reply to bot message
         is_bot_reply = detect_bot_reply(message)
         # Check for @mention of bot
         is_mention, mention_text = detect_bot_mention(msg_text, message.get("entities"))
-        
+
         if chat_id and (is_bot_reply or is_mention):
             # Get user's character preference
             character = get_user_character(user_id)
@@ -18466,7 +18351,7 @@ def telegram_webhook(secret: str):
                 user_text = mention_text
             else:
                 user_text = msg_text or ""
-            
+
             if user_text.strip():
                 # Build prompt and call AI with memory
                 prompt = build_character_prompt(character, user_text)
@@ -19032,14 +18917,14 @@ def telegram_webhook(secret: str):
             )
             trivia_questions = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(trivia_questions)
-            
+
             import asyncio
             question = asyncio.run(trivia_questions.generate_trivia_question())
             question_text = question["text"]
             options = question["options"]
             correct_index = question["correct_index"]
             explanation = question["explanation"]
-            
+
             try:
                 # Send native Telegram poll via API
                 bot_token = os.getenv("BOT_TOKEN", "")
@@ -19058,7 +18943,7 @@ def telegram_webhook(secret: str):
                         },
                         timeout=10,
                     )
-                    
+
                     if response.status_code == 200:
                         send_telegram_message(
                             chat_id,
@@ -19073,7 +18958,7 @@ def telegram_webhook(secret: str):
                     raise Exception("BOT_TOKEN not set")
             except Exception as exc:
                 print(f"Error sending trivia poll: {exc}")
-            
+
             # Fallback to text question with inline buttons
             send_telegram_message(
                 chat_id,
@@ -19111,11 +18996,11 @@ def telegram_webhook(secret: str):
                 f"[🌐 Веб-версия шахмат](https://bank-bot-ruby.vercel.app/chess?user_id={user_id})"
             )
             send_telegram_message(chat_id, help_text, parse_mode="Markdown")
-        
+
         # /chess_link <username>
         elif command == "/chess_link" and chat_id:
             args = msg_text.split()[1:] if msg_text else []
-            
+
             if len(args) < 1:
                 send_telegram_message(
                     chat_id,
@@ -19126,7 +19011,7 @@ def telegram_webhook(secret: str):
                 lichess_username = args[0].strip()
                 if not lichess_username:
                     send_telegram_message(
-                        chat_id, 
+                        chat_id,
                         "❌ Укажите ник Lichess: `/chess_link <ник>`",
                         parse_mode="Markdown"
                     )
@@ -19137,7 +19022,7 @@ def telegram_webhook(secret: str):
                         f"🔍 Проверяю Lichess аккаунт **{lichess_username}**...",
                         parse_mode="Markdown",
                     )
-                    
+
                     try:
                         lichess_user = fetch_lichess_user(lichess_username)
                     except Exception as exc:
@@ -19147,7 +19032,7 @@ def telegram_webhook(secret: str):
                             "❌ Сейчас не удалось проверить Lichess аккаунт. Попробуйте позже.",
                         )
                         lichess_user = None
-                    
+
                     if lichess_user is None:
                         send_telegram_message(
                             chat_id,
@@ -19157,7 +19042,7 @@ def telegram_webhook(secret: str):
                     else:
                         # Try to link account
                         success = link_chess_account(user_id, lichess_user["username"])
-                        
+
                         if not success:
                             send_telegram_message(
                                 chat_id,
@@ -19174,7 +19059,7 @@ def telegram_webhook(secret: str):
                                 f"[🌐 Открыть веб-версию](https://bank-bot-ruby.vercel.app/chess?user_id={user_id})"
                             )
                             send_telegram_message(chat_id, success_msg, parse_mode="Markdown")
-        
+
         # /chess_rating
         elif command == "/chess_rating" and chat_id:
             account = get_chess_account(user_id)
@@ -19189,7 +19074,7 @@ def telegram_webhook(secret: str):
                     chat_id,
                     "🔍 Загружаю рейтинги...",
                 )
-                
+
                 try:
                     lichess_user = fetch_lichess_user(account["lichess_username"])
                     if not lichess_user:
@@ -19201,10 +19086,10 @@ def telegram_webhook(secret: str):
                         title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
                         online_text = "🟢 онлайн" if lichess_user.get("online") else "⚫ оффлайн"
                         perfs = lichess_user.get("perfs", {})
-                        
+
                         rating_parts = []
                         rating_parts.append(f"**Статус:** {online_text}\n")
-                        
+
                         if "bullet" in perfs:
                             rating_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
                         if "blitz" in perfs:
@@ -19213,7 +19098,7 @@ def telegram_webhook(secret: str):
                             rating_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
                         if "classical" in perfs:
                             rating_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
-                        
+
                         rating_msg = (
                             f"♟ **Рейтинги {title_prefix}{lichess_user['username']}**\n\n"
                             + "\n".join(rating_parts)
@@ -19225,7 +19110,7 @@ def telegram_webhook(secret: str):
                         chat_id,
                         "❌ Ошибка загрузки рейтингов. Попробуйте позже.",
                     )
-        
+
         # /chess_stats
         elif command == "/chess_stats" and chat_id:
             account = get_chess_account(user_id)
@@ -19240,7 +19125,7 @@ def telegram_webhook(secret: str):
                     chat_id,
                     "🔍 Загружаю статистику...",
                 )
-                
+
                 try:
                     lichess_user = fetch_lichess_user(account["lichess_username"])
                     if not lichess_user:
@@ -19252,20 +19137,20 @@ def telegram_webhook(secret: str):
                         title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
                         perfs = lichess_user.get("perfs", {})
                         games = lichess_user.get("games", {})
-                        
+
                         total_games = games.get("total", 0)
                         win = games.get("win", 0)
                         loss = games.get("loss", 0)
                         draw = games.get("draw", 0)
-                        
+
                         winrate = round((win / total_games * 100), 1) if total_games > 0 else 0
-                        
+
                         stats_parts = []
                         stats_parts.append(f"**Всего игр:** {total_games}")
                         stats_parts.append(f"✅ **Побед:** {win} ({winrate}%)")
                         stats_parts.append(f"❌ **Поражений:** {loss}")
                         stats_parts.append(f"🤝 **Ничьих:** {draw}\n")
-                        
+
                         if "bullet" in perfs:
                             stats_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
                         if "blitz" in perfs:
@@ -19274,7 +19159,7 @@ def telegram_webhook(secret: str):
                             stats_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
                         if "classical" in perfs:
                             stats_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
-                        
+
                         stats_msg = (
                             f"♟ **Статистика {title_prefix}{lichess_user['username']}**\n\n"
                             + "\n".join(stats_parts)
@@ -19286,7 +19171,7 @@ def telegram_webhook(secret: str):
                         chat_id,
                         "❌ Ошибка загрузки статистики. Попробуйте позже.",
                     )
-        
+
         # /puzzle and /chess_puzzle commands
         elif command in ["/puzzle", "/chess_puzzle"] and chat_id:
             print(f"[PUZZLE] user_id={user_id}, chat_id={chat_id}")
@@ -19308,36 +19193,36 @@ def telegram_webhook(secret: str):
                         f"⏳ Пожалуйста, подождите {remaining:.1f} ч. до следующей задачи.",
                     )
                     return jsonify({"ok": True})
-                
+
                 send_telegram_message(
                     chat_id,
                     "🧩 Загружаю задачу...",
                 )
-                
+
                 try:
                     # Fetch random puzzle from Lichess (not daily — random each time)
                     puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/next"
                     headers = {"Accept": "application/json", "User-Agent": "LTHub/ChessModule"}
                     response = requests.get(puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
-                    
+
                     if response.status_code != 200:
                         send_telegram_message(
                             chat_id,
                             "❌ Не удалось загрузить задачу. Попробуйте позже.",
                         )
                         return jsonify({"ok": True})
-                    
+
                     puzzle_data = response.json()
                     puzzle = puzzle_data.get("puzzle", {})
                     game = puzzle_data.get("game", {})
-                    
+
                     puzzle_id = puzzle.get("id", "unknown")
                     rating = puzzle.get("rating", "?")
                     themes = ", ".join(puzzle.get("themes", [])[:3])
                     solution = puzzle.get("solution", "")
                     initial_ply = puzzle.get("initialPly", 0)
                     puzzle_url_link = f"https://lichess.org/training/{puzzle_id}"
-                    
+
                     # Derive FEN from game PGN + initialPly
                     fen = ""
                     try:
@@ -19362,7 +19247,7 @@ def telegram_webhook(secret: str):
                     except Exception as fen_exc:
                         print(f"Error deriving FEN from PGN: {fen_exc}")
                         log_error("Chess", "fen_derivation", f"FEN parse error: {fen_exc}", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
-                    
+
                     if not fen:
                         log_error("Chess", "fen_empty", "Empty FEN after derivation", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
                         send_telegram_message(
@@ -19370,7 +19255,7 @@ def telegram_webhook(secret: str):
                             "❌ Не удалось отобразить доску. Попробуйте позже.",
                         )
                         return jsonify({"ok": True})
-                    
+
                     # Store pending puzzle for this user
                     _PENDING_PUZZLES[user_id] = {
                         "puzzle_id": puzzle_id,
@@ -19382,9 +19267,9 @@ def telegram_webhook(secret: str):
                         "initial_ply": initial_ply,
                         "created_at": time.time(),
                     }
-                    
+
                     board_image_url = f"https://lichess1.org/export/fen.gif?fen={fen.replace(' ', '_')}&theme=brown&piece=cburnett"
-                    
+
                     turn = "Белых" if (initial_ply + 1) % 2 == 0 else "Чёрных"
                     puzzle_msg = (
                         f"🧩 **Шахматная задача**\n\n"
@@ -19393,7 +19278,7 @@ def telegram_webhook(secret: str):
                         f"Ход: {turn}\n\n"
                         f"Введите ход в формате UCI (например: `e2e4` или `g1f3`):"
                     )
-                    
+
                     try:
                         photo_response = requests.post(
                             f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
@@ -19421,7 +19306,7 @@ def telegram_webhook(secret: str):
                     except Exception as photo_exc:
                         print(f"Error sending photo: {photo_exc}")
                         send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
-                    
+
                     log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
                 except Exception as exc:
                     print(f"Error fetching puzzle: {exc}")
@@ -19494,7 +19379,7 @@ def telegram_webhook(secret: str):
                 solution_moves = solution
             else:
                 solution_moves = solution.split()
-            
+
             if solution_moves and user_move == solution_moves[0].lower():
                 # Correct move — award coins
                 _PENDING_PUZZLES.pop(user_id, None)
@@ -19513,7 +19398,7 @@ def telegram_webhook(secret: str):
                     f"❌ **Неверно.**\n\nПравильный ход: `{correct}`\nПопробуйте следующую задачу: /puzzle",
                     parse_mode="Markdown",
                 )
-        
+
         # =====================================================================
         # GD Module — submit follow-up
         # =====================================================================
@@ -20171,19 +20056,19 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
     user = callback_query.get("from", {})
     user_id = user.get("id")
     callback_query_id = callback_query.get("id")
-    
+
     try:
         if not user_id:
             print("trivia_callback: no user_id in callback_query")
             return
-        
+
         # Parse callback_data: trivia_{index}_{correct_index}
         parts = callback_data.split("_")
         if len(parts) < 3:
             print(f"trivia_callback: invalid format {callback_data}")
             send_telegram_message(chat_id, "❌ Неверный формат ответа")
             return
-        
+
         try:
             selected_index = int(parts[1])
             correct_index = int(parts[2])
@@ -20191,9 +20076,9 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
             print(f"trivia_callback: parse error {e}")
             send_telegram_message(chat_id, "❌ Ошибка парсинга ответа")
             return
-        
+
         print(f"trivia_callback: user_id={user_id}, selected={selected_index}, correct={correct_index}")
-        
+
         if selected_index == correct_index:
             try:
                 db = get_db_engine()
@@ -20202,7 +20087,7 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
                         text("SELECT id, balance FROM users WHERE telegram_id = :user_id"),
                         {"user_id": user_id},
                     ).mappings().first()
-                    
+
                     if row:
                         user_db_id = row["id"]
                         new_balance = int(row["balance"]) + 10
@@ -20218,7 +20103,7 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
                             {"user_db_id": user_db_id},
                         )
                         conn.commit()
-                        
+
                         send_telegram_message(
                             chat_id,
                             f"🎉 Правильно! +10 монет\n💳 Новый баланс: {new_balance}",
@@ -20238,7 +20123,7 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
                             },
                         )
                         conn.commit()
-                        
+
                         send_telegram_message(chat_id, "🎉 Правильно! +10 монет")
             except Exception as db_err:
                 print(f"Error awarding trivia coins: {db_err}")
@@ -20268,7 +20153,7 @@ def generate_trivia_from_canon(chat_id: int) -> str | None:
     """
     try:
         canon_content = load_canon_text()[:5000]
-        
+
         prompt = (
             "Ты — создатель викторины по вселенной Олеговируса и LTL-паразита.\n\n"
             "Вот контекст из канона (ограниченный фрагмент):\n"
@@ -20284,9 +20169,9 @@ def generate_trivia_from_canon(chat_id: int) -> str | None:
             "Объяснение: [краткое объяснение]\n\n"
             "Вопрос должен быть сложным, но справедливым, с однозначным правильным ответом."
         )
-        
+
         question = call_ai_api(prompt, max_tokens=300)
-        
+
         # Validate AI response contains required format
         if "Вопрос:" in question and "A)" in question and "Правильный:" in question:
             return question
