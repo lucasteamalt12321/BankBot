@@ -244,7 +244,20 @@ def list_active_sessions(limit: int = 20) -> list[dict]:
     )
 
 
-def join_session(telegram_id: int, session_id: int) -> str:
+def _gen_share_code() -> str:
+    return "".join(random.choices("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", k=8))
+
+
+def find_session_by_code(code: str) -> Optional[dict]:
+    if not code:
+        return None
+    return _fetch_one(
+        "SELECT * FROM dnd_sessions WHERE share_code = :code",
+        {"code": code.strip().upper()},
+    )
+
+
+def join_session(telegram_id: int, session_id: int, player_name: str = None) -> str:
     session = _fetch_one(
         "SELECT * FROM dnd_sessions WHERE id = :sid AND status = 'active'",
         {"sid": session_id},
@@ -253,6 +266,9 @@ def join_session(telegram_id: int, session_id: int) -> str:
         return "❌ Сессия не найдена или уже завершена."
 
     db_uid = _resolve_user_id(telegram_id)
+
+    if session.get("master_id") == db_uid:
+        return f"✅ Вы мастер сессии «{session['name']}»."
 
     existing = _fetch_one(
         "SELECT id FROM dnd_characters WHERE session_id = :sid AND player_id = :uid",
@@ -271,8 +287,8 @@ def join_session(telegram_id: int, session_id: int) -> str:
 
     _execute(
         "INSERT INTO dnd_characters (session_id, player_id, name, character_class, level) "
-        "VALUES (:sid, :uid, 'Исследователь', 'Воин', 1)",
-        {"sid": session_id, "uid": db_uid},
+        "VALUES (:sid, :uid, :name, 'Воин', 1)",
+        {"sid": session_id, "uid": db_uid, "name": player_name or "Исследователь"},
     )
     _execute(
         "UPDATE dnd_sessions SET current_players = current_players + 1 WHERE id = :sid",
@@ -440,10 +456,11 @@ def cmd_dnd_start(telegram_id: int, chat_id: int, args: str) -> str:
                 f"Сначала завершите её: /dnd_stop")
 
     name = args if args else f"Кампания #{telegram_id % 10000}"
+    share_code = _gen_share_code()
     _execute(
-        "INSERT INTO dnd_sessions (master_id, name, status, started_at, max_players, current_players) "
-        "VALUES (:uid, :name, 'active', :now, 6, 0)",
-        {"uid": db_user_id, "name": name, "now": datetime.now(timezone.utc)},
+        "INSERT INTO dnd_sessions (master_id, name, status, started_at, max_players, current_players, share_code) "
+        "VALUES (:uid, :name, 'active', :now, 6, 0, :code)",
+        {"uid": db_user_id, "name": name, "now": datetime.now(timezone.utc), "code": share_code},
     )
 
     return (

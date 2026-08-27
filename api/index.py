@@ -692,6 +692,7 @@ def _ensure_dnd_tables(engine):
             conn.execute(text("""
                 ALTER TABLE dnd_sessions
                     ADD COLUMN IF NOT EXISTS description TEXT,
+                    ADD COLUMN IF NOT EXISTS share_code VARCHAR(16),
                     ADD COLUMN IF NOT EXISTS max_players INTEGER DEFAULT 6,
                     ADD COLUMN IF NOT EXISTS current_players INTEGER DEFAULT 0,
                     ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'planning',
@@ -6261,6 +6262,8 @@ def api_dnd_status():
             "scene": session.get("current_scene") or "Новая игра",
             "log_count": len(log),
             "last_ai_response": (session.get("last_ai_response") or "")[:300],
+            "share_code": session.get("share_code"),
+            "share_url": ("/dnd?session=" + session["share_code"]) if session.get("share_code") else None,
             "players": [
                 {
                     "name": p.get("player_name") or p.get("name") or "Игрок",
@@ -6284,9 +6287,41 @@ def api_dnd_start():
     if uid is None:
         return jsonify({"error": "Нет user_id"}), 400
     name = (data.get("name") or "").strip()
-    from api.dnd_runtime import cmd_dnd_start
+    from api.dnd_runtime import cmd_dnd_start, find_active_session
     reply = cmd_dnd_start(uid, uid, name)
-    return jsonify({"ok": True, "reply": _dnd_plain(reply)})
+    session = find_active_session(uid)
+    code = session.get("share_code") if session else None
+    return jsonify({
+        "ok": True,
+        "reply": _dnd_plain(reply),
+        "session_id": session["id"] if session else None,
+        "share_code": code,
+        "share_url": ("/dnd?session=" + code) if code else None,
+    })
+
+
+@app.route("/api/dnd/join", methods=["POST"])
+def api_dnd_join():
+    data = request.get_json(silent=True) or {}
+    uid = _gd_web_uid(data.get("user_id", ""))
+    if uid is None:
+        return jsonify({"error": "Нет user_id"}), 400
+    code = (data.get("code") or "").strip().upper()
+    name = (data.get("name") or "").strip()
+    if not code:
+        return jsonify({"error": "Укажите код сессии"}), 400
+    from api.dnd_runtime import find_session_by_code, join_session
+    session = find_session_by_code(code)
+    if not session or session.get("status") != "active":
+        return jsonify({"error": "Сессия не найдена или завершена"}), 404
+    reply = join_session(uid, session["id"], name or None)
+    return jsonify({
+        "ok": True,
+        "reply": _dnd_plain(reply),
+        "session_id": session["id"],
+        "share_code": session.get("share_code"),
+        "share_url": ("/dnd?session=" + (session.get("share_code") or "")),
+    })
 
 
 @app.route("/api/dnd/act", methods=["POST"])
@@ -6413,10 +6448,30 @@ def dnd_page():
             </div>
         </div>
 
+        <div id="join-panel" style="display:none">
+            <div class="card">
+                <div class="sec-label">Присоединиться к сессии друга</div>
+                <p class="hint">Откройте ссылку, которой поделился друг, и играйте вместе в одной сессии.</p>
+                <div class="input-row">
+                    <input type="text" id="join-name" placeholder="Имя героя (например: Арден)" onkeydown="if(event.key==='Enter')joinSession()">
+                    <button class="btn" id="join-btn" onclick="joinSession()">🤝 Присоединиться</button>
+                </div>
+                <div id="join-result"></div>
+            </div>
+        </div>
+
         <div id="game-panel">
             <div class="card">
                 <div class="status-row" id="status-row"></div>
                 <div class="log" id="log"></div>
+            </div>
+            <div class="card">
+                <div class="sec-label">Сессия (совместная игра)</div>
+                <div class="input-row">
+                    <input type="text" id="share-url" readonly placeholder="ссылка появится здесь">
+                    <button class="btn" onclick="copyShare()">📋 Копировать</button>
+                </div>
+                <p class="hint">Отправьте ссылку друзьям — они откроют её и присоединятся к этой сессии. Все видят один и тот же лог.</p>
             </div>
             <div class="card">
                 <div class="sec-label">Ваше действие</div>
@@ -6448,6 +6503,7 @@ def dnd_page():
         var urlParams = new URLSearchParams(window.location.search);
         var qid = urlParams.get('user_id');
         if (qid) { USER_ID = qid; localStorage.setItem('dnd_user_id', qid); }
+        var SESSION_CODE = urlParams.get('session');
 
         function post(url, body, cb) {
             var xhr = new XMLHttpRequest();
@@ -6492,6 +6548,9 @@ def dnd_page():
                 chips += '<span class="chip">👥 <b>' + esc(names) + '</b></span>';
             }
             document.getElementById('status-row').innerHTML = chips;
+            if (s.share_url) {
+                try { document.getElementById('share-url').value = location.origin + s.share_url; } catch(e) {}
+            }
         }
 
         function refreshStatus() {
@@ -6590,7 +6649,34 @@ def dnd_page():
             });
         }
 
-        refreshStatus();
+        if (SESSION_CODE) {
+            document.getElementById('start-panel').style.display = 'none';
+            document.getElementById('join-panel').style.display = 'block';
+        } else {
+            refreshStatus();
+        }
+
+        function joinSession() {
+            var name = document.getElementById('join-name').value.trim();
+            var btn = document.getElementById('join-btn');
+            btn.disabled = true;
+            post('/api/dnd/join', {user_id: USER_ID, code: SESSION_CODE, name: name}, function(r) {
+                btn.disabled = false;
+                if (r.error) { document.getElementById('join-result').innerHTML = '<p class="error">' + esc(r.error) + '</p>'; return; }
+                document.getElementById('join-result').innerHTML = '';
+                showGame();
+                refreshStatus();
+            });
+        }
+
+        function copyShare() {
+            var inp = document.getElementById('share-url');
+            if (!inp || !inp.value) return;
+            inp.select();
+            try { navigator.clipboard.writeText(inp.value); } catch(e) {}
+            try { document.execCommand('copy'); } catch(e) {}
+            showMsg('system', '🔗 Ссылка скопирована — отправьте друзьям!');
+        }
 
         function showRegNotice() {
             try {
