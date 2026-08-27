@@ -11419,7 +11419,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+<select id="f-algo"><option value="deck">Классика (колода)</option><option value="flash">Флешки (интервалы)</option><option value="counter">Счётчик (вероятности)</option></select>
 </div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
@@ -11569,15 +11569,16 @@ Object.keys(MATH.topics).forEach(function(tp){
   const o = document.createElement('option'); o.value=tp; o.textContent=tp+' ('+MATH.topics[tp].length+')'; topicSel.appendChild(o);
 });
 let fList = [], fIdx = 0;
-let fAlgo = localStorage.getItem('math_f_algo') || 'smart';
+let fAlgo = localStorage.getItem('math_f_algo') || 'flash';
 document.getElementById('f-algo').value = fAlgo;
 let fFlash = {};
 try { fFlash = JSON.parse(localStorage.getItem('math_f_flash') || '{}'); } catch(e) { fFlash = {}; }
 function fFlashSave() { localStorage.setItem('math_f_flash', JSON.stringify(fFlash)); }
-function fFlashRec(id) { return fFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0 }; }
+function fFlashRec(id) { return fFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0, counter: 0 }; }
 function fFlashUpdate(id, ok) {
   var r = fFlashRec(id);
   r.ts = Date.now();
+  r.counter = (r.counter || 0) + (ok ? 1 : -1);
   if (ok) {
     r.streak = (r.streak || 0) + 1;
     r.reps = (r.reps || 0) + 1;
@@ -11613,17 +11614,18 @@ function pickFormula() {
     cands.sort(function(a, b) { return a.prio !== b.prio ? a.prio - b.prio : a.due - b.due; });
     return cands.length ? cands[0].f : null;
   }
-  var weak = [], unseen = [], due = [], rest = [];
-  fList.forEach(function(f) {
-    var r = fFlashRec(f.id);
-    if (r.streak < 0) weak.push(f);
-    else if (r.reps === 0) unseen.push(f);
-    else if (r.due <= now) due.push(f);
-    else rest.push(f);
+  var weights = fList.map(function(f) {
+    var c = fFlashRec(f.id).counter || 0;
+    return (c <= 0) ? (1 - c) : Math.max(1, 10 - c);
   });
-  var pool = weak.concat(unseen).concat(due).concat(rest);
-  if (!pool.length) return null;
-  return pool[0];
+  var total = 0;
+  weights.forEach(function(w) { total += w; });
+  var rr = Math.random() * total;
+  for (var i = 0; i < fList.length; i++) {
+    rr -= weights[i];
+    if (rr <= 0) return fList[i];
+  }
+  return fList.length ? fList[fList.length - 1] : null;
 }
 function loadTopic() {
   const tp = topicSel.value;
@@ -11837,7 +11839,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="f-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+<select id="f-algo"><option value="deck">Классика (колода)</option><option value="flash">Флешки (интервалы)</option><option value="counter">Счётчик (вероятности)</option></select>
 </div>
 <div class="progress-mini" id="f-progress"></div>
 <div class="card" id="f-card">
@@ -11987,15 +11989,16 @@ Object.keys(PH.topics).forEach(function(tp){
   const o = document.createElement('option'); o.value=tp; o.textContent=tp+' ('+PH.topics[tp].length+')'; topicSel.appendChild(o);
 });
 let fList = [], fIdx = 0;
-let fAlgo = localStorage.getItem('physics_f_algo') || 'smart';
+let fAlgo = localStorage.getItem('physics_f_algo') || 'flash';
 document.getElementById('f-algo').value = fAlgo;
 let fFlash = {};
 try { fFlash = JSON.parse(localStorage.getItem('physics_f_flash') || '{}'); } catch(e) { fFlash = {}; }
 function fFlashSave() { localStorage.setItem('physics_f_flash', JSON.stringify(fFlash)); }
-function fFlashRec(id) { return fFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0 }; }
+function fFlashRec(id) { return fFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0, counter: 0 }; }
 function fFlashUpdate(id, ok) {
   var r = fFlashRec(id);
   r.ts = Date.now();
+  r.counter = (r.counter || 0) + (ok ? 1 : -1);
   if (ok) {
     r.streak = (r.streak || 0) + 1;
     r.reps = (r.reps || 0) + 1;
@@ -12031,17 +12034,18 @@ function pickFormula() {
     cands.sort(function(a, b) { return a.prio !== b.prio ? a.prio - b.prio : a.due - b.due; });
     return cands.length ? cands[0].f : null;
   }
-  var weak = [], unseen = [], due = [], rest = [];
-  fList.forEach(function(f) {
-    var r = fFlashRec(f.id);
-    if (r.streak < 0) weak.push(f);
-    else if (r.reps === 0) unseen.push(f);
-    else if (r.due <= now) due.push(f);
-    else rest.push(f);
+  var weights = fList.map(function(f) {
+    var c = fFlashRec(f.id).counter || 0;
+    return (c <= 0) ? (1 - c) : Math.max(1, 10 - c);
   });
-  var pool = weak.concat(unseen).concat(due).concat(rest);
-  if (!pool.length) return null;
-  return pool[0];
+  var total = 0;
+  weights.forEach(function(w) { total += w; });
+  var rr = Math.random() * total;
+  for (var i = 0; i < fList.length; i++) {
+    rr -= weights[i];
+    if (rr <= 0) return fList[i];
+  }
+  return fList.length ? fList[fList.length - 1] : null;
 }
 function loadTopic() {
   const tp = topicSel.value;
@@ -12420,6 +12424,7 @@ def informatics_page():
         let correctStreak = 0;
         let totalSolved = 0;
         let wrongAnswers = 0;
+        let trainAlgo = localStorage.getItem('informatics_trainer_algo') || 'flash';
         let hubActivity = {};
         try { hubActivity = JSON.parse(localStorage.getItem('hub_activity') || '{}'); } catch (e) {}
 
@@ -12450,6 +12455,7 @@ def informatics_page():
         }
         function infoRecord(taskId, correct) {
             const r = infoProg[taskId] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0, streak: 0, due: Date.now() };
+            r.counter = (r.counter || 0) + (correct ? 1 : -1);
             if (correct) {
                 r.streak = (r.streak || 0) + 1; r.reps = (r.reps || 0) + 1; r.correct = (r.correct || 0) + 1;
                 if (r.reps === 1) r.interval = 1; else if (r.reps === 2) r.interval = 3; else if (r.reps === 3) r.interval = 7;
@@ -12658,10 +12664,27 @@ def informatics_page():
             return arr;
         }
 
+        function infoProgRec(taskId) {
+            return infoProg[taskId] || { reps: 0, interval: 0, ease: 2.5, correct: 0, wrong: 0, counter: 0, streak: 0, due: Date.now() };
+        }
         function buildQueue() {
             const topic = topicsData.topics.find(function (t) { return t.id === currentTopic; });
             const tasks = (topic && topic.tasks) || [];
-            trainQueue = shuffle(tasks.slice());
+            const now = Date.now();
+            if (trainAlgo === 'deck') {
+                trainQueue = shuffle(tasks.slice());
+            } else if (trainAlgo === 'counter') {
+                trainQueue = tasks.slice().sort(function (a, b) {
+                    return (infoProgRec(a.id).counter || 0) - (infoProgRec(b.id).counter || 0);
+                });
+            } else {
+                trainQueue = tasks.slice().sort(function (a, b) {
+                    const ra = infoProgRec(a.id), rb = infoProgRec(b.id);
+                    const pa = (ra.due <= now) ? 0 : (ra.reps === 0 ? 1 : 2);
+                    const pb = (rb.due <= now) ? 0 : (rb.reps === 0 ? 1 : 2);
+                    return pa !== pb ? pa - pb : (ra.due || 0) - (rb.due || 0);
+                });
+            }
             trainDone = [];
             document.getElementById('trainer-total').textContent = trainQueue.length;
             if (!trainQueue.length) {
@@ -12763,6 +12786,21 @@ def informatics_page():
         lbl.textContent = 'Тема: ';
         modeRow.appendChild(lbl);
         modeRow.appendChild(topicSelect);
+        const algoLbl = document.createElement('label');
+        algoLbl.textContent = 'Алгоритм: ';
+        const algoSel = document.createElement('select');
+        algoSel.className = 'diff-select';
+        algoSel.innerHTML = '<option value="deck">Классика (колода)</option><option value="flash">Флешки (интервалы)</option><option value="counter">Счётчик (вероятности)</option>';
+        algoSel.value = trainAlgo;
+        algoSel.addEventListener('change', function () {
+            trainAlgo = algoSel.value;
+            localStorage.setItem('informatics_trainer_algo', trainAlgo);
+            buildQueue();
+            document.getElementById('next-btn').style.display = 'none';
+            showTrainerTask();
+        });
+        modeRow.appendChild(algoLbl);
+        modeRow.appendChild(algoSel);
         const startBtn = document.createElement('button');
         startBtn.className = 'answer-btn';
         startBtn.textContent = 'Начать тренажёр';
@@ -12859,7 +12897,7 @@ select, input { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b
 </div>
 <div class="topic-sel">
 <label class="muted">Алгоритм:</label>
-<select id="r-algo"><option value="smart">Умный (слабые первые)</option><option value="flash">Флешки (интервалы)</option><option value="deck">Колода (перемешать)</option></select>
+<select id="r-algo"><option value="deck">Классика (колода)</option><option value="flash">Флешки (интервалы)</option><option value="counter">Счётчик (вероятности)</option></select>
 </div>
 <div class="progress-mini" id="r-progress"></div>
 <div class="card" id="r-card">
@@ -12978,15 +13016,16 @@ Object.keys(RU.categories).forEach(function(c){
   const o=document.createElement('option'); o.value=c; o.textContent=c+' ('+RU.categories[c].length+')'; catSel.appendChild(o);
 });
 let rList=[], rIdx=0;
-let rAlgo = localStorage.getItem('russian_r_algo') || 'smart';
+let rAlgo = localStorage.getItem('russian_r_algo') || 'flash';
 document.getElementById('r-algo').value = rAlgo;
 let rFlash = {};
 try { rFlash = JSON.parse(localStorage.getItem('russian_r_flash') || '{}'); } catch(e) { rFlash = {}; }
 function rFlashSave() { localStorage.setItem('russian_r_flash', JSON.stringify(rFlash)); }
-function rFlashRec(id) { return rFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0 }; }
+function rFlashRec(id) { return rFlash[id] || { streak: 0, reps: 0, interval: 0, ease: 2.5, due: 0, correct: 0, wrong: 0, counter: 0 }; }
 function rFlashUpdate(id, ok) {
   var r = rFlashRec(id);
   r.ts = Date.now();
+  r.counter = (r.counter || 0) + (ok ? 1 : -1);
   if (ok) {
     r.streak = (r.streak || 0) + 1;
     r.reps = (r.reps || 0) + 1;
@@ -13025,17 +13064,18 @@ function pickRule() {
     cands.sort(function(a, b) { return a.prio !== b.prio ? a.prio - b.prio : a.due - b.due; });
     return cands.length ? cands[0].r : null;
   }
-  var weak = [], unseen = [], due = [], rest = [];
-  rList.forEach(function(r) {
-    var rec = rFlashRec(r.id);
-    if (rec.streak < 0) weak.push(r);
-    else if (rec.reps === 0) unseen.push(r);
-    else if (rec.due <= now) due.push(r);
-    else rest.push(r);
+  var weights = rList.map(function(r) {
+    var c = rFlashRec(r.id).counter || 0;
+    return (c <= 0) ? (1 - c) : Math.max(1, 10 - c);
   });
-  var pool = weak.concat(unseen).concat(due).concat(rest);
-  if (!pool.length) return null;
-  return pool[0];
+  var total = 0;
+  weights.forEach(function(w) { total += w; });
+  var rr = Math.random() * total;
+  for (var i = 0; i < rList.length; i++) {
+    rr -= weights[i];
+    if (rr <= 0) return rList[i];
+  }
+  return rList.length ? rList[rList.length - 1] : null;
 }
 function renderRule() {
   if (!rList.length) return;
