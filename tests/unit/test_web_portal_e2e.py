@@ -225,6 +225,55 @@ def test_stats_page_renders():
     assert "loadStats" not in body
 
 
+def test_dnd_session_sharing_flow():
+    """Host starts a session (gets share code/url); friend joins via code into the same session."""
+    from api import dnd_runtime
+    client = app.test_client()
+    with patch.object(dnd_runtime, "cmd_dnd_start") as m_start, \
+         patch.object(dnd_runtime, "find_active_session") as m_find, \
+         patch.object(dnd_runtime, "find_session_by_code") as m_code, \
+         patch.object(dnd_runtime, "join_session") as m_join, \
+         patch.object(dnd_runtime, "get_session_log") as m_log, \
+         patch.object(dnd_runtime, "get_session_players") as m_players:
+        # Host starts a session
+        m_start.return_value = "🎲 D&D сессия запущена!"
+        m_find.return_value = {"id": 42, "name": "Подземелье", "share_code": "ABCD1234",
+                                "current_scene": "Вход", "last_ai_response": ""}
+        r = client.post("/api/dnd/start", json={"user_id": "web_host", "name": "Подземелье"})
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["share_code"] == "ABCD1234"
+        assert d["share_url"] == "/dnd?session=ABCD1234"
+
+        # Friend joins via the (case-insensitive) code
+        m_code.return_value = {"id": 42, "name": "Подземелье", "status": "active", "share_code": "ABCD1234"}
+        m_join.return_value = "✅ Вы присоединились к сессии «Подземелье»!"
+        r2 = client.post("/api/dnd/join", json={"user_id": "web_friend", "code": "abcd1234", "name": "Арден"})
+        assert r2.status_code == 200
+        assert r2.get_json()["session_id"] == 42
+        assert r2.get_json()["share_url"] == "/dnd?session=ABCD1234"
+
+        # Friend's status shows the shared session with share_url and both players
+        m_find.return_value = {"id": 42, "name": "Подземелье", "share_code": "ABCD1234",
+                               "current_scene": "Вход", "last_ai_response": ""}
+        m_players.return_value = [
+            {"player_name": "host", "character_class": "Воин", "level": 1},
+            {"player_name": "Арден", "character_class": "Воин", "level": 1},
+        ]
+        m_log.return_value = []
+        r3 = client.get("/api/dnd/status?user_id=web_friend")
+        assert r3.status_code == 200
+        sd = r3.get_json()
+        assert sd["active"] is True
+        assert sd["share_url"] == "/dnd?session=ABCD1234"
+        assert len(sd["players"]) == 2
+
+        # Unknown code -> 404
+        m_code.return_value = None
+        r4 = client.post("/api/dnd/join", json={"user_id": "web_x", "code": "ZZZZ0000"})
+        assert r4.status_code == 404
+
+
 @patch("api.index.get_db_engine")
 def test_gd_web_submit_requires_media(mock_engine):
     """GD web submission requires an attached video/photo and saves it."""
