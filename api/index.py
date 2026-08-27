@@ -4883,7 +4883,6 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
             <div class="cur-overlay" id="cur-overlay">
                 <div class="cur-modal">
                     <div class="cur-head"><h2>🤖 ИИ-куратор</h2><span id="cur-date" style="font-size:12px;color:var(--bb-muted)"></span><button class="cur-x" id="cur-regen" title="Пересобрать план">↻</button><button class="cur-x" id="cur-close" title="Закрыть">✕</button></div>
-                    <div class="oge-chips" id="cur-chips" style="margin:0 0 10px;"></div>
                     <div id="cur-plan"></div>
                     <div class="cur-log" id="cur-log"></div>
                     <div class="cur-row"><input id="cur-input" placeholder="Спросите куратора…"><button class="cur-btn" id="cur-send" style="margin-top:0">➤</button></div>
@@ -5099,17 +5098,14 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     });
                 }
                 function renderChips() {
-                    [5, 10, 15, 20, 30].forEach(function () {});
-                    ['oge-chips', 'cur-chips'].forEach(function (id) {
-                        var el = document.getElementById(id); if (!el) return;
-                        el.innerHTML = '';
-                        [5, 10, 15, 20, 30].forEach(function (m) {
-                            var btn = document.createElement('button');
-                            btn.className = 'oge-chip' + (m === CUR_TARGET ? ' active' : '');
-                            btn.textContent = m + ' \u043C\u0438\u043D';
-                            btn.onclick = function () { setTarget(m); };
-                            el.appendChild(btn);
-                        });
+                    var el = document.getElementById('oge-chips'); if (!el) return;
+                    el.innerHTML = '';
+                    [5, 10, 15, 20, 30].forEach(function (m) {
+                        var btn = document.createElement('button');
+                        btn.className = 'oge-chip' + (m === CUR_TARGET ? ' active' : '');
+                        btn.textContent = m + ' \u043C\u0438\u043D';
+                        btn.onclick = function () { setTarget(m); };
+                        el.appendChild(btn);
                     });
                 }
                 function setTarget(m) {
@@ -13610,7 +13606,11 @@ def api_exam_ai_batch():
     uid = _web_user_id("u" + str(user["id"])) if user else None
     now = time.time()
 
-    catalog, pool = _exam_build_catalog()
+    try:
+        catalog, pool = _exam_build_catalog()
+    except Exception as exc:
+        print(f"[EXAM] ai-batch catalog error: {exc}")
+        return jsonify({"ok": False, "error": "catalog error"}), 500
     if not catalog:
         return jsonify({"ok": False, "error": "empty catalog"}), 400
 
@@ -13816,7 +13816,7 @@ function prefetch() {
       d.items.forEach(function(it){ queue.push(it); });
       document.getElementById('prefetch-status').textContent = '\u2713 \u0415\u0449\u0451 ' + d.items.length + ' \u0432\u043E\u043F\u0440\u043E\u0441\u043E\u0432 \u0433\u043E\u0442\u043E\u0432\u043E';
     }
-  }).catch(function(){ prefetching = false; });
+  }).catch(function(){ prefetching = false; document.getElementById('prefetch-status').textContent = '\u274C \u0421\u0435\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430'; });
 }
 
 document.getElementById('start').onclick = function() {
@@ -13825,6 +13825,7 @@ document.getElementById('start').onclick = function() {
   document.getElementById('result').innerHTML = '';
   prefetching = false;
   prefetch();
+  var waited = 0;
   var waitInterval = setInterval(function(){
     if (queue.length > 0) {
       clearInterval(waitInterval);
@@ -13832,6 +13833,13 @@ document.getElementById('start').onclick = function() {
       idx = 0;
       score = 0;
       showNext();
+    } else if (waited > 15000) {
+      clearInterval(waitInterval);
+      document.getElementById('quiz').style.display = 'none';
+      document.getElementById('result').innerHTML = '<div class="card"><h2>\u274C \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0432\u043E\u043F\u0440\u043E\u0441\u044B</h2><p class="muted">\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0451 \u0440\u0430\u0437.</p></div>';
+      document.getElementById('start-card').style.display = '';
+    } else {
+      waited += 300;
     }
   }, 300);
 };
@@ -14436,9 +14444,9 @@ def api_study_progress_save():
                     conn.execute(text("""
                         INSERT INTO study_progress
                             (user_id, module, card_key, reps, interval_days, ease, due, streak,
-                             correct_count, wrong_count, counter, updated_at)
+                             correct_count, wrong_count, counter, updated_at, created_at, last_correct_at)
                         VALUES (:uid, :module, :key, :reps, :interval, :ease, :due, :streak,
-                                :correct, :wrong, :counter, :ts)
+                                :correct, :wrong, :counter, :ts, :ts, CASE WHEN :correct > 0 THEN :ts ELSE 0 END)
                         ON CONFLICT (user_id, module, card_key) DO UPDATE SET
                             reps = EXCLUDED.reps,
                             interval_days = EXCLUDED.interval_days,
@@ -14448,7 +14456,9 @@ def api_study_progress_save():
                             correct_count = EXCLUDED.correct_count,
                             wrong_count = EXCLUDED.wrong_count,
                             counter = EXCLUDED.counter,
-                            updated_at = EXCLUDED.updated_at
+                            updated_at = EXCLUDED.updated_at,
+                            created_at = CASE WHEN study_progress.created_at = 0 THEN :ts ELSE study_progress.created_at END,
+                            last_correct_at = CASE WHEN :correct > 0 THEN :ts ELSE study_progress.last_correct_at END
                     """), {
                         "uid": uid,
                         "module": module,
@@ -15586,6 +15596,21 @@ def api_study_chat_send():
     today = time.strftime("%Y-%m-%d")
     budget_lines, plan_lines = [], []
     minutes = 10
+
+    _time_match = re.search(r'(\d+)\s*(минут[уыа]?)', msg.lower())
+    if _time_match:
+        _new_min = _clamp_minutes(int(_time_match.group(1)))
+        try:
+            engine = get_db_engine()
+            with engine.connect() as conn:
+                row = _load_plan_row(conn, uid, today)
+                if row and int(row["target_minutes"]) != _new_min:
+                    conn.execute(text(
+                        "UPDATE oge_daily_plans SET target_minutes=:m WHERE user_id=:u AND plan_date=:d"
+                    ), {"m": _new_min, "u": uid, "d": today})
+                    minutes = _new_min
+        except Exception:
+            pass
     try:
         with get_db_engine().connect() as conn:
             row = _load_plan_row(conn, uid, today)
@@ -15667,7 +15692,8 @@ def api_study_chat_send():
         "СТИЛЬ: Не называй технические ключи (formula::f01, event::...) — говори темами и событиями. "
         "Используй ссылки: [Математика](/math), [Русский](/russian), [Информатика](/informatics), "
         "[Физика](/physics), [История](/emperors).\n\n"
-        "ИНСТРУМЕНТЫ (запроси JSON если нужны данные):\n"
+        "ИНСТРУМЕНТЫ: если тебе нужны данные о прогрессе ученика, ответь ТОЛЬКО "
+        "одним JSON-объектом без какого-либо текста вокруг:\n"
         '- {"tool":"stats"} — общая статистика\n'
         '- {"tool":"progress","module":"math"} — журнал по предмету\n'
         '- {"tool":"progress","module":"...","topic":"фрагмент"} — по теме\n'
@@ -15676,7 +15702,8 @@ def api_study_chat_send():
         '- {"tool":"due","module":"math"} — карточки на повторение\n'
         '- {"tool":"weak"} — топ слабых тем\n'
         '- {"tool":"topics","module":"math"} — все темы модуля с прогрессом\n'
-        "Ответь JSON без пояснений. Система пришлёт данные — дай финальный ответ без JSON.\n\n"
+        "Если данные не нужны — отвечай сразу текстом на русском, БЕЗ JSON.\n"
+        "НИКОГДА не показывай JSON-объект ученику — это технический вызов инструмента.\n\n"
         "ДАННЫЕ УЧЕНИКА:\n"
         + "\n".join(budget_lines) + "\n"
         + "\n".join(subj_lines) + "\n"
@@ -15715,7 +15742,9 @@ def api_study_chat_send():
                 time.sleep(min(2, 1 * (2 ** _a2)))
             if second and not second.startswith("❌") and not _tool_directive(second):
                 reply = second
-    if not reply or reply.startswith("❌"):
+            else:
+                reply = _curator_fallback_reply(subjects, plan_lines)
+    if not reply or reply.startswith("❌") or _tool_directive(reply):
         print("[OGE] curator AI unavailable, using rule fallback")
         reply = _curator_fallback_reply(subjects, plan_lines)
     try:
