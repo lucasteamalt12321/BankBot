@@ -4,7 +4,27 @@
 
 ## Changelog
 
-### 2026-08-27 (Session 8: 🔴 FIX критического бага экзамена — `_exam_build_catalog`)
+### 2026-08-27 (Session 8c: 🎯 клик по заданию открывает вкладку предмета)
+- **Фича:** клик по пункту «Плана на день» теперь ведёт на страницу предмета **и сразу открывает нужную вкладку** для выполнения задания (раньше клик открывал ИИ-куратора). Куратор остаётся доступен по шапке «План на день … нажмите, чтобы открыть» и подвалу «Автоматически закрыто N из M».
+- **Сервер:** `_plan_payload` добавляет пунктам поле `tab` через новый `_plan_item_tab(it)` — умный маппинг по `module` + тексту/теме: история → `terms` (термин/понятие), `chrono` (хронология/даты), `match` (личности/правители), иначе `study`; математика/физика → `tasks`; русский → `essay` (сочинение/эссе), иначе `tasks`; информатика → `trainer`.
+- **Модульные страницы принимают `?tab=`:** добавлены JS-обработчики `URLSearchParams.get('tab')` на страницах Математика, Физика, Русский (generic `.tab[data-tab]` click) и Информатика (`switchTab`); история расширена со `terms` на все 5 вкладок (`study/quiz/match/chrono/terms`) через `app.showTab`.
+- **Фронт хаба:** `goItem(it)` строит `it.url + '?tab=' + encodeURIComponent(it.tab)`; и `renderWidgetPlan`, и `renderCurPlan` делают пункты кликабельными (cursor + hover + бейдж «→ выполнить»).
+- **Проверки:** 53 тестов passed, ruff clean, у всех страниц `/math /physics /russian /informatics /emperors /` и `/exam` JS валиден (node --check). Маппинг `_plan_item_tab` проверен юнит-кейсами (terms/chrono/match/study/tasks/essay/trainer).
+
+### 2026-08-27 (Session 8b: 🔴 два прод-бага — экрана экзаменатора и куратора)
+
+**1) Экзаменатор /exam не работал — SIG-баг разворота лапки в «Показать подсказку».**
+- **Корневая причина:** в `EXAM_PAGE_TEMPLATE` строка `onclick="this.nextElementSibling.style.display=\'block\';..."` имела в исходнике Python **одиночный** backslash `\'`. Вместо вывода JS-экранирования `\'` Python внутри тройных кавычек **съедал** backslash → в HTML уходил голый `'` внутри JS-строки в одинарных кавычках → **SyntaxError всего `<script>`** → на странице не работало НИЧЕГО (кнопки, fetch, всё).
+- **Фикс:** `\'` → `\\'` в Python-исходнике (выводит `\'` в JS). Проверено: `node --check` на извлечённом `<script>` теперь OK.
+- **Аудит:** прогон `node --check` по всем 7 шаблонам с `<script>` (`ANALYTICS`, `EXAM`, `MATH`, `PHYSICS`, `RUSSIAN`, `TERMS_FRAGMENT`, `_OGE_HINT_JS`) — **0 синтакс-ошибок**.
+- **Напоминание (подтверждено изmemory):** в тройных кавычках Python для вывода JS `\'` нужен двойной backslash в исходнике.
+
+**2) ИИ-куратор показывал JSON с tool ученику вместо выполнения инструмента.**
+- **Корневая причина:** `_CURATOR_TOOLS = {"stats","progress","plan","card"}` — **отсутствовали `due`, `weak`, `topics`**, хотя они реализованы в `_curator_tool_data` и описаны в промпте. Когда ИИ возвращал `{"tool":"due"}` / `{"tool":"weak"}` / `{"tool":"topics"}`, `_tool_directive()` возвращал `None` (имя не в сете) → код НЕ шёл в ветку инструмента и отправлял **сырой JSON как сообщение** ученику.
+- **Фикс `_CURATOR_TOOLS`:** `{"stats","progress","plan","card","due","weak","topics"}`.
+- **Фикс `_tool_directive`:** заменён regex `\{[^{}]*\}` (не ловил вложенные `{}`) на балансный парсер `_iter_json_objects` (обрабатывает вложенные скобки и кавычки/экранирование) — распознаёт и встроенные в текст, и вложенные директивы.
+- **Доп. safety-net:** `_is_serialized_json(reply)` после основной логики — если итоговый ответ всё же голый JSON (`{`/`[` + парсится через `json.loads`), он заменяется на `_curator_fallback_reply`, т.е. ни при каких обстоятельствах JSON не показывается ученику.
+- **Проверки:** 53 тестов passed (test_curator 17 вкл. tool-directive), ruff clean, py_compile OK, экзамен end-to-end 200 / 3 items / пул 230.
 - **Корневая причина:** `_exam_build_catalog()` обращался к атрибутам, которых нет у объектов: у `HistoryEvent` нет `options`/`correct_idx`/`emperor_id` (только `title`, `year`, `importance`, `note`), а у `MathTask`/`RuleTask`/`InfoTask` нет `options`/`correct` (только `id`, `question`, `answer`, `hint`, `explanation`, `difficulty`, `topic`). Все 5 per-module блоков падали в try/except → пул оставался пустым → `/api/exam/ai-batch` возвращал `{"ok":true,"items":[]}` → очередь не заполнялась → кнопка «Начать экзамен» выглядела сломанной.
 - **Фикс `_exam_build_catalog()`:** переписан на реальную схему — только 4 модуля (math/russian/informatics/physics), каждый task отдаёт `{key, question, module, hint, _answer, _explanation}`. Пул = **230 задач** (math 50, russian 45, informatics 95, physics 40). История выпала из каталога (у неё нет MCQ-задач с options — см. решение ниже).
 - **Фикс `/api/exam/ai-batch`:** убрана тяжёлая зависимость от ИИ-выборки (промпт + `call_ai_api` на каталог 200 строк + парсинг JSON). Теперь чисто детерминированно: слабые карточки ученика (из `_exam_student_context`) первыми, затем случайные; исключая уже показанные (`seen`). Каждый item отдаётся с полем `answer` (не `_answer`), чтобы подходил текстовой ветке ответа в `EXAM_PAGE_TEMPLATE` (`checkTextAnswer` использует `currentIt.answer`).
@@ -1181,7 +1201,7 @@
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
-11efa7b (2026-08-26..27; Session 8 fix критического бага экзамена: `_exam_build_catalog` переписан на реальную схему задач, пул 230, `/api/exam/ai-batch` без зависимости от ИИ — слабые первыми, затем случайные, текстовый ответ; деплой через CLI)
+(Session 8c, in progress — will set after commit)
 c9e4021 (2026-08-26; максимальная прокачка OGE: SM-2 с ростом ease, инфо-тренажёр с самооценкой, физика в экзамене, /api/study/stats, /api/study/due-cards, /api/quiz/generate+check, /analytics, хаб-прогрессбары; деплой через CLI)
 f2ef98e (2026-08-26; автозачёт плана дня: пункт закрыт когда по предмету сегодня тронуто >= cards карточек, кнопка/роут plan/done удалены, снапшот в done_count; ранее fbbc59d — нормы времени + названия без ключей; 68249a9 — тулы topic/card + фикс JS хаба; прод: деплой через CLI по мере сессий)
 fbbc59d (2026-08-26; куратор: реалистичные нормы времени + названия карточек без ключей + планер 2 мин/пункт; ранее 68249a9 — тулы topic/card и фикс JS хаба; b90bf5d — mdLite + lookup-инструменты; прод задеплоен через CLI и смоукнут)
