@@ -13486,78 +13486,93 @@ def _exam_build_catalog():
     """Build catalog of all questions across all OGE modules for AI exam."""
     catalog = []
     pool = []
-    from core.history import EVENTS as _HE, PERSONS as _HP
-    from core.history.terms import TERMS as _HT
-    for it in _HE:
-        key = "event::" + it.title
-        catalog.append({"key": key, "q": it.title + " (" + it.year + ")", "m": "history"})
-        pool.append({"key": key, "question": it.title,
-                     "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
-                     "module": "history", "explanation": getattr(it, "explanation", ""),
-                     "_answer": it.emperor_id})
-    for it in _HP:
-        key = "person::" + it.name
-        catalog.append({"key": key, "q": it.name, "m": "history"})
-        pool.append({"key": key, "question": it.name,
-                     "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
-                     "module": "history", "explanation": getattr(it, "explanation", ""),
-                     "_answer": getattr(it, "role", "")})
-    for it in _HT:
-        key = "term::" + it.term
-        catalog.append({"key": key, "q": it.term + " — " + it.definition[:60], "m": "history"})
-        pool.append({"key": key, "question": "Что такое " + it.term + "?",
-                     "type": "text", "answer": it.definition,
-                     "module": "history", "explanation": it.definition,
-                     "hint": it.category})
-    from core.informatics.tasks import get_all_tasks as _info_tasks
-    for t in _info_tasks():
-        catalog.append({"key": t.id, "q": t.question[:80], "m": "informatics"})
-        pool.append({"key": t.id, "question": t.question,
-                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                     "module": "informatics", "explanation": getattr(t, "explanation", "")})
-    from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
-    for f in _mf:
-        key = "formula::" + f.id
-        catalog.append({"key": key, "q": f.title, "m": "math"})
-        opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
-        random.shuffle(opts)
-        pool.append({"key": key, "question": f.title,
-                     "type": "mcq", "options": opts[:4], "correct_idx": 0,
-                     "module": "math", "explanation": f.result})
-    for t in _mt:
-        catalog.append({"key": t.id, "q": t.question[:80], "m": "math"})
-        pool.append({"key": t.id, "question": t.question,
-                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                     "module": "math", "explanation": getattr(t, "explanation", "")})
-    from core.russian.rules import TASKS as _rt, RULES as _rr
-    for r in _rr:
-        key = "rule::" + r.id
-        catalog.append({"key": key, "q": r.title, "m": "russian"})
-        opts = [r.name, "Не орфограмма"] + (getattr(r, "distractors", None) or ["Другое"])[:2]
-        random.shuffle(opts)
-        pool.append({"key": key, "question": r.title,
-                     "type": "mcq", "options": opts[:4], "correct_idx": 0,
-                     "module": "russian", "explanation": getattr(r, "explanation", r.name),
-                     "hint": getattr(r, "hint", "")})
-    for t in _rt:
-        catalog.append({"key": t.id, "q": t.question[:80], "m": "russian"})
-        pool.append({"key": t.id, "question": t.question,
-                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                     "module": "russian", "explanation": getattr(t, "explanation", "")})
-    from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
-    for f in _pf:
-        key = "formula::" + f.id
-        catalog.append({"key": key, "q": f.title, "m": "physics"})
-        opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
-        random.shuffle(opts)
-        pool.append({"key": key, "question": f.title,
-                     "type": "mcq", "options": opts[:4], "correct_idx": 0,
-                     "module": "physics", "explanation": f.result})
-    for t in _pt:
-        catalog.append({"key": t.id, "q": t.question[:80], "m": "physics"})
-        pool.append({"key": t.id, "question": t.question,
-                     "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                     "module": "physics", "explanation": getattr(t, "explanation", "")})
+    try:
+        from core.history import EVENTS as _HE, PERSONS as _HP
+        from core.history.terms import TERMS as _HT
+        for it in _HE:
+            key = "event::" + it.title
+            catalog.append({"key": key, "q": it.title + " (" + it.year + ")", "m": "history"})
+            pool.append({"key": key, "question": it.title,
+                         "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
+                         "module": "history", "explanation": getattr(it, "explanation", ""),
+                         "_answer": it.emperor_id})
+        for it in _HP:
+            key = "person::" + it.name
+            catalog.append({"key": key, "q": it.name, "m": "history"})
+            pool.append({"key": key, "question": it.name,
+                         "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
+                         "module": "history", "explanation": getattr(it, "explanation", ""),
+                         "_answer": getattr(it, "role", "")})
+        for it in _HT:
+            key = "term::" + it.term
+            catalog.append({"key": key, "q": it.term + " — " + it.definition[:60], "m": "history"})
+            pool.append({"key": key, "question": "Что такое " + it.term + "?",
+                         "type": "text", "answer": it.definition,
+                         "module": "history", "explanation": it.definition,
+                         "hint": it.category})
+    except Exception as exc:
+        print(f"[EXAM] catalog history error: {exc}")
+    try:
+        from core.informatics.tasks import get_all_tasks as _info_tasks
+        for t in _info_tasks():
+            catalog.append({"key": t.id, "q": t.question[:80], "m": "informatics"})
+            pool.append({"key": t.id, "question": t.question,
+                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                         "module": "informatics", "explanation": getattr(t, "explanation", "")})
+    except Exception as exc:
+        print(f"[EXAM] catalog informatics error: {exc}")
+    try:
+        from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
+        for f in _mf:
+            key = "formula::" + f.id
+            catalog.append({"key": key, "q": f.title, "m": "math"})
+            opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
+            random.shuffle(opts)
+            pool.append({"key": key, "question": f.title,
+                         "type": "mcq", "options": opts[:4], "correct_idx": 0,
+                         "module": "math", "explanation": f.result})
+        for t in _mt:
+            catalog.append({"key": t.id, "q": t.question[:80], "m": "math"})
+            pool.append({"key": t.id, "question": t.question,
+                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                         "module": "math", "explanation": getattr(t, "explanation", "")})
+    except Exception as exc:
+        print(f"[EXAM] catalog math error: {exc}")
+    try:
+        from core.russian.rules import TASKS as _rt, RULES as _rr
+        for r in _rr:
+            key = "rule::" + r.id
+            catalog.append({"key": key, "q": r.title, "m": "russian"})
+            opts = [r.name, "Не орфограмма"] + (getattr(r, "distractors", None) or ["Другое"])[:2]
+            random.shuffle(opts)
+            pool.append({"key": key, "question": r.title,
+                         "type": "mcq", "options": opts[:4], "correct_idx": 0,
+                         "module": "russian", "explanation": getattr(r, "explanation", r.name),
+                         "hint": getattr(r, "hint", "")})
+        for t in _rt:
+            catalog.append({"key": t.id, "q": t.question[:80], "m": "russian"})
+            pool.append({"key": t.id, "question": t.question,
+                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                         "module": "russian", "explanation": getattr(t, "explanation", "")})
+    except Exception as exc:
+        print(f"[EXAM] catalog russian error: {exc}")
+    try:
+        from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
+        for f in _pf:
+            key = "formula::" + f.id
+            catalog.append({"key": key, "q": f.title, "m": "physics"})
+            opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
+            random.shuffle(opts)
+            pool.append({"key": key, "question": f.title,
+                         "type": "mcq", "options": opts[:4], "correct_idx": 0,
+                         "module": "physics", "explanation": f.result})
+        for t in _pt:
+            catalog.append({"key": t.id, "q": t.question[:80], "m": "physics"})
+            pool.append({"key": t.id, "question": t.question,
+                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
+                         "module": "physics", "explanation": getattr(t, "explanation", "")})
+    except Exception as exc:
+        print(f"[EXAM] catalog physics error: {exc}")
     return catalog, pool
 
 
