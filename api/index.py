@@ -13479,97 +13479,22 @@ def api_quiz_check():
 
 
 def _exam_build_catalog():
-    """Build catalog of all questions across all OGE modules for AI exam."""
-    catalog = []
+    """Build catalog of all questions across OGE modules for the exam."""
+    from core.informatics.tasks import get_all_tasks as _info_tasks
+    from core.mathematics.formulas import TASKS as _mt
+    from core.russian.rules import TASKS as _rt
+    from core.physics.formulas import TASKS as _pt
     pool = []
-    try:
-        from core.history import EVENTS as _HE, PERSONS as _HP
-        from core.history.terms import TERMS as _HT
-        for it in _HE:
-            key = "event::" + it.title
-            catalog.append({"key": key, "q": it.title + " (" + it.year + ")", "m": "history"})
-            pool.append({"key": key, "question": it.title,
-                         "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
-                         "module": "history", "explanation": getattr(it, "explanation", ""),
-                         "_answer": it.emperor_id})
-        for it in _HP:
-            key = "person::" + it.name
-            catalog.append({"key": key, "q": it.name, "m": "history"})
-            pool.append({"key": key, "question": it.name,
-                         "type": "mcq", "options": it.options, "correct_idx": it.correct_idx,
-                         "module": "history", "explanation": getattr(it, "explanation", ""),
-                         "_answer": getattr(it, "role", "")})
-        for it in _HT:
-            key = "term::" + it.term
-            catalog.append({"key": key, "q": it.term + " — " + it.definition[:60], "m": "history"})
-            pool.append({"key": key, "question": "Что такое " + it.term + "?",
-                         "type": "text", "answer": it.definition,
-                         "module": "history", "explanation": it.definition,
-                         "hint": it.category})
-    except Exception as exc:
-        print(f"[EXAM] catalog history error: {exc}")
-    try:
-        from core.informatics.tasks import get_all_tasks as _info_tasks
-        for t in _info_tasks():
-            catalog.append({"key": t.id, "q": t.question[:80], "m": "informatics"})
-            pool.append({"key": t.id, "question": t.question,
-                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                         "module": "informatics", "explanation": getattr(t, "explanation", "")})
-    except Exception as exc:
-        print(f"[EXAM] catalog informatics error: {exc}")
-    try:
-        from core.mathematics.formulas import TASKS as _mt, FORMULAS as _mf
-        for f in _mf:
-            key = "formula::" + f.id
-            catalog.append({"key": key, "q": f.title, "m": "math"})
-            opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
-            random.shuffle(opts)
-            pool.append({"key": key, "question": f.title,
-                         "type": "mcq", "options": opts[:4], "correct_idx": 0,
-                         "module": "math", "explanation": f.result})
-        for t in _mt:
-            catalog.append({"key": t.id, "q": t.question[:80], "m": "math"})
-            pool.append({"key": t.id, "question": t.question,
-                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                         "module": "math", "explanation": getattr(t, "explanation", "")})
-    except Exception as exc:
-        print(f"[EXAM] catalog math error: {exc}")
-    try:
-        from core.russian.rules import TASKS as _rt, RULES as _rr
-        for r in _rr:
-            key = "rule::" + r.id
-            catalog.append({"key": key, "q": r.title, "m": "russian"})
-            opts = [r.name, "Не орфограмма"] + (getattr(r, "distractors", None) or ["Другое"])[:2]
-            random.shuffle(opts)
-            pool.append({"key": key, "question": r.title,
-                         "type": "mcq", "options": opts[:4], "correct_idx": 0,
-                         "module": "russian", "explanation": getattr(r, "explanation", r.name),
-                         "hint": getattr(r, "hint", "")})
-        for t in _rt:
-            catalog.append({"key": t.id, "q": t.question[:80], "m": "russian"})
-            pool.append({"key": t.id, "question": t.question,
-                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                         "module": "russian", "explanation": getattr(t, "explanation", "")})
-    except Exception as exc:
-        print(f"[EXAM] catalog russian error: {exc}")
-    try:
-        from core.physics.formulas import TASKS as _pt, FORMULAS as _pf
-        for f in _pf:
-            key = "formula::" + f.id
-            catalog.append({"key": key, "q": f.title, "m": "physics"})
-            opts = [f.result, "Не формула для " + f.topic] + (getattr(f, "distractors", None) or ["Другое (" + f.topic + ")"])[:2]
-            random.shuffle(opts)
-            pool.append({"key": key, "question": f.title,
-                         "type": "mcq", "options": opts[:4], "correct_idx": 0,
-                         "module": "physics", "explanation": f.result})
-        for t in _pt:
-            catalog.append({"key": t.id, "q": t.question[:80], "m": "physics"})
-            pool.append({"key": t.id, "question": t.question,
-                         "type": "mcq", "options": t.options, "correct_idx": t.correct,
-                         "module": "physics", "explanation": getattr(t, "explanation", "")})
-    except Exception as exc:
-        print(f"[EXAM] catalog physics error: {exc}")
-    return catalog, pool
+    for module, tasks in (("math", _mt), ("russian", _rt), ("informatics", _info_tasks()), ("physics", _pt)):
+        for t in tasks:
+            pool.append({
+                "key": t.id, "question": t.question,
+                "module": module,
+                "hint": getattr(t, "hint", "") or "",
+                "_answer": str(t.answer),
+                "_explanation": getattr(t, "explanation", "") or "",
+            })
+    return pool
 
 
 def _exam_student_context(uid, now):
@@ -13598,7 +13523,7 @@ def _exam_student_context(uid, now):
 
 @app.route("/api/exam/ai-batch", methods=["POST"])
 def api_exam_ai_batch():
-    """AI curator picks a batch of questions from the DB for this student. NOT saved to chat history."""
+    """Pick a batch of questions for the exam. Weak items first, then random."""
     data = request.get_json(silent=True) or {}
     n = max(1, min(10, int(data.get("n") or 3)))
     seen = set(data.get("seen") or [])
@@ -13607,91 +13532,38 @@ def api_exam_ai_batch():
     now = time.time()
 
     try:
-        catalog, pool = _exam_build_catalog()
+        pool = _exam_build_catalog()
     except Exception as exc:
         print(f"[EXAM] ai-batch catalog error: {exc}")
         return jsonify({"ok": False, "error": "catalog error"}), 500
-    if not catalog:
-        return jsonify({"ok": False, "error": "empty catalog"}), 400
+    if not pool:
+        return jsonify({"ok": True, "items": []})
 
-    # Student context
+    weak_keys = []
     if uid:
-        context_text, weak_keys = _exam_student_context(uid, now)
-    else:
-        context_text, weak_keys = "Ученик не авторизован.", []
-
-    # Filter catalog: remove already-seen keys
-    avail = [c for c in catalog if c["key"] not in seen]
-    if not avail:
-        avail = catalog  # reset if all seen
-
-    # Condensed catalog for prompt
-    cat_lines = [f'{c["key"]}|{c["q"]}|{c["m"]}' for c in avail[:200]]
-    cat_text = "\n".join(cat_lines)
-
-    prompt = (
-        "Ты — ИИ-куратор, подбираешь вопросы для экзамена-тренировки ОГЭ.\n\n"
-        f"ДАННЫЕ УЧЕНИКА:\n{context_text}\n\n"
-        f"ВЫБРАТЬ: {n} вопросов из каталога.\n"
-        "ПРИОРИТЕТЫ: 1) слабые карточки ученика, 2) новые (не встречались), 3) повтор.\n"
-        "РАСПРЕДЕЛЕНИЕ: чередуй предметы (мат, рус, инфо, физ, ист).\n\n"
-        f"КАТАЛОГ (ключ|вопрос|предмет):\n{cat_text}\n\n"
-        f"Верни СТРОГО JSON-массив из {n} ключей:\n"
-        f'["ключ1","ключ2","ключ3"]\n'
-        "Без пояснений."
-    )
-
-    reply = None
-    for _attempt in range(3):
-        reply = call_ai_api(prompt, max_tokens=300, temperature=0.5)
-        if reply and not reply.startswith("\u274C"):
-            break
-        time.sleep(min(4, 1 * (2 ** _attempt)))
-
-    # Parse AI response or fallback
-    chosen_keys = []
-    if reply and not reply.startswith("\u274C"):
         try:
-            match = re.search(r"\[.*?\]", reply, re.DOTALL)
-            if match:
-                chosen_keys = json.loads(match.group(0))
-                chosen_keys = [str(k) for k in chosen_keys if isinstance(k, str)]
+            _, weak_keys = _exam_student_context(uid, now)
         except Exception:
             pass
 
-    # Fallback: weak first, then random
-    if not chosen_keys:
-        fallback_pool = [c["key"] for c in avail if c["key"] in weak_keys]
-        if not fallback_pool:
-            fallback_pool = [c["key"] for c in avail]
-        random.shuffle(fallback_pool)
-        chosen_keys = fallback_pool[:n]
+    avail = [p for p in pool if p["key"] not in seen]
+    if not avail:
+        avail = pool
 
-    # Build full questions
-    pool_by_key = {p["key"]: p for p in pool}
+    weak_avail = [p for p in avail if p["key"] in weak_keys]
+    other_avail = [p for p in avail if p["key"] not in weak_keys]
+    random.shuffle(weak_avail)
+    random.shuffle(other_avail)
+    picked = (weak_avail + other_avail)[:n]
+
     result_items = []
-    for key in chosen_keys:
-        it = pool_by_key.get(key)
-        if not it:
-            continue
-        q = {"key": it["key"], "module": it["module"], "question": it["question"],
-             "type": it.get("type", "text"), "hint": it.get("hint", ""),
-             "explanation": it.get("explanation", "")}
-        if it.get("type") == "mcq":
-            correct = it["_answer"]
-            distractors = list({p["_answer"] for p in pool
-                               if p["_answer"] != correct and p.get("type") == "mcq" and p["module"] == it["module"]})
-            if len(distractors) < 3:
-                distractors += [p["_answer"] for p in pool
-                               if p["_answer"] != correct and p.get("type") == "mcq" and p["module"] != it["module"]]
-            random.shuffle(distractors)
-            options = [correct] + distractors[:3]
-            random.shuffle(options)
-            q["options"] = options
-            q["correct_idx"] = options.index(correct)
-        else:
-            q["answer"] = it["_answer"]
-        result_items.append(q)
+    for it in picked:
+        result_items.append({
+            "key": it["key"], "module": it["module"], "question": it["question"],
+            "hint": it.get("hint", ""),
+            "explanation": it.get("_explanation", ""),
+            "answer": it["_answer"],
+        })
 
     return jsonify({"ok": True, "items": result_items})
 
