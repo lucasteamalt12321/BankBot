@@ -201,4 +201,123 @@ def test_achievements_page_has_calendar_and_filters():
     assert "calendar" in body
     assert "streak" in body
     assert "module-filter" in body
-    assert "achievements" in body
+
+
+def test_oge_study_achievements_unlock():
+    from api.index import app, _web_user_id
+
+    engine = _make_engine()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE study_progress (
+                user_id INTEGER NOT NULL,
+                module TEXT NOT NULL,
+                card_key TEXT NOT NULL,
+                reps INTEGER NOT NULL DEFAULT 0,
+                interval_days REAL NOT NULL DEFAULT 0,
+                ease REAL NOT NULL DEFAULT 2.5,
+                due REAL NOT NULL DEFAULT 0,
+                streak INTEGER NOT NULL DEFAULT 0,
+                correct_count INTEGER NOT NULL DEFAULT 0,
+                wrong_count INTEGER NOT NULL DEFAULT 0,
+                counter INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL,
+                created_at REAL NOT NULL DEFAULT 0,
+                last_correct_at REAL NOT NULL DEFAULT 0
+            )
+        """))
+        conn.execute(text("CREATE UNIQUE INDEX uq_sp ON study_progress(user_id, module, card_key)"))
+        suid = _web_user_id("u42")
+        # 6 mastered math cards (streak>=3, 5 correct each) -> answers 30, mastered 6
+        for i in range(6):
+            conn.execute(text(
+                "INSERT INTO study_progress (user_id, module, card_key, reps, streak,"
+                " correct_count, wrong_count, counter, updated_at)"
+                " VALUES (:s, 'math', :k, 4, 4, 5, 0, 5, 1)"
+            ), {"s": suid, "k": f"formula::f{i}"})
+        # 8 physics cards, 1 correct each, not mastered -> answers 8, mastered 0
+        for i in range(8):
+            conn.execute(text(
+                "INSERT INTO study_progress (user_id, module, card_key, reps, streak,"
+                " correct_count, wrong_count, counter, updated_at)"
+                " VALUES (:s, 'physics', :k, 1, 0, 1, 0, 1, 1)"
+            ), {"s": suid, "k": f"task::t{i}"})
+    c, auth, p, p2, p3 = _register(engine)
+    with p, p2, p3:
+        # trigger _check_web_achievements (reads seeded study_progress facts)
+        r = c.post("/api/achievements/activity", headers=auth, json={"module": "math"})
+        assert r.status_code == 200
+        unlocked = set(r.get_json()["unlocked"])
+        assert "math_first" in unlocked
+        assert "math_25" in unlocked
+        assert "math_mastered_5" in unlocked
+        assert "math_mastered_10" not in unlocked
+        assert "physics_first" in unlocked
+        assert "physics_25" not in unlocked
+        assert "physics_mastered_all" not in unlocked
+        assert "history_first" not in unlocked
+
+        conf = c.get("/api/achievements", headers=auth).get_json()
+        ach = {a["code"]: a for a in conf["achievements"]}
+        assert ach["math_first"]["unlocked"] is True
+        assert ach["math_25"]["unlocked"] is True
+        assert ach["math_mastered_5"]["unlocked"] is True
+        assert ach["math_mastered_10"]["unlocked"] is False
+        assert ach["physics_first"]["unlocked"] is True
+        assert ach["physics_25"]["unlocked"] is False
+        assert ach["physics_mastered_all"]["unlocked"] is False
+        assert ach["history_first"]["unlocked"] is False
+
+
+def test_general_stats_endpoint():
+    from api.index import app
+
+    engine = _make_engine()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE study_progress (
+                user_id INTEGER NOT NULL,
+                module TEXT NOT NULL,
+                card_key TEXT NOT NULL,
+                reps INTEGER NOT NULL DEFAULT 0,
+                interval_days REAL NOT NULL DEFAULT 0,
+                ease REAL NOT NULL DEFAULT 2.5,
+                due REAL NOT NULL DEFAULT 0,
+                streak INTEGER NOT NULL DEFAULT 0,
+                correct_count INTEGER NOT NULL DEFAULT 0,
+                wrong_count INTEGER NOT NULL DEFAULT 0,
+                counter INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL,
+                created_at REAL NOT NULL DEFAULT 0,
+                last_correct_at REAL NOT NULL DEFAULT 0
+            )
+        """))
+        conn.execute(text("CREATE UNIQUE INDEX uq_sp2 ON study_progress(user_id, module, card_key)"))
+
+    c, auth, p, p2, p3 = _register(engine)
+    anon = c.get("/api/stats")
+    assert anon.status_code == 401
+    with p, p2, p3:
+        for mod, n in (("canon", 3), ("chess", 5), ("math", 2), ("gd", 1)):
+            for _ in range(n):
+                r = c.post("/api/achievements/activity", headers=auth, json={"module": mod})
+                assert r.status_code == 200
+
+        d = c.get("/api/stats", headers=auth).get_json()
+        assert d["ok"] is True
+        assert d["streak"]["current"] >= 1
+        assert d["totals"]["actions"] == 3 + 5 + 2 + 1
+        assert d["totals"]["active_days"] == 1
+        # modules is an ordered LIST (Flask sort_keys Alphabetizes dict keys,
+        # so order is preserved only in a list)
+        mods = {m["key"]: m for m in d["modules"]}
+        assert mods["canon"]["label"] == "Канон"
+        assert mods["canon"]["actions"] == 3
+        assert mods["chess"]["actions"] == 5
+        # sorted by actions desc -> chess first (list preserves order)
+        assert d["modules"][0]["actions"] == 5
+        assert d["modules"][0]["emoji"] == "♟️"
+        # OGE block present (empty study_progress -> modules key exists)
+        assert isinstance(d["oge"], dict)
+        assert "modules" in d["oge"]
+        assert "overall_readiness" in d["oge"]

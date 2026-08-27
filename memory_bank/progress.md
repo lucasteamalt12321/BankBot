@@ -4,6 +4,14 @@
 
 ## Changelog
 
+### 2026-08-27 (Session 9c: 📊 Общая статистика как модуль + блок в кабинете)
+- **`/api/stats`** (api/index.py): сводная статистика активности по всем модулям хаба — серия, календарь активных дней, список модулей (actions/days), события, тоталы + вложенный ОГЭ-блок.
+- **Отдельная страница `/stats`** (`stats_page`): общая статистика как самостоятельный модуль, стиль зеркалит `/achievements` (stat-box'ы, календарь 12 недель, сетка модулей, события, ОГЭ-готовность).
+- **Блок «📊 Активность» в `/account`** — компактный, как блок достижений (сводка + календарь + ссылка на `/stats`); карточка «Статистика» 📊 добавлена на хаб `/`.
+- **ОГЭ-ачивки** (5 модулей × шкалы заданий/освоенных карточек) + activity-хуки `_record_activity` в quiz/exam/study-progress (`unlocked_detail`).
+- **Тесты:** +`test_oge_study_achievements_unlock`, `test_general_stats_endpoint` (test_achievements.py), `test_account_page_has_stats_block`, `test_stats_page_renders` (test_web_portal_e2e.py). ruff clean, `node --check` account/stats JS OK.
+- **projectbrief.md:** добавлен раздел Phase 6.5 General Statistics Module (STAT-01…04, 100/100).
+
 ### 2026-08-27 (Session 9b: 🤖 Максимальная прокачка ИИ-куратора — баги + 5 инструментов)
 - **Исправлен мёртвый код (Б1):** `due`/`weak`/`topics` в `_curator_tool_data` были недостижимы (безусловный `return` progress-журнала на старом 15514 перекрывал все последующие ветки). Dispatch переписан на словарь `_CURATOR_HANDLERS`; прогресс вынесен в `_cur_tool_progress`.
 - **Исправлен экзаменационный отсчёт (Б2):** `_oge_exam_countdown` падал (кортеж дат `(2027,6,7)` в `strptime`) → теперь `date(*exam)`, счётчик попадает в промпт («История (284 дн.)…» и т.д.).

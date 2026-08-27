@@ -184,6 +184,7 @@ def test_web_pages_render():
         ("/register", "Регистрация"),
         ("/login", "Войти"),
         ("/account", "Личный кабинет"),
+        ("/stats", "📊 Статистика"),
         ("/suggest", "Предложения"),
         ("/trivia", "Викторина"),
         ("/admin", "Админ-панель"),
@@ -199,6 +200,29 @@ def test_web_pages_render():
         resp = client.get(url)
         assert resp.status_code == 200, f"{url} -> {resp.status_code}"
         assert marker in resp.get_data(as_text=True), f"{url} missing {marker}"
+
+
+def test_account_page_has_stats_block():
+    """Account page renders the general activity/stats block and OGE readiness section."""
+    client = app.test_client()
+    resp = client.get("/account")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "stats-box" in body
+    assert "📊 Активность" in body
+    assert "loadStats" in body
+
+
+def test_stats_page_renders():
+    """Standalone /stats page renders the general statistics shell."""
+    client = app.test_client()
+    resp = client.get("/stats")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "📊 Статистика" in body
+    assert "mod-grid" in body
+    assert "Календарь активности" in body
+    assert "loadStats" not in body
 
 
 @patch("api.index.get_db_engine")

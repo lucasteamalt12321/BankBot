@@ -541,6 +541,21 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **OGE Center: 73/100** (Phase 6 база завершена: ядро, 5 предметов, контент FULL, ИИ-план; веса пересчитаны 2026-08-25 под добавленную итерацию OGE-08…12 — сумма ровно 100)
 
+---
+
+### Phase 6.5: General Statistics Module — общая статистика (web portal) (2026-08-27)
+
+**Контекст:** вместо OGE-специфичной статистики сделана общая статистика активности пользователя по всем модулям хаба. Она существует и как самостоятельный модуль `/stats` (зеркалит `/achievements`), и как компактный блок в личном кабинете `/account` (как блок достижений).
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| STAT-01 | `/api/stats` — сводная статистика активности по всем модулям хаба: серия (`_get_streak_row`), календарь активных дней, список модулей (actions/days, сортировка по actions desc), события (`web_events`), тоталы + вложенный ОГЭ-блок (`_oge_stats_payload`) | completed | 30 |
+| STAT-02 | Отдельная страница `/stats` (route `stats_page`) — полноценная общая статистика как самостоятельный модуль, стиль зеркалит `/achievements`: stat-box'ы (действия/дни/серия), календарь 12 недель, сетка модулей (цвет/эмодзи/ссылка), события, ОГЭ-готовность по предметам | completed | 30 |
+| STAT-03 | Компактный блок «📊 Активность» в `/account` (сводка + календарь + ссылка на `/stats`) по аналогии с блоком достижений; карточка «Статистика» 📊 на хабе `/` рядом с «Достижения» | completed | 20 |
+| STAT-04 | ОГЭ-ачивки (5 модулей × шкалы выполненных заданий и освоенных карточек) + activity-хуки `_record_activity` в quiz/exam/study-progress с разблокировкой в `_check_web_achievements` и отдачей `unlocked_detail` | completed | 20 |
+
+**General Statistics: 100/100** (все deliverables completed; тесты: 10 в test_achievements.py + test_web_portal_e2e.py, ruff clean, `node --check` account/stats JS OK)
+
 ## Additional Tasks (2026-04-03)
 
 | ID | Task | Priority | Status |

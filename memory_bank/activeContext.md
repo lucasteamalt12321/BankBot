@@ -1,5 +1,21 @@
 # Active Context
 
+## ✅ Общая статистика `/api/stats` + блок в личном кабинете (2026-08-27, не закоммичено)
+
+### Сделано:
+- **`/api/stats`** (api/index.py:14719): сводная статистика активности по всем модулям хаба — серия (`_get_streak_row`), календарь активных дней, список модулей (actions/days, сортировка по actions desc), события (`web_events`), тоталы, и вложенный ОГЭ-блок (`_oge_stats_payload`).
+- **ОГЭ-ачивки** (api/index.py): программно сгенерированные `ACHIEVEMENTS` для 5 модулей (math/physics/russian/informatics/history) по шкалам выполненных заданий (`*_1..1000`) и освоенных карточек (`*_mastered_1..100` + `*_mastered_all`); факты читаются из `study_progress`; разблокировка в `_check_web_achievements`.
+- **Блок «📊 Активность»** в `/account`: компактный, как блок достижений — сводка (всего действий/активных дней/серия) + календарь + ссылка «Смотреть всю статистику» → `/stats` (через `loadStats()`).
+- **Отдельная страница `/stats`** (route `stats_page`, api/index.py): полноценная общая статистика как самостоятельный модуль — stat-box'ы (действия/дни/серия), календарь 12 недель, сетка модулей (цвет/эмодзи/ссылка/действия), события (`web_events`) и ОГЭ-готовность по предметам. Стиль зеркалит `/achievements`.
+- **Карточка «Статистика» 📊** добавлена на хаб `/` (рядом с «Достижения»), ведёт на `/stats`.
+- **activity-хуки**: `_record_activity` в `api_quiz_check`, `api_exam_ai_record`, `api_study_progress_save` (последний сразу дёргает `_check_web_achievements` и отдаёт `unlocked_detail`).
+- Тесты: `test_oge_study_achievements_unlock`, `test_general_stats_endpoint` (test_achievements.py); `test_account_page_has_stats_block` (test_web_portal_e2e.py). 10 passed, ruff clean, `node --check` account JS OK.
+
+### Осталось:
+- Закоммитить + задеплоить (рабочая копия не задеплоена).
+- Обновить projectbrief.md deliverables (общая статистика).
+- При деплое убедиться, что миграция `study_progress`/`web_activity_log`/`web_events` на проде актуальна.
+
 ## ✅ ИИ-алгоритм: куратор выбирает вопрос из БД (2026-08-26, коммит `be76752`)
 
 ### Сделано:
