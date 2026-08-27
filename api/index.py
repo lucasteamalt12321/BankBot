@@ -15247,10 +15247,11 @@ def _oge_exam_countdown(now):
         if not exam:
             continue
         try:
-            exam_dt = _dt.datetime.strptime(exam, "%Y-%m-%d")
-            days_left = (exam_dt - _dt.datetime.now()).days
-            if days_left > 0:
-                lines.append(f"{meta['label']}: {days_left} дн.")
+            exam_dt = _dt.date(*exam)
+            days_left = (exam_dt - _dt.datetime.now().date()).days
+            if days_left >= 0:
+                suffix = " (сегодня)" if days_left == 0 else f" ({days_left} дн.)"
+                lines.append(f"{meta['label']}{suffix}")
         except Exception:
             pass
     return lines
@@ -15279,13 +15280,21 @@ def _curator_fallback_reply(subjects, plan_lines):
     reply_parts = []
     items = []
     for line in plan_lines[1:]:
-        m = re.match(r"\d+\) \[(.*?)\] (.*?) \((\d+) мин\)", line)
+        m = re.match(r"^\d+\) \[(.*?)\] (.*?) \((\d+) карточек", line)
         if m:
-            items.append({"label": m.group(1), "text": m.group(2), "minutes": int(m.group(3))})
+            done = "✅" in line or "прогресс" in line
+            items.append({
+                "label": m.group(1),
+                "text": m.group(2).replace("исправить ошибки: ", "").replace("изучить новые: ", ""),
+                "minutes": min(30, max(5, round(int(m.group(3)) * 1.5))),
+                "done": done,
+            })
     if items:
-        reply_parts.append(
-            "План на сегодня: " + "; ".join(f"{it['text']} ({it['minutes']} мин)" for it in items) + "."
-        )
+        parts = []
+        for it in items:
+            status = " (выполнено ✅)" if it["done"] else f" (~{it['minutes']} мин)"
+            parts.append(f"{it['text']}{status}")
+        reply_parts.append("План на сегодня: " + "; ".join(parts) + ".")
     nxt = (
         next((s for s in subjects if s["weak"] > 0), None)
         or next((s for s in subjects if s["due"] > 0), None)
@@ -15300,7 +15309,10 @@ def _curator_fallback_reply(subjects, plan_lines):
     return " ".join(reply_parts)
 
 
-_CURATOR_TOOLS = {"stats", "progress", "plan", "card", "due", "weak", "topics"}
+_CURATOR_TOOLS = {
+    "stats", "progress", "plan", "card", "due", "weak", "topics",
+    "mastered", "streak", "due_cards", "recommend", "exam",
+}
 
 
 def _tool_directive(text):
@@ -15380,6 +15392,20 @@ def _curator_tool_action(directive):
         module = str(directive.get("module") or "")
         meta = OGE_MODULES.get(module)
         return f"листает темы предмета {meta['label'] if meta else ''} \U0001F4DA"
+    if tool == "mastered":
+        module = str(directive.get("module") or "")
+        meta = OGE_MODULES.get(module)
+        return f"подбирает выученное для повторения: {meta['label'] if meta else 'все'} \U0001F3AF"
+    if tool == "streak":
+        return "смотрит серию и точность \U0001F525"
+    if tool == "due_cards":
+        module = str(directive.get("module") or "")
+        meta = OGE_MODULES.get(module)
+        return f"ищет просроченные карточки: {meta['label'] if meta else 'все'} \U000023F3"
+    if tool == "recommend":
+        return "подбирает следующий шаг \U0001F4A1"
+    if tool == "exam":
+        return "сверяется с обратным отсчётом до экзаменов \U0001F3C6"
     module = str(directive.get("module") or "")
     meta = OGE_MODULES.get(module)
     topic = str(directive.get("topic") or "").strip()
@@ -15416,6 +15442,192 @@ def _curator_card_report(row):
         f"верно {int(row['correct_count'] or 0)} / неверно {int(row['wrong_count'] or 0)}, "
         f"интервал {float(row['interval_days'] or 0):.1f} дн, следующее повторение: {due_s}."
     )
+
+
+def _cur_tool_progress(directive, uid, today):
+    """Журнал study_progress по одному предмету или по всем, с фильтром по теме."""
+    module = str(directive.get("module") or "").strip()
+    topic = str(directive.get("topic") or "").strip().lower()
+    mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
+    now = time.time()
+    blocks = []
+    with get_db_engine().connect() as conn:
+        for mod in mods:
+            rows = conn.execute(text(
+                "SELECT card_key, streak, correct_count, wrong_count, due "
+                "FROM study_progress WHERE user_id=:u AND module=:m"
+            ), {"u": uid, "m": mod}).mappings().all()
+            total_cards = OGE_MODULES[mod]["total"]
+            label = OGE_MODULES[mod]["label"]
+            if topic:
+                rows = [r for r in rows if topic in str(r["card_key"]).lower()]
+                if not rows:
+                    blocks.append(f"{label}: по теме «{directive.get('topic')}» записей в журнале нет.")
+                    continue
+            if not rows:
+                blocks.append(f"{label}: карточки ещё не начаты (всего {total_cards}).")
+                continue
+            mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
+            due_cnt = sum(1 for r in rows if r["due"] and 0 < float(r["due"]) <= now)
+            weak_names = [
+                f"{_card_display_name(r['card_key'])} ({int(r['correct_count'] or 0)}✓/{int(r['wrong_count'] or 0)}✗)"
+                for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0)
+            ][:5]
+            types = {}
+            for r in rows:
+                t = str(r["card_key"]).split("::", 1)[0]
+                types[t] = types.get(t, 0) + 1
+            type_line = ", ".join(f"{t}: {n}" for t, n in sorted(types.items()))
+            b = [f"{label}] карточек в журнале: {len(rows)} из {total_cards},"
+                 f" выучено (серия 3+): {mastered}, к повторению сегодня: {due_cnt}."
+                 f" По типам: {type_line}."]
+            if weak_names:
+                b.append(
+                    "Слабые карточки (ошибок больше, чем верных): "
+                    + "; ".join(weak_names)
+                    + f". Всего слабых {sum(1 for r in rows if int(r['wrong_count'] or 0) > int(r['correct_count'] or 0))};"
+                      " повторение одной карточки занимает ~1 минуту."
+                )
+            all_keys = sorted({str(r["card_key"]) for r in rows})
+            shown = ", ".join(all_keys[:20]) + (" …" if len(all_keys) > 20 else "")
+            b.append(f"Ключи ({len(all_keys)}): {shown}. Любую можно запросить инструментом card.")
+            blocks.append(" ".join(b))
+    return "\n".join(blocks) if blocks else "Журнал пока пуст — ученик ещё не начинал занятия."
+
+
+def _cur_tool_due(directive, uid, today):
+    module = str(directive.get("module") or "").strip()
+    mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
+    now_t = time.time()
+    blocks = []
+    with get_db_engine().connect() as conn:
+        for mod in mods:
+            rows = conn.execute(text(
+                "SELECT card_key, streak, due, correct_count, wrong_count FROM study_progress"
+                " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
+                " ORDER BY due ASC"
+            ), {"u": uid, "m": mod, "now": now_t}).mappings().all()
+            if not rows:
+                continue
+            label = OGE_MODULES[mod]["label"]
+            names = [_card_display_name(r["card_key"]) for r in rows[:10]]
+            blocks.append(f"{label} — к повторению {len(rows)}: {', '.join(names)}{'...' if len(rows) > 10 else ''}.")
+    return "\n".join(blocks) if blocks else "Нет карточек на повторение сейчас."
+
+
+def _cur_tool_weak(directive, uid, today):
+    blocks = []
+    with get_db_engine().connect() as conn:
+        for mod, meta in OGE_MODULES.items():
+            rows = conn.execute(text(
+                "SELECT card_key, correct_count, wrong_count FROM study_progress"
+                " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
+                " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
+            ), {"u": uid, "m": mod}).mappings().all()
+            if not rows:
+                continue
+            items = []
+            for r in rows:
+                name = _card_display_name(r["card_key"])
+                c, w = int(r["correct_count"] or 0), int(r["wrong_count"] or 0)
+                items.append(f"{name} ({c}✓/{w}✗)")
+            blocks.append(f"{meta['label']}: {'; '.join(items)}")
+    return "\n".join(blocks) if blocks else "Слабых тем пока нет — всё чисто!"
+
+
+def _cur_tool_topics(directive, uid, today):
+    module = str(directive.get("module") or "").strip()
+    if module not in OGE_MODULES:
+        return f"Неизвестный предмет: {module}. Доступны: {', '.join(OGE_MODULES.keys())}"
+    meta = OGE_MODULES[module]
+    with get_db_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
+            " WHERE user_id=:u AND module=:m"
+        ), {"u": uid, "m": module}).mappings().all()
+    now_t = time.time()
+    total = meta["total"]
+    if not rows:
+        return f"{meta['label']}: ещё не начато ({total} карточек всего)."
+    mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
+    due_cnt = sum(1 for r in rows if float(r["due"] or 0) > 0 and float(r["due"]) <= now_t)
+    weak = sum(1 for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0))
+    return (f"{meta['label']}: {len(rows)}/{total} начато, {mastered} выучено, "
+            f"{due_cnt} к повторению, {weak} слабых.")
+
+
+def _cur_tool_mastered(directive, uid, today):
+    """Выученные карточки (серия 3+), чтобы подобрать повторение изученного."""
+    module = str(directive.get("module") or "").strip()
+    mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
+    blocks = []
+    with get_db_engine().connect() as conn:
+        for mod in mods:
+            rows = conn.execute(text(
+                "SELECT card_key FROM study_progress"
+                " WHERE user_id=:u AND module=:m AND streak >= 3"
+                " ORDER BY updated_at DESC"
+            ), {"u": uid, "m": mod}).mappings().all()
+            if not rows:
+                continue
+            label = OGE_MODULES[mod]["label"]
+            names = ", ".join(_card_display_name(r["card_key"]) for r in rows[:15])
+            blocks.append(f"{label} — выучено {len(rows)}: {names}{'...' if len(rows) > 15 else ''}.")
+    return "\n".join(blocks) if blocks else "Выученных карточек пока нет — начни с новых тем."
+
+
+def _cur_tool_streak(directive, uid, today):
+    streak = _oge_streak_info(uid, time.time())
+    yest = _oge_yesterday_summary(uid)
+    yest_line = ""
+    if yest["touched"]:
+        acc = round(100 * yest["correct"] / max(1, yest["correct"] + yest["wrong"]))
+        yest_line = f" Вчера тронуто {yest['touched']} карточек, точность {acc}%."
+    if not streak["total_answers"]:
+        return "Занятий ещё не было — начни с лёгкой темы, и серия появится 🚀"
+    return (f"Серия учёбы: {streak['current']} дн. (рекорд {streak['best']}), "
+            f"точность {streak['accuracy']}% на {streak['total_answers']} ответов.{yest_line}")
+
+
+def _cur_tool_due_cards(directive, uid, today):
+    """Детальные просроченные карточки (имена + ключи), чтобы назвать точные задания."""
+    module = str(directive.get("module") or "").strip()
+    mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
+    now_t = time.time()
+    blocks = []
+    with get_db_engine().connect() as conn:
+        for mod in mods:
+            rows = conn.execute(text(
+                "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
+                " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
+                " ORDER BY due ASC LIMIT 15"
+            ), {"u": uid, "m": mod, "now": now_t}).mappings().all()
+            if not rows:
+                continue
+            label = OGE_MODULES[mod]["label"]
+            for r in rows:
+                name = _card_display_name(r["card_key"])
+                c, w = int(r["correct_count"] or 0), int(r["wrong_count"] or 0)
+                blocks.append(f"- {name} (ключ {r['card_key']}, {c}✓/{w}✗)")
+            blocks.append(f"Итого {label}: {len(rows)} карточек на повторение.")
+    return "\n".join(blocks) if blocks else "Просроченных карточек сейчас нет."
+
+
+def _cur_tool_recommend(directive, uid, today):
+    lines = ["Рекомендуемый следующий шаг по каждому предмету:"]
+    for s in _oge_subjects_payload(uid, time.time()):
+        lines.append(f"- {s['label']}: {s['next_action']['text']} → {s['url']}")
+    return "\n".join(lines)
+
+
+def _cur_tool_exam(directive, uid, today):
+    lines = ["Обратный отсчёт до ОГЭ:"]
+    cd = _oge_exam_countdown(time.time())
+    if not cd:
+        lines.append("До экзаменов пока больше 0 дней по всем предметам.")
+    else:
+        lines.append("; ".join(cd))
+    return "\n".join(lines)
 
 
 def _curator_tool_data(directive, uid, today):
@@ -15463,117 +15675,26 @@ def _curator_tool_data(directive, uid, today):
                 )
             return "\n".join(lines)
 
-        # tool == "progress": журнал study_progress по одному предмету или по всем,
-        # с опциональным фильтром по теме (подстрока в card_key, без учёта регистра).
-        module = str(directive.get("module") or "").strip()
-        topic = str(directive.get("topic") or "").strip().lower()
-        mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
-        now = time.time()
-        blocks = []
-        with get_db_engine().connect() as conn:
-            for mod in mods:
-                rows = conn.execute(text(
-                    "SELECT card_key, streak, correct_count, wrong_count, due "
-                    "FROM study_progress WHERE user_id=:u AND module=:m"
-                ), {"u": uid, "m": mod}).mappings().all()
-                total_cards = OGE_MODULES[mod]["total"]
-                label = OGE_MODULES[mod]["label"]
-                if topic:
-                    rows = [r for r in rows if topic in str(r["card_key"]).lower()]
-                    if not rows:
-                        blocks.append(f"{label}: по теме «{directive.get('topic')}» записей в журнале нет.")
-                        continue
-                if not rows:
-                    blocks.append(f"{label}: карточки ещё не начаты (всего {total_cards}).")
-                    continue
-                mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
-                due_cnt = sum(1 for r in rows if r["due"] and 0 < float(r["due"]) <= now)
-                weak_names = [
-                    f"{_card_display_name(r['card_key'])} ({int(r['correct_count'] or 0)}✓/{int(r['wrong_count'] or 0)}✗)"
-                    for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0)
-                ][:5]
-                types = {}
-                for r in rows:
-                    t = str(r["card_key"]).split("::", 1)[0]
-                    types[t] = types.get(t, 0) + 1
-                type_line = ", ".join(f"{t}: {n}" for t, n in sorted(types.items()))
-                b = [f"{label}] карточек в журнале: {len(rows)} из {total_cards},"
-                     f" выучено (серия 3+): {mastered}, к повторению сегодня: {due_cnt}."
-                     f" По типам: {type_line}."]
-                if weak_names:
-                    b.append(
-                        "Слабые карточки (ошибок больше, чем верных): "
-                        + "; ".join(weak_names)
-                        + f". Всего слабых {sum(1 for r in rows if int(r['wrong_count'] or 0) > int(r['correct_count'] or 0))};"
-                          " повторение одной карточки занимает ~1 минуту."
-                    )
-                all_keys = sorted({str(r["card_key"]) for r in rows})
-                shown = ", ".join(all_keys[:20]) + (" …" if len(all_keys) > 20 else "")
-                b.append(f"Ключи ({len(all_keys)}): {shown}. Любую можно запросить инструментом card.")
-                blocks.append(" ".join(b))
-        return "\n".join(blocks) if blocks else "Журнал пока пуст — ученик ещё не начинал занятия."
-        if tool == "due":
-            module = str(directive.get("module") or "").strip()
-            mods = [module] if module in OGE_MODULES else list(OGE_MODULES)
-            now_t = time.time()
-            blocks = []
-            with get_db_engine().connect() as conn:
-                for mod in mods:
-                    rows = conn.execute(text(
-                        "SELECT card_key, streak, due, correct_count, wrong_count FROM study_progress"
-                        " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
-                        " ORDER BY due ASC"
-                    ), {"u": uid, "m": mod, "now": now_t}).mappings().all()
-                    if not rows:
-                        continue
-                    label = OGE_MODULES[mod]["label"]
-                    names = [_card_display_name(r["card_key"]) for r in rows[:10]]
-                    blocks.append(f"{label} — к повторению {len(rows)}: {', '.join(names)}{'...' if len(rows) > 10 else ''}.")
-            return "\n".join(blocks) if blocks else "Нет карточек на повторение сейчас."
-
-        if tool == "weak":
-            blocks = []
-            with get_db_engine().connect() as conn:
-                for mod, meta in OGE_MODULES.items():
-                    rows = conn.execute(text(
-                        "SELECT card_key, correct_count, wrong_count FROM study_progress"
-                        " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
-                        " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
-                    ), {"u": uid, "m": mod}).mappings().all()
-                    if not rows:
-                        continue
-                    items = []
-                    for r in rows:
-                        name = _card_display_name(r["card_key"])
-                        c, w = int(r["correct_count"] or 0), int(r["wrong_count"] or 0)
-                        items.append(f"{name} ({c}✓/{w}✗)")
-                    blocks.append(f"{meta['label']}: {'; '.join(items)}")
-            return "\n".join(blocks) if blocks else "Слабых тем пока нет — всё чисто!"
-
-        if tool == "topics":
-            module = str(directive.get("module") or "").strip()
-            if module not in OGE_MODULES:
-                return f"Неизвестный предмет: {module}. Доступны: {', '.join(OGE_MODULES.keys())}"
-            meta = OGE_MODULES[module]
-            with get_db_engine().connect() as conn:
-                rows = conn.execute(text(
-                    "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
-                    " WHERE user_id=:u AND module=:m"
-                ), {"u": uid, "m": module}).mappings().all()
-            now_t = time.time()
-            total = meta["total"]
-            if not rows:
-                return f"{meta['label']}: ещё не начато ({total} карточек всего)."
-            mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
-            due_cnt = sum(1 for r in rows if float(r["due"] or 0) > 0 and float(r["due"]) <= now_t)
-            weak = sum(1 for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0))
-            return (f"{meta['label']}: {len(rows)}/{total} начато, {mastered} выучено, "
-                    f"{due_cnt} к повторению, {weak} слабых.")
-
-
+        handler = _CURATOR_HANDLERS.get(tool)
+        if handler is not None:
+            return handler(directive, uid, today)
+        return f"Неизвестный инструмент: {tool}."
     except Exception as exc:
         print(f"[OGE] curator tool error ({tool}): {exc}")
         return "Данные временно недоступны."
+
+
+_CURATOR_HANDLERS = {
+    "progress": _cur_tool_progress,
+    "due": _cur_tool_due,
+    "weak": _cur_tool_weak,
+    "topics": _cur_tool_topics,
+    "mastered": _cur_tool_mastered,
+    "streak": _cur_tool_streak,
+    "due_cards": _cur_tool_due_cards,
+    "recommend": _cur_tool_recommend,
+    "exam": _cur_tool_exam,
+}
 
 
 def _chat_history(conn, uid, limit=_OGE_CHAT_CONTEXT):
@@ -15727,6 +15848,11 @@ def api_study_chat_send():
         '- {"tool":"due","module":"math"} — карточки на повторение\n'
         '- {"tool":"weak"} — топ слабых тем\n'
         '- {"tool":"topics","module":"math"} — все темы модуля с прогрессом\n'
+        '- {"tool":"mastered","module":"math"} — выученное для повторения\n'
+        '- {"tool":"due_cards","module":"math"} — детальный список просроченных карточек\n'
+        '- {"tool":"streak"} — серия и точность, динамика за вчера\n'
+        '- {"tool":"recommend"} — готовый следующий шаг по каждому предмету\n'
+        '- {"tool":"exam"} — дни до каждого экзамена ОГЭ\n'
         "Если данные не нужны — отвечай сразу текстом на русском, БЕЗ JSON.\n"
         "НИКОГДА не показывай JSON-объект ученику — это технический вызов инструмента.\n\n"
         "ДАННЫЕ УЧЕНИКА:\n"

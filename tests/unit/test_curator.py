@@ -484,3 +484,108 @@ def test_chat_second_call_failure_still_answers():
         assert r["actions"], "lookup должен быть зафиксирован даже при сбое второго вызова"
     finally:
         _stop(patches)
+
+
+def _seed_progress(m, uid):
+    import time as _t
+    with m.get_db_engine().begin() as conn:
+        conn.execute(m.text(
+            "INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease,"
+            " due, streak, correct_count, wrong_count, counter, updated_at)"
+            " VALUES (:u,'math','formula::f01',2,1,2.5,:past,3,4,1,-1,:ts),"
+            " (:u,'math','task::lesson1_o1',0,0,2.5,:past,0,0,3,-2,:ts),"
+            " (:u,'math','task::lesson2_o3',1,0,2.5,:future,1,1,1,0,:ts),"
+            " (:u,'history','event::Крымская война',2,0,2.5,:past2,0,2,3,-1,:ts)"
+        ), {"u": uid, "past": _t.time() - 10, "future": _t.time() + 9999,
+            "past2": _t.time() + 50, "ts": _t.time()})
+
+
+def test_curator_tool_data_due_weak_topics():
+    """Due/weak/topics больше не недостижимый мёртвый код — возвращают свои данные."""
+    m, c, patches = _setup()
+    try:
+        uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
+        _seed_progress(m, uid)
+        due = m._curator_tool_data({"tool": "due", "module": "math"}, uid, "x")
+        assert "formula::f01" in due or "lesson1_o1" in due
+        assert "к повторению" in due
+        weak = m._curator_tool_data({"tool": "weak"}, uid, "x")
+        assert "Крымская война (2✓/3✗)" in weak or "lesson1_o1 (0✓/3✗)" in weak
+        assert "Математика" in weak or "История" in weak
+        topics = m._curator_tool_data({"tool": "topics", "module": "math"}, uid, "x")
+        assert "Математика" in topics and "выучено" in topics
+    finally:
+        _stop(patches)
+
+
+def test_curator_tool_data_new_tools():
+    """Новые инструменты: mastered/streak/due_cards/recommend/exam."""
+    m, c, patches = _setup()
+    import time as _t
+    try:
+        uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
+        _seed_progress(m, uid)
+        mastered = m._curator_tool_data({"tool": "mastered", "module": "math"}, uid, "x")
+        assert "formula::f01" in mastered
+        streak = m._curator_tool_data({"tool": "streak"}, uid, "x")
+        assert "Серия" in streak or "Занятий ещё не было" in streak
+        due_cards = m._curator_tool_data({"tool": "due_cards", "module": "math"}, uid, "x")
+        assert "formula::f01" in due_cards
+        rec = m._curator_tool_data({"tool": "recommend"}, uid, "x")
+        assert "Рекомендуемый" in rec
+        exam = m._curator_tool_data({"tool": "exam"}, uid, "x")
+        assert "Обратный отсчёт" in exam
+    finally:
+        _stop(patches)
+
+
+def test_oge_exam_countdown_uses_tuple_dates():
+    """OGE_EXAM_DATES состоит из кортежей — отсчёт не должен падать."""
+    import api.index as m
+    lines = m._oge_exam_countdown(1e9)
+    assert isinstance(lines, list)
+    assert all("дн." in ln or "сегодня" in ln for ln in lines if ln)
+
+
+def test_curator_fallback_regex_matches_real_plan():
+    """Fallback-ответ должен распознавать реальный формат плана (N карточек)."""
+    m, c, patches = _setup()
+    try:
+        plan_lines = [
+            "План на сегодня (зачёт автоматический) выполнено 1 из 2.",
+            "1) [Математика] исправить ошибки: дроби (3 карточек, тема «урок 1») ✅",
+            "2) [Русский] изучить новые: орфография (2 карточек) (прогресс 1/2)",
+            "3) [Информатика] изучить новые: циклы (4 карточек)",
+        ]
+        subjects = [{
+            "label": "Математика", "weak": 1, "due": 0, "started": 3, "total": 130,
+            "next_action": {"text": "Разобрать 1 ошибок", "url": "/math"},
+        }]
+        reply = m._curator_fallback_reply(subjects, plan_lines)
+        assert "дроби" in reply
+        assert "циклы" in reply
+        assert "Советую сейчас" in reply
+        assert "⚠️" in reply
+    finally:
+        _stop(patches)
+
+
+def test_chat_roundtrip_weak_returns_weak_not_journal():
+    """Roundtrip {"tool":"weak"} должен вернуть слабые темы, а не progress-журнал всех модулей."""
+    m, c, patches = _setup()
+    try:
+        uid = c.get("/api/study/recommendations", headers=AUTH_HEADERS).get_json()["uid"]
+        _seed_progress(m, uid)
+        called_with = {}
+
+        def fake_ai(prompt, max_tokens=150, temperature=0.8):
+            called_with["prompt"] = prompt
+            return '{"tool":"weak"}'
+
+        with patch.object(m, "call_ai_api", side_effect=fake_ai):
+            data_text = m._curator_tool_data({"tool": "weak"}, uid, "x")
+        assert "Слабых тем пока нет" not in data_text
+        assert "Крымская война" in data_text or "lesson1_o1" in data_text
+    finally:
+        _stop(patches)
+
