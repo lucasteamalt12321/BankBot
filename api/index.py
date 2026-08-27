@@ -3796,6 +3796,24 @@ def _gd_shift_positions(conn, position: int, exclude_id: int | None = None) -> N
         )
 
 
+def _gd_compact_positions(conn) -> None:
+    """Eliminate gaps in level positions by renumbering to 1..N.
+
+    After any insert/update/delete of levels the position column may end up
+    with holes (e.g. 1, 2, 5 — missing 3 and 4). This renumbers every level
+    to a dense sequence starting from 1, ordered by current position (stable
+    by id for ties), so placeholder slots never accumulate.
+    """
+    rows = conn.execute(
+        text("SELECT id FROM levels ORDER BY position ASC, id ASC")
+    ).mappings().all()
+    for new_pos, row in enumerate(rows, start=1):
+        conn.execute(
+            text("UPDATE levels SET position = :pos WHERE id = :lid"),
+            {"pos": new_pos, "lid": row["id"]},
+        )
+
+
 def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int | None:
     try:
         with get_db_engine().connect() as conn:
@@ -3809,6 +3827,7 @@ def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int |
                     text("UPDATE levels SET position=:pos, difficulty=:diff WHERE id=:lid"),
                     {"lid": existing["id"], "pos": position, "diff": difficulty},
                 )
+                _gd_compact_positions(conn)
                 conn.commit()
                 return int(existing["id"])
             _gd_shift_positions(conn, position)
@@ -3816,6 +3835,7 @@ def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int |
                 text("INSERT INTO levels (name, position, difficulty) VALUES (:nm, :pos, :diff) RETURNING id"),
                 {"nm": name, "pos": position, "diff": difficulty},
             ).mappings().first()
+            _gd_compact_positions(conn)
             conn.commit()
             return int(result["id"]) if result else None
     except Exception as exc:
@@ -3831,6 +3851,7 @@ def set_gd_level_position(level_id: int, position: int) -> bool:
                 text("UPDATE levels SET position=:pos WHERE id=:lid"),
                 {"lid": level_id, "pos": position},
             )
+            _gd_compact_positions(conn)
             conn.commit()
             return result.rowcount > 0
     except Exception as exc:
@@ -5937,6 +5958,7 @@ def api_gd_admin_level_delete(level_id: int):
             conn.execute(text("DELETE FROM level_completions WHERE level_id = :lid"), {"lid": level_id})
             conn.execute(text("UPDATE player_stats SET hardest_level_id = NULL WHERE hardest_level_id = :lid"), {"lid": level_id})
             conn.execute(text("DELETE FROM levels WHERE id = :lid"), {"lid": level_id})
+            _gd_compact_positions(conn)
             conn.commit()
             return jsonify({"ok": True})
     except Exception as exc:
@@ -5975,6 +5997,7 @@ def api_gd_admin_level_update(level_id: int):
                 text("UPDATE levels SET name=:nm, position=:pos, difficulty=COALESCE(:diff, difficulty) WHERE id=:lid"),
                 {"lid": level_id, "nm": name, "pos": position, "diff": difficulty},
             )
+            _gd_compact_positions(conn)
             conn.commit()
             return jsonify({"ok": True, "id": level_id})
     except Exception as exc:
