@@ -73,9 +73,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | completed | 5 |
 | GD-06 | Админ-команды (/add_level, /set_level_position) | completed | 4 |
 | GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | completed | 3 |
-| GD-TEST | Тестирование GD Module (unit + integration + manual) | pending | 3 |
+| GD-TEST | Тестирование GD Module (unit + integration + manual) | completed | 3 |
 
-**GD Module: 30/33 (91%)**
+**GD Module: 33/33 (100%)**
 
 ---
 
