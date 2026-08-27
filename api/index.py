@@ -5140,6 +5140,12 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         });
                     pollToday();
                 }
+                function goItem(it) {
+                    var url = it.url || '';
+                    var sep = (url.indexOf('?') !== -1) ? '&' : '?';
+                    if (it.tab) url += sep + 'tab=' + encodeURIComponent(it.tab);
+                    window.location.href = url || '/';
+                }
                 function renderWidgetPlan(p) {
                     var list = document.getElementById('oge-plan-list'); if (!list) return;
                     var html = '';
@@ -5147,14 +5153,15 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         var t = it.target || 5, d = Math.min(it.done || 0, t);
                         var prog = (d > 0 && d < t) ? ' <span class="oi-badge">' + d + '/' + t + '</span>' : '';
                         var okmark = d >= t ? ' \u2705' : '';
-                        html += '<div class="oge-item" data-i="' + i + '" style="cursor:pointer">' +
+                        html += '<div class="oge-item" data-i="' + i + '" style="cursor:pointer" title="\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0437\u0430\u0434\u0430\u043D\u0438\u044E">' +
                             okmark + escHtml(it.label) + ' \u2014 ' + escHtml(it.text) +
-                            ' <span class="oi-badge">' + it.minutes + '\u043C</span>' + prog + '</div>';
+                            ' <span class="oi-badge">' + it.minutes + '\u043C</span>' + prog +
+                            (it.tab ? ' <span class="oi-badge">\u2192 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u044C</span>' : '') + '</div>';
                     });
                     html += '<div class="oge-plan-empty">\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u043E ' + p.done + ' \u0438\u0437 ' + p.items.length + ' \u00B7 \u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u0430</div>';
                     list.innerHTML = html;
-                    Array.prototype.forEach.call(list.querySelectorAll('.oge-item'), function (el) {
-                        el.onclick = openCurator;
+                    Array.prototype.forEach.call(list.querySelectorAll('.oge-item'), function (el, i) {
+                        el.onclick = function () { goItem(p.items[i]); };
                     });
                 }
                 function openCurator() {
@@ -5171,10 +5178,15 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var h = '';
                     p.items.forEach(function (it) {
                         var t = it.target || 5, d = Math.min(it.done || 0, t), ok = d >= t;
-                        h += '<div class="cur-item' + (ok ? ' done' : '') + '"><span>' + (ok ? '\u2705' : '\u2B1C') +
-                            '</span><span>' + escHtml((it.label || '') + ' \u2014 ' + it.text) +
-                            '</span><span style="margin-left:auto;color:var(--bb-muted);white-space:nowrap">' +
-                            (ok ? '\u2705 \u0433\u043E\u0442\u043E\u0432\u043E' : d + '/' + t + ' \u043A\u0430\u0440\u0442') + '</span></div>';
+                        h += '<div class="cur-item' + (ok ? ' done' : '') + '" style="cursor:pointer" title="\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0437\u0430\u0434\u0430\u043D\u0438\u044E">' +
+                            '<span>' + (ok ? '\u2705' : '\u2B1C') + '</span>' +
+                            '<span>' + escHtml((it.label || '') + ' \u2014 ' + it.text) + '</span>' +
+                            '<span style="margin-left:auto;color:var(--bb-muted);white-space:nowrap">' +
+                            (ok ? '\u2705 \u0433\u043E\u0442\u043E\u0432\u043E' : d + '/' + t + ' \u043A\u0430\u0440\u0442' + (it.tab ? ' \u00B7 \u2192 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u044C' : '')) + '</span></div>';
+                    });
+                    el.innerHTML = h;
+                    Array.prototype.forEach.call(el.querySelectorAll('.cur-item'), function (row, i) {
+                        row.onclick = function () { goItem(p.items[i]); };
                     });
                     if (p.items.length && p.done >= p.items.length) {
                         h += '<div class="oge-today-line">\U0001F389 \u041F\u043B\u0430\u043D \u0434\u043D\u044F \u043F\u043E\u043B\u043D\u043E\u0441\u0442\u044C\u044E \u0437\u0430\u043A\u0440\u044B\u0442! \u0422\u0430\u043A \u0434\u0435\u0440\u0436\u0430\u0442\u044C.</div>';
@@ -11336,7 +11348,8 @@ function diffInfo() {
             updateScore();
             loadQuestion();
             try {
-                if (new URLSearchParams(location.search).get('tab') === 'terms') app.showTab('terms');
+                var _t = new URLSearchParams(location.search).get('tab');
+                if (['study','quiz','match','chrono','terms'].indexOf(_t) !== -1) app.showTab(_t);
             } catch(e) {}
         })();
     </script>
@@ -11547,6 +11560,8 @@ document.querySelectorAll('.tab').forEach(function(t){
     document.getElementById('p-'+t.dataset.tab).classList.add('active');
   });
 });
+var _tab = new URLSearchParams(location.search).get('tab');
+if (_tab) { var _tt = document.querySelector('.tab[data-tab="' + _tab + '"]'); if (_tt) _tt.click(); }
 
 // ---- Formulas ----
 const topicSel = document.getElementById('f-topic');
@@ -11963,6 +11978,8 @@ document.querySelectorAll('.tab').forEach(function(t){
     document.getElementById('p-'+t.dataset.tab).classList.add('active');
   });
 });
+var _tab = new URLSearchParams(location.search).get('tab');
+if (_tab) { var _tt = document.querySelector('.tab[data-tab="' + _tab + '"]'); if (_tt) _tt.click(); }
 
 // ---- Formulas ----
 const topicSel = document.getElementById('f-topic');
@@ -12463,6 +12480,8 @@ def informatics_page():
         document.querySelectorAll('.tab-btn').forEach(function (btn) {
             btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
         });
+        var _tab = new URLSearchParams(location.search).get('tab');
+        if (_tab === 'study' || _tab === 'theory' || _tab === 'trainer') switchTab(_tab);
 
         // --- Theory tab: read the lesson summary ---
         function renderTheoryTab() {
@@ -12950,6 +12969,8 @@ document.querySelectorAll('.tab').forEach(function(t){
     document.getElementById('p-'+t.dataset.tab).classList.add('active');
   });
 });
+var _tab = new URLSearchParams(location.search).get('tab');
+if (_tab) { var _tt = document.querySelector('.tab[data-tab="' + _tab + '"]'); if (_tt) _tt.click(); }
 
 // ---- Rules ----
 const catSel = document.getElementById('r-cat');
@@ -13770,7 +13791,7 @@ function showNext() {
   if (it.hint) {
     var hb = document.getElementById('hint-box');
     hb.style.display = 'block';
-    hb.innerHTML = '<button class="mcq-btn" style="font-style:italic;color:var(--bb-muted);" onclick="this.nextElementSibling.style.display=\'block\';this.style.display=\'none\';">\U0001F4A1 \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443</button><div class="hint-text" style="display:none;">' + it.hint + '</div>';
+    hb.innerHTML = '<button class="mcq-btn" style="font-style:italic;color:var(--bb-muted);" onclick="this.nextElementSibling.style.display=\\'block\\';this.style.display=\\'none\\';">\U0001F4A1 \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443</button><div class="hint-text" style="display:none;">' + it.hint + '</div>';
   }
 
   prefetch();
@@ -14944,6 +14965,31 @@ def _auto_plan_done(items, uid):
     return done
 
 
+def _plan_item_tab(it):
+    """Какую вкладку страницы предмета открыть для выполнения пункта плана."""
+    mod = str(it.get("module") or "")
+    text = (str(it.get("text") or "") + " " + (it.get("topic") or "")).lower()
+    if mod == "history":
+        if any(k in text for k in ("термин", "поняти", "определени")):
+            return "terms"
+        if any(k in text for k in ("хронологи", "даты", "год")):
+            return "chrono"
+        if any(k in text for k in ("сопостав", "соотнес", "правител", "личн", "персон")):
+            return "match"
+        return "study"
+    if mod == "math":
+        return "tasks"
+    if mod == "physics":
+        return "tasks"
+    if mod == "russian":
+        if any(k in text for k in ("сочинени", "эссе", "изложение")):
+            return "essay"
+        return "tasks"
+    if mod == "informatics":
+        return "trainer"
+    return ""
+
+
 def _plan_payload(row, uid=None):
     """План дня с автозачётом: fix — верный ответ сегодня на слабую карточку,
     new — новая карточка, впервые открытая сегодня; опциональный topic-фильтр."""
@@ -14953,6 +14999,7 @@ def _plan_payload(row, uid=None):
         it["target"] = target
         it["kind"] = _item_kind(it)
         it["topic"] = _norm_topic(it.get("topic"))
+        it["tab"] = _plan_item_tab(it)
         it["done"] = min(target, _compute_item_done(uid, it))
     return {
         "ok": True,
@@ -15190,21 +15237,64 @@ def _curator_fallback_reply(subjects, plan_lines):
     return " ".join(reply_parts)
 
 
-_CURATOR_TOOLS = {"stats", "progress", "plan", "card"}
+_CURATOR_TOOLS = {"stats", "progress", "plan", "card", "due", "weak", "topics"}
 
 
 def _tool_directive(text):
     """Extract a {"tool": ...} JSON directive from an AI reply; dict or None."""
     if not text:
         return None
-    for m in re.finditer(r"\{[^{}]*\}", text):
+    # Try balanced-brace objects so nested JSON is also detected.
+    for m in _iter_json_objects(text):
         try:
-            d = json.loads(m.group(0))
+            d = json.loads(m)
         except Exception:
             continue
         if isinstance(d, dict) and str(d.get("tool") or "") in _CURATOR_TOOLS:
             return d
     return None
+
+
+def _iter_json_objects(text):
+    """Yield substrings that are syntactically balanced JSON objects (incl. nested braces)."""
+    for start in re.finditer(r"\{", text):
+        depth = 0
+        in_str = False
+        esc = False
+        end = None
+        for i in range(start.start(), len(text)):
+            c = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+                continue
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end is not None:
+            yield text[start.start():end + 1]
+
+
+def _is_serialized_json(text):
+    """True if a reply is a bare JSON object/array (never show that to a student)."""
+    s = (text or "").strip()
+    if not s.startswith(("{", "[")):
+        return False
+    try:
+        json.loads(s)
+        return True
+    except Exception:
+        return False
 
 
 def _curator_tool_action(directive):
@@ -15618,6 +15708,9 @@ def api_study_chat_send():
                 reply = _curator_fallback_reply(subjects, plan_lines)
     if not reply or reply.startswith("❌") or _tool_directive(reply):
         print("[OGE] curator AI unavailable, using rule fallback")
+        reply = _curator_fallback_reply(subjects, plan_lines)
+    if _is_serialized_json(reply):
+        print("[OGE] curator returned raw JSON, hiding it with rule fallback")
         reply = _curator_fallback_reply(subjects, plan_lines)
     try:
         with engine.begin() as conn:
