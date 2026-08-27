@@ -1546,6 +1546,59 @@ ACHIEVEMENTS: dict[str, dict] = {
     "coins_10000000": {"icon": "🏆", "name": "Десять миллионов", "desc": "Заработать 10000000 монет", "module": "coins", "weight": 10},
 }
 
+# --- ОГЭ-модули (Математика / Физика / Русский / Информатика / История) ---
+# Ачивки по каждому учебному модулю: шкала по числу выполненных заданий (ответов)
+# и шкала по числу освоенных карточек (серия верных 3+). Генерируются программно,
+# чтобы не раздувать словарь и держать условия синхронными со шкалами.
+_OGE_STUDY_MODS = {
+    "math": {"icon": "📐", "label": "Математика", "l2": "математике"},
+    "physics": {"icon": "⚛️", "label": "Физика", "l2": "физике"},
+    "russian": {"icon": "✍️", "label": "Русский", "l2": "русскому"},
+    "informatics": {"icon": "💻", "label": "Информатика", "l2": "информатике"},
+    "history": {"icon": "🏛️", "label": "История", "l2": "истории"},
+}
+
+# (кол-во, суффикс кода, название награды)
+_OGE_ANSWER_LEVELS = [
+    (1, "first", "Первая задача"),
+    (5, "5", "Пять заданий"),
+    (25, "25", "Двадцать пять заданий"),
+    (50, "50", "Полсотни заданий"),
+    (100, "100", "Сотня заданий"),
+    (250, "250", "Двести пятьдесят заданий"),
+    (500, "500", "Пятьсот заданий"),
+    (1000, "1000", "Тысяча заданий"),
+]
+_OGE_MASTERED_LEVELS = [
+    (1, "1", "Первая освоенная карточка"),
+    (5, "5", "Пять освоенных карточек"),
+    (10, "10", "Десять освоенных карточек"),
+    (25, "25", "Двадцать пять освоенных карточек"),
+    (50, "50", "Полсотни освоенных карточек"),
+    (100, "100", "Сотня освоенных карточек"),
+]
+
+for _oge_mod, _oge_meta in _OGE_STUDY_MODS.items():
+    _oge_icon = _oge_meta["icon"]
+    _oge_lbl = _oge_meta["label"]
+    _oge_l2 = _oge_meta.get("l2", _oge_lbl.lower())
+    for _n, _sfx, _title in _OGE_ANSWER_LEVELS:
+        ACHIEVEMENTS[f"{_oge_mod}_{_sfx}"] = {
+            "icon": _oge_icon, "name": f"{_title} ({_oge_lbl})",
+            "desc": f"Выполнить {_n} заданий по {_oge_l2}", "module": _oge_mod, "weight": 10,
+        }
+    for _n, _sfx, _title in _OGE_MASTERED_LEVELS:
+        ACHIEVEMENTS[f"{_oge_mod}_mastered_{_sfx}"] = {
+            "icon": _oge_icon, "name": f"{_title} ({_oge_lbl})",
+            "desc": f"Освоить {_n} карточек по {_oge_l2} (серия верных 3+)",
+            "module": _oge_mod, "weight": 10,
+        }
+    ACHIEVEMENTS[f"{_oge_mod}_mastered_all"] = {
+        "icon": "🏅", "name": f"Мастер {_oge_lbl}",
+        "desc": f"Освоить все карточки по {_oge_l2}",
+        "module": _oge_mod, "weight": 10,
+    }
+
 
 def _day_str(dt=None):
     """Return a UTC date string YYYY-MM-DD for the given datetime (or now)."""
@@ -1672,6 +1725,20 @@ def _check_web_achievements(conn, user_id):
     except Exception as exc:
         print(f"[ACHIEVEMENTS] emperors mastered fact error: {exc}")
     facts["emperors_mastered"] = emastered
+
+    # --- ОГЭ-модули: выполненные задания (ответы) и освоенные карточки из study_progress ---
+    try:
+        oge_rows = conn.execute(text("""
+            SELECT module,
+                   SUM(correct_count + wrong_count) AS answers,
+                   SUM(CASE WHEN streak >= 3 THEN 1 ELSE 0 END) AS mastered
+            FROM study_progress WHERE user_id = :uid GROUP BY module
+        """), {"uid": uid}).mappings().all()
+        for r in oge_rows:
+            facts[f"{r['module']}_answers"] = int(r["answers"] or 0)
+            facts[f"{r['module']}_mastered"] = int(r["mastered"] or 0)
+    except Exception as exc:
+        print(f"[ACHIEVEMENTS] OGE study facts error: {exc}")
 
     # --- evaluate conditions ---
     should = []
@@ -1910,6 +1977,20 @@ def _check_web_achievements(conn, user_id):
         should.append("emperors_mastered_200")
     if mastered >= 258:
         should.append("emperors_mastered_258")
+
+    # --- ОГЭ-модули: выполненные задания и освоенные карточки ---
+    for _oge_mod, _oge_meta in _OGE_STUDY_MODS.items():
+        _oge_answers = facts.get(_oge_mod + "_answers", 0)
+        for _n, _sfx, _t in _OGE_ANSWER_LEVELS:
+            if _oge_answers >= _n:
+                should.append(f"{_oge_mod}_{_sfx}")
+        _oge_mastered = facts.get(_oge_mod + "_mastered", 0)
+        for _n, _sfx, _t in _OGE_MASTERED_LEVELS:
+            if _oge_mastered >= _n:
+                should.append(f"{_oge_mod}_mastered_{_sfx}")
+        _oge_total = OGE_MODULES.get(_oge_mod, {}).get("total", 0)
+        if _oge_mastered >= _oge_total:
+            should.append(f"{_oge_mod}_mastered_all")
 
     reading = facts["counts"].get("reading", 0)
     if reading >= 1:
@@ -4841,6 +4922,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 <div class="card-content">
                     <h2>Достижения <span id="ach-count"></span></h2>
                     <p>Ваши награды, серия дней и календарь активности</p>
+                </div>
+            </a>
+            <a class="card" href="/stats">
+                <div class="card-icon">📊</div>
+                <div class="card-content">
+                    <h2>Статистика</h2>
+                    <p>Общая активность по всем модулям, серия и календарь</p>
                 </div>
             </a>
             <a class="card" href="/ai_chat">
@@ -8881,6 +8969,22 @@ def account_page():
         .ach-cal { display: grid; grid-template-columns: repeat(28, 1fr); gap: 3px; margin-bottom: 12px; }
         .cal-cell { height: 12px; border-radius: 3px; background: var(--bb-elev); }
         .cal-cell.cal-on { background: var(--bb-accent); }
+        .stats-box { background: var(--gh-bg2); border: 1px solid var(--bb-link); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
+        .stats-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 6px; }
+        .stats-title { font-size: 15px; font-weight: 700; color: var(--bb-warn); }
+        .stats-sub { font-size: 13px; color: var(--bb-muted); }
+        .stats-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+        .stats-mod { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bb-elev); border-radius: 10px; text-decoration: none; color: var(--bb-text); }
+        .stats-mod:hover { border-color: var(--bb-accent); }
+        .stats-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .stats-mod .lbl { font-size: 14px; font-weight: 600; }
+        .stats-mod .acts { margin-left: auto; font-size: 13px; color: var(--bb-muted); }
+        .stats-mod .acts b { color: var(--bb-text); }
+        .oge-block { background: var(--bb-elev); border-radius: 10px; padding: 12px 14px; }
+        .oge-block h4 { font-size: 13px; color: var(--bb-muted); margin-bottom: 8px; font-weight: 600; }
+        .oge-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
+        .oge-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--bb-border); overflow: hidden; }
+        .oge-bar > span { display: block; height: 100%; background: var(--bb-accent); }
         .missing { background: #3e2723; border: 1px solid var(--bb-red); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #ef9a9a; line-height: 1.5; }
         .missing b { color: #ffcdd2; }
         .form-group { margin-bottom: 16px; }
@@ -8935,6 +9039,7 @@ def account_page():
             '</div>' +
             '<div class="coins-row"><div class="lbl">💎 Монеты</div><div class="val">' + (p.coins != null ? p.coins : 0) + '</div></div>' +
             '<div class="ach-box" id="ach-box"><div class="spinner">Загружаю достижения...</div></div>' +
+            '<div class="stats-box" id="stats-box"><div class="spinner">Загружаю статистику...</div></div>' +
             '<div id="missing-box"></div>' +
             '<div class="form-group"><label>Логин</label><input type="text" id="set-login" disabled style="opacity:0.6"></div>' +
             '<div class="form-group"><label>Имя <span class="opt">(если пусто — будет логин)</span></label><input type="text" id="set-name" placeholder="ваше имя"></div>' +
@@ -8947,6 +9052,7 @@ def account_page():
         document.getElementById('card').innerHTML = html;
         fillForm(p);
         loadAchievements();
+        loadStats();
     }
     function loadAchievements() {
         var box = document.getElementById('ach-box');
@@ -8971,6 +9077,28 @@ def account_page():
                     '<a class="btn btn-secondary" href="/achievements">Смотреть все достижения</a>';
             })
             .catch(function() { box.innerHTML = '<b>Достижения</b><div class="hint">Не удалось загрузить.</div>'; });
+    }
+    function loadStats() {
+        var box = document.getElementById('stats-box');
+        if (!box) return;
+        fetch('/api/stats', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.ok) { box.style.display = 'none'; return; }
+                var streak = d.streak || {};
+                var totals = d.totals || {};
+                var cal = d.calendar || [];
+                var calHtml = '';
+                cal.forEach(function() { calHtml += '<div class="cal-cell cal-on"></div>'; });
+                if (!cal.length) calHtml = '<div class="hint">Нет активности пока.</div>';
+                box.innerHTML = '<div class="ach-head">' +
+                    '<div class="stats-title">📊 Активность</div>' +
+                    '<div class="ach-stats">всего <b>' + (totals.actions || 0) + '</b> · <b>' + (totals.active_days || 0) + '</b> дн. · серия <b>' + (streak.current || 0) + '</b> дн.</div>' +
+                    '</div>' +
+                    '<div class="ach-cal">' + calHtml + '</div>' +
+                    '<a class="btn btn-secondary" href="/stats">Смотреть всю статистику</a>';
+            })
+            .catch(function() { box.style.display = 'none'; });
     }
     function fillForm(p) {
         document.getElementById('set-login').value = p.login || '';
@@ -13553,6 +13681,11 @@ def api_quiz_check():
                 recorded = True
             except Exception as exc:
                 print(f"[QUIZ] progress record error: {exc}")
+        try:
+            with get_db_engine().connect() as conn:
+                _record_activity(conn, user["id"], "quiz", 1)
+        except Exception as exc:
+            print(f"[QUIZ] activity record error: {exc}")
     resp = {"ok": True, "correct": ok, "recorded": recorded}
     if it.get("type") == "mcq":
         resp["answer"] = it.get("correct_idx")
@@ -13668,6 +13801,11 @@ def api_exam_ai_record():
     try:
         with get_db_engine().begin() as conn:
             _study_record_one(conn, uid, module, key, correct)
+        try:
+            with get_db_engine().connect() as conn:
+                _record_activity(conn, user["id"], "exam", 1)
+        except Exception as exc:
+            print(f"[EXAM] activity record error: {exc}")
         return jsonify({"ok": True, "recorded": True})
     except Exception as exc:
         print(f"[EXAM] ai-record error: {exc}")
@@ -14247,6 +14385,185 @@ def achievements_page():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+@app.route("/stats")
+def stats_page():
+    """Standalone general activity statistics page (mirrors /achievements)."""
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Статистика — LTHub</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bb-bg); color: var(--bb-text); font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; min-height: 100vh; }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .header h1 { font-size: 24px; color: var(--gh-text2); }
+        .header a { color: var(--bb-link); text-decoration: none; font-size: 14px; }
+        .card { background: var(--bb-panel); border: 1px solid var(--bb-border); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+        .stats-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .stat-box { flex: 1; min-width: 140px; background: var(--bb-elev); border: 1px solid var(--bb-border); border-radius: 12px; padding: 14px; text-align: center; }
+        .stat-box .num { font-size: 28px; font-weight: 700; color: var(--bb-warn); }
+        .stat-box .lbl { font-size: 12px; color: var(--bb-muted); margin-top: 4px; }
+        .section-title { font-size: 14px; color: var(--bb-accent); font-weight: 600; margin: 20px 0 12px; }
+        .cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; }
+        .cal-dow span { font-size: 11px; color: var(--bb-muted); text-align: center; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        .cal-cell { aspect-ratio: 1; border-radius: 8px; background: var(--bb-elev); border: 1px solid var(--bb-border); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--bb-muted); }
+        .cal-cell.active { background: var(--bb-green2); border-color: var(--gh-green); color: #0f1420; font-weight: 700; }
+        [data-theme="light"] .cal-cell.active { color: #fff; }
+        .cal-cell.today { border-color: var(--bb-warn); }
+        .cal-cell.future { opacity: 0.35; }
+        .mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+        .mod { background: var(--bb-elev); border: 1px solid var(--bb-border); border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--bb-text); transition: all 0.15s; }
+        .mod:hover { border-color: var(--bb-accent); }
+        .mod .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .mod .emoji { font-size: 18px; }
+        .mod .name { font-weight: 600; font-size: 14px; }
+        .mod .acts { margin-left: auto; font-size: 13px; color: var(--bb-muted); }
+        .mod .acts b { color: var(--bb-text); }
+        .ev-list { display: flex; flex-direction: column; gap: 6px; }
+        .ev { display: flex; align-items: center; justify-content: space-between; background: var(--bb-elev); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+        .ev .cnt { color: var(--bb-muted); }
+        .oge-block { background: var(--bb-elev); border-radius: 10px; padding: 12px 14px; }
+        .oge-block h4 { font-size: 13px; color: var(--bb-muted); margin-bottom: 8px; font-weight: 600; }
+        .oge-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
+        .oge-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--bb-border); overflow: hidden; }
+        .oge-bar > span { display: block; height: 100%; background: var(--bb-accent); }
+        .empty { color: var(--bb-muted); font-size: 14px; padding: 20px; text-align: center; }
+        .hint { font-size: 13px; color: var(--bb-muted); }
+        @media (max-width: 600px) { .cal-cell { font-size: 9px; } .mod-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Статистика</h1>
+            <a href="/account">← В личный кабинет</a>
+        </div>
+        <div class="card">
+            <div class="stats-row">
+                <div class="stat-box"><div class="num" id="stat-actions">–</div><div class="lbl">всего действий</div></div>
+                <div class="stat-box"><div class="num" id="stat-days">–</div><div class="lbl">активных дней</div></div>
+                <div class="stat-box"><div class="num" id="stat-current">–</div><div class="lbl">текущая серия</div></div>
+                <div class="stat-box"><div class="num" id="stat-longest">–</div><div class="lbl">макс. серия</div></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="section-title">🔥 Календарь активности (последние 12 недель)</div>
+            <div class="cal-dow"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
+            <div class="cal-grid" id="calendar"></div>
+        </div>
+        <div class="card">
+            <div class="section-title">🧩 Активность по модулям</div>
+            <div class="mod-grid" id="mod-grid"></div>
+        </div>
+        <div class="card" id="oge-card">
+            <div class="section-title">📚 ОГЭ — готовность по предметам</div>
+            <div class="oge-block" id="oge-block"></div>
+        </div>
+        <div class="card" id="events-card">
+            <div class="section-title">⚡ События</div>
+            <div class="ev-list" id="events"></div>
+        </div>
+    </div>
+    <div class="toast" id="toast"></div>
+    <script>
+        (function() {
+            var token = localStorage.getItem('web_token') || '';
+            var uid = localStorage.getItem('web_user_id') || '';
+            var toast = document.getElementById('toast');
+            function showToast(msg) { toast.textContent = msg; toast.style.display = 'block'; setTimeout(function(){ toast.style.display = 'none'; }, 2600); }
+            function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+            if (!token || uid.indexOf('u') !== 0) {
+                document.querySelector('.container').innerHTML = '<div class="card"><div class="empty">Вы не вошли в аккаунт. <a href="/account" style="color:#4a90d9">Войдите</a>, чтобы видеть свою статистику.</div></div>';
+                return;
+            }
+            function renderCalendar(calendar) {
+                var active = {};
+                calendar.forEach(function(d) { active[d] = true; });
+                var today = new Date();
+                var start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                start.setDate(start.getDate() - 82);
+                var monday = new Date(start);
+                var dow = monday.getDay(); if (dow === 0) dow = 7;
+                monday.setDate(monday.getDate() - (dow - 1));
+                var html = '';
+                var nowStr = function(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+                for (var d = new Date(monday); d <= new Date(today); d.setDate(d.getDate() + 1)) {
+                    var ds = nowStr(d);
+                    var cls = 'cal-cell';
+                    if (active[ds]) cls += ' active';
+                    if (ds === nowStr(today)) cls += ' today';
+                    if (d > today) cls += ' future';
+                    html += '<div class="' + cls + '">' + d.getDate() + '</div>';
+                }
+                document.getElementById('calendar').innerHTML = html;
+            }
+            function render(data) {
+                var totals = data.totals || {};
+                var streak = data.streak || {};
+                document.getElementById('stat-actions').textContent = totals.actions || 0;
+                document.getElementById('stat-days').textContent = totals.active_days || 0;
+                document.getElementById('stat-current').textContent = streak.current || 0;
+                document.getElementById('stat-longest').textContent = streak.longest || 0;
+                renderCalendar(data.calendar || []);
+                var grid = document.getElementById('mod-grid');
+                grid.innerHTML = '';
+                (data.modules || []).forEach(function(m) {
+                    var a = document.createElement('a');
+                    a.className = 'mod';
+                    a.href = m.url || '/';
+                    a.innerHTML = '<span class="dot" style="background:' + esc(m.color) + '"></span>' +
+                        '<span class="emoji">' + esc(m.emoji) + '</span>' +
+                        '<span class="name">' + esc(m.label) + '</span>' +
+                        '<span class="acts"><b>' + (m.actions || 0) + '</b> · ' + (m.days || 0) + ' дн.</span>';
+                    grid.appendChild(a);
+                });
+                if (!grid.children.length) grid.innerHTML = '<div class="empty">Нет активности пока.</div>';
+                var oge = data.oge || null;
+                var ogeBlock = document.getElementById('oge-block');
+                if (oge && oge.modules && Object.keys(oge.modules).length) {
+                    var oh = '';
+                    Object.keys(oge.modules).forEach(function(k) {
+                        var m = oge.modules[k];
+                        oh += '<div class="oge-row">' +
+                            '<span class="emoji">' + esc(m.emoji || '') + '</span>' +
+                            '<span style="min-width:84px">' + esc(m.label) + '</span>' +
+                            '<span class="oge-bar"><span style="width:' + (m.readiness || 0) + '%"></span></span>' +
+                            '<span style="min-width:64px;text-align:right">' + (m.readiness || 0) + '% · ' + (m.mastered || 0) + '/' + (m.total || 0) + '</span>' +
+                            '</div>';
+                    });
+                    oh += '<div class="hint" style="margin-top:6px">Общая готовность: <b>' + (oge.overall_readiness || 0) + '%</b></div>';
+                    ogeBlock.innerHTML = oh;
+                } else {
+                    document.getElementById('oge-card').style.display = 'none';
+                }
+                var evList = document.getElementById('events');
+                evList.innerHTML = '';
+                (data.events || []).forEach(function(e) {
+                    var row = document.createElement('div');
+                    row.className = 'ev';
+                    row.innerHTML = '<span>' + esc(e.event) + '</span><span class="cnt">' + (e.count || 0) + '</span>';
+                    evList.appendChild(row);
+                });
+                if (!evList.children.length) evList.innerHTML = '<div class="empty">Событий пока нет.</div>';
+            }
+            fetch('/api/stats', { headers: { 'X-Auth-Token': token } })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (!d.ok) { showToast(d.error || 'Ошибка'); return; }
+                    render(d);
+                })
+                .catch(function() { showToast('Ошибка загрузки'); });
+        })();
+    </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 @app.route("/api/emperors/progress", methods=["GET"])
 def api_emperors_progress():
     """Load the Emperors module SM-2 progress for the current web user.
@@ -14429,20 +14746,36 @@ def api_study_progress_save():
                         "counter": int(rec.get("counter", 0)),
                         "ts": time.time(),
                     })
-        return jsonify({"ok": True, "uid": uid, "module": module, "saved": len(cards)})
+        # --- achievements: record study activity and unlock OGE-module achievements ---
+        unlocked_detail = []
+        try:
+            web_uid = user["id"]
+            with engine.connect() as conn:
+                _record_activity(conn, web_uid, module, 1)
+                newly = _check_web_achievements(conn, web_uid)
+                conn.commit()
+            unlocked_detail = [
+                {"code": code, "icon": ACHIEVEMENTS[code]["icon"], "name": ACHIEVEMENTS[code]["name"]}
+                for code in newly
+            ]
+        except Exception as exc:
+            print(f"[STUDY] achievement hook error: {exc}")
+        return jsonify({"ok": True, "uid": uid, "module": module, "saved": len(cards),
+                        "unlocked_detail": unlocked_detail})
     except Exception as exc:
         print(f"[STUDY] progress POST error: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
-@app.route("/api/study/stats", methods=["GET"])
-def api_study_stats():
+def _oge_stats_payload(web_user_id):
+    """OGE study statistics block (readiness, streak, today, forecast)."""
+
     """Comprehensive study statistics: per-module readiness, streak, today summary, forecast."""
     user = _get_session_user(_auth_token_from_request())
     if not user:
         return jsonify({"modules": {}, "streak": {"current": 0, "best": 0},
                         "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0}, "forecast": []})
-    uid = _web_user_id("u" + str(user["id"]))
+    uid = _web_user_id("u" + str(web_user_id))
     now = time.time()
     today_start = now - (now % 86400)
     modules = {}
@@ -14570,14 +14903,122 @@ def api_study_stats():
     except Exception:
         pass
     overall_readiness = round(total_mastered / max(1, total_cards) * 100)
-    return jsonify({
+    return {
         "modules": modules,
         "overall_readiness": overall_readiness,
         "streak": {"current": current_streak, "best": best_streak},
         "today": {"cards": today_cards, "correct": today_correct, "wrong": today_wrong,
                   "correct_rate": round(today_correct / max(1, today_correct + today_wrong) * 100)},
         "forecast": forecast,
-    })
+    }
+
+
+# ── Общая статистика (general stats) ────────────────────────────────────────
+# Modules/user activities tracked in web_activity_log via /api/achievements/activity.
+# Each hub page posts its own module via hubTrack(). The registry maps a module key to
+# display metadata used by the general statistics view.
+
+_STATS_MODULES = {
+    "history": {"label": "История", "emoji": "📜", "color": "#8b5cf6", "url": "/emperors"},
+    "informatics": {"label": "Информатика", "emoji": "💻", "color": "#06b6d4", "url": "/informatics"},
+    "math": {"label": "Математика", "emoji": "📐", "color": "#f59e0b", "url": "/math"},
+    "russian": {"label": "Русский язык", "emoji": "📝", "color": "#ec4899", "url": "/russian"},
+    "physics": {"label": "Физика", "emoji": "⚛️", "color": "#10b981", "url": "/physics"},
+    "emperors": {"label": "История (императоры)", "emoji": "👑", "color": "#8b5cf6", "url": "/emperors"},
+    "canon": {"label": "Канон", "emoji": "📖", "color": "#f59e0b", "url": "/canon"},
+    "quiz": {"label": "Квизы", "emoji": "❓", "color": "#06b6d4", "url": "/analytics"},
+    "exam": {"label": "Экзамен", "emoji": "🎓", "color": "#ec4899", "url": "/exam"},
+    "chess": {"label": "Шахматы", "emoji": "♟️", "color": "#10b981", "url": "/chess"},
+    "gd": {"label": "Geometry Dash", "emoji": "🟦", "color": "#22d3ee", "url": "/gd"},
+    "trivia": {"label": "Викторина", "emoji": "🧠", "color": "#facc15", "url": "/trivia"},
+    "verbs": {"label": "Неправ. глаголы", "emoji": "🔤", "color": "#a78bfa", "url": "/irregular_verbs"},
+    "reading": {"label": "Чтение", "emoji": "📚", "color": "#34d399", "url": "/reading_trainer.html"},
+    "family": {"label": "Семейный бюджет", "emoji": "💰", "color": "#ef4444", "url": "/family"},
+    "dnd": {"label": "DnD", "emoji": "🐉", "color": "#fb7185", "url": "/dnd"},
+    "prayer": {"label": "Молитва дня", "emoji": "🙏", "color": "#c084fc", "url": "/daily_prayer"},
+    "ai_chat": {"label": "ИИ-чат", "emoji": "🤖", "color": "#38bdf8", "url": "/ai_chat"},
+    "reading_trainer": {"label": "Тренажёр чтения", "emoji": "📖", "color": "#34d399", "url": "/reading_trainer.html"},
+    "system": {"label": "Прочее", "emoji": "✨", "color": "#94a3b8", "url": "/"},
+}
+
+
+@app.route("/api/stats", methods=["GET"])
+def api_stats():
+    """Общая статистика: активность по всем модулям хаба + серия + события + ОГЭ-блок.
+
+    Служит одновременно отдельной страницей /analytics и сводным блоком личного
+    кабинета /account (по аналогии с достижениями).
+    """
+    web_uid = _require_web_user()
+    if not web_uid:
+        return jsonify({"ok": False, "error": "auth required"}), 401
+    try:
+        with get_db_engine().connect() as conn:
+            streak_row = _get_streak_row(conn, web_uid)
+            day_rows = conn.execute(
+                text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :u ORDER BY day"),
+                {"u": web_uid},
+            ).mappings().all()
+            mod_rows = conn.execute(
+                text("SELECT module, SUM(actions) AS total, COUNT(DISTINCT day) AS days "
+                     "FROM web_activity_log WHERE user_id = :u GROUP BY module"),
+                {"u": web_uid},
+            ).mappings().all()
+            ev_rows = conn.execute(
+                text("SELECT event, count FROM web_events WHERE user_id = :u ORDER BY count DESC"),
+                {"u": web_uid},
+            ).mappings().all()
+
+        calendar = [r["day"] for r in day_rows]
+        modules = []
+        for r in mod_rows:
+            key = r["module"]
+            meta = _STATS_MODULES.get(key, {})
+            modules.append({
+                "key": key,
+                "label": meta.get("label", key),
+                "emoji": meta.get("emoji", ""),
+                "color": meta.get("color", "#94a3b8"),
+                "url": meta.get("url", "/"),
+                "actions": int(r["total"] or 0),
+                "days": int(r["days"] or 0),
+            })
+        modules.sort(key=lambda m: -m["actions"])
+        events = [{"event": r["event"], "count": int(r["count"] or 0)} for r in ev_rows]
+        total_actions = sum(m["actions"] for m in modules)
+
+        oge = None
+        try:
+            oge = _oge_stats_payload(web_uid)
+        except Exception as exc:
+            print(f"[STATS] oge block error: {exc}")
+
+        return jsonify({
+            "ok": True,
+            "streak": {
+                "current": streak_row["current_streak"] if streak_row else 0,
+                "longest": streak_row["longest_streak"] if streak_row else 0,
+                "total_days": streak_row["total_active_days"] if streak_row else 0,
+            },
+            "calendar": calendar,
+            "modules": modules,
+            "events": events,
+            "totals": {"actions": total_actions, "active_days": len(calendar)},
+            "oge": oge,
+        })
+    except Exception as exc:
+        print(f"[STATS] error: {exc}")
+        return jsonify({"ok": False, "error": "server error"}), 500
+
+
+@app.route("/api/study/stats", methods=["GET"])
+def api_study_stats():
+    """Comprehensive study statistics: per-module readiness, streak, today summary, forecast."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"modules": {}, "streak": {"current": 0, "best": 0},
+                        "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0}, "forecast": []})
+    return jsonify(_oge_stats_payload(user["id"]))
 
 
 @app.route("/api/study/due-cards", methods=["GET"])
