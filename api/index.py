@@ -623,6 +623,18 @@ def _ensure_budget_tables(engine):
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_payments_family_id ON payments(family_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS linked_vk_accounts (
+                    id SERIAL PRIMARY KEY,
+                    tg_user_id TEXT NOT NULL,
+                    vk_user_id TEXT,
+                    link_code TEXT,
+                    code_expires_at TIMESTAMP,
+                    linked_at TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_tg ON linked_vk_accounts(tg_user_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_vk ON linked_vk_accounts(vk_user_id)"))
             conn.commit()
         print("[BUDGET] Tables ensured successfully")
     except Exception as exc:
@@ -14903,7 +14915,10 @@ def stats_page():
                         '<div class="fc-num" style="color:var(--bb-green3);font-size:10px">' + (f.learned || 0) + '✅' + ((f.learned_delta || 0) > 0 ? ' (+' + f.learned_delta + ')' : '') + '</div></div>';
                 }
                 var lastF = d.forecast[d.forecast.length - 1];
-                document.getElementById('s-learn-summary').textContent = 'За 14 дней выучишь ≈ ' + (lastF ? lastF.learned : 0) + ' новых карточек (из ' + (d.total_unseen || 0) + ' новых всего)';
+                var learnAll = (d.days_to_learn_all || 0);
+                var summary = 'За 14 дней выучишь ≈ ' + (lastF ? lastF.learned : 0) + ' новых карточек (из ' + (d.total_unseen || 0) + ' новых всего)';
+                if (learnAll) summary += ' · чтобы выучить все новые: ~' + learnAll + ' дн.';
+                document.getElementById('s-learn-summary').textContent = summary;
                 var wl = document.getElementById('s-weak');
                 wl.innerHTML = '';
                 var weakItems = [];
@@ -15319,6 +15334,11 @@ def _oge_stats_payload(web_user_id):
     except Exception:
         pass
     overall_readiness = round(total_mastered / max(1, total_cards) * 100)
+    # Days until ALL new cards are learned: introduce at `pace`/day, then +MASTERY_GAP to master the last batch.
+    days_to_learn_all = 0
+    if total_unseen and pace:
+        import math
+        days_to_learn_all = math.ceil(total_unseen / pace) + MASTERY_GAP
     return {
         "modules": modules,
         "overall_readiness": overall_readiness,
@@ -15327,6 +15347,7 @@ def _oge_stats_payload(web_user_id):
                   "correct_rate": round(today_correct / max(1, today_correct + today_wrong) * 100)},
         "forecast": forecast,
         "total_unseen": total_unseen,
+        "days_to_learn_all": days_to_learn_all,
     }
 
 
