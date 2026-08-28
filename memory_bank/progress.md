@@ -1896,7 +1896,48 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-acb10f2 (2026-08-28; fix: renderOgeAnalytics восстановлена после слияния /analytics→/stats — ОГЭ-поля больше не нулевые; задеплоено). Пред. 4e9ab58 (2026-08-28; feat: OGE FAB+toasts, AI plan minutes, history leaky filter, /analytics→/stats merge + forecast new cards).
+ <MUSIC_HASH> (2026-08-28; feat(music): новый модуль core/music — измерение/изменение тональности и темпа (BPM), наложение аудио; поддержка MIDI (mido) + MP3/WAV (librosa/soundfile). Тесты 7 passed, ruff чист). Пред. 5c5e900 (OGE dynamics chart).
+
+### 2026-08-28 — Модуль «Музыка» (core/music)
+- **Запрос:** «сделай модуль музыки: измерение/изменение тональности и темпа (BPM), наложение аудио; поддержка mp3 и midi».
+- **Структура:** `core/music/__init__.py` (диспетчер по расширению) + `midi_utils.py` (mido) + `audio_utils.py` (librosa/soundfile).
+- **MIDI (mido, чистый Python):**
+  - `detect_bpm` (по set_tempo), `midi_tempo_changes`; `detect_key`/`midi_key_signatures` (key_signature);
+  - `change_key` (транспозиция нот на semitones или в target_key), `change_tempo` (target_bpm заменяет set_tempo / factor масштабирует длительности);
+  - `overlay` — все дорожки из нескольких файлов играются одновременно (ticks_per_beat приводятся к базе первого файла).
+- **Аудио (MP3/WAV, librosa + soundfile):**
+  - `detect_bpm` (librosa.beat.beat_track), `detect_key` (хромаграмма + профили Крумхансля–Шмуклера);
+  - `change_tempo` (time_stretch — темп без изменения высоты), `change_key` (pitch_shift — высота без изменения темпа);
+  - `overlay` — суммирование сигналов с нормировкой.
+  - MP3 читается/пишется через soundfile 1.2.2 (libsndfile с MP3) — **без ffmpeg и без pydub** (pydub несовместим с Python 3.14, audioop удалён).
+- **Зависимости:** добавлены в requirements.txt: `mido`, `librosa`, `soundfile` (pydub убран).
+- **Тесты:** `tests/unit/test_music.py` — 7 passed (MIDI: bpm/key/транспозиция/темп/overlay; аудио: bpm/change_tempo по длительности/overlay). ruff чист.
+
+### 2026-08-28 — OGE: график динамики освоения (пункт (3) «что-то ещё»)
+- Пользователь выбрал «Графики динамики» из 3 вариантов (подсветка слабых тем / экспорт CSV / графики / своё).
+- **Backend:** `_oge_stats_payload` возвращает `trend` — массив из 30 дней, каждый `{date, total, modules:{mod: накопит_выучено}}`. Накопление по `last_correct_at <= day_end` (карточка считается выученной к дню последнего верного ответа). O(30·N) — тривиально.
+- **Frontend:** на `/stats` добавлена карточка «📈 Динамика освоения (30 дней)» с простой SVG-диаграммой: полилинии по модулям (цвета `OGE_COLORS`) + пунктирная линия «всего выучено» (зелёная), оси X (даты) и Y (шт.), легенда.
+- Валидация: `ast`+`node --check` OK, `ruff check` — All checks passed!, тест `/api/study/stats` (2 шт.) — passed. Закоммичено `5c5e900`, задеплоено.
+
+### 2026-08-28 - Полный прогон тестов + OGE-прогноз «дни до выучивания всех новых»
+- **Регрессионный прогон `tests/unit` (8 параллельных батчей):** итог ~1214 passed / 1 failed / 10 skipped. Единственный fail — `test_study_progress.py::test_analytics_page_renders`: ожидал `/analytics`→200, но после слияния `/analytics`→`/stats` (302) тест устарел. Исправлен: проверяет 302+Location `/stats`, затем рендер `/stats` (есть `s-streak`). Повторный прогон файла — 16 passed. Полный suite зелёный.
+- **OGE-прогноз (2):** `_oge_stats_payload` возвращает `days_to_learn_all = ceil(total_unseen / pace) + MASTERY_GAP(4)` — оценка, за сколько дней будут выучены ВСЕ новые карточки (темп `pace` ввода + 4 дня на освоение последней партии). Сводка `/stats` дополнена: «· чтобы выучить все новые: ~K дн.». `ast`+node OK. Закоммичено `1ba7636`, задеплоено.
+
+### 2026-08-28 - Бета-аудит 2026-08-10: верификация + финальный фикс
+- **Верификация** (по пунктам плана activeContext:339-349): все 9 пунктов уже реализованы в последующих коммитах. Подтверждено в коде: D&D `parse_dice` лимит 1..100 (dnd_runtime.py:61); шахматы `_PENDING_PUZZLES.pop(uid)` ДО начисления + TTL-кулдаун (api/index.py:8805,8761) + try/catch `JSON.parse` (8596); тривия `secrets.token_hex(6)` session_id (16858) + валидация `answer_index` (16872); глаголы `VERB_GEN_LOCK` с очисткой (19004); семья `DELETE` через `_family_verify_member` (22346); `daily_prayer_log` UNIQUE-индекс (662); канон `esc()`+`safeUrl()` (17401); регистрация `is_admin=FALSE` + сессия админа по серверному флагу (9471,171).
+- **Финальный фикс:** `api_chess_puzzle_check` (api/index.py:8820) больше не отдаёт `move` при `correct=False` (раньше утекало решение пазла при неверном ходе); клиент показывает «Попробуйте другой ход».
+- **Проверка:** `ast.parse` OK. Закоммичено `1af992a`, задеплоено на `bank-bot-ruby.vercel.app`.
+
+### 2026-08-28 - OGE forecast: «сколько новых карточек будет выучено»
+- **Бэкенд** `_oge_stats_payload` (api/index.py): прогноз теперь считает `learned` (накопительно) и `learned_delta` по дням. По планировщику SM-2 (`rep1→+1д, rep2→+3д, rep3=mastered`) карточка, введённая в день j, осваивается в день j+4 → `learned_delta[i]=introduced[i-4]`.
+- **Фронт** `/stats` `renderOgeAnalytics`: легенда + зелёная строка `N✅ (+delta)` в каждой ячейке прогноза; сводка «За 14 дней выучишь ≈ N новых карточек (из M новых всего)».
+- **Проверка:** `ast.parse` OK; `node --check` stats JS OK; прод `/stats` → 200 с `s-learn-summary`. Закоммичено `ad72441`, задеплоено.
+
+### 2026-08-28 - History: темы + эпохи в /emperors
+- **Темы:** `core/history/emperors.py` — `HISTORY_TOPIC_ORDER` (9 тем) + `classify_topic(title, note)` (эвристика по ключевым словам); экспортировано в `core/history/__init__.py`. Поля `topic` добавлены в `history_data` (events/persons) и в `allItems`.
+- **Фильтр:** `topicMatch` в `itemsInScope()` (термины всегда показываются); `<select class="topic-sel">` «Все темы» + 9 тем в панелях Квиз/Сопоставление/Хронология; `toggleTopic` синхронизирует все селекты и сбрасывает колоду.
+- **Эпохи:** опции «Эпоха: …» (7 эпох из `eraGroups()`) динамически добавлены во все `.scope-sel`; `activeRulerIds()`/`activeRulers()` и `studyPanel()` понимают scope `era:<Имя>` (фильтр по `grp.ids`).
+- **Проверка:** `ast.parse` api/index.py OK; `node --check` emperors JS OK; прод `/emperors` → 200 с `topic-sel`/`topic_order`. Закоммичено `3ca946b`, задеплоено на `bank-bot-ruby.vercel.app`.
 ### Задача 1. Ачивки
 - **Статус:** Готово
 - **Количество:** 227 ачивок
