@@ -231,6 +231,21 @@ LTHub/
 
 **API эндпоинты:** `/api/emperors/progress` GET/POST/reset — серверная синхронизация SM-2-прогресса карточек для авторизованных пользователей (без токена прогресс живёт в localStorage).
 
+### Music Module (Музыка)
+
+Анализ и трансформация аудио/MIDI: измерение и изменение тональности и темпа (BPM), наложение (микширование) нескольких дорожек.
+
+**Компоненты:**
+- `core/music/__init__.py` — публичный API с диспетчеризацией по расширению файла:
+  `analyze(path)`, `detect_bpm(path)`, `detect_key(path)`, `change_tempo(path, target_bpm=, factor=, out=)`, `change_key(path, semitones=, target_key=, out=)`, `overlay(paths, out=)`.
+- `core/music/midi_utils.py` — работа с MIDI поверх `mido` (чистый Python): темп по `set_tempo`, тональность по `key_signature`, транспозиция нот, смена темпа, объединение дорожек (играют одновременно).
+- `core/music/audio_utils.py` — работа с MP3/WAV поверх `librosa` + `soundfile`: BPM через `beat_track`, тональность по хромаграмме (профили Крумхансля–Шмуклера), `time_stretch` (темп без смены высоты) и `pitch_shift` (высота без смены темпа), микширование сигналов.
+- MP3 читается/пишется через `soundfile` (libsndfile ≥1.1 с поддержкой MP3) — **без ffmpeg и без `pydub`** (`pydub` несовместим с Python 3.14, модуль `audioop` удалён).
+
+**Зависимости:** `mido`, `librosa`, `soundfile` (добавлены в `requirements.txt`).
+
+**Тесты:** `tests/unit/test_music.py` (MIDI + аудио, все зависимости импортируются лениво).
+
 ## Запуск и проверка
 
 Актуальный практический сценарий запуска описан в `RUN.md`.
