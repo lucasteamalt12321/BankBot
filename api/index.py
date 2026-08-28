@@ -14917,7 +14917,7 @@ document.getElementById('m-analyze').onclick=async function(){
       info+='\n⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
     }
     document.getElementById('m-info').textContent=info;
-  }catch(e){ setErr('Сетевая ошибка: '+e.message); }
+  }catch(e){ setErr('Сетевая ошибка: '+e.message+'. Возможно, файл слишком длинный или сервер не успел обработать — попробуйте короткий фрагмент (до ~30с).'); }
 };
 
 document.getElementById('t-run').onclick=async function(){

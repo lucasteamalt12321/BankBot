@@ -29,11 +29,13 @@ def _is_midi(path: str) -> bool:
 
 def analyze(path: str) -> dict:
     """Сводная информация о файле: формат, темп, тональность."""
-    return {
-        "format": "midi" if _is_midi(path) else "audio",
-        "bpm": detect_bpm(path),
-        "key": detect_key(path),
-    }
+    if _is_midi(path):
+        return {
+            "format": "midi",
+            "bpm": midi_utils.detect_bpm(path),
+            "key": midi_utils.detect_key(path),
+        }
+    return audio_utils.analyze_audio(path)
 
 
 def detect_bpm(path: str):
