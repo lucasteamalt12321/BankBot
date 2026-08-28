@@ -14952,7 +14952,7 @@ document.getElementById('m-analyze').onclick=async function(){
     if(j.error){stopProgress();setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
     var info='Формат: '+(j.format||'?')+' · BPM: '+ (j.bpm!=null?j.bpm:'—') +' · Тональность: '+(j.key||'—');
     if(j.format==='audio' && !j.audio_available){
-      info+='\n⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
+      info+=' ⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
     }
     document.getElementById('m-info').textContent=info;
     endProgress();
