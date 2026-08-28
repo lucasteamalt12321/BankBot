@@ -47,9 +47,12 @@ class MotivationSystem:
         if last_bonus_date == today:
             return {"success": False, "reason": "Бонус уже получен сегодня"}
 
-        # Рассчитываем стрик и награду
+        # Рассчитываем стрик и награду.
+        # calculate_streak считает последовательные дни ДО сегодня (сегодняшний
+        # бонус ещё не записан), поэтому сегодняшний день — это streak + 1.
         streak = self.calculate_streak(user_id)
-        bonus_amount = self.calculate_bonus_amount(streak)
+        new_streak = streak + 1
+        bonus_amount = self.calculate_bonus_amount(new_streak)
 
         # Начисляем бонус
         user.balance += bonus_amount
@@ -60,11 +63,11 @@ class MotivationSystem:
             amount=bonus_amount,
             transaction_type='daily_bonus',
             source_game='system',
-            description=f"Ежедневный бонус (стрик: {streak} дней)",
+            description=f"Ежедневный бонус (стрик: {new_streak} дней)",
             meta_data={
-                'streak': streak,
+                'streak': new_streak,
                 'bonus_type': 'daily',
-                'multiplier': self.DAILY_BONUS_CONFIG['streak_multipliers'].get(streak, 1.0)
+                'multiplier': self.DAILY_BONUS_CONFIG['streak_multipliers'].get(new_streak, 1.0)
             }
         )
 
@@ -78,16 +81,16 @@ class MotivationSystem:
         logger.info(
             "Daily bonus claimed",
             user_id=user_id,
-            streak=streak,
+            streak=new_streak,
             amount=bonus_amount
         )
 
         return {
             "success": True,
-            "streak": streak,
+            "streak": new_streak,
             "amount": bonus_amount,
-            "next_streak": streak + 1,
-            "next_multiplier": self.DAILY_BONUS_CONFIG['streak_multipliers'].get(streak + 1, 1.0)
+            "next_streak": new_streak + 1,
+            "next_multiplier": self.DAILY_BONUS_CONFIG['streak_multipliers'].get(new_streak + 1, 1.0)
         }
 
     def get_last_bonus_date(self, user_id: int) -> Optional[datetime.date]:
@@ -115,8 +118,9 @@ class MotivationSystem:
         if not bonuses:
             return 0
 
-        # Проверяем последовательность дней
-        expected_date = current_date
+        # Проверяем последовательность дней (считаем до вчерашнего, т.к. сегодняшний
+        # бонус ещё не начислен на момент вызова).
+        expected_date = current_date - timedelta(days=1)
         for bonus in bonuses:
             bonus_date = bonus.created_at.date()
 
