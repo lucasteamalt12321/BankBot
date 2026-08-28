@@ -14788,6 +14788,10 @@ def stats_page():
                 <div class="forecast-grid" id="s-forecast"></div>
             </div>
             <div class="card">
+                <div class="section-title">📈 Динамика освоения (30 дней)</div>
+                <div id="s-trend"></div>
+            </div>
+            <div class="card">
                 <div class="section-title">⚠️ Слабые места (ОГЭ)</div>
                 <div class="weak-list" id="s-weak"></div>
             </div>
@@ -14919,6 +14923,41 @@ def stats_page():
                 var summary = 'За 14 дней выучишь ≈ ' + (lastF ? lastF.learned : 0) + ' новых карточек (из ' + (d.total_unseen || 0) + ' новых всего)';
                 if (learnAll) summary += ' · чтобы выучить все новые: ~' + learnAll + ' дн.';
                 document.getElementById('s-learn-summary').textContent = summary;
+                // Dynamics chart: cumulative learned per module over 30 days (SVG).
+                (function () {
+                    var trend = d.trend || [];
+                    var box = document.getElementById('s-trend');
+                    if (!trend.length) { box.innerHTML = '<p class="muted">Нет данных для графика.</p>'; return; }
+                    var W = 600, H = 220, padL = 34, padR = 10, padT = 12, padB = 22;
+                    var iw = W - padL - padR, ih = H - padT - padB;
+                    var n = trend.length;
+                    var maxY = 1;
+                    trend.forEach(function (pt) { if (pt.total > maxY) maxY = pt.total; });
+                    var x = function (i) { return padL + (n <= 1 ? 0 : iw * i / (n - 1)); };
+                    var y = function (v) { return padT + ih - (v / maxY) * ih; };
+                    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMidYMid meet" style="max-width:600px">';
+                    svg += '<line x1="' + padL + '" y1="' + (padT + ih) + '" x2="' + (padL + iw) + '" y2="' + (padT + ih) + '" stroke="#888" stroke-width="1"/>';
+                    [0, maxY / 2, maxY].forEach(function (gy) {
+                        svg += '<line x1="' + padL + '" y1="' + y(gy) + '" x2="' + (padL + iw) + '" y2="' + y(gy) + '" stroke="#333" stroke-width="1" stroke-dasharray="2,3"/>';
+                        svg += '<text x="' + (padL - 6) + '" y="' + (y(gy) + 3) + '" fill="#999" font-size="10" text-anchor="end">' + Math.round(gy) + '</text>';
+                    });
+                    var labels = [0, Math.floor(n / 2), n - 1];
+                    labels.forEach(function (i) {
+                        svg += '<text x="' + x(i) + '" y="' + (padT + ih + 14) + '" fill="#999" font-size="10" text-anchor="middle">' + trend[i].date.slice(5) + '</text>';
+                    });
+                    var mods = Object.keys(OGE_COLORS).filter(function (m) { return trend.some(function (pt) { return pt.modules[m]; }); });
+                    mods.forEach(function (m) {
+                        var pts = trend.map(function (pt, i) { return x(i) + ',' + y(pt.modules[m] || 0); }).join(' ');
+                        svg += '<polyline points="' + pts + '" fill="none" stroke="' + OGE_COLORS[m] + '" stroke-width="2"/>';
+                    });
+                    svg += '<polyline points="' + trend.map(function (pt, i) { return x(i) + ',' + y(pt.total); }).join(' ') + '" fill="none" stroke="var(--bb-green3)" stroke-width="2.5" stroke-dasharray="4,2"/>';
+                    svg += '</svg>';
+                    var legend = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:10px;font-size:12px">';
+                    legend += '<span class="fc-leg" style="color:var(--bb-green3)">✅ всего выучено</span>';
+                    mods.forEach(function (m) { legend += '<span class="fc-leg" style="color:' + OGE_COLORS[m] + '">' + (d.modules[m] ? d.modules[m].emoji : '') + ' ' + (d.modules[m] ? d.modules[m].label : m) + '</span>'; });
+                    legend += '</div>';
+                    box.innerHTML = svg + legend;
+                })();
                 var wl = document.getElementById('s-weak');
                 wl.innerHTML = '';
                 var weakItems = [];
@@ -15186,6 +15225,7 @@ def _oge_stats_payload(web_user_id):
     total_unseen = 0
     current_streak = 0
     best_streak = 0
+    all_rows = []
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -15212,6 +15252,7 @@ def _oge_stats_payload(web_user_id):
                     lc = float(r["last_correct_at"] or 0)
                     total_correct += c
                     total_wrong += w
+                    all_rows.append((mod, lc))
                     if s >= 3:
                         mastered += 1
                     if w > c and s < 3:
@@ -15339,6 +15380,24 @@ def _oge_stats_payload(web_user_id):
     if total_unseen and pace:
         import math
         days_to_learn_all = math.ceil(total_unseen / pace) + MASTERY_GAP
+    # Trend: cumulative learned (last_correct_at <= day_end) per day over last 30 days, per module.
+    trend = []
+    try:
+        import datetime as _dt
+        now_day = int(now / 86400)
+        TREND_DAYS = 30
+        for off in range(TREND_DAYS - 1, -1, -1):
+            day_end = (now_day - off) * 86400 + 86399
+            day_date = _dt.date.fromtimestamp(day_end).isoformat()
+            per_mod = {}
+            tcount = 0
+            for (mod, lc) in all_rows:
+                if lc and lc <= day_end:
+                    per_mod[mod] = per_mod.get(mod, 0) + 1
+                    tcount += 1
+            trend.append({"date": day_date, "total": tcount, "modules": per_mod})
+    except Exception:
+        trend = []
     return {
         "modules": modules,
         "overall_readiness": overall_readiness,
@@ -15348,6 +15407,7 @@ def _oge_stats_payload(web_user_id):
         "forecast": forecast,
         "total_unseen": total_unseen,
         "days_to_learn_all": days_to_learn_all,
+        "trend": trend,
     }
 
 
