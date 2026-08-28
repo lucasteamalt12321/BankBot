@@ -228,13 +228,20 @@ def test_oge_study_achievements_unlock():
         """))
         conn.execute(text("CREATE UNIQUE INDEX uq_sp ON study_progress(user_id, module, card_key)"))
         suid = _web_user_id("u42")
-        # 6 mastered math cards (streak>=3, 5 correct each) -> answers 30, mastered 6
+        # 6 mastered math cards (streak>=3) -> mastered 6
         for i in range(6):
             conn.execute(text(
                 "INSERT INTO study_progress (user_id, module, card_key, reps, streak,"
                 " correct_count, wrong_count, counter, updated_at)"
                 " VALUES (:s, 'math', :k, 4, 4, 5, 0, 5, 1)"
             ), {"s": suid, "k": f"formula::f{i}"})
+        # 20 additional attempted (but not mastered) math cards -> distinct answers 26 (>=25)
+        for i in range(20):
+            conn.execute(text(
+                "INSERT INTO study_progress (user_id, module, card_key, reps, streak,"
+                " correct_count, wrong_count, counter, updated_at)"
+                " VALUES (:s, 'math', :k, 1, 0, 1, 0, 1, 1)"
+            ), {"s": suid, "k": f"formula::e{i}"})
         # 8 physics cards, 1 correct each, not mastered -> answers 8, mastered 0
         for i in range(8):
             conn.execute(text(

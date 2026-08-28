@@ -46,7 +46,7 @@ def send_tg(chat_id: int, text: str, parse_mode: str = "HTML",
 
 # ── dice parser ────────────────────────────────────────────────────
 
-DICE_RE = re.compile(r"(\d*)[dк](\d+)([+-]\d+)?")
+DICE_RE = re.compile(r"(\d*)[dкDК](\d+)([+-]\d+)?")
 
 
 def parse_dice(text: str) -> Optional[dict]:
@@ -66,6 +66,8 @@ def parse_dice(text: str) -> Optional[dict]:
 # ── AI call (Gemini primary, Groq + OpenRouter + HF fallback) ─────
 
 def call_ai(prompt: str, max_tokens: int = 800) -> str:
+    fallback = "🌌 Мастер задумался... Попробуйте ещё раз."
+
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         try:
@@ -81,7 +83,9 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
                 timeout=15,
             )
             if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
+                content = resp.json()["choices"][0]["message"].get("content") or ""
+                if content.strip():
+                    return content
             print(f"[DND] Gemini error {resp.status_code}: {resp.text[:200]}")
         except Exception as e:
             print(f"[DND] Gemini exception: {e}")
@@ -101,7 +105,9 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
                 timeout=15,
             )
             if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
+                content = resp.json()["choices"][0]["message"].get("content") or ""
+                if content.strip():
+                    return content
             print(f"[DND] Groq error {resp.status_code}: {resp.text[:200]}")
         except Exception as e:
             print(f"[DND] Groq exception: {e}")
@@ -155,11 +161,17 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
     hf_token = os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
     if hf_token:
         try:
+            # Qwen2.5-Instruct expects a chat-formatted prompt; naive `inputs`
+            # continuation echoes the prompt, so wrap it and strip the prefix.
+            hf_prompt = (
+                "<|im_start|>system\nТы — мастер подземелий D&D. Отвечай кратко на русском.<|im_end|>\n"
+                f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+            )
             resp = requests.post(
                 "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-0.5B-Instruct",
                 headers={"Authorization": f"Bearer {hf_token}"},
                 json={
-                    "inputs": prompt,
+                    "inputs": hf_prompt,
                     "parameters": {"max_new_tokens": max_tokens, "temperature": 0.7},
                 },
                 timeout=30,
@@ -167,12 +179,17 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, list) and len(data) > 0:
-                    return data[0].get("generated_text", "").strip()
+                    gen = data[0].get("generated_text", "") or ""
+                    if gen.startswith(hf_prompt):
+                        gen = gen[len(hf_prompt):]
+                    gen = gen.strip()
+                    if gen:
+                        return gen
             print(f"[DND] HF error {resp.status_code}: {resp.text[:200]}")
         except Exception as e:
             print(f"[DND] HF exception: {e}")
 
-    return "🌌 Мастер задумался... Попробуйте ещё раз."
+    return fallback
 
 
 # ── DB helpers ─────────────────────────────────────────────────────
@@ -208,15 +225,21 @@ def _execute(sql: str, params: dict = None) -> None:
 # ── session management ─────────────────────────────────────────────
 
 def find_active_session(telegram_id: int) -> Optional[dict]:
+    """Return the session the user is actively playing in.
+
+    A user may be the master of their own session AND a member (character) of
+    a friend's session. Joining another session is an explicit intent to play
+    there, so the joined (character) session takes priority over the owned one.
+    """
     db_uid = _resolve_user_id(telegram_id)
     return _fetch_one(
-        "SELECT * FROM dnd_sessions WHERE master_id = :uid AND status = 'active' LIMIT 1",
-        {"uid": db_uid},
-    ) or _fetch_one(
         """SELECT s.* FROM dnd_sessions s
            JOIN dnd_characters c ON c.session_id = s.id
            WHERE c.player_id = :uid AND s.status = 'active'
            LIMIT 1""",
+        {"uid": db_uid},
+    ) or _fetch_one(
+        "SELECT * FROM dnd_sessions WHERE master_id = :uid AND status = 'active' LIMIT 1",
         {"uid": db_uid},
     )
 
@@ -301,6 +324,15 @@ def join_session(telegram_id: int, session_id: int, player_name: str = None) -> 
     )
 
     return f"✅ Вы присоединились к сессии «{session['name']}»! Теперь пишите действия."
+
+
+def character_id_for(session_id: int, db_uid: int) -> Optional[int]:
+    """Return the dnd_characters.id for (session, user) or None."""
+    row = _fetch_one(
+        "SELECT id FROM dnd_characters WHERE session_id = :sid AND player_id = :uid",
+        {"sid": session_id, "uid": db_uid},
+    )
+    return row["id"] if row else None
 
 
 def get_session_players(session_id: int) -> list[dict]:
@@ -518,10 +550,12 @@ def cmd_dnd_roll(user_id: int, chat_id: int, args: str) -> Optional[str]:
     session = find_active_session(user_id)
     comment = ""
     if session:
+        db_uid = _resolve_user_id(user_id)
+        cid = character_id_for(session["id"], db_uid)
         _execute(
-            "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
-            "VALUES (:sid, :uid, 'dice_roll', :content)",
-            {"sid": session["id"], "uid": user_id,
+            "INSERT INTO dnd_session_logs (session_id, player_id, character_id, message_type, content) "
+            "VALUES (:sid, :uid, :cid, 'dice_roll', :content)",
+            {"sid": session["id"], "uid": db_uid, "cid": cid,
              "content": f"{dice_label}: {total}{' (' + purpose + ')' if purpose else ''}"},
         )
         prompt = build_prompt(session, f"Бросок кубика: {dice_label} = {total} (прокомментируй)")
@@ -540,6 +574,7 @@ def cmd_dnd_fix(user_id: int, chat_id: int, fix_text: str) -> str:
     if not session:
         return "❌ Нет активной D&D сессии."
 
+    db_uid = _resolve_user_id(user_id)
     last_log = _fetch_one(
         "SELECT content FROM dnd_session_logs WHERE session_id = :sid ORDER BY created_at DESC LIMIT 1",
         {"sid": session["id"]},
@@ -549,7 +584,7 @@ def cmd_dnd_fix(user_id: int, chat_id: int, fix_text: str) -> str:
     _execute(
         "INSERT INTO dnd_fixes (session_id, player_id, original_context, correction) "
         "VALUES (:sid, :uid, :orig, :corr)",
-        {"sid": session["id"], "uid": user_id, "orig": original, "corr": fix_text},
+        {"sid": session["id"], "uid": db_uid, "orig": original, "corr": fix_text},
     )
     return f"✅ Исправление запомнено: {fix_text}"
 
@@ -578,6 +613,9 @@ def handle_free_text(user_id: int, chat_id: int, text: str) -> Optional[str]:
     if not session:
         return None  # not in D&D mode, let other handlers process it
 
+    db_uid = _resolve_user_id(user_id)
+    cid = character_id_for(session["id"], db_uid)
+
     parsed = parse_dice(text)
     if parsed:
         total = sum(random.randint(1, parsed["sides"]) for _ in range(parsed["count"]))
@@ -587,9 +625,9 @@ def handle_free_text(user_id: int, chat_id: int, text: str) -> Optional[str]:
             sign = "+" if parsed["modifier"] > 0 else ""
             dice_label += f"{sign}{parsed['modifier']}"
         _execute(
-            "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
-            "VALUES (:sid, :uid, 'dice_roll', :content)",
-            {"sid": session["id"], "uid": user_id,
+            "INSERT INTO dnd_session_logs (session_id, player_id, character_id, message_type, content) "
+            "VALUES (:sid, :uid, :cid, 'dice_roll', :content)",
+            {"sid": session["id"], "uid": db_uid, "cid": cid,
              "content": f"{dice_label}: {total}"},
         )
 
@@ -597,17 +635,17 @@ def handle_free_text(user_id: int, chat_id: int, text: str) -> Optional[str]:
 
     # Save player action BEFORE AI call (so log is never empty)
     _execute(
-        "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content, ai_context) "
-        "VALUES (:sid, :uid, 'player_action', :content, :ctx)",
-        {"sid": session["id"], "uid": user_id, "content": text, "ctx": prompt},
+        "INSERT INTO dnd_session_logs (session_id, player_id, character_id, message_type, content, ai_context) "
+        "VALUES (:sid, :uid, :cid, 'player_action', :content, :ctx)",
+        {"sid": session["id"], "uid": db_uid, "cid": cid, "content": text, "ctx": prompt},
     )
 
     answer = call_ai(prompt)
 
     _execute(
-        "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
-        "VALUES (:sid, :uid, 'ai_response', :content)",
-        {"sid": session["id"], "uid": user_id, "content": answer},
+        "INSERT INTO dnd_session_logs (session_id, player_id, character_id, message_type, content) "
+        "VALUES (:sid, :uid, :cid, 'ai_response', :content)",
+        {"sid": session["id"], "uid": db_uid, "cid": cid, "content": answer},
     )
     _execute(
         "UPDATE dnd_sessions SET last_ai_response = :resp WHERE id = :sid",

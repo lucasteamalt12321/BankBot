@@ -24,6 +24,39 @@
   - **Фикс (2026-08-27):** `dnd_sessions.share_code` (8 символов), `cmd_dnd_start` генерирует код, `find_session_by_code` + `/api/dnd/join` (мастер-гард, лимит `max_players`), `/api/dnd/start` и `/api/dnd/status` отдают `share_code`/`share_url`, страница `/dnd` — панель присоединения по `?session=` и карточка «Сессия» с кнопкой «📋 Копировать». Тест `test_dnd_session_sharing_flow` покрывает flow.
   - **Статус:** fixed.
 
+### Самопроверка (2026-08-27) — авто-найденные баги
+
+> Найдено субагентами при аудите кода. **Статус: все 18 исправлены (2026-08-28).** Фиксы: см. Changelog `BUG-FIX-2026-08-28`.
+
+#### 🐉 DnD (AI Master)
+- **[DND-BUG-2]** (med/high) `find_active_session` (dnd_runtime.py:210-221) ищет сначала `master_id=uid` → если друг уже начинал свою сессию, его действия в чужой сессии пишутся в ЕГО собственную. Ожидалось: действовать в той сессии, к которой присоединился.
+- **[DND-BUG-3]** (med) `call_ai` (dnd_runtime.py:84,104) может вернуть `None` на 200-ответе провайдера → `answer[:800]` (строки 614,532) бросает `TypeError` и `/api/dnd/act|roll` 500-ятся. Фикс: `answer = call_ai(...) or "🌌 Мастер задумался..."`.
+- **[DND-BUG-4]** (med) `dnd_session_logs.player_id`/`dnd_fixes.player_id` пишутся сырым `uid` (dnd_runtime.py:524,552,590,608), а `dnd_characters.player_id` = `users.id` → JOIN в `get_session_log` не совпадает, `player_name` всегда `None`, `character_id` не проставляется. Фикс: резолвить `db_uid = _resolve_user_id(uid)` и использовать его везде.
+- **[DND-BUG-5]** (low/med) `DICE_RE` (dnd_runtime.py:49) только lowercase `d/к` → `D20`/`К20` не парсятся. Фикс: `re.IGNORECASE`.
+- **[DND-BUG-6]** (low) HF-fallback (dnd_runtime.py:158-170) возвращает `prompt + continuation` (text-generation inputs) → в ответе дублируется весь промпт. Фикс: завернуть в chat-шаблон модели или обрезать префикс.
+- **[DND-BUG-7]** (low) `startSession()` (api/index.py:~6596) показывает подтверждение, затем `refreshStatus()`→`renderLog` очищает лог → сообщение стирается. Фикс: рендерить после `refreshStatus()`.
+
+#### 📊 Статистика / ачивки
+- **[STATS-BUG-1]** (high) `api_quiz_check` (api/index.py:13770-13774) и `api_exam_ai_record` (13890-13894) пишут `_record_activity`, но НЕ вызывают `_check_web_achievements` → ачивки за квиз/экзамен (`first_quiz`, `streak_*`, `module_*`) никогда не открываются. Фикс: дёрнуть `_check_web_achievements` + commit.
+- **[STATS-BUG-2]** (med) `api_quiz_check` хардкодит модуль `"quiz"` (api/index.py:13772) вместо реального предмета `module` → «Активность по модулям» не копит math/physics и `first_quiz` не открывается (проверяет `trivia/emperors/reading/verbs`).
+- **[STATS-BUG-3]** (med) OГЭ-ачивки «задания» считают попытки (`SUM(correct_count+wrong_count)`, api/index.py:1732-1740), а не distinct-карточки → уровни открываются преждевременно. Фикс: `COUNT(DISTINCT card_key) WHERE correct_count+wrong_count>0`.
+- **[STATS-BUG-4]** (low) `_oge_stats_payload` (api/index.py:14860-14864, 14931-14932) может вернуть Response вместо dict (не ловится `try`) и не инициализирует `current_streak/best_streak` вне блока → 500/скрытый `None`.
+
+#### 📚 ОГЭ (study/quiz/exam)
+- **[OGE-BUG-1]** (high) `due` пишется в миллисекундах из веба (`Date.now()+interval*86400000`, api/index.py:11774,12194,12701,13222,10308), а сервер читает как секунды (`time.time()`) → due-cards, «due today» и прогноз всегда пусты. Фикс: слать секунды или делить на 1000.
+- **[OGE-BUG-2]** (high) `api_quiz_check` (api/index.py:13710,13751-13757) кладёт в сессию сырые items без `correct_idx` (он только в `safe_items` клиента) → MCQ всегда `correct:false`, прогресс пишется как ошибка. Фикс: сохранять `correct_idx` в сессии.
+- **[OGE-BUG-3]** (med) `_oge_stats_payload` «Сегодня» (api/index.py:14963-14969) суммирует lifetime `correct_count/wrong_count`, а не только за сегодня → цифры завышены.
+- **[OGE-BUG-4]** (med) `api_study_due_cards` (api/index.py:15124) фильтрует `reps>0` → карточка после ошибки (`reps=0`, `due=now+60`) навсегда выпадает из очереди повторов. Фикс: `reps>0 OR due<=:now`.
+- **[OGE-BUG-5]** (low/med) SM-2 (api/index.py:13498-13499) считает интервал ДО обновления `ease` → рост интервала занижен. Фикс: сначала обновить `ease`, потом интервал.
+
+#### 🔐 Web-портал (auth)
+- **[AUTH-BUG-1]** (med) `api_auth_register` (api/index.py:9418-9443) не проверяет уникальность email → `UNIQUE`-констрейнт бросает `IntegrityError` → 500 вместо 409 «Email занят». Фикс: явная проверка перед INSERT.
+- **[AUTH-BUG-2]** (med) `_ensure_universe_tables` (api/index.py:652-658) использует SQLite `rowid` для дедупа → на Postgres/Supabase падает, уникальный индекс `ux_daily_prayer_log_user_date` не создаётся → дубли молитв/неправильные серии на проде. Фикс: portable-вариант (ctid/rowid по диалекту).
+- **[AUTH-BUG-3]** (low/med) `telegram_id` собирается в UI (api/index.py:8865,8905-8912,9513-9527) но не шлётся при регистрации и не обновляется в `/api/auth/update` → значение теряется, привязка Telegram через веб невозможна.
+
+#### 🧪 Тесты
+- `tests/unit/test_exam_center.py`: 2 устаревших assert (ожидают `/api/exam/mixed` в `/exam` и подмножество модулей без `physics`) — прод не сломан, тесты stale. Надо обновить ожидания.
+
 _Баги добавляются по ходу тестирования остальных модулей._
 
 ## Changelog
@@ -1820,8 +1853,39 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - Модули истории слиты: /emperors теперь единая страница с вкладками «Даты и правители» / «Термины» (TERMS_FRAGMENT встроен, JS с префиксом t-, прогресс общий module=history). /terms -> redirect /emperors?tab=terms; карточка «История — термины» из хаба удалена. Переключатель режима ОГЭ больше не скрывает предметные карточки (только виджет плана). При сносе шаблона terms случайно удалились _EXAM_SESSIONS/_exam_is_correct/_study_record_one - восстановлены.
 - Тесты: 83 зелёных по моим модулям; node --check ок; прод: /emperors 200 c вкладками и терминами, /terms 302, карточки в хабе чисты. Задеплоено 7bae239.
 
+### 2026-08-28 (BUG-FIX: самопроверка — 18 багов)
+
+**Контекст:** субагенты нашли 18 багов (3 HIGH, 8 med, 7 low). Пользователь подтвердил «фиксь все». Все исправлены в `api/index.py` и `api/dnd_runtime.py`.
+
+**HIGH (ломали ядро):**
+- **OGE-BUG-2:** квиз ставил `correct:false` всегда (correct_idx терялся в сессии) → `it["correct_idx"]` теперь сохраняется в сессии квиза.
+- **OGE-BUG-1:** `due` писался в мс из веба, читался как сек → due-cards/прогноз пусты. Добавлены `_due_ms_to_s`/`_due_s_to_ms`, нормализация в save/GET OGE+emperors + миграция.
+- **STATS-BUG-1:** квиз/экзамен писали активность, но не звали `_check_web_achievements` → ачивки не открывались. Теперь вызываются + commit.
+
+**MEDIUM:**
+- **DND-BUG-2:** `find_active_session` приоритезирует сессию-мастера → действия друга-участника писались в ЕГО сессию. Теперь приоритет — joined-сессия (через `dnd_characters`).
+- **DND-BUG-3:** `call_ai` мог вернуть `None` → 500 на `answer[:800]`. Гвард: провайдеры возвращают строку, фоллбэк-строка.
+- **DND-BUG-4:** логи DnD писали сырой telegram_id, а не `users.id` → `player_name=None`. Везде резолвится `db_uid` + проставляется `character_id`.
+- **STATS-BUG-2:** квиз хардкодил модуль `"quiz"` вместо предмета → «Активность по модулям» не копила math/physics. Теперь реальный `module`.
+- **STATS-BUG-3:** OГЭ-ачивки «задания» считали попытки (SUM correct+wrong) → уровни открывались преждевременно. Теперь `SUM(CASE WHEN correct+wrong>0 THEN 1 ELSE 0 END)` — уникальные карточки.
+- **OGE-BUG-4:** `due-cards` фильтровал `reps>0` → карточка после ошибки (reps=0) навсегда вне очереди. Теперь `(reps>0 OR due<=now)`.
+- **AUTH-BUG-1:** дубликат email → 500 вместо 409. Добавлена проверка уникальности email в регистрации.
+- **AUTH-BUG-2:** `_ensure_universe_tables` использовал SQLite `rowid` для дедупа → падал на Postgres. Теперь диалект-зависимый `rowid`/`ctid`.
+
+**LOW:**
+- **OGE-BUG-5:** SM-2 считал интервал ДО обновления `ease` → занижен. Сначала `ease`, потом интервал.
+- **OGE-BUG-3:** «Сегодня» суммировал lifetime correct/wrong коснувшихся сегодня карточек → завышение. Добавлена таблица `study_daily` (per-day tally), чтение из неё.
+- **STATS-BUG-4:** `_oge_stats_payload` мог вернуть Response вместо dict и не инициализировал `current_streak`/`best_streak` вне блока → NameError/500. Ранний return → dict, инициализация до try.
+- **DND-BUG-5:** `DICE_RE` только lowercase → `D20`/`К20` не парсились. `re.IGNORECASE`.
+- **DND-BUG-6:** HF-fallback отдавал `prompt+continuation`. Завёрнут в chat-шаблон Qwen, обрезается префикс.
+- **DND-BUG-7:** `startSession()` показывал подтверждение, затем `refreshStatus()`→`renderLog` стирал его. `/api/dnd/start` теперь отдаёт статус, `startSession` рендерит его без `refreshStatus()`.
+- **AUTH-BUG-3:** `telegram_id` собирался в UI, но не шлся (всегда `None`). Читается и сохраняется в register/update + шлётся из UI.
+- **Тесты:** обновлены 2 stale assert в `test_exam_center.py` (`/api/exam/ai-batch` в `/exam`, модули включают physics) и seed в `test_achievements.py` под корректный подсчёт уникальных карточек.
+
+**Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
+
 ## last_checked_commit
-be76752 (2026-08-26; ИИ-алгоритм: куратор выбирает вопрос из БД для ученика, не генерирует; /api/quiz/ai-generate переделан; кнопка "ИИ" во всех 5 модулях; ранее 4749fb8)
+uncommitted (2026-08-28; BUG-FIX batch: 18 багов self-audit исправлены в api/index.py + api/dnd_runtime.py; деплой на прод bank-bot-ruby.vercel.app без коммита). Пред. be76752 (2026-08-26; ИИ-алгоритм).
 ### Задача 1. Ачивки
 - **Статус:** Готово
 - **Количество:** 227 ачивок
