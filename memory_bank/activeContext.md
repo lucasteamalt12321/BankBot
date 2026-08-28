@@ -25,6 +25,7 @@
 - ✅ [TEST] Полный прогон `tests/unit` (~1214 passed, 1 fail→исправлен): устаревший `test_analytics_page_renders` (ждал `/analytics`→200 после слияния в `/stats`) переделан на проверку 302+Location `/stats` и рендер `/stats`. Suite зелёный. Закоммичено отдельным коммитом.
 - ✅ [TASK] (3) «что-то ещё» — графики динамики ОГЭ: на `/stats` добавлен SVG-график «Динамика освоения (30 дней)» — накопительное выучивание по модулям + итог (из `trend` в `_oge_stats_payload`). `ruff` чист, тесты stats green. Закоммичено `5c5e900`, задеплоено. Остальные предложенные варианты (подсветка слабых тем / экспорт CSV) — не выбраны, можно взять позже.
 - ✅ [TASK] Модуль «Музыка» (core/music): измерение/изменение тональности и темпа (BPM), наложение аудио; MIDI (mido) + MP3/WAV (librosa/soundfile). Публичный API: `analyze/detect_bpm/detect_key/change_tempo/change_key/overlay`. Тесты `tests/unit/test_music.py` 7 passed, ruff чист. Зависимости добавлены в requirements.txt. pydub убран (несовместим с Python 3.14).
+- ✅ [TASK] Музыка в сайт (LTHub, бета-модуль): страница `/music` + API `/api/music/{analyze,change_tempo,change_key,overlay}` + карточка-бета в хабе. Тяжёлые аудио-зависимости (librosa/soundfile) вынесены в `requirements-audio.txt`, чтобы не раздувать сборку Vercel — MIDI работает везде, аудио (MP3/WAV) доступно при установке `requirements-audio.txt`. Runtime smoke-тест через Flask test_client — все эндпоинты 200; ruff чист. Закоммичено `16416a8`, требуется деплой Vercel.
 
 ## ✅ Общая статистика `/api/stats` + блок в личном кабинете (2026-08-27, не закоммичено)
 

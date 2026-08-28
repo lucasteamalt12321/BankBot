@@ -1896,7 +1896,19 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
- 0622a8ed15e0c86b95dcd6e4202334b6784ddece (2026-08-28; feat(music): новый модуль core/music — измерение/изменение тональности и темпа (BPM), наложение аудио; поддержка MIDI (mido) + MP3/WAV (librosa/soundfile). Тесты 7 passed, ruff чист). Пред. 5c5e900 (OGE dynamics chart).
+ 16416a8c74ca37b0124a6f2608fcc5a4e275bf74 (2026-08-28; feat(music): модуль «Музыка» добавлен в сайт LTHub как бета-модуль — страница `/music` + API `/api/music/{analyze,change_tempo,change_key,overlay}` + карточка в хабе; тяжёлые аудио-зависимости вынесены в requirements-audio.txt, чтобы не раздувать сборку Vercel; MIDI работает везде, MP3/WAV — при установке requirements-audio.txt). Пред. 0622a8e (core/music модуль).
+
+### 2026-08-28 — Музыка в сайт (LTHub, бета-модуль)
+- **Страница `/music`** (`api/index.py`, `music_page`): клиентский UI — загрузка файла, анализ (BPM/тональность/формат), блоки «Изменить темп», «Изменить тональность», «Наложить несколько файлов». Скачивание результата через Blob.
+- **API эндпоинты** (multipart):
+  - `POST /api/music/analyze` → `{format,bpm,key,audio_available}`;
+  - `POST /api/music/change_tempo` (target_bpm | factor) → файл (attachment);
+  - `POST /api/music/change_key` (semitones | target_key) → файл;
+  - `POST /api/music/overlay` (files[] минимум 2) → файл.
+  - Лимит 8 МБ, разрешены расширения mid/midi/mp3/wav; временные файлы в `tempfile.mkdtemp`.
+- **Карточка в хабе:** добавлена в бета-блок (`/music`, иконка 🎵, «Бета»), рядом с Администрированием.
+- **Защита сборки Vercel:** `librosa`+`soundfile` перенесены из `requirements.txt` в новый `requirements-audio.txt` (опционально). На проде MIDI-функционал (mido) доступен всегда; аудио (MP3/WAV) требует установки `requirements-audio.txt` (иначе эндпоинты возвращают понятную ошибку, а `/music` показывает предупреждение).
+- **Проверка:** runtime smoke-тест через Flask test_client — analyze (midi: bpm 120/key C; wav: bpm~117/key F# minor), change_tempo/change_key/overlay → 200 attachment; `/music` и карточка хаба → 200. `ruff` чист, тесты `tests/unit/test_music.py` 7 passed.
 
 ### 2026-08-28 — Модуль «Музыка» (core/music)
 - **Запрос:** «сделай модуль музыки: измерение/изменение тональности и темпа (BPM), наложение аудио; поддержка mp3 и midi».
