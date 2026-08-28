@@ -1896,7 +1896,16 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
- 16416a8c74ca37b0124a6f2608fcc5a4e275bf74 (2026-08-28; feat(music): модуль «Музыка» добавлен в сайт LTHub как бета-модуль — страница `/music` + API `/api/music/{analyze,change_tempo,change_key,overlay}` + карточка в хабе; тяжёлые аудио-зависимости вынесены в requirements-audio.txt, чтобы не раздувать сборку Vercel; MIDI работает везде, MP3/WAV — при установке requirements-audio.txt). Пред. 0622a8e (core/music модуль).
+ 636f980319986466b3f94a230fb0e5c133841ff8 (2026-08-28; feat(music): LTHub `/music` вызывает отдельный Vercel-сервис аудио `audio_service/` (задеплоен → https://audioservice.vercel.app, CORS); core/music переиспользован; MIDI+MP3/WAV работают на проде без утяжеления основного билда. Пред. 16416a8 (Музыка в сайт, бета-карточка).
+
+### 2026-08-28 — Музыка: отдельный Vercel-сервис аудио (вариант Б)
+- **Проблема:** librosa+зависимости (~397 МБ) слишком тяжёлые для основного билда Vercel.
+- **Решение (по выбору пользователя «сначала Б, потом А»):** отдельный Vercel-проект `audio_service/` — копия `core/music` (midi_utils + audio_utils), Flask + CORS (`*`), эндпоинты `/api/music/{analyze,change_tempo,change_key,overlay}` и `/health`. Задеплоен → `https://audioservice.vercel.app` (алиас; также `audioservice-*.vercel.app`).
+  - Важно: пакет `music` лежит в корне сервиса (Vercel кладёт корень проекта в sys.path, как `core` в основном проекте), иначе `from music import` падает с FUNCTION_INVOCATION_FAILED.
+  - Локальная папка сервиса создана вне `/root/Bankbot` (чтобы не перезаписать `.vercel`-линк основного проекта), затем скопирована в репо `audio_service/`.
+- **Интеграция LTHub:** `music_page()` инжектит `MUSIC_API_BASE` из env `AUDIO_SERVICE_URL` (дефолт `https://audioservice.vercel.app`); фронтен `/music` шлёт все запросы на `${MUSIC_API_BASE}/api/music/*`. Основной `requirements.txt` остаётся лёгким (mido), `requirements-audio.txt` — опционально для локального запуска.
+- **Проверка живьём:** `/health` → ok+audio_available; analyze MIDI → bpm 120 / key Am; change_tempo → 200 audio/midi; CORS preflight OPTIONS → 204. `ruff` чист, ast OK, node --check OK. Закоммичено `636f980`, задеплоено (LTHub + сервис).
+- **Отложено (вариант А):** клиентская обработка в браузере (Web Audio / JS-MIDI) — пользователь выбрал «сначала Б, потом А».
 
 ### 2026-08-28 — Музыка в сайт (LTHub, бета-модуль)
 - **Страница `/music`** (`api/index.py`, `music_page`): клиентский UI — загрузка файла, анализ (BPM/тональность/формат), блоки «Изменить темп», «Изменить тональность», «Наложить несколько файлов». Скачивание результата через Blob.
