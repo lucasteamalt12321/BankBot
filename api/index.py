@@ -5010,6 +5010,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <p>Полный текст канона, произведения и глоссарий</p>
                 </div>
             </a>
+            <a class="card" href="/music">
+                <div class="card-icon">🎵</div>
+                <div class="card-content">
+                    <h2>Музыка <span class="beta-tag">Бета</span></h2>
+                    <p>Анализ и изменение тональности и темпа, наложение MIDI/аудио</p>
+                </div>
+            </a>
             <div class="oge-mode-bar" id="oge-mode-bar">
                 <label><input type="checkbox" id="oge-mode-toggle"> 🎯 Режим подготовки к ОГЭ</label>
             </div>
@@ -5120,13 +5127,6 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <div class="card-content">
                         <h2>Администрирование <span class="beta-tag">Бета</span></h2>
                         <p>Пользователи, монеты, статистика, ошибки</p>
-                    </div>
-                </a>
-                <a class="card" href="/music">
-                    <div class="card-icon">🎵</div>
-                    <div class="card-content">
-                        <h2>Музыка <span class="beta-tag">Бета</span></h2>
-                        <p>Анализ и изменение тональности и темпа, наложение MIDI/аудио</p>
                     </div>
                 </a>
                 <a class="card" href="/suggest">
