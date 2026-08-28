@@ -14849,6 +14849,7 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
 </div>
 
 <script>
+var MUSIC_API_BASE='__AUDIO_SERVICE_URL__';
 function setErr(m){document.getElementById('err').textContent = m || '';}
 function curFile(){return document.getElementById('m-file').files[0];}
 
@@ -14873,7 +14874,7 @@ async function postFile(url, field, file, extra){
 document.getElementById('m-analyze').onclick=async function(){
   var f=curFile();if(!f){setErr('Выберите файл');return;}
   var fd=new FormData();fd.append('file', f);
-  var r=await fetch('/api/music/analyze',{method:'POST',body:fd});
+  var r=await fetch(MUSIC_API_BASE+'/api/music/analyze',{method:'POST',body:fd});
   var j=await r.json();
   if(j.error){setErr(j.error);document.getElementById('m-info').textContent='—';return;}
   setErr('');
@@ -14888,20 +14889,20 @@ document.getElementById('t-run').onclick=async function(){
   var f=curFile();if(!f){setErr('Сначала выберите файл в шаге 1');return;}
   var bpm=document.getElementById('t-bpm').value, fac=document.getElementById('t-factor').value;
   if(!bpm && !fac){setErr('Укажите целевой BPM или фактор');return;}
-  await postFile('/api/music/change_tempo','file',f, bpm?{target_bpm:bpm,__ext:'.'+f.name.split('.').pop()}:{factor:fac,__ext:'.'+f.name.split('.').pop()});
+  await postFile(MUSIC_API_BASE+'/api/music/change_tempo','file',f, bpm?{target_bpm:bpm,__ext:'.'+f.name.split('.').pop()}:{factor:fac,__ext:'.'+f.name.split('.').pop()});
 };
 
 document.getElementById('k-run').onclick=async function(){
   var f=curFile();if(!f){setErr('Сначала выберите файл в шаге 1');return;}
   var semi=document.getElementById('k-semi').value, tgt=document.getElementById('k-target').value;
   if(!semi && !tgt){setErr('Укажите полутоны или целевую тональность');return;}
-  await postFile('/api/music/change_key','file',f, semi?{semitones:semi,__ext:'.'+f.name.split('.').pop()}:{target_key:tgt,__ext:'.'+f.name.split('.').pop()});
+  await postFile(MUSIC_API_BASE+'/api/music/change_key','file',f, semi?{semitones:semi,__ext:'.'+f.name.split('.').pop()}:{target_key:tgt,__ext:'.'+f.name.split('.').pop()});
 };
 
 document.getElementById('o-run').onclick=async function(){
   var fs=document.getElementById('o-files').files;if(fs.length<2){setErr('Выберите минимум 2 файла');return;}
   var fd=new FormData();for(var i=0;i<fs.length;i++){fd.append('files', fs[i]);}
-  var r=await fetch('/api/music/overlay',{method:'POST',body:fd});
+  var r=await fetch(MUSIC_API_BASE+'/api/music/overlay',{method:'POST',body:fd});
   if(r.headers.get('Content-Type') && r.headers.get('Content-Type').indexOf('application/json')>=0){
     var j=await r.json();setErr(j.error||'');return;
   }
@@ -14910,6 +14911,7 @@ document.getElementById('o-run').onclick=async function(){
 </script>
 </body>
 </html>"""
+    html = html.replace("__AUDIO_SERVICE_URL__", os.environ.get("AUDIO_SERVICE_URL", "https://audioservice.vercel.app"))
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
