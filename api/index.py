@@ -14922,8 +14922,51 @@ function downloadBlob(blob, name){
   setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
 }
 
+function encodeWav(samples, sr){
+  var buffer=new ArrayBuffer(44+samples.length*2);
+  var view=new DataView(buffer);
+  function ws(off,s){for(var i=0;i<s.length;i++)view.setUint8(off+i,s.charCodeAt(i));}
+  ws(0,'RIFF'); view.setUint32(4,buffer.byteLength-8,true); ws(8,'WAVE');
+  ws(12,'fmt '); view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true);
+  view.setUint32(24,sr,true); view.setUint32(28,sr*2,true); view.setUint16(32,2,true); view.setUint16(34,16,true);
+  ws(36,'data'); view.setUint32(40,samples.length*2,true);
+  var off=44;
+  for(var i=0;i<samples.length;i++){var s=Math.max(-1,Math.min(1,samples[i]));view.setInt16(off,s<0?s*0x8000:s*0x7FFF,true);off+=2;}
+  return new Blob([view],{type:'audio/wav'});
+}
+async function compressAudio(file){
+  try{
+    var buf=await file.arrayBuffer();
+    var AC=window.AudioContext||window.webkitAudioContext;
+    var ac=new AC();
+    var audio=await ac.decodeAudioData(buf);
+    var sec=Math.min(20, audio.duration||20);
+    var sr=16000;
+    var ab=ac.createBuffer(1, audio.length, audio.sampleRate);
+    ab.copyToChannel(audio.getChannelData(0),0);
+    var oac=new OfflineAudioContext(1, Math.floor(sr*sec), sr);
+    var src=oac.createBufferSource(); src.buffer=ab; src.connect(oac.destination); src.start(0,0,sec);
+    var rendered=await oac.startRendering();
+    ac.close();
+    return encodeWav(rendered.getChannelData(0), sr);
+  }catch(e){ return null; }
+}
+async function prepFile(file){
+  var name=(file.name||'music').toLowerCase();
+  if(/\.(mp3|wav|ogg|m4a|aac|flac|opus)$/.test(name) && file.size>300000){
+    var c=await compressAudio(file);
+    if(c) return {blob:c, name:'input.wav'};
+  }
+  if(file.size>4500000){
+    return {blob:file, name:file.name||'input', tooLarge:true};
+  }
+  return {blob:file, name:file.name||'input'};
+}
+
 async function postFile(url, field, file, extra){
-  var fd=new FormData();fd.append(field, file);
+  var pf=await prepFile(file);
+  if(pf.tooLarge){ setErr('Файл слишком большой — сервер принимает до ~4 МБ. Попробуйте короткий фрагмент.'); return null; }
+  var fd=new FormData();fd.append(field, pf.blob, pf.name);
   if(extra){for(var k in extra){fd.append(k, extra[k]);}}
   setErr('');startProgress();
   try{
@@ -14943,7 +14986,9 @@ document.getElementById('m-analyze').onclick=async function(){
   var f=curFile();if(!f){setErr('Выберите файл');return;}
   setErr('');startProgress();
   try{
-    var fd=new FormData();fd.append('file', f);
+    var pf=await prepFile(f);
+    if(pf.tooLarge){ stopProgress(); setErr('Файл слишком большой — сервер принимает до ~4 МБ. Попробуйте короткий фрагмент.'); return; }
+    var fd=new FormData();fd.append('file', pf.blob, pf.name);
     var r=await fetch(MUSIC_API_BASE+'/api/music/analyze',{method:'POST',body:fd});
     if(!r.ok){ stopProgress(); setErr('Ошибка сервера '+r.status); document.getElementById('m-info').textContent='—'; return; }
     var ct=r.headers.get('Content-Type')||'';
@@ -14977,7 +15022,8 @@ document.getElementById('o-run').onclick=async function(){
   var fs=document.getElementById('o-files').files;if(fs.length<2){setErr('Выберите минимум 2 файла');return;}
   setErr('');startProgress();
   try{
-    var fd=new FormData();for(var i=0;i<fs.length;i++){fd.append('files', fs[i]);}
+    var fd=new FormData();
+    for(var i=0;i<fs.length;i++){var pf=await prepFile(fs[i]);if(pf.tooLarge){stopProgress();setErr('Файл №'+(i+1)+' слишком большой (макс. ~4 МБ). Попробуйте короче.');return;}fd.append('files', pf.blob, pf.name);}
     var r=await fetch(MUSIC_API_BASE+'/api/music/overlay',{method:'POST',body:fd});
     if(!r.ok){ stopProgress(); setErr('Ошибка сервера '+r.status); return; }
     var ct=r.headers.get('Content-Type')||'';
