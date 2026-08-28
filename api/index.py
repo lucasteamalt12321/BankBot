@@ -14880,7 +14880,7 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
 </div>
 
 <script>
-var MUSIC_API_BASE='__AUDIO_SERVICE_URL__';
+var MUSIC_API_BASE=__AUDIO_SERVICE_URL__;
 function setErr(m){document.getElementById('err').textContent = m || '';}
 function curFile(){return document.getElementById('m-file').files[0];}
 
