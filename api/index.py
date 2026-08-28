@@ -37,6 +37,7 @@ from core.history import EMPERORS as _EMPERORS
 from core.history import RULERS as _RULERS
 from core.history import EVENTS as _HISTORY_EVENTS
 from core.history import PERSONS as _HISTORY_PERSONS
+from core.history import classify_topic, HISTORY_TOPIC_ORDER as _HISTORY_TOPIC_ORDER
 
 
 # === Web Auth Helpers ===
@@ -10608,17 +10609,18 @@ def emperors_page():
                 for r in _RULERS
             ],
             "events": [
-                {"year": ev.year, "title": ev.title, "emperor": ev.emperor_id, "note": ev.note, "importance": ev.importance}
+                {"year": ev.year, "title": ev.title, "emperor": ev.emperor_id, "note": ev.note, "importance": ev.importance, "topic": classify_topic(ev.title, ev.note)}
                 for ev in _HISTORY_EVENTS
             ],
             "persons": [
-                {"name": p.name, "emperor": p.emperor_id, "description": p.description, "importance": p.importance}
+                {"name": p.name, "emperor": p.emperor_id, "description": p.description, "importance": p.importance, "topic": classify_topic(p.name, p.description)}
                 for p in _HISTORY_PERSONS
             ],
             "terms": [
                 {"id": t.id, "category": t.category, "term": t.term, "definition": t.definition}
                 for t in _H_TERMS
             ],
+            "topic_order": list(_HISTORY_TOPIC_ORDER),
         },
         ensure_ascii=False,
     )
@@ -10777,6 +10779,9 @@ def emperors_page():
                         <option value="all">Все правители (Рюрик–Путин)</option>
                     </select>
                 </label>
+                <label>Тема:
+                    <select class="algo-select topic-sel" id="topic-select" onchange="app.toggleTopic(this)"></select>
+                </label>
                 <label>Варианты:
                     <select class="algo-select" id="opt-count" onchange="app.toggleOptCount()">
                         <option value="5">5 вариантов</option>
@@ -10819,10 +10824,16 @@ def emperors_page():
         <div class="panel" id="panel-match">
             <div class="mode-row">
                 <label>Правители:
-                    <select class="algo-select scope-sel" id="scope-select-match" onchange="app.toggleScope(this)">
+                    <select class="algo-select scope-sel" id="scope-select-chrono" onchange="app.toggleScope(this)">
                         <option value="emperors">5 императоров</option>
-                        <option value="all">Все правители (Рюрик–Путин)</option>
+                        <option value="all">Все правители</option>
                     </select>
+                </label>
+                <label>Тема:
+                    <select class="algo-select topic-sel" id="topic-select-chrono" onchange="app.toggleTopic(this)"></select>
+                </label>
+                <label>Тема:
+                    <select class="algo-select topic-sel" id="topic-select-match" onchange="app.toggleTopic(this)"></select>
                 </label>
                 <button class="reset-btn" onclick="app.startMatch()">🔄 Новый раунд</button>
                 <button class="reset-btn" onclick="app.checkMatch()">✅ Проверить</button>
@@ -10896,16 +10907,29 @@ __PANEL_TERMS__
             DATA.rulers.forEach(function(e) { emName[e.id] = e.name; });
             var allItems = [];
             DATA.events.forEach(function(ev) {
-                allItems.push({type: 'event', text: ev.title, emperor: ev.emperor, info: ev.note, label: 'Событие', importance: ev.importance || 3});
+                allItems.push({type: 'event', text: ev.title, emperor: ev.emperor, info: ev.note, label: 'Событие', importance: ev.importance || 3, topic: ev.topic || 'Прочее'});
             });
             DATA.persons.forEach(function(p) {
-                allItems.push({type: 'person', text: p.name, emperor: p.emperor, info: p.description, label: 'Личность', importance: p.importance || 3});
+                allItems.push({type: 'person', text: p.name, emperor: p.emperor, info: p.description, label: 'Личность', importance: p.importance || 3, topic: p.topic || 'Прочее'});
             });
             (DATA.terms || []).forEach(function(t) {
-                allItems.push({type: 'term', text: t.term, def: t.definition, period: t.category, emperor: null, info: '', label: 'Термин', importance: 3});
+                allItems.push({type: 'term', text: t.term, def: t.definition, period: t.category, emperor: null, info: '', label: 'Термин', importance: 3, topic: 'Прочее'});
             });
             var scope = localStorage.getItem('emperors_scope') || 'emperors';
             document.querySelectorAll('.scope-sel').forEach(function(s) { s.value = scope; });
+            var topicMode = localStorage.getItem('emperors_topic') || '';
+            (function populateSelectors() {
+                var scopeSels = document.querySelectorAll('.scope-sel');
+                eraGroups().forEach(function(g) {
+                    var o = document.createElement('option');
+                    o.value = 'era:' + g.name; o.textContent = 'Эпоха: ' + g.name;
+                    scopeSels.forEach(function(s) { s.appendChild(o.cloneNode(true)); });
+                });
+                var topicSels = document.querySelectorAll('.topic-sel');
+                var opts = ['<option value="">Все темы</option>'];
+                (DATA.topic_order || []).forEach(function(t) { opts.push('<option value="' + esc(t) + '">' + esc(t) + '</option>'); });
+                topicSels.forEach(function(s) { s.innerHTML = opts.join(''); s.value = topicMode; });
+            })();
             var optCount = localStorage.getItem('emperors_optcount') || '5';
             document.getElementById('opt-count').value = optCount;
             var qdir = localStorage.getItem('emperors_qdir') || 'toRuler';
@@ -10920,11 +10944,26 @@ __PANEL_TERMS__
             }
             function activeRulerIds() {
                 var ids = {};
+                if (scope.indexOf('era:') === 0) {
+                    var ename = scope.slice(4);
+                    var grp = eraGroups().filter(function(g) { return g.name === ename; })[0];
+                    if (grp) grp.ids.forEach(function(id) { ids[id] = true; });
+                    return ids;
+                }
                 (scope === 'all' ? DATA.rulers : DATA.emperors).forEach(function(r) { ids[r.id] = true; });
                 return ids;
             }
+            function activeRulers() {
+                if (scope.indexOf('era:') === 0) {
+                    var ename = scope.slice(4);
+                    var grp = eraGroups().filter(function(g) { return g.name === ename; })[0];
+                    if (grp) return DATA.rulers.filter(function(r) { return grp.ids.indexOf(r.id) >= 0; });
+                }
+                return (scope === 'all') ? DATA.rulers : DATA.emperors;
+            }
             function inScope(it) { return activeRulerIds()[it.emperor] === true; }
-            function itemsInScope() { return allItems.filter(function(it) { return inScope(it) && typeMatch(it); }); }
+            function topicMatch(it) { return !topicMode || it.type === 'term' || (it.topic || 'Прочее') === topicMode; }
+            function itemsInScope() { return allItems.filter(function(it) { return inScope(it) && typeMatch(it) && topicMatch(it); }); }
             var quizScore = 0, quizTotal = 0;
             (function() {
                 var s = localStorage.getItem('emperors_score');
@@ -11088,7 +11127,7 @@ __PANEL_TERMS__
                 if (lab) { lab.textContent = 'выучено ' + mastered + '/' + total + ' (3 подряд)'; }
             }
             function renderStatsOld() {
-                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                var rulers = activeRulers();
                 var byEmperor = {};
                 rulers.forEach(function(e) { byEmperor[e.id] = { wrong: 0, correct: 0 }; });
                 Object.keys(flash).forEach(function(k) {
@@ -11301,7 +11340,7 @@ function diffInfo() {
                 html += '<div>Освоено карточек: <b>' + mastered + ' / ' + totalItems + '</b></div>';
                 html += '<div>В очереди к повторению: <b>' + flashDueCount() + '</b></div>';
                 var byEmperor = {};
-                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                var rulers = activeRulers();
                 rulers.forEach(function(e) { byEmperor[e.id] = { wrong: 0 }; });
                 Object.keys(flash).forEach(function(k) {
                     var r = flash[k]; if (!r) return;
@@ -11329,17 +11368,19 @@ function diffInfo() {
             function studyPanel() {
                 var html = '';
                 html += '<div class="timeline"><div class="timeline-title">🗓 Хронология по эпохам</div>';
+                var eraScope = (scope.indexOf('era:') === 0) ? scope.slice(4) : null;
                 eraGroups().forEach(function(g) {
+                    if (eraScope && g.name !== eraScope) return;
                     html += '<div class="era"><div class="era-name">' + esc(g.name) + ' <span class="era-years">' + esc(g.years) + '</span></div><div class="era-row">';
                     g.ids.forEach(function(id) {
                         var r = DATA.rulers.filter(function(x) { return x.id === id; })[0];
                         if (!r || (scope === 'emperors' && !DATA.emperors.some(function(x) { return x.id === id; }))) return;
-                        html += '<span class="era-chip" style="border-color:' + COLORS[id] + '" onclick="app.showTab(\\'quiz\\')" title="' + esc(r.reign) + '"><span class="era-dot" style="background:' + COLORS[id] + '"></span>' + esc(r.name) + '</span>';
+                        html += '<span class="era-chip" style="border-color:' + COLORS[id] + '" onclick="app.showTab(&quot;quiz&quot;)" title="' + esc(r.reign) + '"><span class="era-dot" style="background:' + COLORS[id] + '"></span>' + esc(r.name) + '</span>';
                     });
                     html += '</div></div>';
                 });
                 html += '</div>';
-                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                var rulers = activeRulers();
                 rulers.forEach(function(e) {
                     html += '<div class="card emperor-card" style="border-left-color:' + COLORS[e.id] + '">';
                     html += '<h2>' + e.emoji + ' ' + esc(e.name) + '</h2>';
@@ -11448,7 +11489,7 @@ function diffInfo() {
                 }
                 document.getElementById('question').textContent = 'К какому правителю относится?\\n' + currentItem.label + ': ' + currentItem.text;
                 var correct = currentItem.emperor;
-                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                var rulers = activeRulers();
                 var list;
                 if (optCount === 'all') {
                     list = rulers.slice();
@@ -11553,7 +11594,7 @@ function diffInfo() {
                 });
                 var grid = document.getElementById('match-columns');
                 grid.innerHTML = '';
-                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                var rulers = activeRulers();
                 rulers.forEach(function(e) {
                     var col = document.createElement('div');
                     col.className = 'match-col';
@@ -11619,7 +11660,7 @@ function diffInfo() {
             var chronoState = { order: [], placed: [] };
 
             function startChrono() {
-                var rulers = (scope === 'all' ? DATA.rulers : DATA.emperors);
+                var rulers = activeRulers();
                 chronoState.order = rulers.slice();
                 chronoState.placed = [];
                 renderChrono();
@@ -11719,6 +11760,16 @@ function diffInfo() {
                     document.querySelectorAll('.scope-sel').forEach(function(s) { s.value = scope; });
                     deck = [];
                     studyPanel();
+                    updateScore();
+                    loadQuestion();
+                    if (document.getElementById('panel-match').classList.contains('active')) startMatch();
+                    if (document.getElementById('panel-chrono').classList.contains('active')) startChrono();
+                },
+                toggleTopic: function(el) {
+                    topicMode = el.value;
+                    localStorage.setItem('emperors_topic', topicMode);
+                    document.querySelectorAll('.topic-sel').forEach(function(s) { s.value = topicMode; });
+                    deck = [];
                     updateScore();
                     loadQuestion();
                     if (document.getElementById('panel-match').classList.contains('active')) startMatch();
