@@ -8609,7 +8609,7 @@ def chess_page():
                     msg.innerHTML = '<div class="msg ok">✅ Правильно! Ход: ' + esc(r.move) + '<br>💰 +5 монет</div>';
                     hubTrack('chess', 1);
                 } else {
-                    msg.innerHTML = '<div class="msg err">❌ Неверно. Правильный ход: ' + esc(r.move) + '</div>';
+                    msg.innerHTML = '<div class="msg err">❌ Неверно. Попробуйте другой ход.</div>';
                 }
             };
             x.onerror = function() { checkBtn.disabled = false; msg.innerHTML = '<div class="msg err">Сетевая ошибка.</div>'; };
@@ -8817,7 +8817,7 @@ def api_chess_puzzle_check():
         except Exception as exc:
             print(f"Error awarding coins: {exc}")
         log_chess_game(uid, pending.get("username", ""), pending["puzzle_id"], pending.get("rating"), pending.get("themes"))
-    return jsonify({"correct": correct, "move": first_move})
+    return jsonify({"correct": correct, "move": first_move if correct else None})
 
 
 # ===== Web Auth (Register / Login) =====
