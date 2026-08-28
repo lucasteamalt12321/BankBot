@@ -14861,11 +14861,15 @@ function downloadBlob(blob, name){
 async function postFile(url, field, file, extra){
   var fd=new FormData();fd.append(field, file);
   if(extra){for(var k in extra){fd.append(k, extra[k]);}}
-  var r=await fetch(url,{method:'POST',body:fd});
-  if(r.headers.get('Content-Type') && r.headers.get('Content-Type').indexOf('application/json')>=0){
-    var j=await r.json();setErr(j.error||'');return null;
-  }
-  if(!r.ok){setErr('Ошибка сервера '+r.status);return null;}
+  setErr('Обработка…');
+  try{
+    var r=await fetch(url,{method:'POST',body:fd});
+    if(!r.ok){setErr('Ошибка сервера '+r.status);return null;}
+    var ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      var j=await r.json();setErr(j.error?('Ошибка: '+j.error):'');return null;
+    }
+  }catch(e){ setErr('Сетевая ошибка: '+e.message); return null; }
   setErr('');
   var blob=await r.blob();downloadBlob(blob, (file.name||'music').replace(/\\.[^.]+$/, '')+'_out'+(extra&&extra.__ext||''));
   return true;
@@ -14873,16 +14877,22 @@ async function postFile(url, field, file, extra){
 
 document.getElementById('m-analyze').onclick=async function(){
   var f=curFile();if(!f){setErr('Выберите файл');return;}
-  var fd=new FormData();fd.append('file', f);
-  var r=await fetch(MUSIC_API_BASE+'/api/music/analyze',{method:'POST',body:fd});
-  var j=await r.json();
-  if(j.error){setErr(j.error);document.getElementById('m-info').textContent='—';return;}
-  setErr('');
-  var info='Формат: '+(j.format||'?')+' · BPM: '+ (j.bpm!=null?j.bpm:'—') +' · Тональность: '+(j.key||'—');
-  if(j.format==='audio' && !j.audio_available){
-    info+='\\n⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
-  }
-  document.getElementById('m-info').textContent=info;
+  setErr('Анализ…');
+  try{
+    var fd=new FormData();fd.append('file', f);
+    var r=await fetch(MUSIC_API_BASE+'/api/music/analyze',{method:'POST',body:fd});
+    if(!r.ok){ setErr('Ошибка сервера '+r.status); document.getElementById('m-info').textContent='—'; return; }
+    var ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')<0){ setErr('Неожиданный ответ сервера ('+r.status+')'); document.getElementById('m-info').textContent='—'; return; }
+    var j=await r.json();
+    if(j.error){setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
+    setErr('');
+    var info='Формат: '+(j.format||'?')+' · BPM: '+ (j.bpm!=null?j.bpm:'—') +' · Тональность: '+(j.key||'—');
+    if(j.format==='audio' && !j.audio_available){
+      info+='\n⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
+    }
+    document.getElementById('m-info').textContent=info;
+  }catch(e){ setErr('Сетевая ошибка: '+e.message); }
 };
 
 document.getElementById('t-run').onclick=async function(){
@@ -14901,12 +14911,15 @@ document.getElementById('k-run').onclick=async function(){
 
 document.getElementById('o-run').onclick=async function(){
   var fs=document.getElementById('o-files').files;if(fs.length<2){setErr('Выберите минимум 2 файла');return;}
-  var fd=new FormData();for(var i=0;i<fs.length;i++){fd.append('files', fs[i]);}
-  var r=await fetch(MUSIC_API_BASE+'/api/music/overlay',{method:'POST',body:fd});
-  if(r.headers.get('Content-Type') && r.headers.get('Content-Type').indexOf('application/json')>=0){
-    var j=await r.json();setErr(j.error||'');return;
-  }
-  setErr('');var blob=await r.blob();downloadBlob(blob,'mixed_out');
+  setErr('Наложение…');
+  try{
+    var fd=new FormData();for(var i=0;i<fs.length;i++){fd.append('files', fs[i]);}
+    var r=await fetch(MUSIC_API_BASE+'/api/music/overlay',{method:'POST',body:fd});
+    if(!r.ok){ setErr('Ошибка сервера '+r.status); return; }
+    var ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){ var j=await r.json(); setErr(j.error?('Ошибка: '+j.error):''); return; }
+    setErr(''); var blob=await r.blob(); downloadBlob(blob,'mixed_out');
+  }catch(e){ setErr('Сетевая ошибка: '+e.message); }
 };
 </script>
 </body>
