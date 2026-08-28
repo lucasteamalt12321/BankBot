@@ -4913,8 +4913,8 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
 .cur-row input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--bb-elev); background:var(--bb-bg); color:var(--bb-text); font-size:14px; }
 .card-badge { display: inline-block; min-width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--bb-accent2); border-radius: 10px; padding: 2px 7px; margin-left: 6px; vertical-align: middle; }
 .oge-progress { margin-top: 8px; }
-.oge-progress-bar { height: 6px; border-radius: 3px; background: var(--bb-elev); overflow: hidden; }
-.oge-progress-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--bb-accent), var(--bb-green3)); transition: width 0.6s ease; }
+.oge-progress-bar { height: 6px; border-radius: 3px; background: var(--bb-elev); overflow: hidden; display: flex; }
+.oge-progress-fill { height: 100%; border-radius: 0; background: var(--bb-accent); transition: width 0.6s ease; }
 .oge-progress-text { font-size: 11px; color: var(--bb-muted); margin-top: 3px; display: flex; justify-content: space-between; }
 </style>
 </head>
@@ -5427,24 +5427,28 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     if (!b) { b = document.createElement('span'); b.className = 'card-badge'; h2.appendChild(b); }
                     b.textContent = cnt;
                 }
-                function addOgeProgress(url, readiness, due, weak, mastered, total) {
+                var OGE_COLORS_BY_URL = { '/emperors': '#8b5cf6', '/informatics': '#06b6d4', '/math': '#f59e0b', '/russian': '#ec4899', '/physics': '#10b981' };
+                function addOgeProgress(url, readiness, due, weak, mastered, total, started) {
                     var card = document.querySelector('.beta-cards .card[href="' + url + '"]');
                     if (!card) return;
                     var existing = card.querySelector('.oge-progress');
                     if (existing) existing.remove();
                     if (total === 0 && readiness === 0) return;
+                    var inProg = Math.max(0, (started || 0) - mastered);
+                    var learnedPct = total ? Math.round(mastered / total * 100) : 0;
+                    var inProgPct = total ? Math.round(inProg / total * 100) : 0;
+                    var color = OGE_COLORS_BY_URL[url] || 'var(--bb-accent)';
                     var prog = document.createElement('div');
                     prog.className = 'oge-progress';
                     var bar = document.createElement('div');
                     bar.className = 'oge-progress-bar';
-                    var fill = document.createElement('div');
-                    fill.className = 'oge-progress-fill';
-                    fill.style.width = readiness + '%';
-                    bar.appendChild(fill);
+                    var f1 = document.createElement('div'); f1.className = 'oge-progress-fill'; f1.style.width = learnedPct + '%'; f1.style.background = 'var(--bb-green3)';
+                    var f2 = document.createElement('div'); f2.className = 'oge-progress-fill'; f2.style.width = inProgPct + '%'; f2.style.background = color;
+                    bar.appendChild(f1); bar.appendChild(f2);
                     prog.appendChild(bar);
                     var txt = document.createElement('div');
                     txt.className = 'oge-progress-text';
-                    txt.innerHTML = '<span>' + mastered + '/' + total + ' освоено (' + readiness + '%)</span>' +
+                    txt.innerHTML = '<span>' + mastered + '/' + total + ' освоено' + (inProg > 0 ? ' · ' + inProg + ' в процессе' : '') + '</span>' +
                         (due > 0 ? '<span style="color:var(--bb-accent2)">' + due + ' на повторение</span>' : '') +
                         (weak > 0 ? '<span style="color:#ef4444">' + weak + ' ошибок</span>' : '');
                     prog.appendChild(txt);
@@ -5460,7 +5464,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                             var urls = { history:'/emperors', informatics:'/informatics', math:'/math', russian:'/russian', physics:'/physics' };
                             for (var mod in d.modules) {
                                 var m = d.modules[mod];
-                                if (urls[mod]) addOgeProgress(urls[mod], m.readiness, m.due_today, m.weak, m.mastered, m.total);
+                                if (urls[mod]) addOgeProgress(urls[mod], m.readiness, m.due_today, m.weak, m.mastered, m.total, m.started);
                             }
                             updateCardBadge('/emperors', d.modules.history ? d.modules.history.due_today : 0);
                             updateCardBadge('/informatics', d.modules.informatics ? d.modules.informatics.due_today : 0);
@@ -14648,8 +14652,8 @@ def stats_page():
         .mod-info { flex: 1; min-width: 0; }
         .mod-name { font-weight: 600; font-size: 14px; }
         .mod-stats { font-size: 12px; color: var(--bb-muted); margin-top: 3px; }
-        .mod-bar { height: 6px; border-radius: 3px; background: var(--bb-elev); overflow: hidden; margin-top: 6px; }
-        .mod-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+        .mod-bar { height: 6px; border-radius: 3px; background: var(--bb-elev); overflow: hidden; margin-top: 6px; display: flex; }
+        .mod-fill { height: 100%; border-radius: 0; transition: width 0.6s ease; }
         .mod-pct { font-size: 18px; font-weight: 700; width: 55px; text-align: right; }
         .forecast-grid { display: grid; grid-template-columns: repeat(14, 1fr); gap: 4px; margin-top: 12px; }
         .fc-day { text-align: center; font-size: 11px; padding: 6px 2px; border-radius: 6px; }
@@ -14820,16 +14824,20 @@ def stats_page():
                 for (var mod in d.modules) {
                     var m = d.modules[mod];
                     var color = OGE_COLORS[mod] || 'var(--bb-accent)';
-                    var pct = m.readiness;
+                    var inProg = Math.max(0, m.started - m.mastered);
+                    var learnedPct = m.total ? Math.round(m.mastered / m.total * 100) : 0;
+                    var inProgPct = m.total ? Math.round(inProg / m.total * 100) : 0;
                     ml.innerHTML += '<div class="mod-row" style="cursor:pointer" onclick="window.location.href=\\'' + m.url + '\\'">' +
                         '<div class="mod-emoji">' + m.emoji + '</div>' +
                         '<div class="mod-info"><div class="mod-name">' + m.label + '</div>' +
                         '<div class="mod-stats">' + m.mastered + '/' + m.total + ' освоено' +
+                        (inProg > 0 ? ' · ' + inProg + ' в процессе' : '') +
                         (m.due_today > 0 ? ' · ' + m.due_today + ' на повторение' : '') +
                         (m.weak > 0 ? ' · <span style="color:#ef4444">' + m.weak + ' ошибок</span>' : '') +
                         ' · точность ' + m.accuracy + '%</div>' +
-                        '<div class="mod-bar"><div class="mod-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
-                        '<div class="mod-pct" style="color:' + color + '">' + pct + '%</div></div>';
+                        '<div class="mod-bar"><div class="mod-fill" style="width:' + learnedPct + '%;background:var(--bb-green3)"></div>' +
+                        '<div class="mod-fill" style="width:' + inProgPct + '%;background:' + color + '"></div></div></div>' +
+                        '<div class="mod-pct" style="color:' + color + '">' + m.readiness + '%</div></div>';
                 }
                 var fg = document.getElementById('s-forecast');
                 fg.innerHTML = '';
