@@ -1945,7 +1945,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-  e91aef9 (2026-08-28; feat(music): кнопка «Послушать» — проигрывание оригинала и результатов трансформаций/оверлея через встроенный <audio>; MIDI в браузере не играет). Задеплоено на bank-bot-ruby.vercel.app. Пред. 707268a (fix MUSIC_API_BASE json.dumps).
+  6128d89 (2026-08-28; feat(music): прокачка модуля — waveform-визуализатор (Web Audio+canvas), клик-в-поля из анализа (BPM/тональность), 4 серверных эффекта normalize/reverse/echo/trim с UI-карточкой «5. Эффекты»; инлайн-плеер результатов. Задеплоено audio service + bank-bot-ruby). Пред. e91aef9 (кнопка Послушать).
 
 ### 2026-08-28 — Баг: кнопка «Анализировать» в /music не срабатывала
 - **Симптом:** пользователь сообщил, что кнопка анализа «не нажимается». Кнопка и обработчик были на месте, MUSIC_API_BASE задан, CORS сервиса корректен.
