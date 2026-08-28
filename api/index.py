@@ -649,9 +649,13 @@ def _ensure_universe_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"))
             try:
+                # Dedup existing rows so the unique index can be created.
+                # Use a dialect-appropriate system row identifier: SQLite uses
+                # `rowid`, Postgres uses `ctid`.
+                _rid = "rowid" if engine.dialect.name == "sqlite" else "ctid"
                 conn.execute(text(
-                    "DELETE FROM daily_prayer_log a USING daily_prayer_log b "
-                    "WHERE a.user_id = b.user_id AND a.prayer_date = b.prayer_date AND a.rowid > b.rowid"
+                    f"DELETE FROM daily_prayer_log a USING daily_prayer_log b "
+                    f"WHERE a.user_id = b.user_id AND a.prayer_date = b.prayer_date AND a.{_rid} > b.{_rid}"
                 ))
                 conn.execute(text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_prayer_log_user_date ON daily_prayer_log(user_id, prayer_date)"
@@ -1163,7 +1167,8 @@ def _migrate_emperors_progress_to_study(engine):
                 INSERT INTO study_progress
                     (user_id, module, card_key, reps, interval_days, ease, due, streak,
                      correct_count, wrong_count, counter, updated_at)
-                SELECT user_id, 'history', card_key, reps, interval_days, ease, due,
+                SELECT user_id, 'history', card_key, reps, interval_days, ease,
+                       CASE WHEN due > 1000000000000 THEN due / 1000.0 ELSE due END,
                        reps,
                        correct_count, wrong_count, counter, updated_at
                 FROM emperors_progress
@@ -1203,6 +1208,17 @@ def _ensure_study_progress_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_study_progress_user ON study_progress(user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_study_progress_user_module_card ON study_progress(user_id, module, card_key)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS study_daily (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    day TEXT NOT NULL,
+                    module VARCHAR(32) NOT NULL,
+                    correct INTEGER NOT NULL DEFAULT 0,
+                    wrong INTEGER NOT NULL DEFAULT 0
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_study_daily_user_day_module ON study_daily(user_id, day, module)"))
             # Миграция существующих продовых таблиц (PostgreSQL IF NOT EXISTS; SQLite-фикстуры уже с колонками).
             for ddl in (
                 "ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at REAL NOT NULL DEFAULT 0",
@@ -1727,11 +1743,11 @@ def _check_web_achievements(conn, user_id):
         print(f"[ACHIEVEMENTS] emperors mastered fact error: {exc}")
     facts["emperors_mastered"] = emastered
 
-    # --- ОГЭ-модули: выполненные задания (ответы) и освоенные карточки из study_progress ---
+    # --- ОГЭ-модули: выполненные задания (уникальные карточки) и освоенные карточки из study_progress ---
     try:
         oge_rows = conn.execute(text("""
             SELECT module,
-                   SUM(correct_count + wrong_count) AS answers,
+                   SUM(CASE WHEN correct_count + wrong_count > 0 THEN 1 ELSE 0 END) AS answers,
                    SUM(CASE WHEN streak >= 3 THEN 1 ELSE 0 END) AS mastered
             FROM study_progress WHERE user_id = :uid GROUP BY module
         """), {"uid": uid}).mappings().all()
@@ -6287,16 +6303,30 @@ def api_dnd_start():
     if uid is None:
         return jsonify({"error": "Нет user_id"}), 400
     name = (data.get("name") or "").strip()
-    from api.dnd_runtime import cmd_dnd_start, find_active_session
+    from api.dnd_runtime import cmd_dnd_start, find_active_session, get_session_players
     reply = cmd_dnd_start(uid, uid, name)
     session = find_active_session(uid)
-    code = session.get("share_code") if session else None
+    if not session:
+        return jsonify({"ok": True, "reply": _dnd_plain(reply)})
+    code = session.get("share_code")
+    players = get_session_players(session["id"])
     return jsonify({
         "ok": True,
-        "reply": _dnd_plain(reply),
-        "session_id": session["id"] if session else None,
+        "active": True,
+        "id": session["id"],
+        "name": session.get("name"),
+        "scene": session.get("current_scene") or "Новая игра",
         "share_code": code,
         "share_url": ("/dnd?session=" + code) if code else None,
+        "players": [
+            {
+                "name": p.get("player_name") or p.get("name") or "Игрок",
+                "char_class": p.get("character_class"),
+                "level": p.get("level"),
+            }
+            for p in players
+        ],
+        "reply": _dnd_plain(reply),
     })
 
 
@@ -6595,8 +6625,8 @@ def dnd_page():
                 document.getElementById('start-result').innerHTML = '';
                 showGame();
                 document.getElementById('log').innerHTML = '';
+                if (r.active) { renderStatus(r); }
                 showMsg('ai', r.reply);
-                refreshStatus();
             });
         }
 
@@ -8897,6 +8927,7 @@ def register_page():
         var nameVal = document.getElementById('reg-name').value.trim();
         var gdVal = document.getElementById('reg-gd').value.trim();
         var lichessVal = document.getElementById('reg-lichess').value.trim();
+        var tgVal = document.getElementById('reg-tg').value.trim();
         var emailVal = document.getElementById('reg-email').value.trim();
         if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
         if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
@@ -8908,6 +8939,7 @@ def register_page():
             display_name: nameVal || null,
             gd_nickname: gdVal || null,
             lichess_nickname: lichessVal || null,
+            telegram_id: tgVal ? tgVal : null,
             email: emailVal || null
         };
         document.querySelector('.btn').disabled = true;
@@ -9208,13 +9240,15 @@ def account_page():
         var nameVal = document.getElementById('set-name').value.trim();
         var gdVal = document.getElementById('set-gd').value.trim();
         var lichessVal = document.getElementById('set-lichess').value.trim();
+        var tgVal = document.getElementById('set-tg').value.trim();
         if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
         if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
         if (lichessVal.length > 50) { showToast('Lichess ник слишком длинный (макс. 50 символов)', true); return; }
         var payload = {
             display_name: nameVal || null,
             gd_nickname: gdVal || null,
-            lichess_nickname: lichessVal || null
+            lichess_nickname: lichessVal || null,
+            telegram_id: tgVal ? tgVal : null
         };
         document.getElementById('save-btn').disabled = true;
         fetch('/api/auth/update', {
@@ -9405,6 +9439,13 @@ def api_auth_register():
     display_name = (data.get("display_name") or "").strip() or login
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
     lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
+    telegram_id = None
+    raw_tg = data.get("telegram_id")
+    if raw_tg not in (None, ""):
+        try:
+            telegram_id = int(str(raw_tg).strip())
+        except (ValueError, TypeError):
+            return jsonify({"error": "Telegram ID должен быть числом"}), 400
     if len(display_name) > 100:
         return jsonify({"error": "Имя слишком длинное (макс. 100 символов)"}), 400
     if gd_nickname and len(gd_nickname) > 50:
@@ -9420,6 +9461,12 @@ def api_auth_register():
             ).mappings().first()
             if existing:
                 return jsonify({"error": "Логин уже занят"}), 409
+            if email:
+                existing_email = conn.execute(
+                    text("SELECT id FROM web_users WHERE email = :email"), {"email": email}
+                ).mappings().first()
+                if existing_email:
+                    return jsonify({"error": "Email уже занят"}), 409
             result = conn.execute(
                 text("""
                     INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, email, is_admin)
@@ -9431,7 +9478,7 @@ def api_auth_register():
                     "hash": _hash_password(password),
                     "name": display_name,
                     "gd": gd_nickname,
-                    "tg": None,
+                    "tg": telegram_id,
                     "lichess": lichess_nickname,
                     "email": email,
                 },
@@ -9501,6 +9548,13 @@ def api_auth_update():
     display_name = (data.get("display_name") or "").strip() or None
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
     lichess_nickname = (data.get("lichess_nickname") or "").strip() or None
+    telegram_id = None
+    raw_tg = data.get("telegram_id")
+    if raw_tg not in (None, ""):
+        try:
+            telegram_id = int(str(raw_tg).strip())
+        except (ValueError, TypeError):
+            return jsonify({"error": "Telegram ID должен быть числом"}), 400
     if display_name and len(display_name) > 100:
         return jsonify({"error": "Имя слишком длинное (макс. 100 символов)"}), 400
     if gd_nickname and len(gd_nickname) > 50:
@@ -9515,13 +9569,15 @@ def api_auth_update():
                     UPDATE web_users
                     SET display_name = COALESCE(:name, login),
                         gd_nickname = :gd,
-                        lichess_nickname = :lichess
+                        lichess_nickname = :lichess,
+                        telegram_id = COALESCE(:tg, telegram_id)
                     WHERE id = :uid
                 """),
                 {
                     "name": display_name,
                     "gd": gd_nickname,
                     "lichess": lichess_nickname,
+                    "tg": telegram_id,
                     "uid": user["id"],
                 },
             )
@@ -13483,6 +13539,53 @@ def _exam_is_correct(user_val, answer) -> bool:
         return False
 
 
+def _due_ms_to_s(value):
+    """Normalize a due timestamp from the web client (ms) to server (s).
+
+    The web UI sends ``Date.now() + interval*86400000`` (milliseconds). Server
+    storage and all reads use seconds, so values above 1e12 (ms epoch) are
+    converted. Already-second values and 0 pass through unchanged.
+    """
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return v / 1000.0 if v > 1e12 else v
+
+
+def _due_s_to_ms(value):
+    """Convert server-stored due (seconds) back to client ms for the web UI.
+
+    Values below 1e12 are seconds and are scaled up; values already in ms
+    (legacy data) pass through unchanged.
+    """
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return v * 1000.0 if v < 1e12 else v
+
+
+def _study_tally_daily(conn, uid, module: str, correct_n: int = 0, wrong_n: int = 0) -> None:
+    """Increment today's per-day correct/wrong tally for OGE study statistics."""
+    if correct_n == 0 and wrong_n == 0:
+        return
+    day = _day_str()
+    try:
+        conn.execute(text("""
+            INSERT INTO study_daily (user_id, day, module, correct, wrong)
+            VALUES (:u, :d, :m, :c, :w)
+            ON CONFLICT (user_id, day, module) DO UPDATE SET
+                correct = study_daily.correct + excluded.correct,
+                wrong = study_daily.wrong + excluded.wrong
+        """), {
+            "u": uid, "d": day, "m": module,
+            "c": int(correct_n), "w": int(wrong_n),
+        })
+    except Exception as exc:
+        print(f"[STUDY] daily tally error: {exc}")
+
+
 def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
     """Upsert one study_progress card applying standard SM-2 scheduling."""
     row = conn.execute(
@@ -13495,8 +13598,8 @@ def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
         if correct:
             reps += 1
             streak += 1
-            interval = 1 if reps == 1 else 3 if reps == 2 else 7 if reps == 3 else round(interval * ease)
             ease = min(3.0, round(ease + 0.1, 2))
+            interval = 1 if reps == 1 else 3 if reps == 2 else 7 if reps == 3 else round(interval * ease)
             due = now + interval * 86400
         else:
             reps, interval, streak = 0, 0, 0
@@ -13519,8 +13622,9 @@ def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
         """), {"u": uid, "m": module, "k": key,
                "r": 1 if correct else 0, "i": 1 if correct else 0, "e": 2.5,
                "d": now + (86400 if correct else 60), "s": 1 if correct else 0,
-               "c": 1 if correct else 0, "w": 0 if correct else 1,
-               "co": 1 if correct else -1, "t": now, "ct": now, "lc": now if correct else 0})
+                "c": 1 if correct else 0, "w": 0 if correct else 1,
+                "co": 1 if correct else -1, "t": now, "ct": now, "lc": now if correct else 0})
+    _study_tally_daily(conn, uid, module, 1 if correct else 0, 0 if correct else 1)
 
 
 @app.route("/api/exam/mixed", methods=["GET"])
@@ -13725,6 +13829,7 @@ def api_quiz_generate():
             random.shuffle(options)
             q["options"] = options
             q["correct_idx"] = options.index(correct)
+            it["correct_idx"] = q["correct_idx"]
         safe_items.append(q)
 
     return jsonify({"ok": True, "sid": sid, "items": safe_items, "module": module, "algo": algo})
@@ -13758,6 +13863,7 @@ def api_quiz_check():
         ok = _exam_is_correct(answer_val, it["_answer"])
     user = _get_session_user(_auth_token_from_request())
     recorded = False
+    unlocked_detail = []
     if user:
         uid = _web_user_id("u" + str(user["id"]))
         if uid and module:
@@ -13769,10 +13875,16 @@ def api_quiz_check():
                 print(f"[QUIZ] progress record error: {exc}")
         try:
             with get_db_engine().connect() as conn:
-                _record_activity(conn, user["id"], "quiz", 1)
+                _record_activity(conn, user["id"], module, 1)
+                newly = _check_web_achievements(conn, user["id"])
+                conn.commit()
+                unlocked_detail = [
+                    {"code": code, "icon": ACHIEVEMENTS[code]["icon"], "name": ACHIEVEMENTS[code]["name"]}
+                    for code in newly
+                ]
         except Exception as exc:
             print(f"[QUIZ] activity record error: {exc}")
-    resp = {"ok": True, "correct": ok, "recorded": recorded}
+    resp = {"ok": True, "correct": ok, "recorded": recorded, "unlocked": unlocked_detail}
     if it.get("type") == "mcq":
         resp["answer"] = it.get("correct_idx")
     else:
@@ -13887,12 +13999,19 @@ def api_exam_ai_record():
     try:
         with get_db_engine().begin() as conn:
             _study_record_one(conn, uid, module, key, correct)
+        unlocked_detail = []
         try:
             with get_db_engine().connect() as conn:
                 _record_activity(conn, user["id"], "exam", 1)
+                newly = _check_web_achievements(conn, user["id"])
+                conn.commit()
+                unlocked_detail = [
+                    {"code": code, "icon": ACHIEVEMENTS[code]["icon"], "name": ACHIEVEMENTS[code]["name"]}
+                    for code in newly
+                ]
         except Exception as exc:
             print(f"[EXAM] activity record error: {exc}")
-        return jsonify({"ok": True, "recorded": True})
+        return jsonify({"ok": True, "recorded": True, "unlocked": unlocked_detail})
     except Exception as exc:
         print(f"[EXAM] ai-record error: {exc}")
         return jsonify({"ok": True, "recorded": False})
@@ -14675,7 +14794,7 @@ def api_emperors_progress():
                         "reps": r["reps"],
                         "interval": r["interval_days"],
                         "ease": r["ease"],
-                        "due": r["due"],
+                        "due": _due_s_to_ms(r["due"]),
                         "correct": r["correct_count"],
                         "wrong": r["wrong_count"],
                         "counter": r["counter"],
@@ -14727,7 +14846,7 @@ def api_emperors_progress_save():
                         "reps": int(rec.get("reps", 0)),
                         "interval": int(rec.get("interval", 0)),
                         "ease": float(rec.get("ease", 2.5)),
-                        "due": float(rec.get("due", 0)),
+                        "due": _due_ms_to_s(rec.get("due", 0)),
                         "correct": int(rec.get("correct", 0)),
                         "wrong": int(rec.get("wrong", 0)),
                         "counter": int(rec.get("counter", 0)),
@@ -14764,7 +14883,7 @@ def api_study_progress():
                         "reps": r["reps"],
                         "interval": r["interval_days"],
                         "ease": r["ease"],
-                        "due": r["due"],
+                        "due": _due_s_to_ms(r["due"]),
                         "streak": r["streak"],
                         "correct": r["correct_count"],
                         "wrong": r["wrong_count"],
@@ -14800,6 +14919,17 @@ def api_study_progress_save():
                 )
             else:
                 for key, rec in cards.items():
+                    new_c = int(rec.get("correct", 0))
+                    new_w = int(rec.get("wrong", 0))
+                    prior = conn.execute(
+                        text("SELECT correct_count, wrong_count FROM study_progress "
+                             "WHERE user_id=:u AND module=:m AND card_key=:k"),
+                        {"u": uid, "m": module, "k": key},
+                    ).mappings().first()
+                    d_c = new_c - int(prior["correct_count"] or 0) if prior else new_c
+                    d_w = new_w - int(prior["wrong_count"] or 0) if prior else new_w
+                    if d_c > 0 or d_w > 0:
+                        _study_tally_daily(conn, uid, module, max(0, d_c), max(0, d_w))
                     conn.execute(text("""
                         INSERT INTO study_progress
                             (user_id, module, card_key, reps, interval_days, ease, due, streak,
@@ -14825,10 +14955,10 @@ def api_study_progress_save():
                         "reps": int(rec.get("reps", 0)),
                         "interval": float(rec.get("interval", 0)),
                         "ease": float(rec.get("ease", 2.5)),
-                        "due": float(rec.get("due", 0)),
+                        "due": _due_ms_to_s(rec.get("due", 0)),
                         "streak": int(rec.get("streak", 0)),
-                        "correct": int(rec.get("correct", 0)),
-                        "wrong": int(rec.get("wrong", 0)),
+                        "correct": new_c,
+                        "wrong": new_w,
                         "counter": int(rec.get("counter", 0)),
                         "ts": time.time(),
                     })
@@ -14859,14 +14989,16 @@ def _oge_stats_payload(web_user_id):
     """Comprehensive study statistics: per-module readiness, streak, today summary, forecast."""
     user = _get_session_user(_auth_token_from_request())
     if not user:
-        return jsonify({"modules": {}, "streak": {"current": 0, "best": 0},
-                        "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0}, "forecast": []})
+        return {"modules": {}, "streak": {"current": 0, "best": 0},
+                "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0}, "forecast": []}
     uid = _web_user_id("u" + str(web_user_id))
     now = time.time()
     today_start = now - (now % 86400)
     modules = {}
     total_mastered = 0
     total_cards = 0
+    current_streak = 0
+    best_streak = 0
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -14949,7 +15081,7 @@ def _oge_stats_payload(web_user_id):
                 best_streak = max(best_streak, streak_b)
     except Exception as exc:
         print(f"[STUDY] stats error: {exc}")
-    # Today summary
+    # Today summary — distinct cards touched today + today's correct/wrong tally.
     today_cards = 0
     today_correct = 0
     today_wrong = 0
@@ -14957,7 +15089,7 @@ def _oge_stats_payload(web_user_id):
         engine = get_db_engine()
         with engine.connect() as conn:
             today_rows = conn.execute(text("""
-                SELECT correct_count, wrong_count, created_at, last_correct_at
+                SELECT created_at, last_correct_at
                 FROM study_progress WHERE user_id=:u
             """), {"u": uid}).mappings().all()
             for r in today_rows:
@@ -14965,10 +15097,15 @@ def _oge_stats_payload(web_user_id):
                 lc = float(r["last_correct_at"] or 0)
                 if ca >= today_start or lc >= today_start:
                     today_cards += 1
-                    today_correct += int(r["correct_count"] or 0)
-                    today_wrong += int(r["wrong_count"] or 0)
-    except Exception:
-        pass
+            daily_rows = conn.execute(text("""
+                SELECT COALESCE(SUM(correct), 0) AS c, COALESCE(SUM(wrong), 0) AS w
+                FROM study_daily WHERE user_id=:u AND day=:d
+            """), {"u": uid, "d": _day_str()}).mappings().first()
+            if daily_rows:
+                today_correct = int(daily_rows["c"] or 0)
+                today_wrong = int(daily_rows["w"] or 0)
+    except Exception as exc:
+        print(f"[STUDY] today summary error: {exc}")
     # Forecast: due cards per day for next 14 days
     forecast = []
     try:
@@ -15121,7 +15258,7 @@ def api_study_due_cards():
         with engine.connect() as conn:
             rows = conn.execute(text("""
                 SELECT module, card_key, reps, ease, due, streak, correct_count, wrong_count
-                FROM study_progress WHERE user_id=:u AND due <= :now AND reps > 0
+                FROM study_progress WHERE user_id=:u AND due <= :now AND (reps > 0 OR due <= :now)
                 ORDER BY due ASC LIMIT 100
             """), {"u": uid, "now": now}).mappings().all()
             for r in rows:

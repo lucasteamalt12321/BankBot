@@ -10,7 +10,7 @@ def test_exam_page_loads(client):
     assert r.status_code == 200
     body = r.get_data(as_text=True)
     assert "Экзаменатор" in body
-    assert "/api/exam/mixed" in body
+    assert "/api/exam/ai-batch" in body
 
 
 def test_exam_mixed_session(client):
@@ -22,7 +22,7 @@ def test_exam_mixed_session(client):
     assert d["sid"] and len(d["items"]) == 6
     assert d["sid"] in m._EXAM_SESSIONS
     mods = {i["module"] for i in d["items"]}
-    assert mods <= {"math", "russian", "informatics"}
+    assert mods <= {"math", "russian", "informatics", "physics"}
     for it in d["items"]:
         assert it["question"] and "answer" not in it and "_answer" not in it
 
