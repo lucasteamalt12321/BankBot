@@ -14801,6 +14801,68 @@ def stats_page():
                 });
                 if (!evList.children.length) evList.innerHTML = '<div class="empty">Событий пока нет.</div>';
             }
+            var OGE_COLORS = { history: '#8b5cf6', informatics: '#06b6d4', math: '#f59e0b', russian: '#ec4899', physics: '#10b981' };
+            function renderOgeAnalytics(d) {
+                document.getElementById('s-streak').textContent = d.streak.current;
+                document.getElementById('s-best').textContent = 'Лучшая серия: ' + d.streak.best + ' дн.';
+                document.getElementById('s-pct').textContent = d.overall_readiness + '%';
+                document.getElementById('s-fill').style.width = d.overall_readiness + '%';
+                var tm = 0, ts = 0;
+                for (var k in d.modules) { tm += d.modules[k].mastered; ts += d.modules[k].total; }
+                document.getElementById('s-total').textContent = tm + ' / ' + ts + ' карточек освоено';
+                document.getElementById('s-unseen').textContent = (d.total_unseen || 0) + ' новых карточек вперёд';
+                var tg = document.getElementById('s-today');
+                tg.innerHTML = '<div class="today-stat"><div class="today-val">' + d.today.cards + '</div><div class="today-lbl">карточек</div></div>' +
+                    '<div class="today-stat"><div class="today-val" style="color:var(--bb-green3)">' + d.today.correct_rate + '%</div><div class="today-lbl">точность</div></div>' +
+                    '<div class="today-stat"><div class="today-val" style="color:var(--bb-accent2)">' + (d.today.correct - d.today.wrong) + '</div><div class="today-lbl">балл</div></div>';
+                var ml = document.getElementById('s-modules');
+                ml.innerHTML = '';
+                for (var mod in d.modules) {
+                    var m = d.modules[mod];
+                    var color = OGE_COLORS[mod] || 'var(--bb-accent)';
+                    var pct = m.readiness;
+                    ml.innerHTML += '<div class="mod-row" style="cursor:pointer" onclick="window.location.href=\\'' + m.url + '\\'">' +
+                        '<div class="mod-emoji">' + m.emoji + '</div>' +
+                        '<div class="mod-info"><div class="mod-name">' + m.label + '</div>' +
+                        '<div class="mod-stats">' + m.mastered + '/' + m.total + ' освоено' +
+                        (m.due_today > 0 ? ' · ' + m.due_today + ' на повторение' : '') +
+                        (m.weak > 0 ? ' · <span style="color:#ef4444">' + m.weak + ' ошибок</span>' : '') +
+                        ' · точность ' + m.accuracy + '%</div>' +
+                        '<div class="mod-bar"><div class="mod-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
+                        '<div class="mod-pct" style="color:' + color + '">' + pct + '%</div></div>';
+                }
+                var fg = document.getElementById('s-forecast');
+                fg.innerHTML = '';
+                for (var i = 0; i < d.forecast.length; i++) {
+                    var f = d.forecast[i];
+                    var cls = ((f.due === 0) && ((f.new || 0) === 0)) ? 'empty' : (((f.due > 5) || ((f.new || 0) > 5)) ? 'hot' : 'active');
+                    var dayLabel = f.date.slice(5);
+                    fg.innerHTML += '<div class="fc-day ' + cls + '"><div class="fc-date">' + dayLabel + '</div>' +
+                        '<div class="fc-num" style="color:var(--bb-link)">' + f.due + '</div>' +
+                        '<div class="fc-num" style="color:var(--bb-accent2);font-size:10px">' + (f.new || 0) + '🆕</div></div>';
+                }
+                var wl = document.getElementById('s-weak');
+                wl.innerHTML = '';
+                var weakItems = [];
+                for (var mod2 in d.modules) {
+                    var m2 = d.modules[mod2];
+                    if (m2.weak > 0) {
+                        weakItems.push({ mod: mod2, label: m2.label, emoji: m2.emoji, weak: m2.weak, accuracy: m2.accuracy, url: m2.url });
+                    }
+                }
+                weakItems.sort(function (a, b) { return b.weak - a.weak; });
+                if (weakItems.length === 0) {
+                    wl.innerHTML = '<p class="muted" style="padding:10px">Нет слабых мест — отличная работа!</p>';
+                } else {
+                    for (var j = 0; j < weakItems.length; j++) {
+                        var w = weakItems[j];
+                        wl.innerHTML += '<div class="weak-item" style="cursor:pointer" onclick="window.location.href=\\'' + w.url + '\\'">' +
+                            '<span class="weak-tag" style="background:' + (OGE_COLORS[w.mod] || 'var(--bb-accent)') + '22;color:' + (OGE_COLORS[w.mod] || 'var(--bb-accent)') + '">' + w.emoji + ' ' + w.label + '</span>' +
+                            '<span>' + w.weak + ' слабых</span>' +
+                            '<span class="weak-acc" style="color:#ef4444">' + w.accuracy + '%</span></div>';
+                    }
+                }
+            }
             fetch('/api/stats', { headers: { 'X-Auth-Token': token } })
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
