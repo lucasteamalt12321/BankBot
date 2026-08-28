@@ -20,7 +20,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import requests
-from flask import Flask, jsonify, redirect, request
+from flask import Flask, jsonify, redirect, request, send_file
 from sqlalchemy import bindparam, create_engine, text
 
 from core.canon import (
@@ -5120,6 +5120,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <div class="card-content">
                         <h2>Администрирование <span class="beta-tag">Бета</span></h2>
                         <p>Пользователи, монеты, статистика, ошибки</p>
+                    </div>
+                </a>
+                <a class="card" href="/music">
+                    <div class="card-icon">🎵</div>
+                    <div class="card-content">
+                        <h2>Музыка <span class="beta-tag">Бета</span></h2>
+                        <p>Анализ и изменение тональности и темпа, наложение MIDI/аудио</p>
                     </div>
                 </a>
                 <a class="card" href="/suggest">
@@ -14649,6 +14656,258 @@ def achievements_page():
                 .catch(function() { showToast('Ошибка загрузки'); });
         })();
     </script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# ---------------------------------------------------------------------------
+# Music Module (beta) — измерение/изменение тональности и темпа, наложение аудио
+# ---------------------------------------------------------------------------
+_MUSIC_ALLOWED = {".mid", ".midi", ".mp3", ".wav"}
+_MUSIC_MAX_BYTES = 8 * 1024 * 1024
+_MUSIC_MIME = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".mid": "audio/midi", ".midi": "audio/midi"}
+
+
+def _music_save_upload(field):
+    f = request.files.get(field)
+    if not f:
+        return None, "Файл не передан (поле '%s')" % field
+    fn = (f.filename or "file").strip()
+    ext = ("." + fn.rsplit(".", 1)[-1].lower()) if "." in fn else ""
+    if ext not in _MUSIC_ALLOWED:
+        return None, "Недопустимый формат (разрешены mid/midi/mp3/wav)"
+    data = f.read()
+    if not data:
+        return None, "Пустой файл"
+    if len(data) > _MUSIC_MAX_BYTES:
+        return None, "Файл слишком большой (макс. 8 МБ)"
+    d = tempfile.mkdtemp(prefix="music_")
+    path = os.path.join(d, "input" + ext)
+    with open(path, "wb") as fp:
+        fp.write(data)
+    return path, None
+
+
+def _music_send(out_path):
+    ext = os.path.splitext(out_path)[1].lower()
+    mime = _MUSIC_MIME.get(ext, "application/octet-stream")
+    return send_file(out_path, mimetype=mime, as_attachment=True, download_name="music" + ext)
+
+
+@app.route("/api/music/analyze", methods=["POST"])
+def api_music_analyze():
+    from core.music import analyze, audio_utils
+    path, err = _music_save_upload("file")
+    if err:
+        return jsonify({"error": err}), 400
+    try:
+        res = analyze(path)
+        res["audio_available"] = audio_utils._LIBROSA
+        return jsonify(res)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/music/change_tempo", methods=["POST"])
+def api_music_change_tempo():
+    from core.music import change_tempo
+    path, err = _music_save_upload("file")
+    if err:
+        return jsonify({"error": err}), 400
+    target = request.form.get("target_bpm")
+    factor = request.form.get("factor")
+    try:
+        if target:
+            out = change_tempo(path, target_bpm=float(target))
+        elif factor:
+            out = change_tempo(path, factor=float(factor))
+        else:
+            return jsonify({"error": "нужен target_bpm или factor"}), 400
+        return _music_send(out)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/music/change_key", methods=["POST"])
+def api_music_change_key():
+    from core.music import change_key
+    path, err = _music_save_upload("file")
+    if err:
+        return jsonify({"error": err}), 400
+    semitones = request.form.get("semitones")
+    target_key = request.form.get("target_key") or None
+    try:
+        if semitones:
+            out = change_key(path, semitones=int(semitones))
+        elif target_key:
+            out = change_key(path, target_key=target_key)
+        else:
+            return jsonify({"error": "нужен semitones или target_key"}), 400
+        return _music_send(out)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/music/overlay", methods=["POST"])
+def api_music_overlay():
+    from core.music import overlay
+    files = request.files.getlist("files")
+    if len(files) < 2:
+        return jsonify({"error": "нужно минимум 2 файла для наложения"}), 400
+    d = tempfile.mkdtemp(prefix="music_ov_")
+    paths = []
+    for i, f in enumerate(files):
+        fn = (f.filename or "f").strip()
+        ext = ("." + fn.rsplit(".", 1)[-1].lower()) if "." in fn else ".wav"
+        if ext not in _MUSIC_ALLOWED:
+            return jsonify({"error": "Недопустимый формат: " + fn}), 400
+        data = f.read()
+        if not data:
+            return jsonify({"error": "Пустой файл: " + fn}), 400
+        p = os.path.join(d, "in%d%s" % (i, ext))
+        with open(p, "wb") as fp:
+            fp.write(data)
+        paths.append(p)
+    try:
+        out = overlay(paths)
+        return _music_send(out)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/music")
+def music_page():
+    """Модуль «Музыка» (бета): анализ и трансформация MIDI/аудио."""
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Музыка (бета) — LTHub</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;min-height:100vh}
+.container{max-width:760px;margin:0 auto;padding:20px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.header h1{font-size:22px;color:var(--gh-text2)}
+.header a{color:var(--bb-link);text-decoration:none;font-size:14px}
+.card{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:16px;padding:18px;margin-bottom:14px}
+.section-title{font-size:14px;color:var(--bb-accent);font-weight:600;margin-bottom:10px}
+.muted{color:var(--bb-muted);font-size:13px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+input[type=file],input[type=number],input[type=text]{background:var(--bb-elev);border:1px solid var(--bb-border);border-radius:10px;color:var(--bb-text);padding:8px 10px;font-size:14px}
+input[type=number],input[type=text]{width:120px}
+button{background:var(--bb-accent);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:14px;cursor:pointer;font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(--bb-border)}
+.result{margin-top:10px;font-size:14px}
+.badge{display:inline-block;font-size:11px;font-weight:600;color:var(--bb-orange);background:var(--bb-elev);padding:1px 7px;border-radius:5px;margin-left:6px;border:1px solid var(--bb-border)}
+#err{color:var(--bb-red);font-size:13px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header"><h1>🎵 Музыка <span class="badge">Бета</span></h1><a href="/">← На главную</a></div>
+
+<div class="card">
+  <div class="section-title">1. Загрузите файл и проанализируйте</div>
+  <div class="row">
+    <input type="file" id="m-file" accept=".mid,.midi,.mp3,.wav">
+    <button id="m-analyze">Анализировать</button>
+  </div>
+  <div class="result" id="m-info">—</div>
+  <div id="err"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">2. Изменить темп (BPM)</div>
+  <div class="row">
+    <label class="muted">Целевой BPM</label><input type="number" id="t-bpm" placeholder="напр. 140">
+    <label class="muted">или ×фактор</label><input type="number" step="0.1" id="t-factor" placeholder="напр. 1.25">
+    <button id="t-run">Применить и скачать</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">3. Изменить тональность (высоту)</div>
+  <div class="row">
+    <label class="muted">Полутонов (±)</label><input type="number" id="k-semi" placeholder="напр. 2">
+    <label class="muted">или в тональность</label><input type="text" id="k-target" placeholder="напр. Am / F#">
+    <button id="k-run">Применить и скачать</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">4. Наложить несколько файлов</div>
+  <div class="row">
+    <input type="file" id="o-files" multiple accept=".mid,.midi,.mp3,.wav">
+    <button id="o-run">Наложить и скачать</button>
+  </div>
+  <div class="muted">MIDI-файлы играют одновременно; аудио микшируется в один трек.</div>
+</div>
+</div>
+
+<script>
+function setErr(m){document.getElementById('err').textContent = m || '';}
+function curFile(){return document.getElementById('m-file').files[0];}
+
+function downloadBlob(blob, name){
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+}
+
+async function postFile(url, field, file, extra){
+  var fd=new FormData();fd.append(field, file);
+  if(extra){for(var k in extra){fd.append(k, extra[k]);}}
+  var r=await fetch(url,{method:'POST',body:fd});
+  if(r.headers.get('Content-Type') && r.headers.get('Content-Type').indexOf('application/json')>=0){
+    var j=await r.json();setErr(j.error||'');return null;
+  }
+  if(!r.ok){setErr('Ошибка сервера '+r.status);return null;}
+  setErr('');
+  var blob=await r.blob();downloadBlob(blob, (file.name||'music').replace(/\\.[^.]+$/, '')+'_out'+(extra&&extra.__ext||''));
+  return true;
+}
+
+document.getElementById('m-analyze').onclick=async function(){
+  var f=curFile();if(!f){setErr('Выберите файл');return;}
+  var fd=new FormData();fd.append('file', f);
+  var r=await fetch('/api/music/analyze',{method:'POST',body:fd});
+  var j=await r.json();
+  if(j.error){setErr(j.error);document.getElementById('m-info').textContent='—';return;}
+  setErr('');
+  var info='Формат: '+(j.format||'?')+' · BPM: '+ (j.bpm!=null?j.bpm:'—') +' · Тональность: '+(j.key||'—');
+  if(j.format==='audio' && !j.audio_available){
+    info+='\\n⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
+  }
+  document.getElementById('m-info').textContent=info;
+};
+
+document.getElementById('t-run').onclick=async function(){
+  var f=curFile();if(!f){setErr('Сначала выберите файл в шаге 1');return;}
+  var bpm=document.getElementById('t-bpm').value, fac=document.getElementById('t-factor').value;
+  if(!bpm && !fac){setErr('Укажите целевой BPM или фактор');return;}
+  await postFile('/api/music/change_tempo','file',f, bpm?{target_bpm:bpm,__ext:'.'+f.name.split('.').pop()}:{factor:fac,__ext:'.'+f.name.split('.').pop()});
+};
+
+document.getElementById('k-run').onclick=async function(){
+  var f=curFile();if(!f){setErr('Сначала выберите файл в шаге 1');return;}
+  var semi=document.getElementById('k-semi').value, tgt=document.getElementById('k-target').value;
+  if(!semi && !tgt){setErr('Укажите полутоны или целевую тональность');return;}
+  await postFile('/api/music/change_key','file',f, semi?{semitones:semi,__ext:'.'+f.name.split('.').pop()}:{target_key:tgt,__ext:'.'+f.name.split('.').pop()});
+};
+
+document.getElementById('o-run').onclick=async function(){
+  var fs=document.getElementById('o-files').files;if(fs.length<2){setErr('Выберите минимум 2 файла');return;}
+  var fd=new FormData();for(var i=0;i<fs.length;i++){fd.append('files', fs[i]);}
+  var r=await fetch('/api/music/overlay',{method:'POST',body:fd});
+  if(r.headers.get('Content-Type') && r.headers.get('Content-Type').indexOf('application/json')>=0){
+    var j=await r.json();setErr(j.error||'');return;
+  }
+  setErr('');var blob=await r.blob();downloadBlob(blob,'mixed_out');
+};
+</script>
 </body>
 </html>"""
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
