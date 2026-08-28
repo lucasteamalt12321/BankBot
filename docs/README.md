@@ -242,7 +242,9 @@ LTHub/
 - `core/music/audio_utils.py` — работа с MP3/WAV поверх `librosa` + `soundfile`: BPM через `beat_track`, тональность по хромаграмме (профили Крумхансля–Шмуклера), `time_stretch` (темп без смены высоты) и `pitch_shift` (высота без смены темпа), микширование сигналов.
 - MP3 читается/пишется через `soundfile` (libsndfile ≥1.1 с поддержкой MP3) — **без ffmpeg и без `pydub`** (`pydub` несовместим с Python 3.14, модуль `audioop` удалён).
 
-**Зависимости:** `mido`, `librosa`, `soundfile` (добавлены в `requirements.txt`).
+**Зависимости:** `mido`, `librosa`, `soundfile`. `mido` — в основном `requirements.txt` (работает везде); `librosa`+`soundfile` вынесены в `requirements-audio.txt` (опционально, чтобы не раздувать сборку Vercel — обработка MP3/WAV доступна при их установке).
+
+**Веб-интеграция (бета-модуль LTHub):** страница `/music` и API `/api/music/analyze`, `/api/music/change_tempo`, `/api/music/change_key`, `/api/music/overlay` (multipart, лимит 8 МБ, расширения mid/midi/mp3/wav). Карточка-бета в хабе ведёт на `/music`.
 
 **Тесты:** `tests/unit/test_music.py` (MIDI + аудио, все зависимости импортируются лениво).
 
