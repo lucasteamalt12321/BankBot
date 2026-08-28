@@ -64,6 +64,30 @@
 
 _Баги добавляются по ходу тестирования остальных модулей._
 
+### Аудит безопасности и багов (2026-08-28, запрос «займись фиксами багов по всему проекту»)
+
+> Прогнан параллельный аудит (core/, api/index.py, music) + полный прогон тестов (1480 passed, 10 skipped — зелёные). Ниже конкретные найденные баги; критичные/высокие — исправлены в рабочей копии (не закоммичено).
+
+#### 🔴 Критические / безопасность
+- **[SEC-BUG-1]** (critical) `POST /api/gd/submit` (api/index.py): медиа хранилось как `data:`-URL с MIME из клиента и рендерилось как `href` без проверок → Stored XSS (через `text/html`/`image/svg+xml`), плюс неограниченный размер загрузки (DoS). **Фикс:** строгий allowlist типов (video/*, image/png|jpeg|gif|webp), отказ svg/html, лимит 16 МБ, корректный MIME в data-URL.
+- **[SEC-BUG-2]** (med) `mdLite()` (две копии, api/index.py) экранировал HTML, но не схему ссылки в `[текст](url)` → `javascript:`-XSS в чате для админа. **Фикс:** санитайзер URL (только http/https/tg), иначе `#`.
+- **[SEC-BUG-3]** (med) семейные комнаты: `data.your_name` (введённое пользователем) рендерилось через `innerHTML` → reflected XSS. **Фикс:** построение DOM через `textContent` (без вставки HTML).
+
+#### 🟠 Высокие (функциональные)
+- **[BANK-BUG-7]** (high) `core/database/simple_bank.py:56` — `Transaction(metadata=...)` при неверном имени колонки (`meta_data`, database.py:84) → `TypeError` и падение начисления за рыбалку. **Фикс:** `metadata=` → `meta_data=`.
+- **[BANK-BUG-8]** (high) `core/systems/motivation_system.py` — `calculate_streak` считал стрик от **сегодня**, а сегодняшний бонус ещё не записан → streak всегда 0 → множители `streak_multipliers` никогда не применялись. **Фикс:** считаем последовательные дни до вчера, награда = `calculate_bonus_amount(streak + 1)`.
+
+#### 🟡 Средние / низкие (исправлено)
+- **[BANK-BUG-9]** (med) `core/systems/beta_economy.py:57` — `datetime.now()` (локальное) вместо UTC → истечение листингов уезжало на оффсет таймзоны. **Фикс:** `datetime.utcnow()`.
+- **[SEC-BUG-4]** (low/med) `MUSIC_API_BASE` инжектился в JS-строку как есть (`json.dumps` отсутствовал) → прививка через кавычку. **Фикс:** `json.dumps(env)`.
+
+#### ⚪ Открытые / архитектурные (не чинил — нужны решения/согласование)
+- **[BANK-BUG-10]** (arch) Две независимые реализации магазина: `core/managers/shop_manager.py` (SQLite `data/shop.db`) и `core/systems/shop_system.py` (Postgres `data/bot.db`) — риск расхождения балансов/покупок. Нужен единый источник.
+- **[BANK-BUG-11]** (med) `shop_manager.purchase_item` не атомарен (нет row-lock/транзакции) → race-condition на списание при конкурентных покупках.
+- **[BANK-BUG-12]** (low) `ParserRegistry` в `core/content/parser_registry.py` пуст → расширение контента невозможно (инертная абстракция).
+- **[SEC-BUG-5]** (low) канон: `media_mime` доверяется клиенту при валидации аудио → ложноположительные/отрицательные результаты (не XSS, т.к. путь управляем).
+- **[SEC-BUG-6]** (low) мёртвый CORS-блок в `api/index.py` (0.0.0.0) — функционально бесполезен. Можно удалить.
+
 ## Changelog
 
 ### 2026-08-27 (Session 9d: 🐉 DnD — шаринг сессий + выпуск модулей из беты)

@@ -5375,7 +5375,12 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     e = e.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>');
                     e = e.replace(/(^|[^*])\\*([^*\\n]+)\\*(?!\\*)/g, '$1<i>$2</i>');
                     e = e.replace(/(^|\\n)- /g, '$1\u2022 ');
-                    e = e.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2">$1</a>');
+                    e = e.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, t, u){
+                        try { var x = new URL(u, window.location.origin);
+                            if (x.protocol === 'http:' || x.protocol === 'https:' || x.protocol === 'tg:') return '<a href="' + x.href + '">' + t + '</a>';
+                        } catch(e) {}
+                        return '<a href="#">' + t + '</a>';
+                    });
                     return e.replace(/\\n/g, '<br>');
                 }
                 function bubble(role, text) {
@@ -6178,19 +6183,34 @@ def api_gd_submit():
 
     # Медиа (видео/фото с прохождением) — обязательно, как в Telegram-флоу.
     media_file = request.files.get("media")
-    media_data = media_file.read() if media_file and media_file.filename else None
+    if not (media_file and media_file.filename):
+        return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
+    media_data = media_file.read()
     if not media_data:
         return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
+    if len(media_data) > 16 * 1024 * 1024:
+        return jsonify({"error": "Файл слишком большой (макс. 16 МБ)"}), 413
     filename = (media_file.filename or "").lower()
     media_mime = (media_file.mimetype or "").lower()
-    if media_mime.startswith("video/") or any(filename.endswith(ext) for ext in (".mp4", ".mov", ".webm", ".mkv")):
+    # Строгий allowlist медиа-типов: отсекаем text/html и SVG (XSS-векторы через data:-URL).
+    if filename.endswith(".svg") or media_mime in ("image/svg+xml", "text/html", "application/html"):
+        return jsonify({"error": "Недопустимый тип файла (разрешены только видео/фото)"}), 400
+    is_video = media_mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".mkv"))
+    is_photo = media_mime in ("image/png", "image/jpeg", "image/gif", "image/webp") or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+    if is_video:
         media_type = "video"
-    elif media_mime.startswith("image/") or any(filename.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif")):
+        if not media_mime.startswith("video/"):
+            ext = next((e for e in (".mp4", ".mov", ".webm", ".mkv") if filename.endswith(e)), ".mp4")
+            media_mime = "video/" + ext[1:]
+    elif is_photo:
         media_type = "photo"
+        if media_mime not in ("image/png", "image/jpeg", "image/gif", "image/webp"):
+            ext = next((e for e in (".png", ".jpg", ".jpeg", ".gif", ".webp") if filename.endswith(e)), ".png")
+            media_mime = "image/" + ext[1:]
     else:
-        media_type = "document"
-    # Храним файл как data-URL (веб не имеет Telegram file_id).
-    media_ref = f"data:{media_mime or 'application/octet-stream'};base64,{base64.b64encode(media_data).decode('ascii')}"
+        return jsonify({"error": "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)"}), 400
+    # Храним файл как data-URL (веб не имеет Telegram file_id); тип ограничен allowlist выше.
+    media_ref = f"data:{media_mime};base64,{base64.b64encode(media_data).decode('ascii')}"
 
     sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending")
     if not sub_id:
@@ -10492,7 +10512,12 @@ function mdLite(s){
   e = e.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
   e = e.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<i>$2</i>');
   e = e.replace(/(^|\n)- /g, '$1• ');
-  e = e.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+                    e = e.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, t, u){
+                        try { var x = new URL(u, window.location.origin);
+                            if (x.protocol === 'http:' || x.protocol === 'https:' || x.protocol === 'tg:') return '<a href="' + x.href + '">' + t + '</a>';
+                        } catch(e) {}
+                        return '<a href="#">' + t + '</a>';
+                    });
   return e.replace(/\n/g, '<br>');
 }
 function bubble(role, text){
@@ -14924,7 +14949,7 @@ document.getElementById('o-run').onclick=async function(){
 </script>
 </body>
 </html>"""
-    html = html.replace("__AUDIO_SERVICE_URL__", os.environ.get("AUDIO_SERVICE_URL", "https://audioservice.vercel.app"))
+    html = html.replace("__AUDIO_SERVICE_URL__", json.dumps(os.environ.get("AUDIO_SERVICE_URL", "https://audioservice.vercel.app")))
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
@@ -22947,7 +22972,10 @@ def family_page():
                     $('inviteLink').innerHTML = 'Ссылка: <a href="' + data.invite_link + '">' + window.location.origin + data.invite_link + '</a>';
                     var passDiv = $('passwordDisplay');
                     passDiv.innerHTML = '<h3 style="font-size:14px;margin-bottom:8px;">Ваш пароль (сохраните его!):</h3>';
-                    passDiv.innerHTML += '<div class="entry"><span class="name">' + data.your_name + '</span><span class="pass">' + data.your_password + '</span></div>';
+                    var entryEl = document.createElement('div'); entryEl.className = 'entry';
+                    var nameEl = document.createElement('span'); nameEl.className = 'name'; nameEl.textContent = data.your_name || '';
+                    var passEl = document.createElement('span'); passEl.className = 'pass'; passEl.textContent = data.your_password || '';
+                    entryEl.appendChild(nameEl); entryEl.appendChild(passEl); passDiv.appendChild(entryEl);
                     show($('resultCard'));
                     $('goToRoomBtn').onclick = function() {{ window.location.href = '/family/room?room_id=' + data.room_id; }};
                 }})

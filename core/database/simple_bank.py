@@ -53,7 +53,7 @@ class SimpleBankSystem:
                 amount=fishing_result.coins,
                 transaction_type='fishing_reward',
                 description=f'Рыбалка Shmalala: {fishing_result.fisher_name}',
-                metadata={
+                meta_data={
                     'source': 'shmalala_fishing',
                     'fisher_name': fishing_result.fisher_name,
                     'raw_message': fishing_result.raw_message

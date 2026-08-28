@@ -54,7 +54,7 @@ class BetaEconomySystem:
         cursor = conn.cursor()
 
         try:
-            expires_at = datetime.now() + timedelta(days=7)
+            expires_at = datetime.utcnow() + timedelta(days=7)
 
             cursor.execute("""
                 INSERT INTO marketplace_listings 
