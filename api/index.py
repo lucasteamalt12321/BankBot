@@ -5116,13 +5116,6 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Идеи по улучшению или сообщить о баге</p>
                     </div>
                 </a>
-                <a class="card" href="/analytics">
-                    <div class="card-icon">📊</div>
-                    <div class="card-content">
-                        <h2>Аналитика ОГЭ</h2>
-                        <p>Прогресс, серия дней, прогноз повторений и слабые места</p>
-                    </div>
-                </a>
             </div>
             <script>
                 function toggleBeta() {
@@ -10424,6 +10417,172 @@ if(T_AUTH){
 
 
 
+OGE_CURATOR_WIDGET = r"""
+<style>
+.oge-fab{position:fixed;right:18px;bottom:18px;z-index:1150;width:56px;height:56px;border-radius:50%;border:none;background:var(--bb-accent);color:#0f1420;font-size:26px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35);font-family:inherit;}
+.oge-fab:hover{background:var(--bb-green3);}
+.cur-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:1200;align-items:center;justify-content:center;padding:16px;}
+.cur-modal{width:min(680px,100%);max-height:88vh;overflow:auto;background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:18px;}
+.cur-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+.cur-head h2{font-size:17px;margin:0;color:var(--bb-accent);}
+.cur-head .cur-x{margin-left:auto;background:none;border:none;color:var(--bb-muted);font-size:16px;cursor:pointer;font-family:inherit;}
+.cur-head .cur-x:hover{color:var(--bb-accent);}
+.cur-btn{padding:8px 14px;border-radius:10px;border:1px solid var(--bb-accent);background:var(--bb-accent);color:#0f1420;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;margin-top:6px;}
+.cur-btn:disabled{opacity:.5;cursor:default;}
+.cur-item{display:flex;gap:8px;align-items:center;font-size:13px;padding:7px 9px;border:1px solid var(--bb-border);border-radius:10px;margin-bottom:6px;}
+.cur-item.done{opacity:.55;text-decoration:line-through;}
+.cur-log{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto;margin-bottom:10px;padding-right:4px;}
+.cur-msg{font-size:13px;line-height:1.5;padding:8px 11px;border-radius:12px;max-width:85%;white-space:pre-wrap;word-wrap:break-word;}
+.cur-msg.user{align-self:flex-end;background:rgba(91,141,239,.18);border:1px solid var(--bb-link);}
+.cur-msg.bot{align-self:flex-start;background:var(--bb-elev);border:1px solid var(--bb-border);}
+.cur-msg.bot code{background:var(--bb-bg);border:1px solid var(--bb-border);border-radius:5px;padding:0 4px;font-size:12px;}
+.cur-msg.sys{align-self:center;background:transparent;border:none;color:var(--bb-muted);font-size:11.5px;font-style:italic;max-width:95%;}
+.cur-row{display:flex;gap:8px;}
+.cur-row input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid var(--bb-elev);background:var(--bb-bg);color:var(--bb-text);font-size:14px;font-family:inherit;}
+.cur-typing{display:flex;gap:4px;align-self:flex-start;padding:8px 11px;}
+.cur-typing span{width:6px;height:6px;border-radius:50%;background:var(--bb-muted);animation:curblink 1.2s infinite;}
+.cur-typing span:nth-child(2){animation-delay:.2s;}
+.cur-typing span:nth-child(3){animation-delay:.4s;}
+@keyframes curblink{0%,100%{opacity:.3;}50%{opacity:1;}}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--bb-green);color:#fff;padding:12px 24px;border-radius:10px;display:none;z-index:1300;font-family:inherit;font-size:14px;}
+.toast.error{background:var(--bb-red);}
+</style>
+<button class="oge-fab" id="oge-fab" title="ИИ-куратор и план на день">🤖</button>
+<div class="cur-overlay" id="cur-overlay">
+  <div class="cur-modal">
+    <div class="cur-head"><h2>🤖 ИИ-куратор</h2><span id="cur-date" style="font-size:12px;color:var(--bb-muted)"></span><button class="cur-x" id="cur-regen" title="Пересобрать план">↻</button><button class="cur-x" id="cur-close" title="Закрыть">✕</button></div>
+    <div id="cur-plan"></div>
+    <div class="cur-log" id="cur-log"></div>
+    <div class="cur-row"><input id="cur-input" placeholder="Спросите куратора…"><button class="cur-btn" id="cur-send" style="margin-top:0">➤</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+var CUR_TARGET = parseInt(localStorage.getItem('oge_target_min') || '10', 10) || 10;
+var PLAN = null;
+function curAuth(h){ h = h || {}; var t = localStorage.getItem('web_token'); if (t) h['X-Auth-Token'] = t; return h; }
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function mdLite(s){
+  var e = escHtml(String(s == null ? '' : s));
+  e = e.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  e = e.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  e = e.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<i>$2</i>');
+  e = e.replace(/(^|\n)- /g, '$1• ');
+  e = e.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  return e.replace(/\n/g, '<br>');
+}
+function bubble(role, text){
+  var log = document.getElementById('cur-log'); if (!log) return;
+  var div = document.createElement('div');
+  div.className = 'cur-msg ' + (role === 'user' ? 'user' : (role === 'sys' ? 'sys' : 'bot'));
+  if (role === 'user') div.textContent = text; else div.innerHTML = mdLite(text);
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+function loadChat(){
+  fetch('/api/study/chat', { headers: curAuth() })
+    .then(function (r) { return r.json().then(function (j) { return { st: r.status, j: j }; }); })
+    .then(function (res) {
+      var d = res.j; var log = document.getElementById('cur-log'); if (!log) return;
+      if (res.st === 401) { log.innerHTML = ''; bubble('assistant', '🔐 Войдите на сайте — куратор ведёт переписку в аккаунте.'); return; }
+      log.innerHTML = '';
+      (d.messages || []).forEach(function (m) { bubble(m.role, m.content); });
+    }).catch(function () {});
+}
+function sendChat(){
+  var inp = document.getElementById('cur-input');
+  var v = (inp.value || '').trim(); if (!v) return;
+  inp.value = ''; bubble('user', v);
+  var btn = document.getElementById('cur-send'); btn.disabled = true;
+  var log = document.getElementById('cur-log');
+  var status = document.createElement('div'); status.className = 'cur-typing'; status.innerHTML = '<span></span><span></span><span></span>';
+  if (log) { log.appendChild(status); log.scrollTop = log.scrollHeight; }
+  fetch('/api/study/chat', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ message: v }) })
+    .then(function (r) { return r.json().then(function (j) { return { st: r.status, ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      btn.disabled = false;
+      if (status && status.parentNode) status.parentNode.removeChild(status);
+      if (res.st === 401) { bubble('assistant', '🔑 Войдите на сайте — куратор ведёт переписку в аккаунте.'); return; }
+      if (res.j && res.j.actions && res.j.actions.length) bubble('sys', '🔎 Куратор: ' + res.j.actions.join(', ') + '.');
+      if (res.j && res.j.reply) bubble('assistant', res.j.reply);
+      else bubble('assistant', '❌ Куратор временно недоступен.');
+    })
+    .catch(function () {
+      btn.disabled = false;
+      if (status && status.parentNode) status.parentNode.removeChild(status);
+      bubble('assistant', '❌ Нет связи с куратором.');
+    });
+}
+function goItem(it){
+  var url = it.url || ''; var sep = (url.indexOf('?') !== -1) ? '&' : '?';
+  if (it.tab) url += sep + 'tab=' + encodeURIComponent(it.tab);
+  window.location.href = url || '/';
+}
+function renderCurPlan(p){
+  var el = document.getElementById('cur-plan'); if (!el) return;
+  var h = '';
+  p.items.forEach(function (it) {
+    var t = it.target || 5, d = Math.min(it.done || 0, t), ok = d >= t;
+    h += '<div class="cur-item' + (ok ? ' done' : '') + '" style="cursor:pointer" title="Перейти к заданию">' +
+         '<span>' + (ok ? '✅' : '⬜') + '</span>' +
+         '<span>' + escHtml((it.label || '') + ' — ' + it.text) + '</span>' +
+         '<span style="margin-left:auto;color:var(--bb-muted);white-space:nowrap">' +
+         (ok ? '✅ готово' : d + '/' + t + ' карт' + (it.tab ? ' · → выполнить' : '')) + '</span></div>';
+  });
+  if (p.items.length && p.done >= p.items.length) h += '<div class="oge-today-line">🎉 План дня полностью закрыт! Так держать.</div>';
+  else h += '<div class="oge-today-line">💡 Закрыто ' + p.done + ' из ' + p.items.length + '.</div>';
+  el.innerHTML = h;
+  Array.prototype.forEach.call(el.querySelectorAll('.cur-item'), function (row, i) { row.onclick = function () { goItem(p.items[i]); }; });
+}
+function loadPlanAndRender(){
+  var l = document.getElementById('cur-plan'); if (l) l.innerHTML = '<div class="oge-plan-empty">Куратор собирает план…</div>';
+  fetch('/api/study/plan?minutes=' + CUR_TARGET, { headers: curAuth() })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (p) {
+      if (p && p.ok) { PLAN = p; renderCurPlan(p); }
+      else if (l) l.innerHTML = '<div class="oge-plan-empty">План временно недоступен</div>';
+    }).catch(function () { if (l) l.innerHTML = '<div class="oge-plan-empty">План временно недоступен</div>'; });
+}
+function openCurator(){
+  var ov = document.getElementById('cur-overlay'); if (!ov) return;
+  ov.style.display = 'flex';
+  var dt = document.getElementById('cur-date'); if (dt) dt.textContent = new Date().toLocaleDateString('ru-RU');
+  if (PLAN) renderCurPlan(PLAN); else loadPlanAndRender();
+  loadChat();
+}
+function closeCurator(){ var ov = document.getElementById('cur-overlay'); if (ov) ov.style.display = 'none'; }
+function showToast(msg, error){
+  var t = document.getElementById('toast'); if (!t) return;
+  t.textContent = msg; t.className = 'toast' + (error ? ' error' : '');
+  t.style.display = 'block';
+  if (window.__ogeToastT) clearTimeout(window.__ogeToastT);
+  window.__ogeToastT = setTimeout(function () { t.style.display = 'none'; }, 3000);
+}
+var ogeFabEl = document.getElementById('oge-fab'); if (ogeFabEl) ogeFabEl.onclick = openCurator;
+var ogeCurClose = document.getElementById('cur-close'); if (ogeCurClose) ogeCurClose.onclick = closeCurator;
+var ogeCurRegen = document.getElementById('cur-regen'); if (ogeCurRegen) ogeCurRegen.onclick = loadPlanAndRender;
+var ogeCurSend = document.getElementById('cur-send'); if (ogeCurSend) ogeCurSend.onclick = sendChat;
+var ogeCurInput = document.getElementById('cur-input'); if (ogeCurInput) ogeCurInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+var ogeCurOverlay = document.getElementById('cur-overlay'); if (ogeCurOverlay) ogeCurOverlay.addEventListener('click', function (e) { if (e.target.id === 'cur-overlay') closeCurator(); });
+if (typeof MutationObserver !== 'undefined') {
+  var ogeToastObs = new MutationObserver(function (muts) {
+    muts.forEach(function (m) {
+      m.addedNodes.forEach(function (n) {
+        if (n.nodeType !== 1) return;
+        var okEl = (n.classList && n.classList.contains('ok')) ? n : (n.querySelector ? n.querySelector('.ok') : null);
+        var badEl = (n.classList && n.classList.contains('bad')) ? n : (n.querySelector ? n.querySelector('.bad') : null);
+        if (okEl) { var txt = okEl.textContent || ''; if (/Верно/.test(txt)) showToast('✅ Верно!'); }
+        else if (badEl) { var t2 = badEl.textContent || ''; if (/[Нн]еверн/.test(t2)) showToast('❌ Неверно', true); }
+      });
+    });
+  });
+  ogeToastObs.observe(document.body, { childList: true, subtree: true });
+}
+</script>
+"""
+
+
 @app.route("/emperors")
 def emperors_page():
     from core.history.terms import TERMS as _H_TERMS, categories as _H_CATS
@@ -10840,7 +10999,7 @@ __PANEL_TERMS__
             }
             function pickFlash() {
                 var now = Date.now(); var candidates = [];
-                itemsInScope().forEach(function(it) {
+                itemsInScope().filter(function(it) { return !itemIsLeaky(it); }).forEach(function(it) {
                     var rec = flash[flashKey(it)];
                     var prio;
                     if (rec && rec.due <= now) prio = 0;
@@ -10865,7 +11024,7 @@ __PANEL_TERMS__
                 return candidates[0].it;
             }
             function pickCounter() {
-                var items = itemsInScope();
+                var items = itemsInScope().filter(function(it) { return !itemIsLeaky(it); });
                 var weights = items.map(function(it) {
                     var rec = recFor(it);
                     var c = rec.counter || 0;
@@ -10903,9 +11062,9 @@ __PANEL_TERMS__
             }
             var deck = [];
             function buildDeck() {
-                deck = shuffleArray(itemsInScope());
+                deck = shuffleArray(itemsInScope().filter(function(it) { return !itemIsLeaky(it); }));
                 if (wrongItems.length) {
-                    deck = shuffleArray(wrongItems.filter(inScope).slice()).concat(deck);
+                    deck = shuffleArray(wrongItems.filter(inScope).filter(function(it) { return !itemIsLeaky(it); }).slice()).concat(deck);
                 }
             }
             function saveScore() { localStorage.setItem('emperors_score', quizScore + '/' + quizTotal); }
@@ -11214,9 +11373,20 @@ function diffInfo() {
                 ];
             }
 
+            function itemIsLeaky(it) {
+                // Вопрос сам содержит ответ: в формулировку попало имя правителя,
+                // к которому относится карточка (напр. персона «Борис Ельцин» с emperor=yeltsin).
+                if (!it || !it.emperor) return false;
+                var em = (emName[it.emperor] || '').toLowerCase();
+                if (!em) return false;
+                var body = ((it.label || '') + ' ' + (it.text || '')).toLowerCase();
+                return body.indexOf(em) !== -1;
+            }
+
             function pickItem() {
                 if (onlyErrors && wrongItems.length) {
-                    return wrongItems[Math.floor(Math.random() * wrongItems.length)];
+                    var we = wrongItems.filter(function(it) { return !itemIsLeaky(it); });
+                    if (we.length) return we[Math.floor(Math.random() * we.length)];
                 }
                 if (algo === 'flash') return pickFlash();
                 if (algo === 'counter') return pickCounter();
@@ -11649,7 +11819,7 @@ function diffInfo() {
 </html>"""
     html = (html.replace("__DATA__", history_data)
                 .replace("__PANEL_TERMS__", TERMS_FRAGMENT.replace("__TERMS_DATA__", terms_json)))
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    return html.replace("</html>", OGE_CURATOR_WIDGET + "</html>"), 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 
@@ -12523,7 +12693,7 @@ def physics_page():
     }
     physics_json = json.dumps(physics_data, ensure_ascii=False)
     html = PHYSICS_PAGE_TEMPLATE.replace("__PHYSICS_DATA__", physics_json)
-    return html
+    return html.replace("</body>", OGE_CURATOR_WIDGET + "</body>")
 
 
 @app.route("/math")
@@ -12558,7 +12728,7 @@ def math_page():
     }
     math_json = json.dumps(math_data, ensure_ascii=False)
     html = MATH_PAGE_TEMPLATE.replace("__MATH_DATA__", math_json)
-    return html
+    return html.replace("</body>", OGE_CURATOR_WIDGET + "</body>")
 
 
 @app.route("/informatics")
@@ -13128,7 +13298,7 @@ def informatics_page():
             .replace("__TOPICS_DATA__", topics_data)
             .replace("__TOPIC_NAMES__", json.dumps(dict(topic_names), ensure_ascii=False))
             .replace("__FIRST_TOPIC__", first_topic_id))
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    return html.replace("</html>", OGE_CURATOR_WIDGET + "</html>"), 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 RUSSIAN_PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -13511,7 +13681,7 @@ def russian_page():
     }
     russian_json = json.dumps(russian_data, ensure_ascii=False)
     html = RUSSIAN_PAGE_TEMPLATE.replace("__RUSSIAN_DATA__", russian_json)
-    return html
+    return html.replace("</body>", OGE_CURATOR_WIDGET + "</body>")
 
 
 @app.route("/terms")
@@ -14026,7 +14196,7 @@ def exam_page():
 
 @app.route("/analytics")
 def analytics_page():
-    return ANALYTICS_PAGE_TEMPLATE
+    return redirect("/stats")
 
 
 EXAM_PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -14240,179 +14410,6 @@ document.getElementById('ans').addEventListener('keydown', function(e) {
 """
 
 
-ANALYTICS_PAGE_TEMPLATE = """<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Аналитика ОГЭ | LTHub</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bb-bg);color:var(--bb-text);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
-.container{max-width:720px;width:100%}
-.header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.header h1{font-size:22px;color:var(--bb-accent)}
-.header a{color:var(--bb-muted);text-decoration:none;font-size:14px;margin-left:auto}
-.card{background:var(--bb-panel);border:1px solid var(--bb-primary);border-radius:16px;padding:20px;margin-bottom:14px}
-.card h2{font-size:16px;color:var(--bb-accent);margin-bottom:12px}
-.muted{color:var(--bb-muted);font-size:13px}
-.streak-box{text-align:center;padding:20px}
-.streak-num{font-size:48px;font-weight:700;color:var(--bb-accent);line-height:1}
-.streak-label{font-size:14px;color:var(--bb-muted);margin-top:6px}
-.overall-bar{height:10px;border-radius:5px;background:var(--bb-elev);overflow:hidden;margin:12px 0}
-.overall-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--bb-accent),var(--bb-green3));transition:width 0.8s ease}
-.overall-pct{font-size:28px;font-weight:700;color:var(--bb-accent);text-align:center}
-.mod-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bb-border)}
-.mod-row:last-child{border-bottom:none}
-.mod-emoji{font-size:28px;width:40px;text-align:center}
-.mod-info{flex:1;min-width:0}
-.mod-name{font-weight:600;font-size:14px}
-.mod-stats{font-size:12px;color:var(--bb-muted);margin-top:3px}
-.mod-bar{height:6px;border-radius:3px;background:var(--bb-elev);overflow:hidden;margin-top:6px}
-.mod-fill{height:100%;border-radius:3px;transition:width 0.6s ease}
-.mod-pct{font-size:18px;font-weight:700;width:55px;text-align:right}
-.forecast-grid{display:grid;grid-template-columns:repeat(14,1fr);gap:4px;margin-top:12px}
-.fc-day{text-align:center;font-size:11px;padding:6px 2px;border-radius:6px}
-.fc-day .fc-date{color:var(--bb-muted);margin-bottom:4px}
-.fc-day .fc-num{font-weight:700}
-.fc-day.empty{background:var(--bb-elev);opacity:.3}
-.fc-day.active{background:rgba(91,141,239,.15);border:1px solid var(--bb-link)}
-.fc-day.hot{background:rgba(239,68,68,.15);border:1px solid #ef4444}
-.weak-list{max-height:300px;overflow-y:auto}
-.weak-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bb-border);font-size:13px}
-.weak-item:last-child{border-bottom:none}
-.weak-tag{font-size:11px;padding:2px 7px;border-radius:8px;font-weight:600;white-space:nowrap}
-.weak-acc{margin-left:auto;font-weight:600}
-.today-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center}
-.today-stat{padding:14px;border-radius:12px;background:var(--bb-elev)}
-.today-val{font-size:24px;font-weight:700}
-.today-lbl{font-size:11px;color:var(--bb-muted);margin-top:4px}
-</style>
-</head>
-<body>
-<div class="container">
-  <div class="header">
-    <h1>📊 Аналитика ОГЭ</h1>
-    <a href="/">← Назад</a>
-  </div>
-  <div id="loading" class="card"><p class="muted">Загрузка...</p></div>
-  <div id="content" style="display:none">
-    <div class="card streak-box">
-      <div class="streak-num" id="s-streak">0</div>
-      <div class="streak-label">дней подряд</div>
-      <p class="muted" id="s-best" style="margin-top:8px"></p>
-    </div>
-    <div class="card">
-      <h2>Общий прогресс</h2>
-      <div class="overall-pct" id="s-pct">0%</div>
-      <div class="overall-bar"><div class="overall-fill" id="s-fill" style="width:0%"></div></div>
-      <p class="muted" id="s-total" style="text-align:center"></p>
-    </div>
-    <div class="card">
-      <h2>Сегодня</h2>
-      <div class="today-grid" id="s-today"></div>
-    </div>
-    <div class="card">
-      <h2>По предметам</h2>
-      <div id="s-modules"></div>
-    </div>
-    <div class="card">
-      <h2>Прогноз повторений (14 дней)</h2>
-      <div class="forecast-grid" id="s-forecast"></div>
-    </div>
-    <div class="card">
-      <h2>Слабые места</h2>
-      <div class="weak-list" id="s-weak"></div>
-    </div>
-  </div>
-</div>
-<script>
-var AUTH = localStorage.getItem('web_token') || '';
-var COLORS = { history:'#8b5cf6', informatics:'#06b6d4', math:'#f59e0b', russian:'#ec4899', physics:'#10b981' };
-
-function init() {
-  if (!AUTH) {
-    document.getElementById('loading').innerHTML = '<p class="muted">Войдите, чтобы видеть аналитику</p>';
-    return;
-  }
-  fetch('/api/study/stats', { headers: { 'X-Auth-Token': AUTH } })
-    .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(d) {
-      if (!d) { document.getElementById('loading').innerHTML = '<p class="muted">Ошибка загрузки</p>'; return; }
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('content').style.display = 'block';
-      renderStats(d);
-    })
-    .catch(function() { document.getElementById('loading').innerHTML = '<p class="muted">Ошибка сети</p>'; });
-}
-
-function renderStats(d) {
-  document.getElementById('s-streak').textContent = d.streak.current;
-  document.getElementById('s-best').textContent = 'Лучшая серия: ' + d.streak.best + ' дн.';
-  document.getElementById('s-pct').textContent = d.overall_readiness + '%';
-  document.getElementById('s-fill').style.width = d.overall_readiness + '%';
-  var tm = 0, ts = 0;
-  for (var k in d.modules) { tm += d.modules[k].mastered; ts += d.modules[k].total; }
-  document.getElementById('s-total').textContent = tm + ' / ' + ts + ' карточек освоено';
-
-  var tg = document.getElementById('s-today');
-  tg.innerHTML = '<div class="today-stat"><div class="today-val">' + d.today.cards + '</div><div class="today-lbl">карточек</div></div>' +
-    '<div class="today-stat"><div class="today-val" style="color:var(--bb-green3)">' + d.today.correct_rate + '%</div><div class="today-lbl">точность</div></div>' +
-    '<div class="today-stat"><div class="today-val" style="color:var(--bb-accent2)">' + (d.today.correct - d.today.wrong) + '</div><div class="today-lbl">балл</div></div>';
-
-  var ml = document.getElementById('s-modules');
-  ml.innerHTML = '';
-  for (var mod in d.modules) {
-    var m = d.modules[mod];
-    var color = COLORS[mod] || 'var(--bb-accent)';
-    var pct = m.readiness;
-    ml.innerHTML += '<div class="mod-row" style="cursor:pointer" onclick="window.location.href=\\'' + m.url + '\\'">' +
-      '<div class="mod-emoji">' + m.emoji + '</div>' +
-      '<div class="mod-info"><div class="mod-name">' + m.label + '</div>' +
-      '<div class="mod-stats">' + m.mastered + '/' + m.total + ' освоено' +
-      (m.due_today > 0 ? ' · ' + m.due_today + ' на повторение' : '') +
-      (m.weak > 0 ? ' · <span style="color:#ef4444">' + m.weak + ' ошибок</span>' : '') +
-      ' · точность ' + m.accuracy + '%</div>' +
-      '<div class="mod-bar"><div class="mod-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
-      '<div class="mod-pct" style="color:' + color + '">' + pct + '%</div></div>';
-  }
-
-  var fg = document.getElementById('s-forecast');
-  fg.innerHTML = '';
-  for (var i = 0; i < d.forecast.length; i++) {
-    var f = d.forecast[i];
-    var cls = f.due === 0 ? 'empty' : (f.due > 5 ? 'hot' : 'active');
-    var dayLabel = f.date.slice(5);
-    fg.innerHTML += '<div class="fc-day ' + cls + '"><div class="fc-date">' + dayLabel + '</div><div class="fc-num">' + f.due + '</div></div>';
-  }
-
-  var wl = document.getElementById('s-weak');
-  wl.innerHTML = '';
-  var weakItems = [];
-  for (var mod2 in d.modules) {
-    var m2 = d.modules[mod2];
-    if (m2.weak > 0) {
-      weakItems.push({ mod: mod2, label: m2.label, emoji: m2.emoji, weak: m2.weak, accuracy: m2.accuracy, url: m2.url });
-    }
-  }
-  weakItems.sort(function(a,b) { return b.weak - a.weak; });
-  if (weakItems.length === 0) {
-    wl.innerHTML = '<p class="muted" style="padding:10px">Нет слабых мест — отличная работа!</p>';
-  } else {
-    for (var j = 0; j < weakItems.length; j++) {
-      var w = weakItems[j];
-      wl.innerHTML += '<div class="weak-item" style="cursor:pointer" onclick="window.location.href=\\'' + w.url + '\\'">' +
-        '<span class="weak-tag" style="background:' + (COLORS[w.mod] || 'var(--bb-accent)') + '22;color:' + (COLORS[w.mod] || 'var(--bb-accent)') + '">' + w.emoji + ' ' + w.label + '</span>' +
-        '<span>' + w.weak + ' слабых</span>' +
-        '<span class="weak-acc" style="color:#ef4444">' + w.accuracy + '%</span></div>';
-    }
-  }
-}
-init();
-</script>
-</body>
-</html>
-"""
 
 
 @app.route("/achievements")
@@ -14639,6 +14636,38 @@ def stats_page():
         .empty { color: var(--bb-muted); font-size: 14px; padding: 20px; text-align: center; }
         .hint { font-size: 13px; color: var(--bb-muted); }
         @media (max-width: 600px) { .cal-cell { font-size: 9px; } .mod-grid { grid-template-columns: 1fr; } }
+        .streak-box { text-align: center; padding: 20px; }
+        .streak-num { font-size: 48px; font-weight: 700; color: var(--bb-accent); line-height: 1; }
+        .streak-label { font-size: 14px; color: var(--bb-muted); margin-top: 6px; }
+        .overall-bar { height: 10px; border-radius: 5px; background: var(--bb-elev); overflow: hidden; margin: 12px 0; }
+        .overall-fill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--bb-accent), var(--bb-green3)); transition: width 0.8s ease; }
+        .overall-pct { font-size: 28px; font-weight: 700; color: var(--bb-accent); text-align: center; }
+        .mod-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--bb-border); }
+        .mod-row:last-child { border-bottom: none; }
+        .mod-emoji { font-size: 28px; width: 40px; text-align: center; }
+        .mod-info { flex: 1; min-width: 0; }
+        .mod-name { font-weight: 600; font-size: 14px; }
+        .mod-stats { font-size: 12px; color: var(--bb-muted); margin-top: 3px; }
+        .mod-bar { height: 6px; border-radius: 3px; background: var(--bb-elev); overflow: hidden; margin-top: 6px; }
+        .mod-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+        .mod-pct { font-size: 18px; font-weight: 700; width: 55px; text-align: right; }
+        .forecast-grid { display: grid; grid-template-columns: repeat(14, 1fr); gap: 4px; margin-top: 12px; }
+        .fc-day { text-align: center; font-size: 11px; padding: 6px 2px; border-radius: 6px; }
+        .fc-day .fc-date { color: var(--bb-muted); margin-bottom: 4px; }
+        .fc-day .fc-num { font-weight: 700; line-height: 1.3; }
+        .fc-day.empty { background: var(--bb-elev); opacity: .3; }
+        .fc-day.active { background: rgba(91,141,239,.15); border: 1px solid var(--bb-link); }
+        .fc-day.hot { background: rgba(239,68,68,.15); border: 1px solid #ef4444; }
+        .fc-leg { font-size: 12px; color: var(--bb-muted); margin: 4px 10px 0 0; }
+        .weak-list { max-height: 300px; overflow-y: auto; }
+        .weak-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--bb-border); font-size: 13px; }
+        .weak-item:last-child { border-bottom: none; }
+        .weak-tag { font-size: 11px; padding: 2px 7px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+        .weak-acc { margin-left: auto; font-weight: 600; }
+        .today-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; text-align: center; }
+        .today-stat { padding: 14px; border-radius: 12px; background: var(--bb-elev); }
+        .today-val { font-size: 24px; font-weight: 700; }
+        .today-lbl { font-size: 11px; color: var(--bb-muted); margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -14664,9 +14693,36 @@ def stats_page():
             <div class="section-title">🧩 Активность по модулям</div>
             <div class="mod-grid" id="mod-grid"></div>
         </div>
-        <div class="card" id="oge-card">
-            <div class="section-title">📚 ОГЭ — готовность по предметам</div>
-            <div class="oge-block" id="oge-block"></div>
+        <div id="oge-analytics">
+            <div class="card streak-box">
+                <div class="streak-num" id="s-streak">0</div>
+                <div class="streak-label">дней подряд (ОГЭ)</div>
+                <p class="muted" id="s-best" style="margin-top:8px"></p>
+            </div>
+            <div class="card">
+                <div class="section-title">📈 Общий прогресс (ОГЭ)</div>
+                <div class="overall-pct" id="s-pct">0%</div>
+                <div class="overall-bar"><div class="overall-fill" id="s-fill" style="width:0%"></div></div>
+                <p class="muted" id="s-total" style="text-align:center"></p>
+                <p class="muted" id="s-unseen" style="text-align:center;margin-top:4px"></p>
+            </div>
+            <div class="card">
+                <div class="section-title">📅 Сегодня (ОГЭ)</div>
+                <div class="today-grid" id="s-today"></div>
+            </div>
+            <div class="card">
+                <div class="section-title">📚 По предметам (ОГЭ)</div>
+                <div id="s-modules"></div>
+            </div>
+            <div class="card">
+                <div class="section-title">🔮 Прогноз повторений и новых карточек (14 дней)</div>
+                <div style="margin-bottom:8px"><span class="fc-leg" style="color:var(--bb-link)">🔁 повторы</span><span class="fc-leg" style="color:var(--bb-accent2)">🆕 новые</span></div>
+                <div class="forecast-grid" id="s-forecast"></div>
+            </div>
+            <div class="card">
+                <div class="section-title">⚠️ Слабые места (ОГЭ)</div>
+                <div class="weak-list" id="s-weak"></div>
+            </div>
         </div>
         <div class="card" id="events-card">
             <div class="section-title">⚡ События</div>
@@ -14727,23 +14783,13 @@ def stats_page():
                     grid.appendChild(a);
                 });
                 if (!grid.children.length) grid.innerHTML = '<div class="empty">Нет активности пока.</div>';
+                var ogeWrap = document.getElementById('oge-analytics');
                 var oge = data.oge || null;
-                var ogeBlock = document.getElementById('oge-block');
                 if (oge && oge.modules && Object.keys(oge.modules).length) {
-                    var oh = '';
-                    Object.keys(oge.modules).forEach(function(k) {
-                        var m = oge.modules[k];
-                        oh += '<div class="oge-row">' +
-                            '<span class="emoji">' + esc(m.emoji || '') + '</span>' +
-                            '<span style="min-width:84px">' + esc(m.label) + '</span>' +
-                            '<span class="oge-bar"><span style="width:' + (m.readiness || 0) + '%"></span></span>' +
-                            '<span style="min-width:64px;text-align:right">' + (m.readiness || 0) + '% · ' + (m.mastered || 0) + '/' + (m.total || 0) + '</span>' +
-                            '</div>';
-                    });
-                    oh += '<div class="hint" style="margin-top:6px">Общая готовность: <b>' + (oge.overall_readiness || 0) + '%</b></div>';
-                    ogeBlock.innerHTML = oh;
+                    ogeWrap.style.display = '';
+                    renderOgeAnalytics(oge);
                 } else {
-                    document.getElementById('oge-card').style.display = 'none';
+                    ogeWrap.style.display = 'none';
                 }
                 var evList = document.getElementById('events');
                 evList.innerHTML = '';
@@ -14997,6 +15043,7 @@ def _oge_stats_payload(web_user_id):
     modules = {}
     total_mastered = 0
     total_cards = 0
+    total_unseen = 0
     current_streak = 0
     best_streak = 0
     try:
@@ -15037,6 +15084,7 @@ def _oge_stats_payload(web_user_id):
                 readiness = round(mastered / total * 100) if total else 0
                 total_mastered += mastered
                 total_cards += total
+                total_unseen += unseen
                 modules[mod] = {
                     "label": meta["label"],
                     "emoji": meta["emoji"],
@@ -15106,7 +15154,9 @@ def _oge_stats_payload(web_user_id):
                 today_wrong = int(daily_rows["w"] or 0)
     except Exception as exc:
         print(f"[STUDY] today summary error: {exc}")
-    # Forecast: due cards per day for next 14 days
+    # Forecast: due (reviews) + projected new cards learned per day for next 14 days.
+    # `due` comes from each card's SM-2 `due` timestamp; `new` is a projection:
+    # remaining unseen cards are spread evenly over ~14 days (min pace 3/day).
     forecast = []
     try:
         engine = get_db_engine()
@@ -15120,9 +15170,13 @@ def _oge_stats_payload(web_user_id):
                 day_offset = int((d - now) / 86400)
                 if 0 <= day_offset < 14:
                     day_buckets[day_offset] = day_buckets.get(day_offset, 0) + 1
+            pace = max(3, round(total_unseen / 14)) if total_unseen else 0
+            remaining = total_unseen
             for i in range(14):
                 fdate = (date.today() + __import__("datetime").timedelta(days=i)).isoformat()
-                forecast.append({"date": fdate, "due": day_buckets.get(i, 0)})
+                new_today = min(pace, remaining) if pace else 0
+                remaining -= new_today
+                forecast.append({"date": fdate, "due": day_buckets.get(i, 0), "new": new_today})
     except Exception:
         pass
     overall_readiness = round(total_mastered / max(1, total_cards) * 100)
@@ -15133,6 +15187,7 @@ def _oge_stats_payload(web_user_id):
         "today": {"cards": today_cards, "correct": today_correct, "wrong": today_wrong,
                   "correct_rate": round(today_correct / max(1, today_correct + today_wrong) * 100)},
         "forecast": forecast,
+        "total_unseen": total_unseen,
     }
 
 
@@ -15149,7 +15204,7 @@ _STATS_MODULES = {
     "physics": {"label": "Физика", "emoji": "⚛️", "color": "#10b981", "url": "/physics"},
     "emperors": {"label": "История (императоры)", "emoji": "👑", "color": "#8b5cf6", "url": "/emperors"},
     "canon": {"label": "Канон", "emoji": "📖", "color": "#f59e0b", "url": "/canon"},
-    "quiz": {"label": "Квизы", "emoji": "❓", "color": "#06b6d4", "url": "/analytics"},
+    "quiz": {"label": "Квизы", "emoji": "❓", "color": "#06b6d4", "url": "/stats"},
     "exam": {"label": "Экзамен", "emoji": "🎓", "color": "#ec4899", "url": "/exam"},
     "chess": {"label": "Шахматы", "emoji": "♟️", "color": "#10b981", "url": "/chess"},
     "gd": {"label": "Geometry Dash", "emoji": "🟦", "color": "#22d3ee", "url": "/gd"},
@@ -15169,8 +15224,8 @@ _STATS_MODULES = {
 def api_stats():
     """Общая статистика: активность по всем модулям хаба + серия + события + ОГЭ-блок.
 
-    Служит одновременно отдельной страницей /analytics и сводным блоком личного
-    кабинета /account (по аналогии с достижениями).
+    Служит сводным блоком личного кабинета /account и общей страницей
+    статистики /stats (по аналогии с достижениями).
     """
     web_uid = _require_web_user()
     if not web_uid:
@@ -15537,7 +15592,7 @@ def _plan_items_rule_based(subjects, minutes, ease):
                 "label": f"{s['emoji']} {s['label']}",
                 "text": f"\U0001F6E0 Исправить ошибки: {target} слабых карточек",
                 "url": s["next_action"]["url"],
-                "minutes": per,
+                "minutes": max(per, target * 2),
                 "cards": target,
                 "kind": "fix",
             })
@@ -15548,7 +15603,7 @@ def _plan_items_rule_based(subjects, minutes, ease):
                 "label": f"{s['emoji']} {s['label']}",
                 "text": f"\u2728 Изучить новые: {target} карточек",
                 "url": s["next_action"]["url"],
-                "minutes": per,
+                "minutes": max(per, target * 2),
                 "cards": target,
                 "kind": "new",
             })
@@ -15593,14 +15648,16 @@ def _plan_items_ai(subjects, minutes, ratio):
         hard = " Вчера ученик выполнил весь план - можно немного усложнить."
     prompt = (
         "Ты - методист подготовки к ОГЭ. Верни СТРОГО JSON-массив из 3-6 объектов вида "
-        '{"module":"math|russian|informatics|history|physics","kind":"fix|new","cards":N,'
+        '{"module":"math|russian|informatics|history|physics","kind":"fix|new","cards":N,"minutes":M,'
         '"topic":""}, без markdown, без пояснений. '
         'kind:"fix" - исправить ошибки: N слабых карточек, зачёт - верный ответ на карточку '
         "с ошибкой (одна карточка считается один раз в день); "
         'kind:"new" - изучить новые: N новых карточек, зачёт - первая работа с карточкой. '
         "topic - НЕобязательный фильтр по теме (подстрока идентификатора/названия темы, например "
         '"lesson1" или "реформа"); ставь, когда хочешь ограничить пункт конкретной темой. '
-        f"Общий бюджет времени: {minutes} минут (~1 минута на карточку), cards целое 3-30, "
+        f"Общий бюджет времени дня ~ {minutes} минут. cards - целое 3-30 (сколько карточек проработать); "
+        "minutes - реалистичная оценка времени на пункт в минутах (учти чтение, разбор теории/ошибок и "
+        "тренировку; обычно 5-25, до 40); распредели бюджет по пунктам. "
         "формулируй text не нужно - текст построит система." + hard + "\n\n"
         "Статистика ученика:\n" + "\n".join(stat_lines) +
         "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
@@ -15625,9 +15682,15 @@ def _plan_items_ai(subjects, minutes, ratio):
             continue
         s = meta[mod]
         try:
-            cards = max(3, min(30, int(it.get("cards") or it.get("minutes") or 5)))
+            cards = max(3, min(30, int(it.get("cards") or 5)))
         except (TypeError, ValueError):
             cards = 5
+        try:
+            minutes = int(it.get("minutes") or 0)
+        except (TypeError, ValueError):
+            minutes = 0
+        if minutes < 3 or minutes > 60:
+            minutes = max(3, min(60, cards * 2))
         kind = str(it.get("kind") or "").strip().lower()
         if kind not in ("fix", "new"):
             kind = "fix" if int(s.get("weak", 0)) > 0 else "new"
@@ -15642,7 +15705,7 @@ def _plan_items_ai(subjects, minutes, ratio):
             "label": f"{s['emoji']} {s['label']}",
             "text": text,
             "url": s["url"],
-            "minutes": cards,
+            "minutes": minutes,
             "cards": cards,
             "kind": kind,
             "topic": topic,
