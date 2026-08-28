@@ -14844,8 +14844,10 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
   <div class="row">
     <input type="file" id="m-file" accept=".mid,.midi,.mp3,.wav">
     <button id="m-analyze">Анализировать</button>
+    <button id="m-listen" class="sec">▶ Послушать</button>
   </div>
   <div class="result" id="m-info">—</div>
+  <audio id="m-audio" controls style="width:100%;margin-top:10px;display:none"></audio>
   <div id="err"></div>
   <div id="m-stage" class="muted"></div>
   <div id="m-progress" class="m-progress"><div id="m-bar"></div></div>
@@ -14922,6 +14924,30 @@ function downloadBlob(blob, name){
   setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
 }
 
+function mimeOf(name){
+  name=(name||'').toLowerCase();
+  if(/\.mp3$/.test(name)) return 'audio/mpeg';
+  if(/\.wav$/.test(name)) return 'audio/wav';
+  if(/\.ogg$/.test(name)) return 'audio/ogg';
+  if(/\.m4a$/.test(name)) return 'audio/mp4';
+  if(/\.flac$/.test(name)) return 'audio/flac';
+  if(/\.aac$/.test(name)) return 'audio/aac';
+  if(/\.midi?$/.test(name)) return 'audio/midi';
+  return '';
+}
+function playBlob(blob){
+  var a=document.getElementById('m-audio');
+  if(!a) return;
+  if(a.src) URL.revokeObjectURL(a.src);
+  a.style.display='block';
+  a.src=URL.createObjectURL(blob);
+  a.play().catch(function(){});
+}
+function isPlayableAudio(blob){
+  var t=blob.type||'';
+  return t.indexOf('audio/')===0 && t!=='audio/midi';
+}
+
 function encodeWav(samples, sr){
   var buffer=new ArrayBuffer(44+samples.length*2);
   var view=new DataView(buffer);
@@ -14978,9 +15004,17 @@ async function postFile(url, field, file, extra){
     }
     endProgress();
     var blob=await r.blob();downloadBlob(blob, (file.name||'music').replace(/\.[^.]+$/, '')+'_out'+(extra&&extra.__ext||''));
+    if(isPlayableAudio(blob)) playBlob(blob);
     return true;
   }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message); return null; }
 }
+
+document.getElementById('m-listen').onclick=function(){
+  var f=curFile();if(!f){setErr('Выберите файл');return;}
+  var mime=mimeOf(f.name);
+  if(!mime || mime==='audio/midi'){ setErr('Браузер проигрывает MP3/WAV/OGG напрямую. MIDI воспроизведение недоступно — выберите аудиофайл.'); return; }
+  setErr('');playBlob(new Blob([f], {type: mime}));
+};
 
 document.getElementById('m-analyze').onclick=async function(){
   var f=curFile();if(!f){setErr('Выберите файл');return;}
