@@ -1885,7 +1885,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-uncommitted (2026-08-28; BUG-FIX batch: 18 багов self-audit исправлены в api/index.py + api/dnd_runtime.py; деплой на прод bank-bot-ruby.vercel.app без коммита). Пред. be76752 (2026-08-26; ИИ-алгоритм).
+5e2dd3b (2026-08-28; BUG-FIX batch: 18 багов self-audit исправлены в api/index.py + api/dnd_runtime.py; задеплоено на прод bank-bot-ruby.vercel.app). Пред. be76752 (2026-08-26; ИИ-алгоритм).
 ### Задача 1. Ачивки
 - **Статус:** Готово
 - **Количество:** 227 ачивок
