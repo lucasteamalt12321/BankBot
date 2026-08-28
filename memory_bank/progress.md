@@ -105,6 +105,20 @@ _Баги добавляются по ходу тестирования оста
   - `_plan_items_rule_based`: `minutes = max(per, target*2)` (≈2 мин/карточку).
   - Фронт уже рендерил `it.minutes + "м"` — теперь значение осмысленное. 22 теста `test_curator.py` passed, ruff clean. **Не закоммичено.**
 
+### 2026-08-28 (Session: аудит багов по всему проекту — security + core fixes)
+- **Задача (пользователь):** «займись фиксами багов и потенциальных багов по всему проекту». Прогнан параллельный аудит (core/, api/index.py, music) + полный прогон тестов (1480 passed, 10 skipped — зелёные).
+- **Безопасность (api/index.py):**
+  - `[SEC-BUG-1]` `/api/gd/submit`: Stored-XSS (data:-URL с MIME от клиента, рендер в `href`) + неограниченный размер → allowlist типов (video/*, image/png|jpeg|gif|webp), отказ svg/html, лимит 16 МБ, корректный MIME в data-URL.
+  - `[SEC-BUG-2]` `mdLite()` (2 копии): схема ссылок не фильтровалась → `javascript:`-XSS; добавлен санитайзер (http/https/tg, иначе `#`).
+  - `[SEC-BUG-3]` семейные комнаты: `data.your_name` → `innerHTML` (reflected XSS); переписано на `textContent` (DOM).
+  - `[SEC-BUG-4]` `MUSIC_API_BASE` из env инжектился без экранирования; обёрнут в `json.dumps`.
+- **Функциональные (core/):**
+  - `[BANK-BUG-7]` `simple_bank.py:56` `Transaction(metadata=)` → `meta_data=` (падал `TypeError`, не начислялась награда за рыбалку).
+  - `[BANK-BUG-8]` `motivation_system.py`: стрик ежедневного бонуса считался от сегодня → всегда 0 → множители не применялись; теперь считаем до вчера, награда `calculate_bonus_amount(streak+1)`.
+  - `[BANK-BUG-9]` `beta_economy.py:57` `datetime.now()` → `datetime.utcnow()` (истечение лотов по таймзоне).
+- **Открытые/архитектурные (не чинил, записаны выше):** `[BANK-BUG-10]` две реализации магазина, `[BANK-BUG-11]` неатомарная покупка, `[BANK-BUG-12]` инертный `ParserRegistry`; `[SEC-BUG-5/6]` доверие MIME клиента в каноне / мёртвый CORS-блок.
+- **Проверки:** `ast.parse` по api/index.py и core-файлам OK; `tests/unit/test_music.py` 7 passed. **Закоммичено `92b7f44`, задеплоено на `bank-bot-ruby.vercel.app` (Ready).**
+
 ### 2026-08-27 (Session 9c: 📊 Общая статистика как модуль + блок в кабинете)
 - **`/api/stats`** (api/index.py): сводная статистика активности по всем модулям хаба — серия, календарь активных дней, список модулей (actions/days), события, тоталы + вложенный ОГЭ-блок.
 - **Отдельная страница `/stats`** (`stats_page`): общая статистика как самостоятельный модуль, стиль зеркалит `/achievements` (stat-box'ы, календарь 12 недель, сетка модулей, события, ОГЭ-готовность).
@@ -1920,7 +1934,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
- f01cf85b852b3c0c6fa12f8cff87aac0e3a1defd (2026-08-28; fix(music): обработчики `/music` сделаны устойчивыми (try/catch, проверка r.ok и Content-Type) — кнопка «Анализировать» перестала «не нажиматься» из-за неперехваченного исключения при не-JSON ответе сервиса; теперь показывает ошибку. Карточка возвращена в блок «Бета-модули». Задеплоено). Пред. 9689100 (видимость карточки).
+ 92b7f44 (2026-08-28; fix(security+core): XSS/DoS в GD-медиа + mdLite + семьях, краши simple_bank/motivation/beta_economy. Закоммичено + задеплоено на bank-bot-ruby.vercel.app). Пред. f01cf85 (кнопка /music).
 
 ### 2026-08-28 — Баг: кнопка «Анализировать» в /music не срабатывала
 - **Симптом:** пользователь сообщил, что кнопка анализа «не нажимается». Кнопка и обработчик были на месте, MUSIC_API_BASE задан, CORS сервиса корректен.
