@@ -14829,6 +14829,10 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
 .result{margin-top:10px;font-size:14px}
 .badge{display:inline-block;font-size:11px;font-weight:600;color:var(--bb-orange);background:var(--bb-elev);padding:1px 7px;border-radius:5px;margin-left:6px;border:1px solid var(--bb-border)}
 #err{color:var(--bb-red);font-size:13px;margin-top:8px}
+.m-progress{height:8px;background:var(--bb-elev);border-radius:6px;overflow:hidden;margin-top:8px;display:none}
+.m-progress.on{display:block}
+#m-bar{height:100%;width:0;background:var(--bb-accent);transition:width .3s}
+#m-stage{font-size:13px;color:var(--bb-accent);margin-top:6px;min-height:16px;font-weight:600}
 </style>
 </head>
 <body>
@@ -14843,6 +14847,8 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
   </div>
   <div class="result" id="m-info">—</div>
   <div id="err"></div>
+  <div id="m-stage" class="muted"></div>
+  <div id="m-progress" class="m-progress"><div id="m-bar"></div></div>
 </div>
 
 <div class="card">
@@ -14878,6 +14884,39 @@ var MUSIC_API_BASE='__AUDIO_SERVICE_URL__';
 function setErr(m){document.getElementById('err').textContent = m || '';}
 function curFile(){return document.getElementById('m-file').files[0];}
 
+var mStages=[
+  {p:8,  t:'Отправка файла на сервер…'},
+  {p:35, t:'Декодирование аудио…'},
+  {p:60, t:'Анализ темпа (BPM)…'},
+  {p:85, t:'Определение тональности…'},
+  {p:95, t:'Финализация…'}
+];
+var mProgTimer=null;
+function stopProgress(keep){
+  if(mProgTimer){clearInterval(mProgTimer);mProgTimer=null;}
+  if(!keep){document.getElementById('m-progress').classList.remove('on');document.getElementById('m-bar').style.width='0%';document.getElementById('m-stage').textContent='';}
+}
+function startProgress(){
+  stopProgress(true);
+  document.getElementById('m-progress').classList.add('on');
+  document.getElementById('m-stage').textContent=mStages[0].t;
+  document.getElementById('m-bar').style.width='0%';
+  var i=0,cur=0;
+  mProgTimer=setInterval(function(){
+    cur+=Math.max(0.8,(mStages[i].p-cur)*0.12);
+    if(cur>=mStages[i].p && i<mStages.length-1){i++;}
+    cur=Math.min(cur,92);
+    document.getElementById('m-bar').style.width=cur.toFixed(0)+'%';
+    document.getElementById('m-stage').textContent=mStages[i].t;
+  },450);
+}
+function endProgress(){
+  stopProgress(true);
+  document.getElementById('m-bar').style.width='100%';
+  document.getElementById('m-stage').textContent='Готово ✓';
+  setTimeout(function(){stopProgress();},2200);
+}
+
 function downloadBlob(blob, name){
   var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
   setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
@@ -14886,38 +14925,38 @@ function downloadBlob(blob, name){
 async function postFile(url, field, file, extra){
   var fd=new FormData();fd.append(field, file);
   if(extra){for(var k in extra){fd.append(k, extra[k]);}}
-  setErr('Обработка…');
+  setErr('');startProgress();
   try{
     var r=await fetch(url,{method:'POST',body:fd});
-    if(!r.ok){setErr('Ошибка сервера '+r.status);return null;}
+    if(!r.ok){stopProgress();setErr('Ошибка сервера '+r.status);return null;}
     var ct=r.headers.get('Content-Type')||'';
     if(ct.indexOf('application/json')>=0){
-      var j=await r.json();setErr(j.error?('Ошибка: '+j.error):'');return null;
+      var j=await r.json();stopProgress();setErr(j.error?('Ошибка: '+j.error):'');return null;
     }
-  }catch(e){ setErr('Сетевая ошибка: '+e.message); return null; }
-  setErr('');
-  var blob=await r.blob();downloadBlob(blob, (file.name||'music').replace(/\\.[^.]+$/, '')+'_out'+(extra&&extra.__ext||''));
-  return true;
+    endProgress();
+    var blob=await r.blob();downloadBlob(blob, (file.name||'music').replace(/\.[^.]+$/, '')+'_out'+(extra&&extra.__ext||''));
+    return true;
+  }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message); return null; }
 }
 
 document.getElementById('m-analyze').onclick=async function(){
   var f=curFile();if(!f){setErr('Выберите файл');return;}
-  setErr('Анализ…');
+  setErr('');startProgress();
   try{
     var fd=new FormData();fd.append('file', f);
     var r=await fetch(MUSIC_API_BASE+'/api/music/analyze',{method:'POST',body:fd});
-    if(!r.ok){ setErr('Ошибка сервера '+r.status); document.getElementById('m-info').textContent='—'; return; }
+    if(!r.ok){ stopProgress(); setErr('Ошибка сервера '+r.status); document.getElementById('m-info').textContent='—'; return; }
     var ct=r.headers.get('Content-Type')||'';
-    if(ct.indexOf('application/json')<0){ setErr('Неожиданный ответ сервера ('+r.status+')'); document.getElementById('m-info').textContent='—'; return; }
+    if(ct.indexOf('application/json')<0){ stopProgress(); setErr('Неожиданный ответ сервера ('+r.status+')'); document.getElementById('m-info').textContent='—'; return; }
     var j=await r.json();
-    if(j.error){setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
-    setErr('');
+    if(j.error){stopProgress();setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
     var info='Формат: '+(j.format||'?')+' · BPM: '+ (j.bpm!=null?j.bpm:'—') +' · Тональность: '+(j.key||'—');
     if(j.format==='audio' && !j.audio_available){
       info+='\n⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
     }
     document.getElementById('m-info').textContent=info;
-  }catch(e){ setErr('Сетевая ошибка: '+e.message+'. Возможно, файл слишком длинный или сервер не успел обработать — попробуйте короткий фрагмент (до ~30с).'); }
+    endProgress();
+  }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message+'. Возможно, файл слишком длинный или сервер не успел обработать — попробуйте короткий фрагмент (до ~30с).'); }
 };
 
 document.getElementById('t-run').onclick=async function(){
@@ -14936,15 +14975,15 @@ document.getElementById('k-run').onclick=async function(){
 
 document.getElementById('o-run').onclick=async function(){
   var fs=document.getElementById('o-files').files;if(fs.length<2){setErr('Выберите минимум 2 файла');return;}
-  setErr('Наложение…');
+  setErr('');startProgress();
   try{
     var fd=new FormData();for(var i=0;i<fs.length;i++){fd.append('files', fs[i]);}
     var r=await fetch(MUSIC_API_BASE+'/api/music/overlay',{method:'POST',body:fd});
-    if(!r.ok){ setErr('Ошибка сервера '+r.status); return; }
+    if(!r.ok){ stopProgress(); setErr('Ошибка сервера '+r.status); return; }
     var ct=r.headers.get('Content-Type')||'';
-    if(ct.indexOf('application/json')>=0){ var j=await r.json(); setErr(j.error?('Ошибка: '+j.error):''); return; }
-    setErr(''); var blob=await r.blob(); downloadBlob(blob,'mixed_out');
-  }catch(e){ setErr('Сетевая ошибка: '+e.message); }
+    if(ct.indexOf('application/json')>=0){ var j=await r.json(); stopProgress(); setErr(j.error?('Ошибка: '+j.error):''); return; }
+    endProgress(); var blob=await r.blob(); downloadBlob(blob,'mixed_out');
+  }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message); }
 };
 </script>
 </body>
