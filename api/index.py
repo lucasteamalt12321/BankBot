@@ -14846,6 +14846,7 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
     <button id="m-analyze">Анализировать</button>
     <button id="m-listen" class="sec">▶ Послушать</button>
   </div>
+  <canvas id="m-wave" height="64" style="width:100%;margin-top:10px;display:none;border-radius:8px;background:var(--bb-elev)"></canvas>
   <div class="result" id="m-info">—</div>
   <audio id="m-audio" controls style="width:100%;margin-top:10px;display:none"></audio>
   <div id="err"></div>
@@ -14879,6 +14880,26 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
   </div>
   <div class="muted">MIDI-файлы играют одновременно; аудио микшируется в один трек.</div>
 </div>
+
+<div class="card">
+  <div class="section-title">5. Эффекты (аудио MP3/WAV)</div>
+  <div class="muted">Применяются только к аудиофайлам.</div>
+  <div class="row">
+    <button id="n-run" class="sec">🔊 Нормализовать громкость</button>
+    <button id="r-run" class="sec">⏪ Реверс</button>
+  </div>
+  <div class="row">
+    <label class="muted">Эхо: задержка (с)</label><input type="number" step="0.05" id="e-delay" value="0.25" style="width:90px">
+    <label class="muted">затухание</label><input type="number" step="0.05" id="e-decay" value="0.4" style="width:80px">
+    <button id="e-run">Применить эхо</button>
+  </div>
+  <div class="row">
+    <label class="muted">Обрезать: от (с)</label><input type="number" step="0.1" id="t-start" value="0" style="width:80px">
+    <label class="muted">до (с)</label><input type="number" step="0.1" id="t-end" placeholder="до конца" style="width:90px">
+    <button id="tr-run">Обрезать</button>
+  </div>
+</div>
+
 </div>
 
 <script>
@@ -14947,6 +14968,43 @@ function isPlayableAudio(blob){
   var t=blob.type||'';
   return t.indexOf('audio/')===0 && t!=='audio/midi';
 }
+function isMidiFile(f){ return /\.midi?$/.test((f&&f.name||'').toLowerCase()); }
+function extOf(f){ var n=(f&&f.name||'').toLowerCase(); return n.indexOf('.')>=0?'.'+n.split('.').pop():''; }
+function useBpm(v){ var el=document.getElementById('t-bpm'); if(el){el.value=v; el.focus();} }
+function useKey(k){ var el=document.getElementById('k-target'); if(el){el.value=k; el.focus();} }
+
+function drawWaveform(file){
+  var cv=document.getElementById('m-wave'); if(!cv) return;
+  var mime=mimeOf(file&&file.name);
+  if(!file || !mime || mime==='audio/midi'){ cv.style.display='none'; return; }
+  var W=Math.max(300, Math.floor(cv.clientWidth||600)); cv.width=W;
+  file.arrayBuffer().then(function(buf){
+    var AC=window.AudioContext||window.webkitAudioContext; var ac=new AC();
+    return ac.decodeAudioData(buf).then(function(audio){
+      try{ac.close();}catch(e){}
+      var ch=audio.getChannelData(0); var step=Math.max(1,Math.ceil(ch.length/W));
+      var ctx=cv.getContext('2d'); var h=cv.height; ctx.clearRect(0,0,W,h); ctx.fillStyle='#2b6cb0';
+      for(var x=0;x<W;x++){ var s=x*step; var m=0; for(var i=0;i<step;i++){ var v=Math.abs(ch[s+i]||0); if(v>m)m=v; } var y=m*h/2; ctx.fillRect(x, h/2-y, 1, y*2); }
+      cv.style.display='block';
+    });
+  }).catch(function(){ cv.style.display='none'; });
+}
+document.getElementById('m-file').addEventListener('change', function(){ drawWaveform(this.files[0]); });
+
+function runEffect(url, extra){
+  var f=curFile(); if(!f){setErr('Сначала выберите файл в шаге 1');return Promise.resolve();}
+  if(isMidiFile(f)){setErr('Эффекты доступны только для аудио (MP3/WAV)');return Promise.resolve();}
+  return postFile(url, 'file', f, Object.assign({__ext:extOf(f)}, extra||{}));
+}
+document.getElementById('n-run').onclick=function(){ runEffect(MUSIC_API_BASE+'/api/music/normalize'); };
+document.getElementById('r-run').onclick=function(){ runEffect(MUSIC_API_BASE+'/api/music/reverse'); };
+document.getElementById('e-run').onclick=function(){
+  runEffect(MUSIC_API_BASE+'/api/music/echo', {delay:document.getElementById('e-delay').value, decay:document.getElementById('e-decay').value});
+};
+document.getElementById('tr-run').onclick=function(){
+  var extra={start:document.getElementById('t-start').value}; var e=document.getElementById('t-end').value; if(e) extra.end=e;
+  runEffect(MUSIC_API_BASE+'/api/music/trim', extra);
+};
 
 function encodeWav(samples, sr){
   var buffer=new ArrayBuffer(44+samples.length*2);
@@ -15029,11 +15087,13 @@ document.getElementById('m-analyze').onclick=async function(){
     if(ct.indexOf('application/json')<0){ stopProgress(); setErr('Неожиданный ответ сервера ('+r.status+')'); document.getElementById('m-info').textContent='—'; return; }
     var j=await r.json();
     if(j.error){stopProgress();setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
-    var info='Формат: '+(j.format||'?')+' · BPM: '+ (j.bpm!=null?j.bpm:'—') +' · Тональность: '+(j.key||'—');
+    var html='Формат: '+(j.format||'?');
+    if(j.bpm!=null){ html+=' · BPM: <b>'+j.bpm+'</b> <button class="btn-mini" onclick="useBpm('+j.bpm+')">→ в темп</button>'; }
+    if(j.key){ html+=' · Тональность: <b>'+j.key+'</b> <button class="btn-mini" onclick="useKey(\''+(j.key||'')+'\')">→ в тональность</button>'; }
     if(j.format==='audio' && !j.audio_available){
-      info+=' ⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
+      html+=' ⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
     }
-    document.getElementById('m-info').textContent=info;
+    document.getElementById('m-info').innerHTML=html;
     endProgress();
   }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message+'. Возможно, файл слишком длинный или сервер не успел обработать — попробуйте короткий фрагмент (до ~30с).'); }
 };

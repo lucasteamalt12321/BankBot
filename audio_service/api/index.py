@@ -10,7 +10,7 @@ import tempfile
 
 from flask import Flask, jsonify, request, send_file
 
-from music import analyze, change_tempo, change_key, overlay, audio_utils
+from music import analyze, change_tempo, change_key, overlay, audio_utils, normalize, reverse, echo, trim
 
 app = Flask(__name__)
 
@@ -137,6 +137,76 @@ def api_music_overlay():
     try:
         out = overlay(paths)
         return _music_send(out)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+def _audio_only(path):
+    """Эффекты применимы только к аудио (не к MIDI)."""
+    if not audio_utils._LIBROSA:
+        return None, "Аудио-библиотеки недоступны на сервере"
+    if (path or "").lower().endswith((".mid", ".midi")):
+        return None, "Эффект доступен только для аудио (MP3/WAV)"
+    return path, None
+
+
+@app.route("/api/music/normalize", methods=["POST"])
+def api_music_normalize():
+    path, err = _music_save_upload("file")
+    if err:
+        return jsonify({"error": err}), 400
+    path, err = _audio_only(path)
+    if err:
+        return jsonify({"error": err}), 400
+    try:
+        return _music_send(normalize(path))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/music/reverse", methods=["POST"])
+def api_music_reverse():
+    path, err = _music_save_upload("file")
+    if err:
+        return jsonify({"error": err}), 400
+    path, err = _audio_only(path)
+    if err:
+        return jsonify({"error": err}), 400
+    try:
+        return _music_send(reverse(path))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/music/echo", methods=["POST"])
+def api_music_echo():
+    path, err = _music_save_upload("file")
+    if err:
+        return jsonify({"error": err}), 400
+    path, err = _audio_only(path)
+    if err:
+        return jsonify({"error": err}), 400
+    try:
+        delay = float(request.form.get("delay", 0.25))
+        decay = float(request.form.get("decay", 0.4))
+        return _music_send(echo(path, delay=delay, decay=decay))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/music/trim", methods=["POST"])
+def api_music_trim():
+    path, err = _music_save_upload("file")
+    if err:
+        return jsonify({"error": err}), 400
+    path, err = _audio_only(path)
+    if err:
+        return jsonify({"error": err}), 400
+    try:
+        start = float(request.form.get("start", 0.0))
+        end = request.form.get("end")
+        end = float(end) if end not in (None, "") else None
+        return _music_send(trim(path, start=start, end=end))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
