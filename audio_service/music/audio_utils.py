@@ -32,18 +32,26 @@ def _require() -> None:
         raise RuntimeError("Для аудио нужны librosa+soundfile (pip install librosa soundfile)")
 
 
-def detect_bpm(path: str, sr: int = 22050) -> float:
-    """Оценивает темп композиции, BPM."""
+def _load(path: str, sr: int = 22050, duration: float = 30.0):
+    """Загрузка аудио с ограничением длительности (анализ не нуждается в целом треке)."""
     _require()
-    y, sr = librosa.load(path, sr=sr, mono=True)
+    return librosa.load(path, sr=sr, mono=True, duration=duration)
+
+
+def detect_bpm(path: str, sr: int = 22050, duration: float = 30.0) -> float:
+    """Оценивает темп композиции, BPM."""
+    y, sr = _load(path, sr=sr, duration=duration)
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     return float(np.asarray(tempo).reshape(-1)[0])
 
 
-def detect_key(path: str, sr: int = 22050) -> str:
+def detect_key(path: str, sr: int = 22050, duration: float = 30.0) -> str:
     """Оценивает тональность (напр. 'C major' / 'A minor') по хромаграмме."""
-    _require()
-    y, sr = librosa.load(path, sr=sr, mono=True)
+    y, sr = _load(path, sr=sr, duration=duration)
+    return _key_from_y(y, sr)
+
+
+def _key_from_y(y, sr: int) -> str:
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     mean = chroma.mean(axis=1)
     s = mean.sum() + 1e-9
@@ -57,6 +65,15 @@ def detect_key(path: str, sr: int = 22050) -> str:
         if minr > best[0]:
             best = (minr, i, 'minor')
     return f"{_KEY_NAMES[best[1]]} {best[2]}"
+
+
+def analyze_audio(path: str, sr: int = 16000, duration: float = 20.0) -> dict:
+    """Быстрый анализ аудио: загружает трек один раз (срез по длительности)."""
+    y, sr = _load(path, sr=sr, duration=duration)
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    bpm = float(np.asarray(tempo).reshape(-1)[0])
+    key = _key_from_y(y, sr)
+    return {"format": "audio", "bpm": bpm, "key": key}
 
 
 def change_tempo(path: str, target_bpm: Optional[float] = None,
