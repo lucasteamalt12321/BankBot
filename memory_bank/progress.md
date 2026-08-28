@@ -1896,7 +1896,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
- <MUSIC_HASH> (2026-08-28; feat(music): новый модуль core/music — измерение/изменение тональности и темпа (BPM), наложение аудио; поддержка MIDI (mido) + MP3/WAV (librosa/soundfile). Тесты 7 passed, ruff чист). Пред. 5c5e900 (OGE dynamics chart).
+ 0622a8ed15e0c86b95dcd6e4202334b6784ddece (2026-08-28; feat(music): новый модуль core/music — измерение/изменение тональности и темпа (BPM), наложение аудио; поддержка MIDI (mido) + MP3/WAV (librosa/soundfile). Тесты 7 passed, ruff чист). Пред. 5c5e900 (OGE dynamics chart).
 
 ### 2026-08-28 — Модуль «Музыка» (core/music)
 - **Запрос:** «сделай модуль музыки: измерение/изменение тональности и темпа (BPM), наложение аудио; поддержка mp3 и midi».
