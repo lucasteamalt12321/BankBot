@@ -14771,7 +14771,8 @@ def stats_page():
             </div>
             <div class="card">
                 <div class="section-title">🔮 Прогноз повторений и новых карточек (14 дней)</div>
-                <div style="margin-bottom:8px"><span class="fc-leg" style="color:var(--bb-link)">🔁 повторы</span><span class="fc-leg" style="color:var(--bb-accent2)">🆕 новые</span></div>
+                <div style="margin-bottom:8px"><span class="fc-leg" style="color:var(--bb-link)">🔁 повторы</span><span class="fc-leg" style="color:var(--bb-accent2)">🆕 новые</span><span class="fc-leg" style="color:var(--bb-green3)">✅ выучено (накопит.)</span></div>
+                <p class="muted" id="s-learn-summary" style="margin:0 0 8px"></p>
                 <div class="forecast-grid" id="s-forecast"></div>
             </div>
             <div class="card">
@@ -14878,7 +14879,7 @@ def stats_page():
                     var inProg = Math.max(0, m.started - m.mastered);
                     var learnedPct = m.total ? Math.round(m.mastered / m.total * 100) : 0;
                     var inProgPct = m.total ? Math.round(inProg / m.total * 100) : 0;
-                    ml.innerHTML += '<div class="mod-row" style="cursor:pointer" onclick="window.location.href=\\'' + m.url + '\\'">' +
+                    ml.innerHTML += '<div class="mod-row" style="cursor:pointer" onclick="window.location.href=&quot;' + m.url + '&quot;">' +
                         '<div class="mod-emoji">' + m.emoji + '</div>' +
                         '<div class="mod-info"><div class="mod-name">' + m.label + '</div>' +
                         '<div class="mod-stats">' + m.mastered + '/' + m.total + ' освоено' +
@@ -14898,8 +14899,11 @@ def stats_page():
                     var dayLabel = f.date.slice(5);
                     fg.innerHTML += '<div class="fc-day ' + cls + '"><div class="fc-date">' + dayLabel + '</div>' +
                         '<div class="fc-num" style="color:var(--bb-link)">' + f.due + '</div>' +
-                        '<div class="fc-num" style="color:var(--bb-accent2);font-size:10px">' + (f.new || 0) + '🆕</div></div>';
+                        '<div class="fc-num" style="color:var(--bb-accent2);font-size:10px">' + (f.new || 0) + '🆕</div>' +
+                        '<div class="fc-num" style="color:var(--bb-green3);font-size:10px">' + (f.learned || 0) + '✅' + ((f.learned_delta || 0) > 0 ? ' (+' + f.learned_delta + ')' : '') + '</div></div>';
                 }
+                var lastF = d.forecast[d.forecast.length - 1];
+                document.getElementById('s-learn-summary').textContent = 'За 14 дней выучишь ≈ ' + (lastF ? lastF.learned : 0) + ' новых карточек (из ' + (d.total_unseen || 0) + ' новых всего)';
                 var wl = document.getElementById('s-weak');
                 wl.innerHTML = '';
                 var weakItems = [];
@@ -14915,7 +14919,7 @@ def stats_page():
                 } else {
                     for (var j = 0; j < weakItems.length; j++) {
                         var w = weakItems[j];
-                        wl.innerHTML += '<div class="weak-item" style="cursor:pointer" onclick="window.location.href=\\'' + w.url + '\\'">' +
+                        wl.innerHTML += '<div class="weak-item" style="cursor:pointer" onclick="window.location.href=&quot;' + w.url + '&quot;">' +
                             '<span class="weak-tag" style="background:' + (OGE_COLORS[w.mod] || 'var(--bb-accent)') + '22;color:' + (OGE_COLORS[w.mod] || 'var(--bb-accent)') + '">' + w.emoji + ' ' + w.label + '</span>' +
                             '<span>' + w.weak + ' слабых</span>' +
                             '<span class="weak-acc" style="color:#ef4444">' + w.accuracy + '%</span></div>';
@@ -15275,10 +15279,12 @@ def _oge_stats_payload(web_user_id):
                 today_wrong = int(daily_rows["w"] or 0)
     except Exception as exc:
         print(f"[STUDY] today summary error: {exc}")
-    # Forecast: due (reviews) + projected new cards learned per day for next 14 days.
-    # `due` comes from each card's SM-2 `due` timestamp; `new` is a projection:
-    # remaining unseen cards are spread evenly over ~14 days (min pace 3/day).
+    # Forecast: due (reviews) + projected new cards introduced per day, and how many
+    # of those new cards will be LEARNED (reach SM-2 mastery, reps>=3) within the horizon.
+    # Per the scheduler (rep1 -> +1d, rep2 -> +3d, rep3 = mastered) a card introduced on
+    # day j becomes mastered on day j+4, so learned_delta[i] = introduced[i-4].
     forecast = []
+    MASTERY_GAP = 4
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -15293,11 +15299,23 @@ def _oge_stats_payload(web_user_id):
                     day_buckets[day_offset] = day_buckets.get(day_offset, 0) + 1
             pace = max(3, round(total_unseen / 14)) if total_unseen else 0
             remaining = total_unseen
+            introduced = []
             for i in range(14):
-                fdate = (date.today() + __import__("datetime").timedelta(days=i)).isoformat()
                 new_today = min(pace, remaining) if pace else 0
                 remaining -= new_today
-                forecast.append({"date": fdate, "due": day_buckets.get(i, 0), "new": new_today})
+                introduced.append(new_today)
+            cumulative_learned = 0
+            for i in range(14):
+                fdate = (date.today() + __import__("datetime").timedelta(days=i)).isoformat()
+                learned_delta = introduced[i - MASTERY_GAP] if (i - MASTERY_GAP) >= 0 else 0
+                cumulative_learned += learned_delta
+                forecast.append({
+                    "date": fdate,
+                    "due": day_buckets.get(i, 0),
+                    "new": introduced[i],
+                    "learned": cumulative_learned,
+                    "learned_delta": learned_delta,
+                })
     except Exception:
         pass
     overall_readiness = round(total_mastered / max(1, total_cards) * 100)
