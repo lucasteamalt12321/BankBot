@@ -19,6 +19,7 @@ import os
 from typing import List, Optional
 
 from . import audio_utils, midi_utils
+from .audio_utils import normalize, reverse, echo, trim
 
 _MIDI_EXT = {'.mid', '.midi'}
 
@@ -68,5 +69,6 @@ def overlay(paths: List[str], out: Optional[str] = None) -> str:
 
 __all__ = [
     "analyze", "detect_bpm", "detect_key", "change_tempo", "change_key", "overlay",
+    "normalize", "reverse", "echo", "trim",
     "midi_utils", "audio_utils",
 ]

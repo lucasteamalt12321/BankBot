@@ -145,6 +145,46 @@ def _save(y, sr: int, out: Optional[str], src: str, tag: str) -> str:
     return out
 
 
+def normalize(path: str, peak: float = 0.95, out: Optional[str] = None,
+              sr: int = 22050) -> str:
+    """Нормализует громкость к заданному пику (0..1)."""
+    _require()
+    y, sr = librosa.load(path, sr=sr, mono=True)
+    y = y / (float(np.max(np.abs(y))) + 1e-9) * peak
+    return _save(y.astype(np.float32), sr, out, path, "_norm")
+
+
+def reverse(path: str, out: Optional[str] = None, sr: int = 22050) -> str:
+    """Разворачивает аудио задом наперёд."""
+    _require()
+    y, sr = librosa.load(path, sr=sr, mono=True)
+    return _save(y[::-1].astype(np.float32), sr, out, path, "_rev")
+
+
+def echo(path: str, delay: float = 0.25, decay: float = 0.4,
+         out: Optional[str] = None, sr: int = 22050) -> str:
+    """Добавляет эхо (задержка в секундах + коэффициент затухания)."""
+    _require()
+    y, sr = librosa.load(path, sr=sr, mono=True)
+    d = max(1, int(sr * float(delay)))
+    out_sig = np.zeros(len(y) + d, dtype=np.float32)
+    out_sig[:len(y)] += y
+    out_sig[d:] += (y * float(decay)).astype(np.float32)
+    peak = float(np.max(np.abs(out_sig))) + 1e-9
+    out_sig = (out_sig / peak * 0.95).astype(np.float32)
+    return _save(out_sig, sr, out, path, "_echo")
+
+
+def trim(path: str, start: float = 0.0, end: Optional[float] = None,
+         out: Optional[str] = None, sr: int = 22050) -> str:
+    """Обрезает аудио по времени (start/end в секундах)."""
+    _require()
+    y, sr = librosa.load(path, sr=sr, mono=True)
+    s = max(0, int(float(start) * sr))
+    e = len(y) if end is None else max(s, int(float(end) * sr))
+    return _save(y[s:e].astype(np.float32), sr, out, path, "_trim")
+
+
 def _key_shift(target_key: str, current_key: Optional[str]) -> int:
     t_idx = _parse_key(target_key)
     c_idx = _parse_key(current_key) if current_key else 0
