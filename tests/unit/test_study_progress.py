@@ -363,8 +363,12 @@ def test_analytics_page_renders():
     from api.index import app
 
     c = app.test_client()
+    # /analytics was merged into /stats (redirect)
     resp = c.get("/analytics")
+    assert resp.status_code == 302
+    assert "/stats" in resp.headers.get("Location", "")
+    # OGE analytics now lives on /stats
+    resp = c.get("/stats")
     assert resp.status_code == 200
     html = resp.data.decode()
-    assert "Аналитика ОГЭ" in html
     assert "s-streak" in html
