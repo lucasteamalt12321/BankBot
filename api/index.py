@@ -14904,6 +14904,7 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
 
 <script>
 var MUSIC_API_BASE=__AUDIO_SERVICE_URL__;
+window.addEventListener('error', function(e){ var el=document.getElementById('err'); if(el){ el.textContent='Ошибка JS: '+(e&&e.message?e.message:(e&&e.error?e.error:'неизвестно')); } });
 function setErr(m){document.getElementById('err').textContent = m || '';}
 function curFile(){return document.getElementById('m-file').files[0];}
 
@@ -15129,7 +15130,7 @@ document.getElementById('o-run').onclick=async function(){
 </body>
 </html>"""
     html = html.replace("__AUDIO_SERVICE_URL__", json.dumps(os.environ.get("AUDIO_SERVICE_URL", "https://audioservice.vercel.app")))
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    return html, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}
 
 
 @app.route("/stats")
