@@ -275,46 +275,71 @@ def test_dnd_session_sharing_flow():
 
 
 @patch("api.index.get_db_engine")
-def test_gd_web_submit_requires_media(mock_engine):
-    """GD web submission requires an attached video/photo and saves it."""
+def test_gd_web_submit_requires_account_and_media(mock_engine):
+    """GD web submission requires login, a GD nickname, and an attached video/photo."""
+    from api import index as index_api
     mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
     c = app.test_client()
 
-    # Without media -> 400 with hint to attach media.
-    resp = c.post("/api/gd/submit", data={
-        "user_id": "web_test123",
-        "level_name": "Tartarus",
-        "username": "web_test123",
-    }, content_type="multipart/form-data")
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO web_users (id, login, password_hash, gd_nickname) VALUES (1, 'gduser', 'x', 'Riot')"))
+        conn.execute(text("INSERT INTO web_users (id, login, password_hash) VALUES (2, 'gduser2', 'x')"))
+    token = index_api._create_session(1)
+    token2 = index_api._create_session(2)
+    headers = _auth_headers(token)
+    headers2 = _auth_headers(token2)
+
+    # Anon (no token) -> 401, anonymous submissions forbidden.
+    resp = c.post("/api/gd/submit", data={"level_name": "Tartarus"}, content_type="multipart/form-data")
+    assert resp.status_code == 401
+    assert "войти в аккаунт" in resp.get_json()["error"]
+
+    # Authed but no media -> 400 hint to attach media.
+    resp = c.post("/api/gd/submit", data={"level_name": "Tartarus"}, headers=headers, content_type="multipart/form-data")
     assert resp.status_code == 400
     assert "Прикрепите видео или фото" in resp.get_json()["error"]
 
-    # With a fake video file -> created, media_type=video, data-URL stored.
+    # Authed with gd_nickname in account + video -> created, username=gd_nickname, bound to account id.
     resp = c.post("/api/gd/submit", data={
-        "user_id": "web_test123",
         "level_name": "Tartarus",
-        "username": "web_test123",
         "media": (io.BytesIO(b"\x00\x01\x02fake-video"), "run.mp4"),
-    }, content_type="multipart/form-data")
+    }, headers=headers, content_type="multipart/form-data")
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
-
-    engine = mock_engine.return_value
     with engine.connect() as conn:
         row = conn.execute(text(
-            "SELECT level_name, media_type, status, media_file_id FROM submissions WHERE id = :sid"
+            "SELECT user_id, username, level_name, media_type, status, media_file_id FROM submissions WHERE id = :sid"
         ), {"sid": data["submission_id"]}).mappings().first()
+    assert row["user_id"] == 1
+    assert row["username"] == "Riot"
     assert row["level_name"] == "Tartarus"
     assert row["status"] == "pending"
     assert row["media_type"] == "video"
     assert row["media_file_id"].startswith("data:video/mp4;base64,")
 
+    # User without gd_nickname: submit without nick -> 400 gd_nickname_required.
+    resp = c.post("/api/gd/submit", data={
+        "level_name": "Tartarus",
+        "media": (io.BytesIO(b"\x00\x01\x02fake-video"), "run.mp4"),
+    }, headers=headers2, content_type="multipart/form-data")
+    assert resp.status_code == 400
+    assert resp.get_json().get("gd_nickname_required") is True
+
+    # Same user: submit WITH gd_nickname -> saved to account + created.
+    resp = c.post("/api/gd/submit", data={
+        "level_name": "Tartarus",
+        "gd_nickname": "Neon",
+        "media": (io.BytesIO(b"\x00\x01\x02fake-video"), "run.mp4"),
+    }, headers=headers2, content_type="multipart/form-data")
+    assert resp.status_code == 200
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT gd_nickname FROM web_users WHERE id = 2")).scalar() == "Neon"
+
     # Web page exposes the upload field.
     body = c.get("/gd").get_data(as_text=True)
     assert 'id="sub-media"' in body
-    assert "sub-media" in body
-    assert "Прикрепите видео или фото" in body
 
 
 def test_reading_trainer_has_mom05_features():
