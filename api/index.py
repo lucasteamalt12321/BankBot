@@ -15103,7 +15103,7 @@ document.getElementById('m-analyze').onclick=async function(){
     if(j.error){stopProgress();setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
     var html='Формат: '+(j.format||'?');
     if(j.bpm!=null){ html+=' · BPM: <b>'+j.bpm+'</b> <button class="btn-mini" onclick="useBpm('+j.bpm+')">→ в темп</button>'; }
-    if(j.key){ html+=' · Тональность: <b>'+j.key+'</b> <button class="btn-mini" onclick="useKey(\''+(j.key||'')+'\')">→ в тональность</button>'; }
+    if(j.key){ html+=` · Тональность: <b>${j.key}</b> <button class="btn-mini" data-key="${j.key}" onclick="useKey(this.dataset.key)">→ в тональность</button>`; }
     if(j.format==='audio' && !j.audio_available){
       html+=' ⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
     }
