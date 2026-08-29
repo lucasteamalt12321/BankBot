@@ -14872,7 +14872,7 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
   <div class="row">
     <label class="muted">Целевой BPM</label><input type="number" id="t-bpm" placeholder="напр. 140">
     <label class="muted">или ×фактор</label><input type="number" step="0.1" id="t-factor" placeholder="напр. 1.25">
-    <button id="t-run">Применить и скачать</button>
+    <button id="t-run">Применить</button>
   </div>
 </div>
 
@@ -14881,7 +14881,7 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
   <div class="row">
     <label class="muted">Полутонов (±)</label><input type="number" id="k-semi" placeholder="напр. 2">
     <label class="muted">или в тональность</label><input type="text" id="k-target" placeholder="напр. Am / F#">
-    <button id="k-run">Применить и скачать</button>
+    <button id="k-run">Применить</button>
   </div>
 </div>
 
@@ -14913,6 +14913,14 @@ button.sec{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(-
   </div>
 </div>
 
+<div class="card">
+  <div class="section-title">6. Скачать результат</div>
+  <div class="row">
+    <button id="m-download" class="sec">⬇ Скачать</button>
+    <span class="muted" id="m-dl-info">— примените изменение, чтобы появился результат для скачивания</span>
+  </div>
+</div>
+
 </div>
 
 <script>
@@ -14920,6 +14928,20 @@ var MUSIC_API_BASE=__AUDIO_SERVICE_URL__;
 window.addEventListener('error', function(e){ var el=document.getElementById('err'); if(el){ el.textContent='Ошибка JS: '+(e&&e.message?e.message:(e&&e.error?e.error:'неизвестно')); } });
 function setErr(m){document.getElementById('err').textContent = m || '';}
 function curFile(){return document.getElementById('m-file').files[0];}
+var currentPreview=null;
+var currentPreviewName='music_out';
+function extOfBlob(b){ var t=b.type||''; if(t==='audio/mpeg')return '.mp3'; if(t==='audio/wav')return '.wav'; if(t==='audio/midi')return '.mid'; if(t==='audio/ogg')return '.ogg'; if(t==='audio/mp4')return '.m4a'; if(t==='audio/aac')return '.aac'; if(t==='audio/flac')return '.flac'; return ''; }
+function setPreview(blob, name){
+  currentPreview=blob; currentPreviewName=name||'music_out';
+  var info=document.getElementById('m-dl-info');
+  if(info) info.textContent='Готов результат: '+(name||'файл')+(isPlayableAudio(blob)?' — нажмите ▶ Послушать':' — только скачать (MIDI)');
+  if(isPlayableAudio(blob)) playBlob(blob);
+}
+function resetPreview(){
+  currentPreview=null; currentPreviewName='music_out';
+  var info=document.getElementById('m-dl-info');
+  if(info) info.textContent='— примените изменение, чтобы появился результат для скачивания';
+}
 
 var mStages=[
   {p:8,  t:'Отправка файла на сервер…'},
@@ -15003,7 +15025,7 @@ function drawWaveform(file){
     });
   }).catch(function(){ cv.style.display='none'; });
 }
-document.getElementById('m-file').addEventListener('change', function(){ drawWaveform(this.files[0]); });
+document.getElementById('m-file').addEventListener('change', function(){ resetPreview(); drawWaveform(this.files[0]); });
 
 function runEffect(url, extra){
   var f=curFile(); if(!f){setErr('Сначала выберите файл в шаге 1');return Promise.resolve();}
@@ -15075,21 +15097,34 @@ async function postFile(url, field, file, extra){
       var j=await r.json();stopProgress();setErr(j.error?('Ошибка: '+j.error):'');return null;
     }
     endProgress();
-    var blob=await r.blob();downloadBlob(blob, (file.name||'music').replace(/\.[^.]+$/, '')+'_out'+(extra&&extra.__ext||''));
-    if(isPlayableAudio(blob)) playBlob(blob);
+    var blob=await r.blob();
+    setPreview(blob, (file.name||'music').replace(/\.[^.]+$/, '')+'_out');
     return true;
   }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message); return null; }
 }
 
 document.getElementById('m-listen').onclick=function(){
+  if(currentPreview){
+    if(isPlayableAudio(currentPreview)){ setErr(''); playBlob(currentPreview); return; }
+    setErr('Текущий результат (MIDI) браузер не воспроизводит — используйте «⬇ Скачать».');
+    return;
+  }
   var f=curFile();if(!f){setErr('Выберите файл');return;}
   var mime=mimeOf(f.name);
   if(!mime || mime==='audio/midi'){ setErr('Браузер проигрывает MP3/WAV/OGG напрямую. MIDI воспроизведение недоступно — выберите аудиофайл.'); return; }
   setErr('');playBlob(new Blob([f], {type: mime}));
 };
 
+document.getElementById('m-download').onclick=function(){
+  if(currentPreview){ downloadBlob(currentPreview, currentPreviewName+extOfBlob(currentPreview)); return; }
+  var f=curFile();
+  if(f){ downloadBlob(f, f.name); return; }
+  setErr('Нет результата для скачивания — сначала примените изменение (темп/тональность/эффект).');
+};
+
 document.getElementById('m-analyze').onclick=async function(){
   var f=curFile();if(!f){setErr('Выберите файл');return;}
+  resetPreview();
   setErr('');startProgress();
   try{
     var pf=await prepFile(f);
@@ -15136,7 +15171,7 @@ document.getElementById('o-run').onclick=async function(){
     if(!r.ok){ stopProgress(); setErr('Ошибка сервера '+r.status); return; }
     var ct=r.headers.get('Content-Type')||'';
     if(ct.indexOf('application/json')>=0){ var j=await r.json(); stopProgress(); setErr(j.error?('Ошибка: '+j.error):''); return; }
-    endProgress(); var blob=await r.blob(); downloadBlob(blob,'mixed_out');
+    endProgress(); var blob=await r.blob(); setPreview(blob,'mixed_out');
   }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message); }
 };
 </script>
