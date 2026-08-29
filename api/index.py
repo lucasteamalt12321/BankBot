@@ -14938,9 +14938,11 @@ function setPreview(blob, name){
   if(isPlayableAudio(blob)) playBlob(blob);
 }
 function resetPreview(){
-  currentPreview=null; currentPreviewName='music_out';
+  currentPreview=null; currentPreviewName='music_out'; lastAnalysis=null;
   var info=document.getElementById('m-dl-info');
   if(info) info.textContent='— примените изменение, чтобы появился результат для скачивания';
+  var mi=document.getElementById('m-info');
+  if(mi) mi.textContent='—';
 }
 
 var mStages=[
@@ -15009,6 +15011,51 @@ function extOf(f){ var n=(f&&f.name||'').toLowerCase(); return n.indexOf('.')>=0
 function useBpm(v){ var el=document.getElementById('t-bpm'); if(el){el.value=v; el.focus();} }
 function useKey(k){ var el=document.getElementById('k-target'); if(el){el.value=k; el.focus();} }
 
+var lastAnalysis=null;
+var NOTE_PC={'C':0,'C#':1,Db:1,'D':2,'D#':3,Eb:3,'E':4,'F':5,'F#':6,Gb:6,'G':7,'G#':8,Ab:8,'A':9,'A#':10,Bb:10,'B':11};
+var PC_NAME=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function parseKey(k){
+  if(!k) return null;
+  var m=(''+k).trim().match(/^([A-G][#b]?)\s*(major|minor|maj|min|m)?$/i);
+  if(!m) return null;
+  return {root:m[1], qual:(m[2]?m[2].toLowerCase():'major')};
+}
+function transposeKey(k, semi){
+  var p=parseKey(k); if(!p) return k;
+  var base=NOTE_PC[p.root]; if(base===undefined) return k;
+  var pc=(base+semi)%12; if(pc<0)pc+=12;
+  return PC_NAME[pc]+' '+(p.qual==='minor'?'minor':'major');
+}
+function srcForTransform(){
+  if(currentPreview){ var b=currentPreview; b.name=currentPreviewName||'music_out'; return {blob:b, name:currentPreviewName||'music_out'}; }
+  var f=curFile(); if(!f) return null;
+  return {blob:f, name:f.name||'music'};
+}
+function srcIsMidi(){
+  var s=srcForTransform(); if(!s) return false;
+  return s.blob.type==='audio/midi' || /\.midi?$/.test((s.name||'').toLowerCase());
+}
+function renderInfo(j){
+  lastAnalysis=j||null;
+  var html='Формат: '+(j.format||'?');
+  if(j.bpm!=null){ html+=' · BPM: <b>'+j.bpm+'</b> <button class="btn-mini" onclick="useBpm('+j.bpm+')">→ в темп</button>'; }
+  if(j.key){ html+=` · Тональность: <b>${j.key}</b> <button class="btn-mini" data-key="${j.key}" onclick="useKey(this.dataset.key)">→ в тональность</button>`; }
+  if(j.format==='audio' && !j.audio_available){ html+=' ⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.'; }
+  document.getElementById('m-info').innerHTML=html;
+}
+function applyTempoResult(bpm, fac){
+  lastAnalysis=lastAnalysis||{};
+  if(bpm!=='' && bpm!=null){ lastAnalysis.bpm=Number(bpm); }
+  else if(fac && lastAnalysis.bpm){ lastAnalysis.bpm=Math.round(lastAnalysis.bpm*parseFloat(fac)); }
+  renderInfo(lastAnalysis);
+}
+function applyKeyResult(target, semi){
+  lastAnalysis=lastAnalysis||{};
+  if(target){ lastAnalysis.key=target; }
+  else if(semi && lastAnalysis.key){ lastAnalysis.key=transposeKey(lastAnalysis.key, Number(semi)); }
+  renderInfo(lastAnalysis);
+}
+
 function drawWaveform(file){
   var cv=document.getElementById('m-wave'); if(!cv) return;
   var mime=mimeOf(file&&file.name);
@@ -15028,9 +15075,9 @@ function drawWaveform(file){
 document.getElementById('m-file').addEventListener('change', function(){ resetPreview(); drawWaveform(this.files[0]); });
 
 function runEffect(url, extra){
-  var f=curFile(); if(!f){setErr('Сначала выберите файл в шаге 1');return Promise.resolve();}
-  if(isMidiFile(f)){setErr('Эффекты доступны только для аудио (MP3/WAV)');return Promise.resolve();}
-  return postFile(url, 'file', f, Object.assign({__ext:extOf(f)}, extra||{}));
+  if(srcIsMidi()){setErr('Эффекты доступны только для аудио (MP3/WAV)');return Promise.resolve();}
+  var src=srcForTransform(); if(!src){setErr('Сначала выберите файл в шаге 1');return Promise.resolve();}
+  return postFile(url, extra||{});
 }
 document.getElementById('n-run').onclick=function(){ runEffect(MUSIC_API_BASE+'/api/music/normalize'); };
 document.getElementById('r-run').onclick=function(){ runEffect(MUSIC_API_BASE+'/api/music/reverse'); };
@@ -15083,10 +15130,13 @@ async function prepFile(file){
   return {blob:file, name:file.name||'input'};
 }
 
-async function postFile(url, field, file, extra){
+async function postFile(url, extra){
+  var src=srcForTransform();
+  if(!src){ setErr('Сначала выберите файл в шаге 1'); return null; }
+  var file=src.blob; if(file.name===undefined) file.name=src.name;
   var pf=await prepFile(file);
   if(pf.tooLarge){ setErr('Файл слишком большой — сервер принимает до ~4 МБ. Попробуйте короткий фрагмент.'); return null; }
-  var fd=new FormData();fd.append(field, pf.blob, pf.name);
+  var fd=new FormData();fd.append('file', pf.blob, pf.name);
   if(extra){for(var k in extra){fd.append(k, extra[k]);}}
   setErr('');startProgress();
   try{
@@ -15136,29 +15186,23 @@ document.getElementById('m-analyze').onclick=async function(){
     if(ct.indexOf('application/json')<0){ stopProgress(); setErr('Неожиданный ответ сервера ('+r.status+')'); document.getElementById('m-info').textContent='—'; return; }
     var j=await r.json();
     if(j.error){stopProgress();setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
-    var html='Формат: '+(j.format||'?');
-    if(j.bpm!=null){ html+=' · BPM: <b>'+j.bpm+'</b> <button class="btn-mini" onclick="useBpm('+j.bpm+')">→ в темп</button>'; }
-    if(j.key){ html+=` · Тональность: <b>${j.key}</b> <button class="btn-mini" data-key="${j.key}" onclick="useKey(this.dataset.key)">→ в тональность</button>`; }
-    if(j.format==='audio' && !j.audio_available){
-      html+=' ⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.';
-    }
-    document.getElementById('m-info').innerHTML=html;
+    renderInfo(j);
     endProgress();
   }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message+'. Возможно, файл слишком длинный или сервер не успел обработать — попробуйте короткий фрагмент (до ~30с).'); }
 };
 
 document.getElementById('t-run').onclick=async function(){
-  var f=curFile();if(!f){setErr('Сначала выберите файл в шаге 1');return;}
   var bpm=document.getElementById('t-bpm').value, fac=document.getElementById('t-factor').value;
   if(!bpm && !fac){setErr('Укажите целевой BPM или фактор');return;}
-  await postFile(MUSIC_API_BASE+'/api/music/change_tempo','file',f, bpm?{target_bpm:bpm,__ext:'.'+f.name.split('.').pop()}:{factor:fac,__ext:'.'+f.name.split('.').pop()});
+  var ok=await postFile(MUSIC_API_BASE+'/api/music/change_tempo', bpm?{target_bpm:bpm}:{factor:fac});
+  if(ok) applyTempoResult(bpm, fac);
 };
 
 document.getElementById('k-run').onclick=async function(){
-  var f=curFile();if(!f){setErr('Сначала выберите файл в шаге 1');return;}
   var semi=document.getElementById('k-semi').value, tgt=document.getElementById('k-target').value;
   if(!semi && !tgt){setErr('Укажите полутоны или целевую тональность');return;}
-  await postFile(MUSIC_API_BASE+'/api/music/change_key','file',f, semi?{semitones:semi,__ext:'.'+f.name.split('.').pop()}:{target_key:tgt,__ext:'.'+f.name.split('.').pop()});
+  var ok=await postFile(MUSIC_API_BASE+'/api/music/change_key', semi?{semitones:semi}:{target_key:tgt});
+  if(ok) applyKeyResult(tgt, semi);
 };
 
 document.getElementById('o-run').onclick=async function(){
