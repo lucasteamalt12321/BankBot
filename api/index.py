@@ -23,6 +23,16 @@ import requests
 from flask import Flask, jsonify, redirect, request, send_file
 from sqlalchemy import bindparam, create_engine, text
 
+
+def _build_tag():
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
+    except Exception:
+        return ""
+# Фолбэк: метка времени холодного старта, чтобы при каждом новом деплое URL
+# менялся и браузер/VK-webview не отдавал устаревшую закэшированную страницу.
+BUILD_TAG = (_build_tag() or ("b" + str(int(time.time()))))
+
 from core.canon import (
     CANON_VERSION,
     find_canon,
@@ -5122,7 +5132,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Пользователи, монеты, статистика, ошибки</p>
                     </div>
                 </a>
-                <a class="card" href="/music">
+                <a class="card" href="/music?v=__MUSIC_VER__">
                     <div class="card-icon">🎵</div>
                     <div class="card-content">
                         <h2>Музыка <span class="beta-tag">Бета</span></h2>
@@ -5515,6 +5525,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
         <a id="bug-fab" class="bug-fab" href="/suggest?type=bug&module=hub" title="Сообщить о баге" style="display:none">🐛</a>
 </body>
 </html>"""
+    html = html.replace("__MUSIC_VER__", BUILD_TAG)
     return html, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}
 
 
@@ -14809,6 +14820,8 @@ def music_page():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>Музыка (бета) — LTHub</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
