@@ -165,6 +165,21 @@ def _get_session_user(token: str | None) -> dict | None:
         return None
 
 
+def _save_gd_nickname(user_id: int, nick: str) -> bool:
+    """Persist GD nickname into the web_users account row."""
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text("UPDATE web_users SET gd_nickname = :gd WHERE id = :uid"),
+                {"gd": (nick or "")[:50], "uid": user_id},
+            )
+            conn.commit()
+        return True
+    except Exception as exc:
+        print(f"[AUTH] save gd_nickname error: {exc}")
+        return False
+
+
 def _auth_token_from_request() -> str | None:
     """Extract session token from Authorization header or X-Auth-Token."""
     auth = request.headers.get("Authorization", "")
@@ -3631,10 +3646,11 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
                     LEFT JOIN (SELECT level_id, COUNT(*) AS cnt FROM level_completions GROUP BY level_id) c ON c.level_id = l.id
                     LEFT JOIN (
                         SELECT lv.id AS level_id,
-                               STRING_AGG(DISTINCT COALESCE(NULLIF(u.first_name, ''), u.username, s.username, '?'), ', ') AS completers
+                               STRING_AGG(DISTINCT COALESCE(NULLIF(wu.gd_nickname, ''), wu.display_name, NULLIF(tu.first_name, ''), tu.username, s.username, '?'), ', ') AS completers
                         FROM submissions s
                         JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
-                        LEFT JOIN users u ON u.telegram_id = s.user_id
+                        LEFT JOIN web_users wu ON wu.id = s.user_id
+                        LEFT JOIN users tu ON tu.telegram_id = s.user_id
                         WHERE s.status = 'approved'
                         GROUP BY lv.id
                     ) u ON u.level_id = l.id
@@ -5628,9 +5644,6 @@ def gd_page():
                     <input type="text" id="sub-level" placeholder="Название уровня (например: Tartarus)" onkeydown="if(event.key==='Enter')submitRecord()">
                 </div>
                 <div class="input-row">
-                    <input type="text" id="sub-name" placeholder="Ваше имя (необязательно)">
-                </div>
-                <div class="input-row">
                     <label class="file-label" for="sub-media">📎 Видео или фото с прохождением</label>
                     <input type="file" id="sub-media" accept="video/*,image/*,.mp4,.mov,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif">
                 </div>
@@ -5652,6 +5665,7 @@ def gd_page():
         var qid = urlParams.get('user_id');
         if (qid) { USER_ID = qid; localStorage.setItem('gd_user_id', qid); }
         var IS_ADMIN = false;
+        var ACCOUNT_ID = null;
         var LB_LEVELS = [];
         (function() {
             var token = localStorage.getItem('web_token');
@@ -5659,7 +5673,12 @@ def gd_page():
             fetch('/api/auth/me', { headers: { 'X-Auth-Token': token } })
                 .then(function(r) { return r.json(); })
                 .then(function(p) {
-                    if (p && !p.error && p.is_admin) IS_ADMIN = true;
+                    if (p && !p.error) {
+                        ACCOUNT_ID = p.id;
+                        IS_ADMIN = !!p.is_admin;
+                        USER_ID = 'u' + p.id;
+                        localStorage.setItem('gd_user_id', USER_ID);
+                    }
                 })
                 .catch(function() {});
         })();
@@ -5825,8 +5844,9 @@ def gd_page():
 
         function loadMyStats() {
             var out = document.getElementById('mystats-result');
+            if (!ACCOUNT_ID) { out.innerHTML = '<p class="hint">Войдите в аккаунт, чтобы видеть свою статистику. <a href="/account">Войти</a></p>'; return; }
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/api/gd/my_stats?user_id=' + encodeURIComponent(USER_ID));
+            xhr.open('GET', '/api/gd/my_stats?user_id=' + encodeURIComponent(ACCOUNT_ID));
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
@@ -5849,21 +5869,21 @@ def gd_page():
 
         function submitRecord() {
             var level = document.getElementById('sub-level').value.trim();
-            var name = document.getElementById('sub-name').value.trim();
             var mediaInput = document.getElementById('sub-media');
             var mediaFile = mediaInput && mediaInput.files && mediaInput.files.length ? mediaInput.files[0] : null;
             var out = document.getElementById('sub-result');
             if (!level) { out.innerHTML = '<p class="error">Укажите название уровня</p>'; return; }
             if (!mediaFile) { out.innerHTML = '<p class="error">Прикрепите видео или фото с прохождением</p>'; return; }
+            var token = localStorage.getItem('web_token');
+            if (!token) { out.innerHTML = '<p class="error">Чтобы отправить рекорд, нужно <a href="/account">войти в аккаунт</a>.</p>'; return; }
             var btn = document.getElementById('sub-btn');
             btn.disabled = true;
             out.innerHTML = '<p class="hint">📨 Отправка...</p>';
-            var doSubmit = function(finalName) {
+            var finish = function(gdNick) {
                 var fd = new FormData();
-                fd.append('user_id', USER_ID);
                 fd.append('level_name', level);
-                fd.append('username', finalName || '');
-                fd.append('token', localStorage.getItem('web_token') || '');
+                fd.append('gd_nickname', gdNick || '');
+                fd.append('token', token);
                 fd.append('media', mediaFile, mediaFile.name);
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/gd/submit');
@@ -5876,7 +5896,6 @@ def gd_page():
                         out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
                         hubTrack('gd', 1);
                         document.getElementById('sub-level').value = '';
-                        document.getElementById('sub-name').value = '';
                         if (mediaInput) { mediaInput.value = ''; updateMediaLabel(); }
                     } catch(e) { out.innerHTML = '<p class="error">Ошибка отправки.</p>'; }
                 };
@@ -5884,16 +5903,18 @@ def gd_page():
                 xhr.ontimeout = function() { btn.disabled = false; out.innerHTML = '<p class="error">Сервер не ответил. Попробуйте ещё раз.</p>'; };
                 xhr.send(fd);
             };
-            if (name) { doSubmit(name); return; }
-            var token = localStorage.getItem('web_token');
-            if (!token) { doSubmit(''); return; }
             fetch('/api/auth/me', { headers: { 'X-Auth-Token': token } })
                 .then(function(r) { return r.json(); })
                 .then(function(p) {
-                    if (p && !p.error && p.gd_nickname) { doSubmit(p.gd_nickname); }
-                    else { doSubmit(''); }
+                    if (!p || p.error) { btn.disabled = false; out.innerHTML = '<p class="error">Сессия недействительна. <a href="/account">Войдите снова</a>.</p>'; return; }
+                    if (p.gd_nickname) { finish(p.gd_nickname); return; }
+                    var nick = prompt('Укажите ваш GD-ник для таблицы лидеров (позже можно изменить в профиле):');
+                    if (nick === null) { btn.disabled = false; out.innerHTML = '<p class="hint">Отправка отменена — для рекорда нужен GD-ник.</p>'; return; }
+                    nick = (nick || '').trim();
+                    if (!nick) { btn.disabled = false; out.innerHTML = '<p class="error">GD-ник обязателен.</p>'; return; }
+                    finish(nick);
                 })
-                .catch(function() { doSubmit(''); });
+                .catch(function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; });
         }
 
         function updateMediaLabel() {
@@ -6177,20 +6198,26 @@ def api_gd_me():
 
 @app.route("/api/gd/submit", methods=["POST"])
 def api_gd_submit():
-    uid = _gd_web_uid((request.form.get("user_id") or "").strip() or "")
+    token = _auth_token_from_request() or (request.form.get("token") or "").strip()
+    web_user = _get_session_user(token or None)
+    if not web_user:
+        return jsonify({"error": "Для отправки рекорда нужно войти в аккаунт (анонимам запрещено)"}), 401
+    uid = int(web_user["id"])
     level_name = (request.form.get("level_name") or "").strip()
-    if uid is None:
-        return jsonify({"error": "Нет user_id"}), 400
     if not level_name:
         return jsonify({"error": "Укажите название уровня"}), 400
-    username = (request.form.get("username") or "").strip()
-    if not username:
-        token = (request.form.get("token") or "").strip()
-        web_user = _get_session_user(token or None)
-        if web_user and web_user.get("gd_nickname"):
-            username = web_user["gd_nickname"]
-    if not username:
-        username = f"web_{uid}"
+
+    # GD-ник берём из аккаунта; если пуст — из запроса (клиент запрашивает у игрока при первой отправке).
+    gd_nick = (web_user.get("gd_nickname") or "").strip()
+    submitted_nick = (request.form.get("gd_nickname") or "").strip()
+    if not gd_nick:
+        if submitted_nick:
+            gd_nick = submitted_nick[:50]
+            _save_gd_nickname(uid, gd_nick)
+        else:
+            return jsonify({"error": "Укажите ваш GD-ник для таблицы лидеров", "gd_nickname_required": True}), 400
+    # В лидерборде показываем именно GD-ник из аккаунта.
+    username = gd_nick
 
     # Медиа (видео/фото с прохождением) — обязательно, как в Telegram-флоу.
     media_file = request.files.get("media")
