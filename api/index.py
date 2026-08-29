@@ -5512,10 +5512,10 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
             </script>
         </div>
     </div>
-    <a id="bug-fab" class="bug-fab" href="/suggest?type=bug&module=hub" title="Сообщить о баге" style="display:none">🐛</a>
+        <a id="bug-fab" class="bug-fab" href="/suggest?type=bug&module=hub" title="Сообщить о баге" style="display:none">🐛</a>
 </body>
 </html>"""
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    return html, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}
 
 
 @app.route("/gd")
