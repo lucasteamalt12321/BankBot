@@ -416,6 +416,10 @@ def get_db_engine():
             _ensure_canon_tables(DB_ENGINE)
         except Exception as exc:
             print(f"[CANON] table init skipped: {exc}")
+        try:
+            _ensure_textbook_tables(DB_ENGINE)
+        except Exception as exc:
+            print(f"[TEXTBOOK] table init skipped: {exc}")
     return DB_ENGINE
 
 def _ensure_gd_tables(engine):
@@ -1141,6 +1145,27 @@ def _ensure_canon_tables(engine):
                 )
             print("[CANON] Seeded canon_works from core.canon.works")
         conn.commit()
+
+
+def _ensure_textbook_tables(engine):
+    """Create textbook tracker tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS textbooks (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    subject VARCHAR(100) NOT NULL,
+                    title VARCHAR(200) NOT NULL,
+                    location VARCHAR(20) NOT NULL DEFAULT 'home',
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_textbooks_user ON textbooks(user_id)"))
+            conn.commit()
+        print("[TEXTBOOK] Table ensured")
+    except Exception as exc:
+        print(f"[TEXTBOOK] Table init error: {exc}")
 
 
 def _ensure_parsing_tables(engine):
@@ -5207,6 +5232,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <div class="card-content">
                         <h2>Музыка <span class="beta-tag">Бета</span></h2>
                         <p>Анализ и изменение тональности и темпа, наложение MIDI/аудио</p>
+                    </div>
+                </a>
+                <a class="card" href="/textbooks">
+                    <div class="card-icon">📚</div>
+                    <div class="card-content">
+                        <h2>Учебники <span class="beta-tag">Бета</span></h2>
+                        <p>Где лежат учебники: дом, школа, рюкзак</p>
                     </div>
                 </a>
                 <a class="card" href="/suggest">
@@ -18896,6 +18928,354 @@ def api_canon_search():
         return jsonify({"results": [], "total": 0})
     results = find_canon(query, limit=5)
     return jsonify({"results": results, "total": len(results)})
+
+
+# ── Textbook Tracker ────────────────────────────────────────────────────
+
+_TEXTBOOK_SUBJECTS = [
+    "Математика", "Русский язык", "Литература", "Физика", "Химия",
+    "Биология", "История", "Обществознание", "География", "Английский язык",
+    "Информатика", "ОБЖ", "Музыка", "ИЗО", "Физкультура",
+]
+
+_TEXTBOOK_COLORS = {
+    "Математика": "#f59e0b", "Русский язык": "#ec4899", "Литература": "#a78bfa",
+    "Физика": "#10b981", "Химия": "#f97316", "Биология": "#22c55e",
+    "История": "#8b5cf6", "Обществознание": "#ef4444", "География": "#3b82f6",
+    "Английский язык": "#06b6d4", "Информатика": "#0ea5e9", "ОБЖ": "#78716c",
+    "Музыка": "#e879f9", "ИЗО": "#fb923c", "Физкультура": "#4ade80",
+}
+
+
+@app.route("/api/textbooks", methods=["GET"])
+def api_textbooks_list():
+    token = _auth_token_from_request()
+    user = _get_session_user(token)
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, subject, title, location FROM textbooks WHERE user_id = :uid ORDER BY subject, title"),
+                {"uid": user["id"]},
+            ).mappings().all()
+        items = [{"id": r["id"], "subject": r["subject"], "title": r["title"], "location": r["location"]} for r in rows]
+        return jsonify({"items": items, "subjects": _TEXTBOOK_SUBJECTS, "colors": _TEXTBOOK_COLORS})
+    except Exception as exc:
+        print(f"[TEXTBOOK] list error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/textbooks", methods=["POST"])
+def api_textbooks_create():
+    token = _auth_token_from_request()
+    user = _get_session_user(token)
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.get_json(silent=True) or {}
+    subject = (data.get("subject") or "").strip()
+    title = (data.get("title") or "").strip()
+    location = (data.get("location") or "home").strip()
+    if subject not in _TEXTBOOK_SUBJECTS:
+        return jsonify({"error": "Неизвестный предмет"}), 400
+    if not title:
+        return jsonify({"error": "Укажите название учебника"}), 400
+    if len(title) > 200:
+        return jsonify({"error": "Название слишком длинное (макс. 200 символов)"}), 400
+    if location not in ("home", "school", "backpack"):
+        return jsonify({"error": "Неизвестная локация"}), 400
+    try:
+        with get_db_engine().begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO textbooks (user_id, subject, title, location) VALUES (:uid, :subj, :title, :loc) RETURNING id"),
+                {"uid": user["id"], "subj": subject, "title": title, "loc": location},
+            )
+            new_id = result.mappings().first()["id"]
+        return jsonify({"ok": True, "id": new_id})
+    except Exception as exc:
+        print(f"[TEXTBOOK] create error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/textbooks/<int:tb_id>/move", methods=["PUT"])
+def api_textbooks_move(tb_id):
+    token = _auth_token_from_request()
+    user = _get_session_user(token)
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.get_json(silent=True) or {}
+    location = (data.get("location") or "").strip()
+    if location not in ("home", "school", "backpack"):
+        return jsonify({"error": "Неизвестная локация"}), 400
+    try:
+        with get_db_engine().begin() as conn:
+            result = conn.execute(
+                text("UPDATE textbooks SET location = :loc WHERE id = :id AND user_id = :uid"),
+                {"loc": location, "id": tb_id, "uid": user["id"]},
+            )
+            if result.rowcount == 0:
+                return jsonify({"error": "Учебник не найден"}), 404
+        return jsonify({"ok": True})
+    except Exception as exc:
+        print(f"[TEXTBOOK] move error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/textbooks/<int:tb_id>", methods=["DELETE"])
+def api_textbooks_delete(tb_id):
+    token = _auth_token_from_request()
+    user = _get_session_user(token)
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    try:
+        with get_db_engine().begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM textbooks WHERE id = :id AND user_id = :uid"),
+                {"id": tb_id, "uid": user["id"]},
+            )
+            if result.rowcount == 0:
+                return jsonify({"error": "Учебник не найден"}), 404
+        return jsonify({"ok": True})
+    except Exception as exc:
+        print(f"[TEXTBOOK] delete error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/textbooks")
+def textbooks_page():
+    token = _auth_token_from_request()
+    user = _get_session_user(token)
+    if not user:
+        return redirect("/")
+    subjects_json = json.dumps(_TEXTBOOK_SUBJECTS, ensure_ascii=False)
+    colors_json = json.dumps(_TEXTBOOK_COLORS, ensure_ascii=False)
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>📚 Учебники</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<style>
+:root{{--bb-bg:#0f1420;--bb-panel:#171c2b;--bb-elev:#1f2638;--bb-border:#2a3346;--bb-text:#e6e9f0;--bb-text-soft:#c2c9d6;--bb-muted:#8b93a7;--bb-primary:#5b8def;--bb-accent:#7aa2ff;--bb-red:#f87171}}
+[data-theme="light"]{{--bb-bg:#eef1f7;--bb-panel:#fff;--bb-elev:#e6e9f2;--bb-border:#cdd4e1;--bb-text:#1f2430;--bb-text-soft:#3b4250;--bb-muted:#5c6373;--bb-primary:#5b8def;--bb-accent:#4a90e8;--bb-red:#dc2626}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}}
+.topbar{{display:flex;align-items:center;padding:12px 16px;gap:12px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel)}}
+.topbar a{{color:var(--bb-accent);text-decoration:none;font-size:14px}}
+.topbar h1{{flex:1;text-align:center;font-size:18px;font-weight:600}}
+.topbar button{{background:none;border:none;color:var(--bb-accent);font-size:24px;cursor:pointer;padding:0 8px}}
+.columns{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px;height:calc(100vh - 56px);overflow:auto}}
+@media(max-width:700px){{.columns{{grid-template-columns:1fr;height:auto;min-height:calc(100vh - 56px)}}}}
+.loc{{background:var(--bb-panel);border:2px solid var(--bb-border);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:120px;transition:border-color .2s}}
+.loc.dragover{{border-color:var(--bb-accent);background:var(--bb-elev)}}
+.loc-head{{font-size:14px;font-weight:600;color:var(--bb-text-soft);text-align:center;padding-bottom:8px;border-bottom:1px solid var(--bb-border)}}
+.books{{display:flex;flex-direction:column;gap:6px;flex:1}}
+.book{{background:var(--bb-elev);border-radius:8px;padding:10px 12px;cursor:grab;user-select:none;transition:opacity .2s,transform .2s;border-left:4px solid var(--bb-border);position:relative}}
+.book:active{{cursor:grabbing}}
+.book.dragging{{opacity:.4;transform:scale(.95)}}
+.book-subj{{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}}
+.book-title{{font-size:13px;color:var(--bb-text-soft)}}
+.book-del{{position:absolute;top:6px;right:8px;background:none;border:none;color:var(--bb-muted);cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px}}
+.book-del:hover{{color:var(--bb-red);background:rgba(248,113,113,.1)}}
+.loc-empty{{color:var(--bb-muted);font-size:12px;text-align:center;padding:20px 0;font-style:italic}}
+/* Mobile: tap to move */
+.book-actions{{display:none;gap:4px;margin-top:6px}}
+.book.selected .book-actions{{display:flex}}
+.book-actions button{{flex:1;padding:6px;border:1px solid var(--bb-border);border-radius:6px;background:var(--bb-panel);color:var(--bb-text);font-size:12px;cursor:pointer}}
+.book-actions button:hover{{background:var(--bb-elev);border-color:var(--bb-accent)}}
+/* Modal */
+.modal-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100}}
+.modal-overlay.open{{display:flex}}
+.modal{{background:var(--bb-panel);border-radius:16px;padding:24px;width:90%;max-width:360px;border:1px solid var(--bb-border)}}
+.modal h2{{font-size:18px;margin-bottom:16px}}
+.modal label{{display:block;font-size:13px;color:var(--bb-text-soft);margin-bottom:4px}}
+.modal select,.modal input{{width:100%;padding:10px 12px;border:1px solid var(--bb-border);border-radius:8px;background:var(--bb-elev);color:var(--bb-text);font-size:14px;margin-bottom:12px}}
+.modal-btns{{display:flex;gap:8px;margin-top:8px}}
+.modal-btns button{{flex:1;padding:10px;border:none;border-radius:8px;font-size:14px;cursor:pointer}}
+.btn-cancel{{background:var(--bb-elev);color:var(--bb-text)}}
+.btn-add{{background:var(--bb-accent);color:#fff;font-weight:600}}
+.subject-dot{{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <a href="/">← Назад</a>
+    <h1>📚 Учебники</h1>
+    <button id="addBtn" title="Добавить учебник">+</button>
+</div>
+<div class="columns" id="columns">
+    <div class="loc" data-loc="home" id="col-home">
+        <div class="loc-head">🏠 Дом</div>
+        <div class="books" id="books-home"></div>
+    </div>
+    <div class="loc" data-loc="backpack" id="col-backpack">
+        <div class="loc-head">🎒 Рюкзак</div>
+        <div class="books" id="books-backpack"></div>
+    </div>
+    <div class="loc" data-loc="school" id="col-school">
+        <div class="loc-head">🏫 Школа</div>
+        <div class="books" id="books-school"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modal">
+    <div class="modal">
+        <h2>➕ Новый учебник</h2>
+        <label>Предмет</label>
+        <select id="m-subject"></select>
+        <label>Название</label>
+        <input id="m-title" placeholder="Например: Алгебра 9 класс" maxlength="200">
+        <label>Локация</label>
+        <select id="m-location">
+            <option value="home">🏠 Дом</option>
+            <option value="backpack">🎒 Рюкзак</option>
+            <option value="school">🏫 Школа</option>
+        </select>
+        <div class="modal-btns">
+            <button class="btn-cancel" id="m-cancel">Отмена</button>
+            <button class="btn-add" id="m-add">Добавить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+var SUBJECTS={subjects_json};
+var COLORS={colors_json};
+var TOKEN=localStorage.getItem('web_token');
+var books=[];
+
+function esc(s){{var d=document.createElement('div');d.textContent=s;return d.innerHTML}}
+
+function colorFor(subj){{return COLORS[subj]||'var(--bb-accent)'}}
+
+function renderBooks(){{
+    ['home','backpack','school'].forEach(function(loc){{
+        var container=document.getElementById('books-'+loc);
+        var filtered=books.filter(function(b){{return b.location===loc}});
+        if(!filtered.length){{
+            container.innerHTML='<div class="loc-empty">Перетащите учебники сюда</div>';
+            return;
+        }}
+        container.innerHTML=filtered.map(function(b){{
+            return '<div class="book" draggable="true" data-id="'+b.id+'" style="border-left-color:'+colorFor(b.subject)+'">'
+                +'<div class="book-subj" style="color:'+colorFor(b.subject)+'">'+esc(b.subject)+'</div>'
+                +'<div class="book-title">'+esc(b.title)+'</div>'
+                +'<button class="book-del" data-id="'+b.id+'" title="Удалить">✕</button>'
+                +'<div class="book-actions">'
+                +'<button data-move="home">🏠</button>'
+                +'<button data-move="backpack">🎒</button>'
+                +'<button data-move="school">🏫</button>'
+                +'</div></div>';
+        }}).join('');
+    }});
+    initDrag();
+}}
+
+function loadBooks(){{
+    fetch('/api/textbooks',{{headers:{{'X-Auth-Token':TOKEN}}}})
+    .then(function(r){{return r.json()}})
+    .then(function(d){{
+        if(d.error){{return}}
+        books=d.items||[];
+        renderBooks();
+    }});
+}}
+
+var draggedId=null;
+
+function initDrag(){{
+    document.querySelectorAll('.book').forEach(function(el){{
+        el.addEventListener('dragstart',function(e){{
+            draggedId=el.dataset.id;
+            el.classList.add('dragging');
+            e.dataTransfer.effectAllowed='move';
+        }});
+        el.addEventListener('dragend',function(){{
+            el.classList.remove('dragging');
+            draggedId=null;
+            document.querySelectorAll('.loc').forEach(function(l){{l.classList.remove('dragover')}});
+        }});
+        /* tap to select (mobile) */
+        el.addEventListener('click',function(e){{
+            if(e.target.classList.contains('book-del'))return;
+            var wasSelected=el.classList.contains('selected');
+            document.querySelectorAll('.book.selected').forEach(function(b){{b.classList.remove('selected')}});
+            if(!wasSelected)el.classList.add('selected');
+        }});
+        /* mobile move buttons */
+        el.querySelectorAll('[data-move]').forEach(function(btn){{
+            btn.addEventListener('click',function(e){{
+                e.stopPropagation();
+                moveBook(el.dataset.id,btn.dataset.move);
+            }});
+        }});
+        /* delete */
+        el.querySelector('.book-del').addEventListener('click',function(e){{
+            e.stopPropagation();
+            deleteBook(el.dataset.id);
+        }});
+    }});
+    document.querySelectorAll('.loc').forEach(function(loc){{
+        loc.addEventListener('dragover',function(e){{e.preventDefault();loc.classList.add('dragover')}});
+        loc.addEventListener('dragleave',function(){{loc.classList.remove('dragover')}});
+        loc.addEventListener('drop',function(e){{
+            e.preventDefault();
+            loc.classList.remove('dragover');
+            if(draggedId)moveBook(draggedId,loc.dataset.loc);
+        }});
+    }});
+}}
+
+function moveBook(id,loc){{
+    fetch('/api/textbooks/'+id+'/move',{{method:'PUT',headers:{{'Content-Type':'application/json','X-Auth-Token':TOKEN}},body:JSON.stringify({{location:loc}})}})
+    .then(function(r){{return r.json()}})
+    .then(function(d){{
+        if(d.error)return;
+        books.forEach(function(b){{if(b.id==id)b.location=loc}});
+        renderBooks();
+    }});
+}}
+
+function deleteBook(id){{
+    if(!confirm('Удалить учебник?'))return;
+    fetch('/api/textbooks/'+id,{{method:'DELETE',headers:{{'X-Auth-Token':TOKEN}}}})
+    .then(function(r){{return r.json()}})
+    .then(function(d){{
+        if(d.error)return;
+        books=books.filter(function(b){{return b.id!=id}});
+        renderBooks();
+    }});
+}}
+
+/* Modal */
+var modal=document.getElementById('modal');
+var mSubj=document.getElementById('m-subject');
+SUBJECTS.forEach(function(s){{var o=document.createElement('option');o.value=s;o.textContent=s;mSubj.appendChild(o)}});
+
+document.getElementById('addBtn').addEventListener('click',function(){{modal.classList.add('open');document.getElementById('m-title').focus()}});
+document.getElementById('m-cancel').addEventListener('click',function(){{modal.classList.remove('open')}});
+modal.addEventListener('click',function(e){{if(e.target===modal)modal.classList.remove('open')}});
+
+document.getElementById('m-add').addEventListener('click',function(){{
+    var subj=mSubj.value;
+    var title=document.getElementById('m-title').value.trim();
+    var loc=document.getElementById('m-location').value;
+    if(!title){{document.getElementById('m-title').focus();return}}
+    fetch('/api/textbooks',{{method:'POST',headers:{{'Content-Type':'application/json','X-Auth-Token':TOKEN}},body:JSON.stringify({{subject:subj,title:title,location:loc}})}})
+    .then(function(r){{return r.json()}})
+    .then(function(d){{
+        if(d.error){{alert(d.error);return}}
+        books.push({{id:d.id,subject:subj,title:title,location:loc}});
+        renderBooks();
+        modal.classList.remove('open');
+        document.getElementById('m-title').value='';
+    }});
+}});
+
+loadBooks();
+</script>
+</body></html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 # ── Canon Work Page ──────────────────────────────────────────────────────

@@ -7,8 +7,9 @@
 ### ✅ Выполнено (в этой сессии)
 - ✅ Массовая охота на баги (12 субагентов): найдено ~270 багов по всем модулям.
 - ✅ Исправлено 72/73 бага (раунд 1: 14 critical/high `dccd956`, раунд 2: 54 medium/low `3586ce7`).
-- ✅ Тесты: 35 passed, ruff clean, py_compile OK.
+- ✅ Тесты: 43 passed (вкл. 8 новые для textbooks), py_compile OK.
 - ✅ Memory bank обновлён (progress.md, activeContext.md).
+- ✅ [NEW MODULE] Трекер учебников (`/textbooks`) — бета-модуль. 3 локации (дом/школа/рюкзак), drag-and-drop (десктоп) + tap-to-move (мобайл), модалка добавления с 15 предметами и цветами. API: GET/POST/PUT/DELETE. Тесты 8/8 passed.
 
 ### 🔲 Осталось (бэклог, по приоритету)
 - 🔲 [DB-3] Dual connection pool — архитектурный рефакторинг `database/connection.py` + `api/index.py` (объединить два engine в один). Единственный неисправленный баг из 73.
