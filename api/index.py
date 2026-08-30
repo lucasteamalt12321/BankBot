@@ -18726,40 +18726,6 @@ def api_canon_work_audio(work_id):
     })
 
 
-@app.route("/api/admin/canon/migrate-audio-url", methods=["POST"])
-def _canon_migrate_audio_url():
-    """TEMPORARY: Add audio_url column and populate from Storage. No auth — will remove after migration."""
-    try:
-        with get_db_engine().begin() as conn:
-            try:
-                conn.execute(text("ALTER TABLE canon_works ADD COLUMN audio_url VARCHAR(512)"))
-            except Exception:
-                pass  # column may already exist
-            audio_map = {
-                1:  "1_2_5321309835151574693.mp3",
-                2:  "2_track.mp3",
-                3:  "3_track.mp3",
-                4:  "4_track.mp3",
-                5:  "5_track.mp3",
-                6:  "6_track.mp3",
-                7:  "7_1.mp3",
-                8:  "8_track.mp3",
-                9:  "9_1.mp3",
-                10: "10_1.mp3",
-            }
-            base = "https://xrrdliznuyausiutxqwv.supabase.co/storage/v1/object/public/canon-audio"
-            updated = 0
-            for wid, fname in audio_map.items():
-                r = conn.execute(
-                    text("UPDATE canon_works SET audio_url = :url WHERE id = :id"),
-                    {"url": f"{base}/{fname}", "id": wid},
-                )
-                updated += r.rowcount
-        return jsonify({"ok": True, "updated": updated})
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
 @app.route("/api/admin/canon/works", methods=["GET"])
 def api_admin_canon_works_list():
     """Список всех произведений (включая pending/rejected) для редактора."""
