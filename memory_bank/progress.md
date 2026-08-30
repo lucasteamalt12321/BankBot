@@ -64,6 +64,42 @@
 
 _Баги добавляются по ходу тестирования остальных модулей._
 
+### Массовая охота на баги (2026-08-30, 12 субагентов параллельно)
+
+> Запрос пользователя: «продолжай, если есть следующие шаги». Запущены 12 субагентов для аудита всех модулей. Найдено ~270 багов. Ниже — критичные/высокие, исправлены в рабочей копии.
+
+#### Исправлено (2026-08-30, коммиты待定)
+
+##### 🎵 Музыка (4 фикса)
+- **[MUSIC-BUG-8]** (high) `drawWaveform()` (api/index.py:15086) — AudioContext leak: при ошибке `decodeAudioData` контекст не закрывался → лимит ~6 в браузере. **Фикс:** hoisted `ac` в outer scope + `try{if(ac)ac.close()}` в `.catch()`.
+- **[MUSIC-BUG-9]** (high) `compressAudio()` (api/index.py:15131) — AudioContext leak: аналогично. **Фикс:** hoisted `ac` + `try{if(ac)ac.close()}` в `catch`.
+- **[MUSIC-BUG-10]** (high) `/api/music/overlay` (api/index.py:14815) — нет проверки размера файлов → OOM. **Фикс:** добавлена проверка `len(data) > _MUSIC_MAX_BYTES`.
+- **[MUSIC-BUG-11]** (med) `renderInfo()` (api/index.py:15065) — XSS через innerHTML (`j.bpm`, `j.key` без экранирования). **Фикс:** добавлена `esc()` для всех значений.
+- **[MUSIC-BUG-12]** (med) Кнопка «Анализ» — double-submit race condition. **Фикс:** `btn.disabled=true` + `finally{btn.disabled=false}`.
+
+##### 🎓 ОГЭ/Экзамен (3 фикса)
+- **[OGE-BUG-7]** (high) `/api/exam/ai-batch` (api/index.py:14287) — утёк `answer` клиенту (cheating). **Фикс:** убран `answer` из ответа, добавлен `sid`; клиент вызывает `/api/exam/check` серверно.
+- **[OGE-BUG-8]** (med) Клиентская проверка ответа (`checkTextAnswer`) — сервер доверял `correct` от клиента. **Фикс:** переписано на server-side через `/api/exam/check`.
+- **[OGE-BUG-9]** (med) OGE chat UPDATE без `conn.commit()` (api/index.py:17296) — `engine.connect()` → `engine.begin()`.
+
+##### 🔐 Шахматы/БД/Авторизация (9 фиксов)
+- **[CHESS-BUG-1+2]** (critical) `chess_accounts` + `user_coins` не создаются автоматически. **Фикс:** `_ensure_chess_accounts_and_coins()` добавлен в `get_db_engine()`.
+- **[CHESS-BUG-3]** (high) Auth bypass в шахматах — 4 эндпоинта (`/api/chess/stats`, `/api/chess/link`, `/api/chess/puzzle`, `/api/chess/puzzle/check`) принимали `user_id` от клиента без проверки. **Фикс:** `_chess_require_auth()` проверяет токен vs user_id (аналог D&D).
+- **[DB-BUG-2]** (high) Race condition в `_award_web_coins`. **Фикс:** `engine.connect()` → `engine.begin()`.
+- **[AUTH-BUG-4]** (high) Токен через URL-параметр. **Фикс:** убран `request.args.get("token")`.
+- **[DND-BUG-8]** (high) Нет авторизации на D&D API (6 эндпоинтов). **Фикс:** `_dnd_require_auth()` проверяет токен vs user_id.
+
+#### Открытые ( высший приоритет,待修)
+
+##### 🔴 Критические
+- **[CHESS-BUG-1]** (critical) `chess_accounts` не создаётся автоматически → все шахматные эндпоинты падают на чистой БД. **Фикс:** `_ensure_chess_accounts_and_coins()` добавлен в `get_db_engine()`.
+- **[CHESS-BUG-2]** (critical) `user_coins` не создаётся автоматически → баланс/пазлы не работают. **Фикс:** `_ensure_chess_accounts_and_coins()` добавлен в `get_db_engine()`.
+- **[DB-BUG-1]** (critical) Dual connection pool — два независимых движка к одной БД. **Статус:** архитектурный, требует рефакторинга database/connection.py.
+- **[DB-BUG-2]** (high) Race condition в `_award_web_coins` — SELECT-then-INSERT без транзакции. **Фикс:** `engine.connect()` → `engine.begin()`.
+
+##### 🟠 Высокие
+- **[DB-BUG-3]** (high) Нет rate limiting на AI эндпоинты → злоупотребление.
+
 ### Аудит безопасности и багов (2026-08-28, запрос «займись фиксами багов по всему проекту»)
 
 > Прогнан параллельный аудит (core/, api/index.py, music) + полный прогон тестов (1480 passed, 10 skipped — зелёные). Ниже конкретные найденные баги; критичные/высокие — исправлены в рабочей копии (не закоммичено).

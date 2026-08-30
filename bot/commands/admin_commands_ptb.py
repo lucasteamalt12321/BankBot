@@ -348,6 +348,10 @@ async def admin_balances_command(
     get_db,
 ):
     """Команда /admin_balances - топ пользователей по балансу."""
+    user = update.effective_user
+    if not admin_system.is_admin(user.id):
+        await update.message.reply_text("❌ Нет доступа.")
+        return
     db = get_db()
     try:
         from database.database import User
@@ -1250,6 +1254,9 @@ async def admin_background_status_command(
 ):
     """Команда /admin_background_status - статус фоновых задач."""
     user = update.effective_user
+    if not admin_system.is_admin(user.id):
+        await update.message.reply_text("❌ Нет доступа.")
+        return
 
     try:
         if not background_task_manager:
@@ -1304,6 +1311,9 @@ async def admin_background_health_command(
 ):
     """Команда /admin_background_health - проверка здоровья фоновых задач."""
     user = update.effective_user
+    if not admin_system.is_admin(user.id):
+        await update.message.reply_text("❌ Нет доступа.")
+        return
 
     try:
         if not background_task_manager:
@@ -1359,6 +1369,9 @@ async def admin_background_restart_command(
 ):
     """Команда /admin_background_restart - перезапуск фоновых задач."""
     user = update.effective_user
+    if not admin_system.is_admin(user.id):
+        await update.message.reply_text("❌ Нет доступа.")
+        return
 
     try:
         if not background_task_manager:
@@ -1418,6 +1431,9 @@ async def admin_parsing_reload_command(
 ):
     """Команда /admin_parsing_reload - перезагрузка правил парсинга."""
     user = update.effective_user
+    if not admin_system.is_admin(user.id):
+        await update.message.reply_text("❌ Нет доступа.")
+        return
 
     try:
         await update.message.reply_text("🔄 Перезагружаю правила парсинга...")
@@ -1488,6 +1504,9 @@ async def admin_parsing_config_command(
 ):
     """Команда /admin_parsing_config - просмотр конфигурации парсинга."""
     user = update.effective_user
+    if not admin_system.is_admin(user.id):
+        await update.message.reply_text("❌ Нет доступа.")
+        return
 
     try:
         from core.managers.config_manager import get_config_manager
