@@ -1,8 +1,19 @@
 # Active Context
 
-## 📋 Задачи от пользователя (живой список, сессия 2026-08-28)
+## 📋 Задачи от пользователя (живой список, сессия 2026-08-30)
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
+
+### ✅ Выполнено (в этой сессии)
+- ✅ Массовая охота на баги (12 субагентов): найдено ~270 багов по всем модулям.
+- ✅ Исправлено 14 багов: AudioContext leak (2), overlay OOM, XSS renderInfo, double-submit, answer leakage, missing conn.commit(), chess_accounts/user_coins auto-create, race condition _award_web_coins, token in URL, D&D auth (6 endpoints), chess auth (4 endpoints).
+- ✅ Тесты: 31 passed (14 e2e + 17 GD), ruff clean, py_compile OK.
+- ✅ Memory bank обновлён (progress.md, activeContext.md).
+
+### 🔲 Осталось (бэклог, по приоритету)
+- 🔲 [DB-BUG-3] Rate limiting on AI endpoints (high)
+- 🔲 [DB-BUG-1] Dual connection pool (critical, architectural)
+- 🔲 Остальные ~256 багов из bug hunt (средние/низкие)
 
 ### ✅ Выполнено (в этой сессии)
 - ✅ Исправлены все 18 самоаудированных багов (DND/STATS/OGE/AUTH) — коммит `5e2dd3b`, задеплоено на `bank-bot-ruby.vercel.app`.

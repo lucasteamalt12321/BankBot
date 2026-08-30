@@ -183,9 +183,9 @@ def _save_gd_nickname(user_id: int, nick: str) -> bool:
 def _auth_token_from_request() -> str | None:
     """Extract session token from Authorization header or X-Auth-Token."""
     auth = request.headers.get("Authorization", "")
-    if auth.lower().startswith("bearer "):
-        return auth[7:].strip()
-    return request.headers.get("X-Auth-Token") or request.args.get("token")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return request.headers.get("X-Auth-Token")
 
 
 def _web_admin_session() -> dict | None:
@@ -206,7 +206,7 @@ def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
     """
     uid = _web_user_id("u" + str(user_id))
     try:
-        with get_db_engine().connect() as conn:
+        with get_db_engine().begin() as conn:
             existing = conn.execute(
                 text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
                 {"user_id": uid},
@@ -225,7 +225,6 @@ def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
                 text("INSERT INTO web_coin_log (user_id, amount, description) VALUES (:user_id, :amount, :desc)"),
                 {"user_id": uid, "amount": amount, "desc": description},
             )
-            conn.commit()
             return True
     except Exception as exc:
         print(f"[ADMIN] award coins error: {exc}")
@@ -300,6 +299,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
 DB_ENGINE = None
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW = 300  # 5 minutes
 
 # Bot identity for reply/mention detection
 BOT_ID: int | None = None
@@ -385,6 +387,7 @@ def get_db_engine():
         _ensure_study_progress_tables(DB_ENGINE)
         _ensure_achievements_tables(DB_ENGINE)
         _ensure_chess_games_table(DB_ENGINE)
+        _ensure_chess_accounts_and_coins(DB_ENGINE)
         _ensure_oge_curator_tables(DB_ENGINE)
         try:
             _ensure_canon_tables(DB_ENGINE)
@@ -574,6 +577,30 @@ def _ensure_chess_games_table(engine):
         print("[INIT] chess_games table ensured")
     except Exception as exc:
         print(f"[INIT] chess_games table error: {exc}")
+
+
+def _ensure_chess_accounts_and_coins(engine):
+    """Create chess_accounts and user_coins tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chess_accounts (
+                    user_id INTEGER PRIMARY KEY,
+                    lichess_username VARCHAR(64) NOT NULL,
+                    linked_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_coins (
+                    user_id VARCHAR(64) PRIMARY KEY,
+                    balance INTEGER DEFAULT 0,
+                    last_puzzle_at TIMESTAMPTZ
+                )
+            """))
+            conn.commit()
+        print("[INIT] chess_accounts + user_coins tables ensured")
+    except Exception as exc:
+        print(f"[INIT] chess_accounts/user_coins table error: {exc}")
 
 
 def _ensure_budget_tables(engine):
@@ -6191,6 +6218,36 @@ def _gd_web_uid(user_id_raw: str | None) -> int | None:
     return _web_user_id(user_id_raw)
 
 
+def _dnd_require_auth(data_user_id: str | None) -> int | None:
+    """Resolve D&D user_id with auth check. If token present, user_id must match."""
+    uid = _gd_web_uid(data_user_id)
+    if uid is None:
+        return None
+    token = _auth_token_from_request()
+    if token:
+        user = _get_session_user(token)
+        if user:
+            auth_uid = _web_user_id("u" + str(user["id"]))
+            if auth_uid is not None and auth_uid != uid:
+                return None
+    return uid
+
+
+def _chess_require_auth(data_user_id: str | None) -> int | None:
+    """Resolve chess user_id with auth check. If token present, user_id must match."""
+    if not data_user_id:
+        return None
+    uid = _web_user_id(data_user_id)
+    token = _auth_token_from_request()
+    if token:
+        user = _get_session_user(token)
+        if user:
+            auth_uid = _web_user_id("u" + str(user["id"]))
+            if auth_uid is not None and auth_uid != uid:
+                return None
+    return uid
+
+
 @app.route("/api/gd/me")
 def api_gd_me():
     return jsonify({"is_admin": _web_admin_session() is not None})
@@ -6337,7 +6394,9 @@ def api_dnd_status():
     user_id_raw = request.args.get("user_id", "")
     if not user_id_raw:
         return jsonify({"error": "Нет user_id"}), 400
-    uid = _gd_web_uid(user_id_raw)
+    uid = _dnd_require_auth(user_id_raw)
+    if uid is None:
+        return jsonify({"error": "unauthorized"}), 401
     try:
         from api.dnd_runtime import find_active_session, get_session_log, get_session_players
         session = find_active_session(uid)
@@ -6374,9 +6433,9 @@ def api_dnd_status():
 @app.route("/api/dnd/start", methods=["POST"])
 def api_dnd_start():
     data = request.get_json(silent=True) or {}
-    uid = _gd_web_uid(data.get("user_id", ""))
+    uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
-        return jsonify({"error": "Нет user_id"}), 400
+        return jsonify({"error": "unauthorized"}), 401
     name = (data.get("name") or "").strip()
     from api.dnd_runtime import cmd_dnd_start, find_active_session, get_session_players
     reply = cmd_dnd_start(uid, uid, name)
@@ -6408,9 +6467,9 @@ def api_dnd_start():
 @app.route("/api/dnd/join", methods=["POST"])
 def api_dnd_join():
     data = request.get_json(silent=True) or {}
-    uid = _gd_web_uid(data.get("user_id", ""))
+    uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
-        return jsonify({"error": "Нет user_id"}), 400
+        return jsonify({"error": "unauthorized"}), 401
     code = (data.get("code") or "").strip().upper()
     name = (data.get("name") or "").strip()
     if not code:
@@ -6432,9 +6491,9 @@ def api_dnd_join():
 @app.route("/api/dnd/act", methods=["POST"])
 def api_dnd_act():
     data = request.get_json(silent=True) or {}
-    uid = _gd_web_uid(data.get("user_id", ""))
+    uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
-        return jsonify({"error": "Нет user_id"}), 400
+        return jsonify({"error": "unauthorized"}), 401
     text = (data.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Пустое действие"}), 400
@@ -6448,9 +6507,9 @@ def api_dnd_act():
 @app.route("/api/dnd/roll", methods=["POST"])
 def api_dnd_roll():
     data = request.get_json(silent=True) or {}
-    uid = _gd_web_uid(data.get("user_id", ""))
+    uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
-        return jsonify({"error": "Нет user_id"}), 400
+        return jsonify({"error": "unauthorized"}), 401
     dice = (data.get("dice") or "").strip()
     purpose = (data.get("purpose") or "").strip()
     if not dice:
@@ -6464,9 +6523,9 @@ def api_dnd_roll():
 @app.route("/api/dnd/stop", methods=["POST"])
 def api_dnd_stop():
     data = request.get_json(silent=True) or {}
-    uid = _gd_web_uid(data.get("user_id", ""))
+    uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
-        return jsonify({"error": "Нет user_id"}), 400
+        return jsonify({"error": "unauthorized"}), 401
     try:
         from api.dnd_runtime import cmd_dnd_stop
         reply = cmd_dnd_stop(uid, uid)
@@ -6478,9 +6537,9 @@ def api_dnd_stop():
 @app.route("/api/dnd/fix", methods=["POST"])
 def api_dnd_fix():
     data = request.get_json(silent=True) or {}
-    uid = _gd_web_uid(data.get("user_id", ""))
+    uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
-        return jsonify({"error": "Нет user_id"}), 400
+        return jsonify({"error": "unauthorized"}), 401
     text = (data.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Пустой текст исправления"}), 400
@@ -7093,10 +7152,11 @@ def reading_trainer():
             });
         }
         function displayReading() {
+            function _esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
             const html = `
-                <div class="story-title">${currentData.title}</div>
-                <div class="story-image">${currentData.image}</div>
-                <div class="story-text">${currentData.text}</div>
+                <div class="story-title">${_esc(currentData.title)}</div>
+                <div class="story-image">${_esc(currentData.image)}</div>
+                <div class="story-text">${_esc(currentData.text)}</div>
             `;
             document.getElementById('sentences').innerHTML = html;
             document.getElementById('reading-screen').style.display = 'block';
@@ -7105,7 +7165,7 @@ def reading_trainer():
         function goToQuestions() {
             document.getElementById('questions-container').innerHTML = currentData.questions.map((q, i) => 
                 '<div class="question">' +
-                '<div class="question-text">' + (i+1) + '. ' + q.question + '</div>' +
+                '<div class="question-text">' + (i+1) + '. ' + escapeHtml(q.question) + '</div>' +
                 '<input type="text" id="answer-' + i + '" placeholder="Введите ответ">' +
                 '<div class="question-tools">' +
                 '<button type="button" class="btn-hint" onclick="toggleHint(' + i + ')">💡 Подсказка</button>' +
@@ -8251,7 +8311,7 @@ var CHARS = __CHARS_JSON__;
         var d = document.createElement('div');
         d.className = 'msg msg-' + role;
         var label = role === 'user' ? 'Вы' : CHARS[charSelect.value].name;
-        var html = '<div class="msg-label">' + label + '</div><div class="msg-text">' + (text || '').replace(/</g, '<') + '</div>';
+        var html = '<div class="msg-label">' + label + '</div><div class="msg-text">' + (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
         if (images && images.length) {
             images.forEach(function(src) {
                 html += '<img class="msg-img" src="' + src + '" alt="Результат">';
@@ -8770,7 +8830,9 @@ def api_chess_stats():
     user_id_raw = request.args.get("user_id", "")
     if not user_id_raw:
         return jsonify({"error": "Нет user_id"}), 400
-    uid = _web_user_id(user_id_raw)
+    uid = _chess_require_auth(user_id_raw)
+    if uid is None:
+        return jsonify({"error": "unauthorized"}), 401
     account = get_chess_account(uid)
     coins = get_user_coins(uid)
     result = {
@@ -8816,7 +8878,9 @@ def api_chess_link():
         return jsonify({"error": "Нет user_id"}), 400
     if not nick:
         return jsonify({"error": "Введите ник Lichess"}), 400
-    uid = _web_user_id(user_id_raw)
+    uid = _chess_require_auth(user_id_raw)
+    if uid is None:
+        return jsonify({"error": "unauthorized"}), 401
     profile = fetch_lichess_user(nick)
     if not profile:
         return jsonify({"error": "Игрок не найден на Lichess"}), 404
@@ -8833,7 +8897,9 @@ def api_chess_puzzle():
     user_id_raw = data.get("user_id", "")
     if not user_id_raw:
         return jsonify({"error": "Нет user_id"}), 400
-    uid = _web_user_id(user_id_raw)
+    uid = _chess_require_auth(user_id_raw)
+    if uid is None:
+        return jsonify({"error": "unauthorized"}), 401
     now_ts = time.time()
     stale = [k for k, v in _PENDING_PUZZLES.items() if now_ts - v.get("created_at", 0) > _PENDING_PUZZLE_TTL]
     for k in stale:
@@ -8878,7 +8944,9 @@ def api_chess_puzzle_check():
     move = (data.get("move") or "").strip().lower()
     if not user_id_raw:
         return jsonify({"error": "Нет user_id"}), 400
-    uid = _web_user_id(user_id_raw)
+    uid = _chess_require_auth(user_id_raw)
+    if uid is None:
+        return jsonify({"error": "unauthorized"}), 401
     pending = _PENDING_PUZZLES.pop(uid, None)
     if not pending or not pending.get("web"):
         return jsonify({"error": "Задача не найдена или устарела. Загрузите новую."}), 400
@@ -9578,6 +9646,13 @@ def api_auth_login():
     password = data.get("password") or ""
     if not login or not password:
         return jsonify({"error": "Логин и пароль обязательны"}), 400
+    ip = request.remote_addr or "unknown"
+    now = time.time()
+    key = f"{ip}:{login}"
+    attempts = _LOGIN_ATTEMPTS.get(key, [])
+    attempts = [t for t in attempts if now - t < _LOGIN_WINDOW]
+    if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
+        return jsonify({"error": "Слишком много попыток. Попробуйте через 5 минут."}), 429
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -9589,7 +9664,10 @@ def api_auth_login():
         print(f"[AUTH] login error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     if not row or not _verify_password(password, row["password_hash"]):
+        attempts.append(now)
+        _LOGIN_ATTEMPTS[key] = attempts
         return jsonify({"error": "Неверный логин или пароль"}), 401
+    _LOGIN_ATTEMPTS.pop(key, None)
     token = _create_session(row["id"])
     if not token:
         return jsonify({"error": "Не удалось создать сессию"}), 500
@@ -14279,15 +14357,18 @@ def api_exam_ai_batch():
     picked = (weak_avail + other_avail)[:n]
 
     result_items = []
-    for it in picked:
+    for i, it in enumerate(picked):
         result_items.append({
             "key": it["key"], "module": it["module"], "question": it["question"],
             "hint": it.get("hint", ""),
-            "explanation": it.get("_explanation", ""),
-            "answer": it["_answer"],
         })
 
-    return jsonify({"ok": True, "items": result_items})
+    sid = secrets.token_hex(6)
+    _EXAM_SESSIONS[sid] = picked
+    while len(_EXAM_SESSIONS) > 300:
+        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)))
+
+    return jsonify({"ok": True, "sid": sid, "items": result_items})
 
 
 @app.route("/api/exam/ai-record", methods=["POST"])
@@ -14400,6 +14481,8 @@ var idx = 0;
 var score = 0;
 var total = 0;
 var prefetching = false;
+var examSid = null;
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 document.getElementById('auth-note').textContent = AUTH_HINT === 'on'
   ? '\u2713 \u0412\u044B \u0432\u043E\u0448\u043B\u0438 \u2014 \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F.'
@@ -14419,6 +14502,7 @@ function prefetch() {
     prefetching = false;
     document.getElementById('prefetch-status').textContent = '';
     if (d.ok && d.items && d.items.length) {
+      if (d.sid) examSid = d.sid;
       d.items.forEach(function(it){ queue.push(it); });
       document.getElementById('prefetch-status').textContent = '\u2713 \u0415\u0449\u0451 ' + d.items.length + ' \u0432\u043E\u043F\u0440\u043E\u0441\u043E\u0432 \u0433\u043E\u0442\u043E\u0432\u043E';
     }
@@ -14459,6 +14543,7 @@ function showNext() {
     return;
   }
   var it = queue.shift();
+  it._examIdx = idx;
   seen.push(it.key);
   total++;
   document.getElementById('status').textContent = '\u0412\u043E\u043F\u0440\u043E\u0441 ' + total;
@@ -14486,13 +14571,18 @@ function showNext() {
         if (b.disabled) return;
         var btns = opts.querySelectorAll('.mcq-btn');
         btns.forEach(function(x){ x.disabled = true; });
-        var ok = (i === it.correct_idx);
-        if (ok) { score++; b.classList.add('correct'); }
-        else {
-          b.classList.add('wrong');
-          btns.forEach(function(x){ if (x.textContent === it.options[it.correct_idx]) x.classList.add('correct'); });
-        }
-        showFeedback(ok, it);
+        fetch('/api/exam/check', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({sid: examSid, idx: it._examIdx, value: String(i)})
+        }).then(function(r){return r.json();}).then(function(d){
+          var ok = d.correct;
+          if (ok) { score++; b.classList.add('correct'); }
+          else {
+            b.classList.add('wrong');
+            btns.forEach(function(x){ if (d.answer !== undefined && x.textContent === it.options[d.answer]) x.classList.add('correct'); });
+          }
+          showFeedback(ok, it, d);
+        }).catch(function(){ showFeedback(false, it, {}); });
       };
       opts.appendChild(b);
     });
@@ -14510,12 +14600,14 @@ function showNext() {
   prefetch();
 }
 
-function showFeedback(ok, it) {
+function showFeedback(ok, it, serverResp) {
+  serverResp = serverResp || {};
+  var ansText = serverResp.answer !== undefined ? serverResp.answer : '';
   var fb = document.getElementById('fb');
   fb.innerHTML = (ok
     ? '<span class="ok">\u2705 \u0412\u0435\u0440\u043D\u043E!</span>'
-    : '<span class="bad">\u274C \u041D\u0435\u0432\u0435\u0440\u043E. \u041E\u0442\u0432\u0435\u0442: ' + (it.type === 'mcq' ? it.options[it.correct_idx] : (it.answer || '')) + '</span>')
-    + (it.explanation ? '<div class="explain">' + it.explanation + '</div>' : '');
+    : '<span class="bad">\u274C \u041D\u0435\u0432\u0435\u0440\u043E. \u041E\u0442\u0432\u0435\u0442: ' + esc(String(ansText)) + '</span>')
+    + (serverResp.explanation ? '<div class="explain">' + serverResp.explanation + '</div>' : '');
   document.getElementById('next').style.display = '';
   fetch('/api/exam/ai-record', {method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({key:it.key, module:it.module, correct:ok})}).catch(function(){});
@@ -14526,12 +14618,16 @@ var currentIt = null;
 function checkTextAnswer() {
   var v = document.getElementById('ans').value.trim();
   if (!v || !currentIt) return;
-  var ok = (v.toLowerCase().replace(/,/g,'.').replace(/\\s+/g,' ').trim()
-    === String(currentIt.answer || '').toLowerCase().replace(/,/g,'.').replace(/\\s+/g,' ').trim());
-  if (ok) score++;
   document.getElementById('check').style.display = 'none';
   document.getElementById('ans').disabled = true;
-  showFeedback(ok, currentIt);
+  fetch('/api/exam/check', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sid: examSid, idx: currentIt._examIdx, value: v})
+  }).then(function(r){return r.json();}).then(function(d){
+    var ok = d.correct;
+    if (ok) score++;
+    showFeedback(ok, currentIt, d);
+  }).catch(function(){ showFeedback(false, currentIt, {}); });
 }
 
 document.getElementById('check').onclick = checkTextAnswer;
@@ -14828,6 +14924,8 @@ def api_music_overlay():
         data = f.read()
         if not data:
             return jsonify({"error": "Пустой файл: " + fn}), 400
+        if len(data) > _MUSIC_MAX_BYTES:
+            return jsonify({"error": "Файл слишком большой: " + fn + " (макс. ~8 МБ)"}), 400
         p = os.path.join(d, "in%d%s" % (i, ext))
         with open(p, "wb") as fp:
             fp.write(data)
@@ -15064,9 +15162,10 @@ function srcIsMidi(){
 }
 function renderInfo(j){
   lastAnalysis=j||null;
-  var html='Формат: '+(j.format||'?');
-  if(j.bpm!=null){ html+=' · BPM: <b>'+j.bpm+'</b> <button class="btn-mini" onclick="useBpm('+j.bpm+')">→ в темп</button>'; }
-  if(j.key){ html+=` · Тональность: <b>${j.key}</b> <button class="btn-mini" data-key="${j.key}" onclick="useKey(this.dataset.key)">→ в тональность</button>`; }
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  var html='Формат: '+esc(j.format||'?');
+  if(j.bpm!=null){ html+=' · BPM: <b>'+esc(j.bpm)+'</b> <button class="btn-mini" onclick="useBpm('+Number(j.bpm)+')">→ в темп</button>'; }
+  if(j.key){ html+='<b>'+esc(j.key)+'</b> <button class="btn-mini" data-key="'+esc(j.key)+'" onclick="useKey(this.dataset.key)">→ в тональность</button>'; }
   if(j.format==='audio' && !j.audio_available){ html+=' ⚠️ Обработка MP3/WAV отключена на сервере (не установлены аудио-библиотеки). Доступна только MIDI.'; }
   document.getElementById('m-info').innerHTML=html;
 }
@@ -15088,8 +15187,9 @@ function drawWaveform(file){
   var mime=mimeOf(file&&file.name);
   if(!file || !mime || mime==='audio/midi'){ cv.style.display='none'; return; }
   var W=Math.max(300, Math.floor(cv.clientWidth||600)); cv.width=W;
+  var ac=null;
   file.arrayBuffer().then(function(buf){
-    var AC=window.AudioContext||window.webkitAudioContext; var ac=new AC();
+    var AC=window.AudioContext||window.webkitAudioContext; ac=new AC();
     return ac.decodeAudioData(buf).then(function(audio){
       try{ac.close();}catch(e){}
       var ch=audio.getChannelData(0); var step=Math.max(1,Math.ceil(ch.length/W));
@@ -15097,7 +15197,7 @@ function drawWaveform(file){
       for(var x=0;x<W;x++){ var s=x*step; var m=0; for(var i=0;i<step;i++){ var v=Math.abs(ch[s+i]||0); if(v>m)m=v; } var y=m*h/2; ctx.fillRect(x, h/2-y, 1, y*2); }
       cv.style.display='block';
     });
-  }).catch(function(){ cv.style.display='none'; });
+  }).catch(function(){ try{if(ac)ac.close();}catch(e){} cv.style.display='none'; });
 }
 document.getElementById('m-file').addEventListener('change', function(){ resetPreview(); drawWaveform(this.files[0]); });
 
@@ -15129,10 +15229,11 @@ function encodeWav(samples, sr){
   return new Blob([view],{type:'audio/wav'});
 }
 async function compressAudio(file){
+  var ac=null;
   try{
     var buf=await file.arrayBuffer();
     var AC=window.AudioContext||window.webkitAudioContext;
-    var ac=new AC();
+    ac=new AC();
     var audio=await ac.decodeAudioData(buf);
     var sec=Math.min(20, audio.duration||20);
     var sr=16000;
@@ -15143,7 +15244,7 @@ async function compressAudio(file){
     var rendered=await oac.startRendering();
     ac.close();
     return encodeWav(rendered.getChannelData(0), sr);
-  }catch(e){ return null; }
+  }catch(e){ try{if(ac)ac.close();}catch(_){} return null; }
 }
 async function prepFile(file){
   var name=(file.name||'music').toLowerCase();
@@ -15201,21 +15302,23 @@ document.getElementById('m-download').onclick=function(){
 
 document.getElementById('m-analyze').onclick=async function(){
   var f=curFile();if(!f){setErr('Выберите файл');return;}
+  var btn=this; if(btn.disabled)return; btn.disabled=true;
   resetPreview();
   setErr('');startProgress();
   try{
     var pf=await prepFile(f);
-    if(pf.tooLarge){ stopProgress(); setErr('Файл слишком большой — сервер принимает до ~4 МБ. Попробуйте короткий фрагмент.'); return; }
+    if(pf.tooLarge){ setErr('Файл слишком большой — сервер принимает до ~4 МБ. Попробуйте короткий фрагмент.'); return; }
     var fd=new FormData();fd.append('file', pf.blob, pf.name);
     var r=await fetch(MUSIC_API_BASE+'/api/music/analyze',{method:'POST',body:fd});
-    if(!r.ok){ stopProgress(); setErr('Ошибка сервера '+r.status); document.getElementById('m-info').textContent='—'; return; }
+    if(!r.ok){ setErr('Ошибка сервера '+r.status); document.getElementById('m-info').textContent='—'; return; }
     var ct=r.headers.get('Content-Type')||'';
-    if(ct.indexOf('application/json')<0){ stopProgress(); setErr('Неожиданный ответ сервера ('+r.status+')'); document.getElementById('m-info').textContent='—'; return; }
+    if(ct.indexOf('application/json')<0){ setErr('Неожиданный ответ сервера ('+r.status+')'); document.getElementById('m-info').textContent='—'; return; }
     var j=await r.json();
-    if(j.error){stopProgress();setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
+    if(j.error){setErr('Ошибка: '+j.error);document.getElementById('m-info').textContent='—';return;}
     renderInfo(j);
     endProgress();
   }catch(e){ stopProgress(); setErr('Сетевая ошибка: '+e.message+'. Возможно, файл слишком длинный или сервер не успел обработать — попробуйте короткий фрагмент (до ~30с).'); }
+  finally{ btn.disabled=false; }
 };
 
 document.getElementById('t-run').onclick=async function(){
@@ -17293,7 +17396,7 @@ def api_study_chat_send():
         _new_min = _clamp_minutes(int(_time_match.group(1)))
         try:
             engine = get_db_engine()
-            with engine.connect() as conn:
+            with engine.begin() as conn:
                 row = _load_plan_row(conn, uid, today)
                 if row and int(row["target_minutes"]) != _new_min:
                     conn.execute(text(
