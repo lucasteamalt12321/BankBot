@@ -18612,7 +18612,7 @@ def api_admin_canon_work_update(work_id):
 
 # ── Canon Audio (upload / delete / stream) ──────────────────────────────────
 
-_MAX_AUDIO_BYTES = 4 * 1024 * 1024  # ~лимит тела запроса Vercel (4.5MB)
+_MAX_AUDIO_BYTES = 8 * 1024 * 1024  # ~лимит тела запроса (8MB, Supabase BYTEA до 256MB)
 _ALLOWED_AUDIO_MIME = {"audio/mpeg", "audio/mp3", "audio/ogg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac"}
 
 
