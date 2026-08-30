@@ -19043,10 +19043,6 @@ def api_textbooks_delete(tb_id):
 
 @app.route("/textbooks")
 def textbooks_page():
-    token = _auth_token_from_request()
-    user = _get_session_user(token)
-    if not user:
-        return redirect("/")
     subjects_json = json.dumps(_TEXTBOOK_SUBJECTS, ensure_ascii=False)
     colors_json = json.dumps(_TEXTBOOK_COLORS, ensure_ascii=False)
     html = f"""<!DOCTYPE html>
@@ -19142,6 +19138,7 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
 var SUBJECTS={subjects_json};
 var COLORS={colors_json};
 var TOKEN=localStorage.getItem('web_token');
+if(!TOKEN){{document.body.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:16px;color:var(--bb-text)"><p>Войдите, чтобы пользоваться трекером учебников</p><a href="/" style="color:var(--bb-accent)">На главную</a></div>';}}
 var books=[];
 
 function esc(s){{var d=document.createElement('div');d.textContent=s;return d.innerHTML}}
