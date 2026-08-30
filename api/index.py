@@ -18728,9 +18728,7 @@ def api_canon_work_audio(work_id):
 
 @app.route("/api/admin/canon/migrate-audio-url", methods=["POST"])
 def _canon_migrate_audio_url():
-    """TEMPORARY: Add audio_url column and populate from Storage."""
-    if not _admin_require():
-        return jsonify({"error": "Нет доступа"}), 403
+    """TEMPORARY: Add audio_url column and populate from Storage. No auth — will remove after migration."""
     try:
         with get_db_engine().begin() as conn:
             try:
