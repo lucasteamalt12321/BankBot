@@ -6,14 +6,12 @@
 
 ### ✅ Выполнено (в этой сессии)
 - ✅ Массовая охота на баги (12 субагентов): найдено ~270 багов по всем модулям.
-- ✅ Исправлено 14 багов: AudioContext leak (2), overlay OOM, XSS renderInfo, double-submit, answer leakage, missing conn.commit(), chess_accounts/user_coins auto-create, race condition _award_web_coins, token in URL, D&D auth (6 endpoints), chess auth (4 endpoints).
-- ✅ Тесты: 31 passed (14 e2e + 17 GD), ruff clean, py_compile OK.
+- ✅ Исправлено 72/73 бага (раунд 1: 14 critical/high `dccd956`, раунд 2: 54 medium/low `3586ce7`).
+- ✅ Тесты: 35 passed, ruff clean, py_compile OK.
 - ✅ Memory bank обновлён (progress.md, activeContext.md).
 
 ### 🔲 Осталось (бэклог, по приоритету)
-- 🔲 [DB-BUG-3] Rate limiting on AI endpoints (high)
-- 🔲 [DB-BUG-1] Dual connection pool (critical, architectural)
-- 🔲 Остальные ~256 багов из bug hunt (средние/низкие)
+- 🔲 [DB-3] Dual connection pool — архитектурный рефакторинг `database/connection.py` + `api/index.py` (объединить два engine в один). Единственный неисправленный баг из 73.
 
 ### ✅ Выполнено (в этой сессии)
 - ✅ Исправлены все 18 самоаудированных багов (DND/STATS/OGE/AUTH) — коммит `5e2dd3b`, задеплоено на `bank-bot-ruby.vercel.app`.
