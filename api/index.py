@@ -124,7 +124,7 @@ def _create_session(user_id: int) -> str | None:
         engine = get_db_engine()
         with engine.connect() as conn:
             conn.execute(
-                text("INSERT INTO web_sessions (token, user_id) VALUES (:t, :uid)"),
+                text("INSERT INTO web_sessions (token, user_id) VALUES (:t, :uid) ON CONFLICT DO NOTHING"),
                 {"t": token, "uid": user_id},
             )
             conn.commit()
@@ -143,13 +143,22 @@ def _get_session_user(token: str | None) -> dict | None:
         with engine.connect() as conn:
             row = conn.execute(
                 text("""
-                    SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id, u.lichess_nickname, u.is_admin
+                    SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id, u.lichess_nickname, u.is_admin,
+                           s.created_at
                     FROM web_sessions s JOIN web_users u ON u.id = s.user_id
                     WHERE s.token = :t
                 """),
                 {"t": token},
             ).mappings().first()
         if not row:
+            return None
+        session_age = time.time() - row["created_at"].timestamp() if hasattr(row["created_at"], 'timestamp') else 0
+        if session_age > 30 * 86400:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("DELETE FROM web_sessions WHERE token = :t"), {"t": token})
+            except Exception:
+                pass
             return None
         return {
             "id": row["id"],
@@ -302,6 +311,20 @@ DB_ENGINE = None
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW = 300  # 5 minutes
+
+_AI_RATE_LIMITS: dict[str, list[float]] = {}
+_AI_RATE_WINDOW = 60  # 1 minute window
+_AI_RATE_MAX = 10     # max 10 requests per minute per key
+
+def _check_ai_rate(key: str, max_requests: int = _AI_RATE_MAX, window: int = _AI_RATE_WINDOW) -> bool:
+    """Return True if rate limit exceeded for the given key."""
+    now = time.time()
+    timestamps = _AI_RATE_LIMITS.setdefault(key, [])
+    timestamps[:] = [t for t in timestamps if now - t < window]
+    if len(timestamps) >= max_requests:
+        return True
+    timestamps.append(now)
+    return False
 
 # Bot identity for reply/mention detection
 BOT_ID: int | None = None
@@ -796,6 +819,10 @@ def _ensure_dnd_tables(engine):
                     is_active BOOLEAN DEFAULT TRUE,
                     last_active_at TIMESTAMPTZ DEFAULT NOW()
                 )
+            """))
+            conn.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_dnd_characters_session_player
+                ON dnd_characters (session_id, player_id)
             """))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS dnd_session_logs (
@@ -5727,6 +5754,8 @@ def gd_page():
             loader();
         }
 
+        function _gdEsc(s) { var d = document.createElement('div'); d.appendChild(document.createTextNode(s != null ? String(s) : '')); return d.innerHTML; }
+        function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
         function searchUser() {
             var nick = document.getElementById('gd-nick').value.trim();
             var out = document.getElementById('user-result');
@@ -5740,7 +5769,7 @@ def gd_page():
                 btn.disabled = false;
                 try {
                     var r = JSON.parse(xhr.responseText);
-                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    if (r.error) { out.innerHTML = '<p class="error">' + _gdEsc(r.error) + '</p>'; return; }
                     var stats = [
                         ['⭐', 'Звёзды', r.stars],
                         ['👹', 'Демоны', r.demons],
@@ -5750,7 +5779,7 @@ def gd_page():
                         ['💠', 'Алмазы', r.diamonds]
                     ];
                     if (r.rank) stats.push(['🌍', 'Глобальный ранг', '#' + r.rank]);
-                    var html = '<h2 style="font-size:20px;margin-bottom:8px">📊 ' + r.username + '</h2><div class="stat-grid">';
+                    var html = '<h2 style="font-size:20px;margin-bottom:8px">📊 ' + _gdEsc(r.username) + '</h2><div class="stat-grid">';
                     stats.forEach(function(s){ html += '<div class="stat-card"><div class="value">' + s[2] + '</div><div class="label">' + s[1] + '</div></div>'; });
                     html += '</div>';
                     out.innerHTML = html;
@@ -5767,16 +5796,16 @@ def gd_page():
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
-                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    if (r.error) { out.innerHTML = '<p class="error">' + _gdEsc(r.error) + '</p>'; return; }
                     if (!r.length) { out.innerHTML = '<p class="hint">Уровни пока не добавлены.</p>'; return; }
                     LB_LEVELS = r;
                     var html = '<table id="gd-table"><thead><tr><th>Поз.</th><th>Уровень</th><th>Сложность</th><th>Прохождения</th>' + (IS_ADMIN ? '<th>Действия</th>' : '') + '</tr></thead><tbody>';
                     r.forEach(function(l) {
-                        var who = (l.completers && l.completers !== '{}') ? '<div class="completers">👤 ' + l.completers + '</div>' : '';
+                        var who = (l.completers && l.completers !== '{}') ? '<div class="completers">👤 ' + _gdEsc(l.completers) + '</div>' : '';
                         var actions = IS_ADMIN
                             ? '<button class="btn btn-mini" id="act-edit-' + l.id + '" onclick="editLevel(' + l.id + ')">✏️</button> <button class="btn btn-mini btn-danger" onclick="deleteLevel(' + l.id + ', this)">🗑️</button>'
                             : '';
-                        html += '<tr data-id="' + l.id + '"><td class="pos" data-field="position">' + (l.position || '—') + '</td><td data-field="name">' + (l.name || '—') + '</td><td data-field="difficulty">' + (l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td>' + (IS_ADMIN ? '<td>' + actions + '</td>' : '') + '</tr>';
+                        html += '<tr data-id="' + l.id + '"><td class="pos" data-field="position">' + (l.position || '—') + '</td><td data-field="name">' + _gdEsc(l.name || '—') + '</td><td data-field="difficulty">' + _gdEsc(l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td>' + (IS_ADMIN ? '<td>' + actions + '</td>' : '') + '</tr>';
                     });
                     html += '</tbody></table>';
                     out.innerHTML = html;
@@ -5877,7 +5906,7 @@ def gd_page():
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
-                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    if (r.error) { out.innerHTML = '<p class="error">' + _gdEsc(r.error) + '</p>'; return; }
                     var subs = r.submissions || {};
                     var html = '<div class="stat-grid">'
                         + '<div class="stat-card"><div class="value">' + r.completions + '</div><div class="label">Прохождений</div></div>'
@@ -5886,7 +5915,7 @@ def gd_page():
                         + '<div class="stat-card"><div class="value">' + (subs.total || 0) + '</div><div class="label">Заявок</div></div>'
                         + '<div class="stat-card"><div class="value">' + (subs.pending || 0) + '</div><div class="label">На проверке</div></div>'
                         + '</div>'
-                        + '<p class="hint" style="margin-top:16px">🔥 Сложнейший уровень: <strong style="color:var(--gh-text)">' + r.hardest_level + '</strong></p>';
+                        + '<p class="hint" style="margin-top:16px">🔥 Сложнейший уровень: <strong style="color:var(--gh-text)">' + _gdEsc(r.hardest_level) + '</strong></p>';
                     out.innerHTML = html;
                 } catch(e) { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; }
             };
@@ -5919,7 +5948,7 @@ def gd_page():
                     btn.disabled = false;
                     try {
                         var r = JSON.parse(xhr.responseText);
-                        if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                        if (r.error) { out.innerHTML = '<p class="error">' + _gdEsc(r.error) + '</p>'; return; }
                         out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
                         hubTrack('gd', 1);
                         document.getElementById('sub-level').value = '';
@@ -5967,7 +5996,7 @@ def gd_page():
             xhr.onload = function() {
                 try {
                     var r = JSON.parse(xhr.responseText);
-                    if (r.error) { out.innerHTML = '<p class="error">' + r.error + '</p>'; return; }
+                    if (r.error) { out.innerHTML = '<p class="error">' + _gdEsc(r.error) + '</p>'; return; }
                     if (!r.submissions.length) {
                         out.innerHTML = '<p class="hint">✅ Все заявки обработаны! Новых заявок нет.</p>';
                         return;
@@ -5975,12 +6004,12 @@ def gd_page():
                     var html = '<p class="hint" style="margin-top:0;margin-bottom:12px">Страница ' + (r.page + 1) + '/' + r.total_pages + ' · ' + r.total + ' заявок</p>';
                     r.submissions.forEach(function(s) {
                         html += '<div class="sub-card">'
-                            + '<div style="color:var(--gh-muted);font-size:13px">Заявка #' + s.id + ' · ' + (s.username || s.user_id) + '</div>'
-                            + '<div style="color:var(--gh-text);font-size:15px;margin:6px 0">🎮 ' + s.level_name + '</div>'
-                            + '<div class="hint" style="margin-top:0">📅 ' + (s.submitted_at || '—') + ' · ' + (s.media_type || 'без медиа') + '</div>'
+                            + '<div style="color:var(--gh-muted);font-size:13px">Заявка #' + s.id + ' · ' + _gdEsc(s.username || s.user_id) + '</div>'
+                            + '<div style="color:var(--gh-text);font-size:15px;margin:6px 0">🎮 ' + _gdEsc(s.level_name) + '</div>'
+                            + '<div class="hint" style="margin-top:0">📅 ' + _gdEsc(s.submitted_at || '—') + ' · ' + _gdEsc(s.media_type || 'без медиа') + '</div>'
                             + '<div class="hint" style="margin-top:0">'
-                            + ((s.media_file_id && s.media_file_id.indexOf('data:') === 0)
-                                ? '<a href="' + s.media_file_id + '" target="_blank" rel="noopener noreferrer">🎬 Смотреть медиа</a>'
+                            + ((s.media_file_id && /^data:image\\/(png|jpeg|gif|webp);base64,/.test(s.media_file_id))
+                                ? '<a href="' + _gdEsc(s.media_file_id) + '" target="_blank" rel="noopener noreferrer">🎬 Смотреть медиа</a>'
                                 : '')
                             + '</div>'
                             + '<div class="mod-btns">'
@@ -6065,7 +6094,7 @@ def gd_page():
                         body: JSON.stringify({ module: module, actions: actions })
                     }).then(function(r) { return r.json(); }).then(function(d) {
                         if (d && d.unlocked_detail && d.unlocked_detail.length) {
-                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var names = d.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); });
                             var pe = document.getElementById('hub-popup');
                             if (!pe) {
                                 pe = document.createElement('div');
@@ -6491,6 +6520,8 @@ def api_dnd_join():
 @app.route("/api/dnd/act", methods=["POST"])
 def api_dnd_act():
     data = request.get_json(silent=True) or {}
+    if _check_ai_rate("dnd:" + request.remote_addr):
+        return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
@@ -6870,7 +6901,7 @@ def dnd_page():
                         body: JSON.stringify({ module: module, actions: actions })
                     }).then(function(r) { return r.json(); }).then(function(d) {
                         if (d && d.unlocked_detail && d.unlocked_detail.length) {
-                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var names = d.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); });
                             var pe = document.getElementById('hub-popup');
                             if (!pe) {
                                 pe = document.createElement('div');
@@ -7462,6 +7493,15 @@ def endings_trainer():
 
 # In-memory storage for generated questions (question_id -> {options, correct_index, explanation})
 _TRIVIA_SESSIONS: dict[int, dict] = {}
+_TRIVIA_SESSION_TTL = 3600  # 1 hour
+
+
+def _trivia_prune_expired() -> None:
+    """Remove trivia sessions older than _TRIVIA_SESSION_TTL seconds."""
+    now = time.time()
+    stale = [k for k, v in _TRIVIA_SESSIONS.items() if now - v.get("_created_at", 0) > _TRIVIA_SESSION_TTL]
+    for k in stale:
+        _TRIVIA_SESSIONS.pop(k, None)
 
 
 _AI_QUESTIONS_PROMPT = """Ты — генератор викторин по канону вселенной Олеговируса и LTL-паразита.
@@ -8393,6 +8433,8 @@ xhr.onload = function() {
 @app.route("/api/ai_chat", methods=["POST"])
 def api_ai_chat():
     try:
+        if _check_ai_rate("ai_chat:" + request.remote_addr):
+            return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
         data = request.get_json(silent=True) or {}
         character = data.get("character", "olegov")
         message = (data.get("message") or "").strip()
@@ -8449,7 +8491,7 @@ def api_ai_chat():
         print(f"API ai_chat error: {exc}")
         import traceback
         traceback.print_exc()
-        msg = f"❌ Внутренняя ошибка сервера: {exc}"
+        msg = "❌ Внутренняя ошибка сервера. Попробуйте позже."
         return jsonify({"error": msg, "reply": msg, "images": []}), 500
 
 
@@ -8781,7 +8823,7 @@ def chess_page():
                         body: JSON.stringify({ module: module, actions: actions, events: events })
                     }).then(function(r) { return r.json(); }).then(function(d) {
                         if (d && d.unlocked_detail && d.unlocked_detail.length) {
-                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var names = d.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); });
                             var pe = document.getElementById('hub-popup');
                             if (!pe) {
                                 pe = document.createElement('div');
@@ -10333,6 +10375,7 @@ def trivia_page():
     </div>
     <script>
         (function() {
+            function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
             var score = 0, total = 0, currentSession = null;
             (function() {
                 var s = localStorage.getItem('trivia_score');
@@ -10441,7 +10484,7 @@ def trivia_page():
                             body: JSON.stringify({ module: module, actions: actions })
                         }).then(function(r) { return r.json(); }).then(function(d) {
                             if (d && d.unlocked_detail && d.unlocked_detail.length) {
-                                var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                                var names = d.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); });
                                 var pe = document.getElementById('hub-popup');
                                 if (!pe) {
                                     pe = document.createElement('div');
@@ -11340,7 +11383,7 @@ function renderDebug() {
                 var html = '';
                 rows.forEach(function(r) {
                     html += '<div class="d-row"><b>' + esc(r.key) + '</b>' +
-                        ' · ' + emName[r.emperor].split(' (')[0] +
+                        ' · ' + esc(emName[r.emperor].split(' (')[0]) +
                         ' · серия=' + r.streak +
                         ' · счётчик=' + r.counter +
                         ' · reps=' + r.reps + ' int=' + r.interval + ' ease=' + r.ease +
@@ -11457,7 +11500,7 @@ function diffInfo() {
                             body: JSON.stringify({ module: module, actions: actions, events: events })
                         }).then(function(r) { return r.json(); }).then(function(d) {
                             if (d && d.unlocked_detail && d.unlocked_detail.length) {
-                                var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                                var names = d.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); });
                                 var pe = document.getElementById('hub-popup');
                                 if (!pe) {
                                     pe = document.createElement('div');
@@ -13905,6 +13948,15 @@ def terms_page():
     return redirect("/emperors?tab=terms")
 
 _EXAM_SESSIONS: dict = {}
+_EXAM_SESSION_TTL = 3600  # 1 hour
+
+
+def _exam_prune_expired() -> None:
+    """Remove exam sessions older than _EXAM_SESSION_TTL seconds."""
+    now = time.time()
+    stale = [k for k, v in _EXAM_SESSIONS.items() if now - v.get("_created_at", 0) > _EXAM_SESSION_TTL]
+    for k in stale:
+        _EXAM_SESSIONS.pop(k, None)
 
 
 def _exam_norm(s) -> str:
@@ -14040,7 +14092,8 @@ def api_exam_mixed():
     else:
         items = list(pool)
     sid = secrets.token_hex(6)
-    _EXAM_SESSIONS[sid] = items
+    _EXAM_SESSIONS[sid] = {"items": items, "_created_at": time.time()}
+    _exam_prune_expired()
     while len(_EXAM_SESSIONS) > 300:
         _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)))
     safe = [{"idx": i, "module": it["module"], "question": it["question"], "hint": it["hint"]}
@@ -14053,9 +14106,10 @@ def api_exam_check():
     """Grade one exam answer; records progress when the user is authenticated."""
     data = request.get_json(silent=True) or {}
     sid = str(data.get("sid") or "")
-    items = _EXAM_SESSIONS.get(sid)
-    if not items:
+    session = _EXAM_SESSIONS.get(sid)
+    if not session:
         return jsonify({"ok": False, "error": "unknown session"}), 404
+    items = session["items"]
     try:
         idx = int(data.get("idx"))
     except (TypeError, ValueError):
@@ -14080,6 +14134,15 @@ def api_exam_check():
 
 
 _QUIZ_SESSIONS: dict = {}
+_QUIZ_SESSION_TTL = 3600  # 1 hour
+
+
+def _quiz_prune_expired() -> None:
+    """Remove quiz sessions older than _QUIZ_SESSION_TTL seconds."""
+    now = time.time()
+    stale = [k for k, v in _QUIZ_SESSIONS.items() if now - v.get("_created_at", 0) > _QUIZ_SESSION_TTL]
+    for k in stale:
+        _QUIZ_SESSIONS.pop(k, None)
 
 
 @app.route("/api/quiz/generate", methods=["POST"])
@@ -14196,7 +14259,8 @@ def api_quiz_generate():
         items = random.sample(pool, min(n, len(pool)))
 
     sid = secrets.token_hex(6)
-    _QUIZ_SESSIONS[sid] = {"module": module, "items": items}
+    _QUIZ_SESSIONS[sid] = {"module": module, "items": items, "_created_at": time.time()}
+    _quiz_prune_expired()
     while len(_QUIZ_SESSIONS) > 300:
         _QUIZ_SESSIONS.pop(next(iter(_QUIZ_SESSIONS)))
 
@@ -14213,8 +14277,7 @@ def api_quiz_generate():
             options = [correct] + distractors[:3]
             random.shuffle(options)
             q["options"] = options
-            q["correct_idx"] = options.index(correct)
-            it["correct_idx"] = q["correct_idx"]
+            it["correct_idx"] = options.index(correct)
         safe_items.append(q)
 
     return jsonify({"ok": True, "sid": sid, "items": safe_items, "module": module, "algo": algo})
@@ -14364,7 +14427,8 @@ def api_exam_ai_batch():
         })
 
     sid = secrets.token_hex(6)
-    _EXAM_SESSIONS[sid] = picked
+    _EXAM_SESSIONS[sid] = {"items": picked, "_created_at": time.time()}
+    _exam_prune_expired()
     while len(_EXAM_SESSIONS) > 300:
         _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)))
 
@@ -17636,10 +17700,11 @@ def api_trivia_question():
     options = [correct] + distractors
     random.shuffle(options)
     correct_index = options.index(correct)
-    session = {"options": options, "correct_index": correct_index, "explanation": q["explanation"]}
+    session = {"options": options, "correct_index": correct_index, "explanation": q["explanation"], "_created_at": time.time()}
     session_id = secrets.token_hex(6)
     _TRIVIA_SESSIONS[session_id] = session
-    return jsonify({"id": q["id"], "session_id": session_id, "text": q["text"], "options": options, "correct_index": correct_index})
+    _trivia_prune_expired()
+    return jsonify({"id": q["id"], "session_id": session_id, "text": q["text"], "options": options})
 
 
 @app.route("/api/trivia/answer", methods=["POST"])
@@ -17712,6 +17777,7 @@ def daily_prayer_page():
         <a class="back-link" href="/">← На главную</a>
     </div>
     <script>
+        function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
         var USER_ID = localStorage.getItem('web_user_id');
         if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
         function showRegNotice() {
@@ -17742,7 +17808,7 @@ def daily_prayer_page():
                         body: JSON.stringify({ module: module, actions: actions })
                     }).then(function(r) { return r.json(); }).then(function(d) {
                         if (d && d.unlocked_detail && d.unlocked_detail.length) {
-                            var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                            var names = d.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); });
                             var pe = document.getElementById('hub-popup');
                             if (!pe) {
                                 pe = document.createElement('div');
@@ -17804,7 +17870,7 @@ def daily_prayer_page():
                         var uid = localStorage.getItem('web_user_id') || '';
                         if (token && uid.indexOf('u') === 0) {
                             if (r.unlocked_detail && r.unlocked_detail.length) {
-                                showHubPopup(r.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; }));
+                                showHubPopup(r.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); }));
                             }
                         } else {
                             hubTrack('prayer', 1);
@@ -18400,6 +18466,11 @@ def api_canon_request_submit():
     if not user:
         return jsonify({"error": "Не авторизован"}), 401
 
+    user_id = user.get("id")
+    rate_key = f"canon_submit:{user_id}"
+    if _check_ai_rate(rate_key, max_requests=5, window=60):
+        return jsonify({"error": "Слишком много заявок. Подождите минуту."}), 429
+
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
     author = (data.get("author") or "").strip()
@@ -18503,7 +18574,7 @@ def api_admin_canon_request_approve(req_id):
         return jsonify({"error": "Нет доступа"}), 403
     data = request.get_json(silent=True) or {}
     try:
-        with get_db_engine().connect() as conn:
+        with get_db_engine().begin() as conn:
             row = conn.execute(
                 text("SELECT * FROM canon_requests WHERE id = :rid AND status = 'pending'"),
                 {"rid": req_id},
@@ -18534,7 +18605,6 @@ def api_admin_canon_request_approve(req_id):
                 """),
                 {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
             )
-            conn.commit()
     except Exception as exc:
         print(f"[CANON] approve error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -18549,7 +18619,7 @@ def api_admin_canon_request_reject(req_id):
         return jsonify({"error": "Нет доступа"}), 403
     data = request.get_json(silent=True) or {}
     try:
-        with get_db_engine().connect() as conn:
+        with get_db_engine().begin() as conn:
             conn.execute(
                 text("""
                     UPDATE canon_requests
@@ -18558,7 +18628,6 @@ def api_admin_canon_request_reject(req_id):
                 """),
                 {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
             )
-            conn.commit()
     except Exception as exc:
         print(f"[CANON] reject error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -19201,7 +19270,7 @@ def admin_canon_page():
             t.classList.add('active'); panels[t.dataset.tab].classList.add('active');
         }); });
 
-        function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+        function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
         function loadRequests() {
             fetch('/api/admin/canon/requests', { headers: authH() }).then(function(r) { return r.json(); }).then(function(d) {
@@ -19545,7 +19614,7 @@ def irregular_verbs_page():
                             body: JSON.stringify({ module: module, actions: actions })
                         }).then(function(r) { return r.json(); }).then(function(d) {
                             if (d && d.unlocked_detail && d.unlocked_detail.length) {
-                                var names = d.unlocked_detail.map(function(a) { return a.icon + ' ' + a.name; });
+                                var names = d.unlocked_detail.map(function(a) { return esc(a.icon) + ' ' + esc(a.name); });
                                 var pe = document.getElementById('hub-popup');
                                 if (!pe) {
                                     pe = document.createElement('div');
@@ -22038,6 +22107,8 @@ def generate_trivia_from_canon(chat_id: int) -> str | None:
 def test_ai():
     """Test AI API access from Vercel."""
     try:
+        if _check_ai_rate("test_ai:" + request.remote_addr):
+            return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
         if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
             return jsonify({"status": "error", "message": "GEMINI_API_KEY/GROQ_API_KEY not set"})
 
@@ -22089,6 +22160,8 @@ def test_telegram():
 @app.route("/api/debug_hf", methods=["GET"])
 def debug_hf():
     """Debug endpoint to check HF API configuration and connectivity."""
+    if _check_ai_rate("hf:" + request.remote_addr):
+        return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     import requests  # Use requests instead of httpx
 
     debug_info = {
@@ -22149,6 +22222,8 @@ def debug_hf():
 def reading_generate():
     """Generate reading msg_text and questions using AI API."""
     try:
+        if _check_ai_rate("reading:" + request.remote_addr, max_requests=5):
+            return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
         import random
 
         import requests
@@ -22250,88 +22325,97 @@ def reading_generate():
 
         if not generated_text:
             print("All AI providers failed, using fallback")
-            raise Exception("All AI providers failed")
+            fallback_sets = get_fallback_sets()
+            return jsonify(random.choice(fallback_sets))
 
         print(f"Generated text length: {len(generated_text)}")
 
-        # Parse the generated text
-        lines = [line.strip() for line in generated_text.split("\n") if line.strip()]
+        try:
+            # Parse the generated text
+            lines = [line.strip() for line in generated_text.split("\n") if line.strip()]
 
-        # Extract story text (first 6-7 lines before "Вопросы")
-        story_lines = []
-        questions_section = []
-        in_questions = False
+            # Extract story text (first 6-7 lines before "Вопросы")
+            story_lines = []
+            questions_section = []
+            in_questions = False
 
-        for line in lines:
-            if (
-                "вопрос" in line.lower()
-                or line.startswith("1.")
-                or line.startswith("2.")
-                or line.startswith("3.")
-            ):
-                in_questions = True
+            for line in lines:
+                if (
+                    "вопрос" in line.lower()
+                    or line.startswith("1.")
+                    or line.startswith("2.")
+                    or line.startswith("3.")
+                ):
+                    in_questions = True
 
-            if in_questions:
-                questions_section.append(line)
-            else:
-                if len(story_lines) < 7 and len(line) > 10:
-                    story_lines.append(line)
-
-        # Build story text
-        story_text = (
-            " ".join(story_lines[:7])
-            if story_lines
-            else "Жил-был кот. Он любил играть. Кот был добрый."
-        )
-
-        # Extract questions and answers
-        import re
-
-        questions = []
-        for line in questions_section[:3]:
-            # Remove numbering like "1. " or "123. "
-            line = re.sub(r"^\d+\.\s*", "", line)
-            if "?" in line:
-                # Try to extract answer after "Ответ:" or "ответ:"
-                match = re.search(r"[Оо]твет[:\s]+(.+)", line)
-                if match:
-                    answer = match.group(1).strip().rstrip(".")
-                    question = line[: line.lower().find("ответ")].strip().rstrip(".")
+                if in_questions:
+                    questions_section.append(line)
                 else:
-                    question = line.strip().rstrip(".")
-                    answer = "нет ответа"
-                questions.append({"question": question, "answer": answer.lower()})
+                    if len(story_lines) < 7 and len(line) > 10:
+                        story_lines.append(line)
 
-        # Ensure we have 3 questions
-        while len(questions) < 3:
-            questions.append({"question": "Что было в истории?", "answer": "—"})
+            # Build story text
+            story_text = (
+                " ".join(story_lines[:7])
+                if story_lines
+                else "Жил-был кот. Он любил играть. Кот был добрый."
+            )
 
-        # Pick random emoji
-        emojis = [
-            "🐱",
-            "🐶",
-            "🐰",
-            "🐻",
-            "🦊",
-            "🐸",
-            "🏫",
-            "🏠",
-            "🌳",
-            "🐭",
-            "🐷",
-            "🐮",
-        ]
-        emoji = random.choice(emojis)
+            # Extract questions and answers
+            import re
 
-        story_data = {
-            "title": f"{emoji} Новая история",
-            "image": emoji,
-            "text": story_text,
-            "questions": questions[:3],
-        }
+            questions = []
+            for line in questions_section[:3]:
+                # Remove numbering like "1. " or "123. "
+                line = re.sub(r"^\d+\.\s*", "", line)
+                if "?" in line:
+                    # Try to extract answer after "Ответ:" or "ответ:"
+                    match = re.search(r"[Оо]твет[:\s]+(.+)", line)
+                    if match:
+                        answer = match.group(1).strip().rstrip(".")
+                        question = line[: line.lower().find("ответ")].strip().rstrip(".")
+                    else:
+                        question = line.strip().rstrip(".")
+                        answer = "нет ответа"
+                    questions.append({"question": question, "answer": answer.lower()})
 
-        print(f"Returning story: {story_data['title']}")
-        return jsonify(story_data)
+            # Ensure we have 3 questions
+            while len(questions) < 3:
+                questions.append({"question": "Что было в истории?", "answer": "—"})
+
+            # Pick random emoji
+            emojis = [
+                "🐱",
+                "🐶",
+                "🐰",
+                "🐻",
+                "🦊",
+                "🐸",
+                "🏫",
+                "🏠",
+                "🌳",
+                "🐭",
+                "🐷",
+                "🐮",
+            ]
+            emoji = random.choice(emojis)
+
+            story_data = {
+                "title": f"{emoji} Новая история",
+                "image": emoji,
+                "text": story_text,
+                "questions": questions[:3],
+            }
+
+            print(f"Returning story: {story_data['title']}")
+            return jsonify(story_data)
+
+        except Exception as parse_err:
+            print(f"Error parsing AI response: {parse_err}")
+            import traceback
+            traceback.print_exc()
+            fallback_sets = get_fallback_sets()
+            return jsonify(random.choice(fallback_sets))
 
     except Exception as e:
         print(f"Error generating reading text: {e}")
@@ -22799,11 +22883,13 @@ def _family_create_room(name: str, creator_name: str) -> dict:
     }
 
 
-def _family_join_room(room_id: str, member_name: str) -> dict:
+def _family_join_room(room_id: str, member_name: str, password: str) -> dict:
     engine = get_db_engine()
     name = (member_name or "").strip()
     if not name:
         raise ValueError("Укажите имя участника")
+    if not password or len(password) < 4:
+        raise ValueError("Пароль должен содержать минимум 4 символа")
     with engine.connect() as conn:
         room = conn.execute(text("SELECT id FROM rooms WHERE id = :rid"), {"rid": room_id}).fetchone()
     if not room:
@@ -22811,18 +22897,17 @@ def _family_join_room(room_id: str, member_name: str) -> dict:
     existing = _family_member_by_name(room_id, name)
     if existing:
         return {"ok": True, "your_password": None, "is_new": False}
-    raw_password = _family_gen_password()
     member_id = str(uuid.uuid4())
     with engine.begin() as conn:
         conn.execute(text(
             "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
             "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
-        ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(raw_password),
+        ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(password),
             "ts": datetime.now(timezone.utc)})
         conn.execute(text(
             "UPDATE rooms SET participants_total = participants_total + 1 WHERE id = :rid"
         ), {"rid": room_id})
-    return {"ok": True, "your_password": raw_password, "is_new": True}
+    return {"ok": True, "your_password": None, "is_new": True}
 
 
 def _family_get_room(room_id: str) -> dict | None:
@@ -23106,8 +23191,11 @@ def api_family_rooms_join():
     data = request.get_json() or {}
     room_id = (data.get("room_id") or "").strip()
     member_name = (data.get("member_name") or "").strip()
+    password = (data.get("password") or "").strip()
+    if not password or len(password) < 4:
+        return jsonify({"error": "Пароль должен содержать минимум 4 символа"}), 400
     try:
-        result = _family_join_room(room_id, member_name)
+        result = _family_join_room(room_id, member_name, password)
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
@@ -23155,6 +23243,12 @@ def api_family_chat_send():
     member_name = (data.get("member_name") or "").strip()
     password = (data.get("password") or "").strip()
     message = (data.get("message") or "").strip()
+
+    if len(message) > 2000:
+        return jsonify({"error": "Максимальная длина сообщения — 2000 символов"}), 400
+
+    if _check_ai_rate(f"family_chat:{room_id}:{member_name}"):
+        return jsonify({"error": "Слишком много сообщений. Подождите минуту."}), 429
 
     member = _family_verify_member(room_id, member_name, password)
     if not member:
@@ -23435,6 +23529,8 @@ def family_room_page():
             <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;">
                 <label for="joinName">Новый участник? Введите имя</label>
                 <input id="joinName" type="text" placeholder="Имя для входа">
+                <label for="joinPassword">Пароль (мин. 4 символа)</label>
+                <input id="joinPassword" type="password" placeholder="Придумайте пароль" minlength="4">
                 <button id="joinBtn" class="secondary">Присоединиться к комнате</button>
                 <div id="joinInfo" class="success"></div>
             </div>
@@ -23550,12 +23646,15 @@ def family_room_page():
         $('joinBtn').addEventListener('click', function() {{
             var roomId = $('roomIdInput').value.trim();
             var name = $('joinName').value.trim();
-            if (!roomId || !name) {{ showError('loginError', 'Введите ID комнаты и имя'); return; }}
+            var joinPass = $('joinPassword').value.trim();
+            if (!roomId || !name || !joinPass) {{ showError('loginError', 'Введите ID комнаты, имя и пароль'); return; }}
+            if (joinPass.length < 4) {{ showError('loginError', 'Пароль должен содержать минимум 4 символа'); return; }}
             showError('loginError', '');
             $('joinBtn').disabled = true;
-            api('POST', '/rooms/join', {{ room_id: roomId, member_name: name }})
+            api('POST', '/rooms/join', {{ room_id: roomId, member_name: name, password: joinPass }})
                 .then(function(data) {{
-                    $('joinInfo').textContent = data.is_new ? ('Вы вошли! Пароль: ' + data.your_password) : 'Участник уже есть. Введите пароль ниже.';
+                    $('joinInfo').textContent = data.is_new ? 'Вы успешно присоединились! Теперь войдите через форму выше.' : 'Участник уже есть. Введите пароль ниже.';
+                    $('joinPassword').value = '';
                     loadRoomInfo(roomId);
                 }})
                 .catch(function(err) {{
@@ -23623,7 +23722,8 @@ def family_room_page():
 
         $('reportBtn').addEventListener('click', function() {{
             var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
-            window.location.href = '/family/result?room_id=' + roomId + '&name=' + encodeURIComponent(memberName) + '&pass=' + encodeURIComponent(password);
+            sessionStorage.setItem('family_pass_' + roomId, password);
+            window.location.href = '/family/result?room_id=' + roomId + '&name=' + encodeURIComponent(memberName);
         }});
     }})();
     </script>
@@ -23678,9 +23778,10 @@ def family_result_page():
         if (!getReportBtn) return;
 
         var urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('room_id') && urlParams.get('name') && urlParams.get('pass')) {{
+        if (urlParams.get('room_id') && urlParams.get('name')) {{
+            var storedPass = sessionStorage.getItem('family_pass_' + urlParams.get('room_id')) || '';
             $('roomIdInput').value = urlParams.get('room_id');
-            loadMembers(urlParams.get('room_id'), urlParams.get('name'), urlParams.get('pass'));
+            loadMembers(urlParams.get('room_id'), urlParams.get('name'), storedPass);
         }}
 
         $('roomIdInput').addEventListener('change', function() {{

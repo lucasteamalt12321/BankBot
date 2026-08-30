@@ -63,6 +63,6 @@ async def achievements_command(
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in achievements command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()

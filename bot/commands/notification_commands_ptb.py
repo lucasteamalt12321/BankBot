@@ -41,8 +41,8 @@ async def notifications_command(update: Update, context: ContextTypes.DEFAULT_TY
             text = "[LIST] Net uvedomleniy"
 
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+    except Exception:
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -63,8 +63,8 @@ async def notifications_clear_command(
         cleared_count = notification_system.mark_all_as_read(user_record.id)
 
         await update.message.reply_text(f"[OK] Ochisceno uvedomleniy: {cleared_count}")
-    except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+    except Exception:
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -118,7 +118,7 @@ async def test_adb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Проверка ADB запущена. Если устройство подключено и авторизовано, уведомление должно появиться на Android-устройстве."
         )
-    except Exception as e:
-        await update.message.reply_text(f"Ошибка ADB-проверки: {str(e)}")
+    except Exception:
+        await update.message.reply_text("❌ Ошибка ADB-проверки. Попробуйте позже.")
     finally:
         db.close()

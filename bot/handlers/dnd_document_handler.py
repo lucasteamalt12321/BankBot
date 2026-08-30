@@ -151,6 +151,6 @@ async def handle_dnd_file_upload(update: Update, context: ContextTypes.DEFAULT_T
             )
     except Exception as e:
         logger.error(f"DND file upload error: {e}")
-        await message.reply_text(f"❌ Ошибка обработки файла: {str(e)}")
+        await message.reply_text("❌ Ошибка обработки файла. Попробуйте позже.")
     finally:
         db.close()

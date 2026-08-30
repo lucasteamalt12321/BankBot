@@ -983,7 +983,7 @@ class TelegramBot:
                 )
         except Exception as e:
             logger.error(f"Error accepting friend request: {e}")
-            await update.callback_query.edit_message_text(f"Oshibka: {str(e)}")
+            await update.callback_query.edit_message_text("❌ Ошибка. Попробуйте позже.")
         finally:
             db.close()
 
@@ -1008,7 +1008,7 @@ class TelegramBot:
                 await update.callback_query.edit_message_text("Uvedomlenie ne naideno")
         except Exception as e:
             logger.error(f"Error marking notification as read: {e}")
-            await update.callback_query.edit_message_text(f"Oshibka: {str(e)}")
+            await update.callback_query.edit_message_text("❌ Ошибка. Попробуйте позже.")
         finally:
             db.close()
 
@@ -1040,7 +1040,7 @@ class TelegramBot:
                 await update.callback_query.edit_message_text("Dostizhenie ne naideno")
         except Exception as e:
             logger.error(f"Error viewing achievement: {e}")
-            await update.callback_query.edit_message_text(f"Oshibka: {str(e)}")
+            await update.callback_query.edit_message_text("❌ Ошибка. Попробуйте позже.")
         finally:
             db.close()
 

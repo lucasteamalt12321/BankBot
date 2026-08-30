@@ -87,6 +87,11 @@ def change_tempo(path: str, target_bpm: Optional[float] = None,
     _require()
     if target_bpm is None and factor is None:
         raise ValueError("нужен target_bpm или factor")
+    if target_bpm is not None and not target_bpm:
+        return path
+    file_size = os.path.getsize(path)
+    if file_size > 50 * 1024 * 1024:
+        raise ValueError("Файл слишком большой (>50 МБ) для обработки темпа — сократите вход.")
     y, sr = librosa.load(path, sr=sr, mono=True)
     if factor is None:
         factor = target_bpm / detect_bpm(path, sr=sr)
@@ -106,7 +111,7 @@ def change_key(path: str, semitones: Optional[int] = None,
     if semitones is None and target_key is not None:
         semitones = _key_shift(target_key, detect_key(path, sr=sr))
     if semitones is None:
-        raise ValueError("нужен semitones или target_key")
+        return path
     y, sr = librosa.load(path, sr=sr, mono=True)
     y2 = librosa.effects.pitch_shift(y, sr=sr, n_steps=float(semitones))
     return _save(y2, sr, out, path, f"_transp{semitones}")

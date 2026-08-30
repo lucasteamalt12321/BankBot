@@ -40,7 +40,7 @@ def test_exam_check_grades_and_records():
             p.start()
         d = c.get("/api/exam/mixed?n=5").get_json()
         sid = d["sid"]
-        stored = m._EXAM_SESSIONS[sid]
+        stored = m._EXAM_SESSIONS[sid]["items"]
 
         wrong = c.post("/api/exam/check", headers=AUTH_HEADERS,
                        json={"sid": sid, "idx": 0, "value": "__totally_wrong__"}).get_json()
