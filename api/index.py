@@ -1023,7 +1023,7 @@ def _canon_work_to_dict(work) -> dict:
         "audio_name": getattr(work, "audio_name", None) or None,
         "audio_mime": getattr(work, "audio_mime", None) or None,
         "audio_size": getattr(work, "audio_size", None) or None,
-        "has_audio": bool(getattr(work, "audio_data", None)),
+        "has_audio": bool(getattr(work, "audio_data", None) or getattr(work, "audio_url", None)),
     }
 
 
@@ -18004,7 +18004,7 @@ def canon_page():
             rows = conn.execute(
                 text("""
                     SELECT id, title, kind, author, date, canon_level, url, content,
-                           (audio_data IS NOT NULL) AS has_audio, COALESCE(view_count, 0) AS view_count
+                           (audio_data IS NOT NULL OR audio_url IS NOT NULL) AS has_audio, COALESCE(view_count, 0) AS view_count
                     FROM canon_works WHERE status = 'approved' ORDER BY id
                 """),
             ).mappings().all()
@@ -18275,7 +18275,7 @@ def api_canon_works():
         with get_db_engine().connect() as conn:
             sql = ("SELECT id, title, kind, author, date, canon_level, url, content, "
                    "audio_name, audio_mime, audio_size, COALESCE(view_count, 0) AS view_count, "
-                   "(audio_data IS NOT NULL) AS has_audio "
+                   "(audio_data IS NOT NULL OR audio_url IS NOT NULL) AS has_audio "
                    "FROM canon_works WHERE status = 'approved'")
             params: dict = {}
             if level != "all":
@@ -18327,7 +18327,7 @@ def api_canon_work_detail(work_id):
                     SELECT id, title, kind, author, date, canon_level, url, content, status,
                            audio_name, audio_mime, audio_size,
                            COALESCE(view_count, 0) AS view_count,
-                           (audio_data IS NOT NULL) AS has_audio
+                           (audio_data IS NOT NULL OR audio_url IS NOT NULL) AS has_audio
                     FROM canon_works WHERE id = :wid
                 """),
                 {"wid": work_id},
@@ -18697,12 +18697,12 @@ def api_admin_canon_work_audio_delete(work_id):
 
 @app.route("/api/canon/work/<int:work_id>/audio")
 def api_canon_work_audio(work_id):
-    """Потоковая отдача аудиофайла трека."""
+    """Потоковая отдача аудиофайла трека (redirect to Supabase Storage если audio_url задан)."""
     try:
         with get_db_engine().connect() as conn:
             row = conn.execute(
                 text("""
-                    SELECT audio_data, audio_mime, audio_name, status
+                    SELECT audio_data, audio_mime, audio_name, audio_url, status
                     FROM canon_works WHERE id = :wid
                 """),
                 {"wid": work_id},
@@ -18710,7 +18710,12 @@ def api_canon_work_audio(work_id):
     except Exception as exc:
         print(f"[CANON] audio stream error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
-    if not row or row["status"] != "approved" or not row["audio_data"]:
+    if not row or row["status"] != "approved":
+        return jsonify({"error": "Аудио не найдено"}), 404
+    # Redirect to Supabase Storage if audio_url is set
+    if row["audio_url"]:
+        return ("", 302, {"Location": row["audio_url"], "Cache-Control": "public, max-age=86400"})
+    if not row["audio_data"]:
         return jsonify({"error": "Аудио не найдено"}), 404
     mime = row["audio_mime"] or "audio/mpeg"
     name = row["audio_name"] or "audio"
@@ -18719,6 +18724,42 @@ def api_canon_work_audio(work_id):
         "Content-Disposition": f'inline; filename="{_html_escape(name)}"',
         "Cache-Control": "public, max-age=86400",
     })
+
+
+@app.route("/api/admin/canon/migrate-audio-url", methods=["POST"])
+def _canon_migrate_audio_url():
+    """TEMPORARY: Add audio_url column and populate from Storage."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().begin() as conn:
+            try:
+                conn.execute(text("ALTER TABLE canon_works ADD COLUMN audio_url VARCHAR(512)"))
+            except Exception:
+                pass  # column may already exist
+            audio_map = {
+                1:  "1_2_5321309835151574693.mp3",
+                2:  "2_track.mp3",
+                3:  "3_track.mp3",
+                4:  "4_track.mp3",
+                5:  "5_track.mp3",
+                6:  "6_track.mp3",
+                7:  "7_1.mp3",
+                8:  "8_track.mp3",
+                9:  "9_1.mp3",
+                10: "10_1.mp3",
+            }
+            base = "https://xrrdliznuyausiutxqwv.supabase.co/storage/v1/object/public/canon-audio"
+            updated = 0
+            for wid, fname in audio_map.items():
+                r = conn.execute(
+                    text("UPDATE canon_works SET audio_url = :url WHERE id = :id"),
+                    {"url": f"{base}/{fname}", "id": wid},
+                )
+                updated += r.rowcount
+        return jsonify({"ok": True, "updated": updated})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/admin/canon/works", methods=["GET"])
@@ -18834,7 +18875,7 @@ def canon_work_page(work_id):
             row = conn.execute(
                 text("""
                     SELECT id, title, kind, author, date, canon_level, url, content, status,
-                           audio_name, audio_mime, audio_size, COALESCE(view_count, 0) AS view_count
+                           audio_name, audio_mime, audio_size, audio_url, COALESCE(view_count, 0) AS view_count
                     FROM canon_works WHERE id = :wid
                 """),
                 {"wid": work_id},
@@ -18870,7 +18911,7 @@ def canon_work_page(work_id):
         }
     else:
         work = dict(row)
-        work["has_audio"] = True if work.get("audio_size") or work.get("audio_name") else False
+        work["has_audio"] = True if work.get("audio_size") or work.get("audio_name") or work.get("audio_url") else False
     has_audio = bool(work.get("has_audio")) and work["kind"] == "track"
 
     level_label = {
