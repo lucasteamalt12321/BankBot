@@ -16,9 +16,18 @@ except Exception:  # pragma: no cover - зависит от окружения
     _MIDO = False
 
 
+_MAX_MIDI_SIZE = 10 * 1024 * 1024  # 10 МБ
+
+
 def _require() -> None:
     if not _MIDO:
         raise RuntimeError("Для работы с MIDI нужна библиотека `mido` (pip install mido)")
+
+
+def _check_midi_size(path: str) -> None:
+    size = os.path.getsize(path)
+    if size > _MAX_MIDI_SIZE:
+        raise ValueError(f"MIDI-файл слишком большой ({size // 1024} КБ > 10 МБ) — возможен таймаут парсинга.")
 
 
 _KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -36,6 +45,7 @@ def _suffixed(path: str, tag: str) -> str:
 def midi_tempo_changes(path: str) -> List[Tuple[float, int]]:
     """Возвращает список (bpm, tick) по всем событиям set_tempo."""
     _require()
+    _check_midi_size(path)
     mf = MidiFile(path)
     out: List[Tuple[float, int]] = []
     for track in mf.tracks:
@@ -55,6 +65,7 @@ def detect_bpm(path: str) -> float:
 def midi_key_signatures(path: str) -> List[str]:
     """Возвращает список меток key_signature (напр. 'C', 'Am')."""
     _require()
+    _check_midi_size(path)
     mf = MidiFile(path)
     return [msg.key for track in mf.tracks for msg in track if msg.type == 'key_signature']
 
@@ -73,6 +84,7 @@ def change_key(path: str, semitones: int, out: Optional[str] = None,
     относительно текущей тональности файла.
     """
     _require()
+    _check_midi_size(path)
     if target_key is not None:
         semitones = _key_shift(target_key, detect_key(path))
     if out is None:
@@ -94,6 +106,7 @@ def change_tempo(path: str, target_bpm: Optional[float] = None,
     factor — масштабирует длительности нот (factor>1 быстрее), темпы не трогает.
     """
     _require()
+    _check_midi_size(path)
     if target_bpm is None and factor is None:
         raise ValueError("нужен target_bpm или factor")
     tag = f"_bpm{target_bpm}" if target_bpm is not None else f"_x{factor}"
@@ -125,6 +138,8 @@ def overlay(paths: List[str], out: Optional[str] = None) -> str:
     _require()
     if not paths:
         raise ValueError("нужен хотя бы один файл")
+    for p in paths:
+        _check_midi_size(p)
     if out is None:
         out = _suffixed(paths[0], "_mixed")
     base = MidiFile(paths[0])

@@ -46,7 +46,7 @@ def send_tg(chat_id: int, text: str, parse_mode: str = "HTML",
 
 # ── dice parser ────────────────────────────────────────────────────
 
-DICE_RE = re.compile(r"(\d*)[dкDК](\d+)([+-]\d+)?")
+DICE_RE = re.compile(r"(\d*)[dкDК](\d+)([+-]\d+)?", re.IGNORECASE)
 
 
 def parse_dice(text: str) -> Optional[dict]:
@@ -151,7 +151,11 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
             if resp is None:
                 continue
             if resp.status_code == 200:
-                content = resp.json()["choices"][0]["message"].get("content") or ""
+                try:
+                    content = resp.json()["choices"][0]["message"].get("content") or ""
+                except (ValueError, KeyError, IndexError) as e:
+                    print(f"[DND] OpenRouter JSON parse error ({model}): {e}")
+                    continue
                 if content.strip():
                     return content
                 print(f"[DND] OpenRouter empty reply ({model})")
@@ -177,7 +181,11 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
                 timeout=30,
             )
             if resp.status_code == 200:
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except ValueError as e:
+                    print(f"[DND] HF JSON parse error: {e}")
+                    data = []
                 if isinstance(data, list) and len(data) > 0:
                     gen = data[0].get("generated_text", "") or ""
                     if gen.startswith(hf_prompt):
@@ -293,35 +301,41 @@ def join_session(telegram_id: int, session_id: int, player_name: str = None) -> 
     if session.get("master_id") == db_uid:
         return f"✅ Вы мастер сессии «{session['name']}»."
 
-    existing = _fetch_one(
-        "SELECT id FROM dnd_characters WHERE session_id = :sid AND player_id = :uid",
-        {"sid": session_id, "uid": db_uid},
-    )
-    if existing:
-        return f"✅ Вы уже в сессии «{session['name']}»."
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        existing = conn.execute(
+            text("SELECT id FROM dnd_characters WHERE session_id = :sid AND player_id = :uid"),
+            {"sid": session_id, "uid": db_uid},
+        ).mappings().first()
+        if existing:
+            return f"✅ Вы уже в сессии «{session['name']}»."
 
-    count = _fetch_one(
-        "SELECT COUNT(*) as c FROM dnd_characters WHERE session_id = :sid",
-        {"sid": session_id},
-    )
-    player_count = count["c"] if count else 0
-    if session.get("max_players", 99) and player_count >= session["max_players"]:
-        return "❌ В сессии уже максимальное количество игроков."
+        count_row = conn.execute(
+            text("SELECT COUNT(*) as c FROM dnd_characters WHERE session_id = :sid"),
+            {"sid": session_id},
+        ).mappings().first()
+        player_count = count_row["c"] if count_row else 0
+        if session.get("max_players", 99) and player_count >= session["max_players"]:
+            return "❌ В сессии уже максимальное количество игроков."
 
-    _execute(
-        "INSERT INTO dnd_characters (session_id, player_id, name, character_class, level) "
-        "VALUES (:sid, :uid, :name, 'Воин', 1)",
-        {"sid": session_id, "uid": db_uid, "name": player_name or "Исследователь"},
-    )
-    _execute(
-        "UPDATE dnd_sessions SET current_players = current_players + 1 WHERE id = :sid",
-        {"sid": session_id},
-    )
-    _execute(
-        "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
-        "VALUES (:sid, :uid, 'system', :content)",
-        {"sid": session_id, "uid": db_uid, "content": "Новый игрок присоединился к сессии!"},
-    )
+        conn.execute(
+            text(
+                "INSERT INTO dnd_characters (session_id, player_id, name, character_class, level) "
+                "VALUES (:sid, :uid, :name, 'Воин', 1)"
+            ),
+            {"sid": session_id, "uid": db_uid, "name": player_name or "Исследователь"},
+        )
+        conn.execute(
+            text("UPDATE dnd_sessions SET current_players = current_players + 1 WHERE id = :sid"),
+            {"sid": session_id},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
+                "VALUES (:sid, :uid, 'system', :content)"
+            ),
+            {"sid": session_id, "uid": db_uid, "content": "Новый игрок присоединился к сессии!"},
+        )
 
     return f"✅ Вы присоединились к сессии «{session['name']}»! Теперь пишите действия."
 
@@ -494,6 +508,18 @@ def cmd_dnd_start(telegram_id: int, chat_id: int, args: str) -> str:
         "VALUES (:uid, :name, 'active', :now, 6, 0, :code)",
         {"uid": db_user_id, "name": name, "now": datetime.now(timezone.utc), "code": share_code},
     )
+
+    session = _fetch_one(
+        "SELECT id FROM dnd_sessions WHERE master_id = :uid AND status = 'active' ORDER BY id DESC LIMIT 1",
+        {"uid": db_user_id},
+    )
+    if session:
+        _execute(
+            "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
+            "VALUES (:sid, :uid, 'system', :content)",
+            {"sid": session["id"], "uid": db_user_id,
+             "content": f"Сессия «{name}» начата. Код приглашения: {share_code}"},
+        )
 
     return (
         f"🎲 <b>D&D сессия запущена!</b>\n\n"

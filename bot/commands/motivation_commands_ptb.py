@@ -54,8 +54,8 @@ async def daily_bonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "Возвращайтесь завтра!"
             )
         await update.message.reply_text(text)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    except Exception:
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -85,8 +85,8 @@ async def challenges_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"  Прогресс: {progress}/{target}, награда: {reward} монет\n\n"
             )
         await update.message.reply_text(text)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    except Exception:
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -113,7 +113,7 @@ async def motivation_stats_command(update: Update, context: ContextTypes.DEFAULT
             f"Следующий бонус: {stats['next_bonus_amount']} монет"
         )
         await update.message.reply_text(text)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    except Exception:
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()

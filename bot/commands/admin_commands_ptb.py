@@ -336,7 +336,7 @@ async def admin_stats_command(
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in admin_stats command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -381,7 +381,7 @@ async def admin_balances_command(
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in admin_balances command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -424,7 +424,7 @@ async def admin_users_command(
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in admin_users command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -573,7 +573,7 @@ ID транзакции: {transaction.id}
     except Exception as e:
         logger.error(f"Error in admin_adjust command: {e}")
         db.rollback()
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -654,7 +654,7 @@ ID транзакции: {transaction.id}
     except Exception as e:
         logger.error(f"Error in admin_addcoins command: {e}")
         db.rollback()
-        await update.message.reply_text(f"Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -739,7 +739,7 @@ ID транзакции: {transaction.id}
     except Exception as e:
         logger.error(f"Error in admin_removecoins command: {e}")
         db.rollback()
-        await update.message.reply_text(f"Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -804,7 +804,7 @@ async def admin_merge_command(
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in admin_merge command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -921,7 +921,7 @@ async def admin_transactions_command(
 
     except Exception as e:
         logger.error(f"Error in admin_transactions command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
 
 
 async def admin_rates_command(
@@ -1048,7 +1048,7 @@ async def admin_cleanup_command(
 
     except Exception as e:
         logger.error(f"Error in admin_cleanup command: {e}")
-        await update.message.reply_text(f"❌ Ошибка при очистке: {str(e)}")
+        await update.message.reply_text("❌ Ошибка при очистке. Попробуйте позже.")
     finally:
         db.close()
 
@@ -1087,7 +1087,7 @@ async def admin_games_stats_command(
         )
     except Exception as e:
         logger.error(f"Error in admin_games_stats command: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -1298,9 +1298,7 @@ async def admin_background_status_command(
 
     except Exception as e:
         logger.error(f"Error in admin_background_status command: {e}")
-        await update.message.reply_text(
-            f"❌ Ошибка при получении статуса фоновых задач: {str(e)}"
-        )
+        await update.message.reply_text("❌ Ошибка при получении статуса фоновых задач. Попробуйте позже.")
 
 
 async def admin_background_health_command(
@@ -1356,9 +1354,7 @@ async def admin_background_health_command(
 
     except Exception as e:
         logger.error(f"Error in admin_background_health command: {e}")
-        await update.message.reply_text(
-            f"❌ Ошибка при проверке здоровья фоновых задач: {str(e)}"
-        )
+        await update.message.reply_text("❌ Ошибка при проверке здоровья фоновых задач. Попробуйте позже.")
 
 
 async def admin_background_restart_command(
@@ -1418,9 +1414,7 @@ async def admin_background_restart_command(
 
     except Exception as e:
         logger.error(f"Error in admin_background_restart command: {e}")
-        await update.message.reply_text(
-            f"❌ Ошибка при перезапуске фоновых задач: {str(e)}"
-        )
+        await update.message.reply_text("❌ Ошибка при перезапуске фоновых задач. Попробуйте позже.")
 
 
 async def admin_parsing_reload_command(
@@ -1491,9 +1485,7 @@ async def admin_parsing_reload_command(
 
     except Exception as e:
         logger.error(f"Error in admin_parsing_reload command: {e}")
-        await update.message.reply_text(
-            f"❌ Ошибка при перезагрузке правил парсинга: {str(e)}"
-        )
+        await update.message.reply_text("❌ Ошибка при перезагрузке правил парсинга. Попробуйте позже.")
 
 
 async def admin_parsing_config_command(
@@ -1581,6 +1573,4 @@ async def admin_parsing_config_command(
 
     except Exception as e:
         logger.error(f"Error in admin_parsing_config command: {e}")
-        await update.message.reply_text(
-            f"❌ Ошибка при получении конфигурации парсинга: {str(e)}"
-        )
+        await update.message.reply_text("❌ Ошибка при получении конфигурации парсинга. Попробуйте позже.")

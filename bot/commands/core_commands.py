@@ -226,7 +226,7 @@ async def welcome_command(
 
     except Exception as e:
         logger.error(f"Error in admin system registration: {e}")
-        registration_status = f"❌ Ошибка: {str(e)}"
+        registration_status = "❌ Ошибка регистрации"
 
     template = SHORT_WELCOME_TEXT if is_short_mode(context) else WELCOME_TEXT
     welcome_text = template.format(
@@ -508,7 +508,7 @@ async def history_command(
         await _send_text_with_retry(update, context, text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in history command: {e}")
-        await _send_text_with_retry(update, context, f"❌ Ошибка: {str(e)}")
+        await _send_text_with_retry(update, context, "❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -666,7 +666,7 @@ async def profile_command(
         await _send_text_with_retry(
             update,
             context,
-            f"❌ Произошла ошибка при получении профиля: {str(e)}",
+            "❌ Произошла ошибка при получении профиля. Попробуйте позже.",
         )
 
 
@@ -756,6 +756,6 @@ async def stats_command(
         await _send_text_with_retry(update, context, text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in stats command: {e}")
-        await _send_text_with_retry(update, context, f"Oshibka: {str(e)}")
+        await _send_text_with_retry(update, context, "❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()

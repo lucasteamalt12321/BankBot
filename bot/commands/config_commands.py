@@ -88,7 +88,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in reload config command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при перезагрузке конфигурации: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при перезагрузке конфигурации. Попробуйте позже.")
 
     async def config_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -149,7 +149,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in config status command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при получении статуса конфигурации: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при получении статуса конфигурации. Попробуйте позже.")
 
     async def list_parsing_rules_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -199,7 +199,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in list parsing rules command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при получении списка правил парсинга: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при получении списка правил парсинга. Попробуйте позже.")
 
     async def add_parsing_rule_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -272,7 +272,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in add parsing rule command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при добавлении правила парсинга: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при добавлении правила парсинга. Попробуйте позже.")
 
     async def update_parsing_rule_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -364,7 +364,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in update parsing rule command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при обновлении правила парсинга: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при обновлении правила парсинга. Попробуйте позже.")
 
     async def export_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -417,7 +417,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in export config command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при экспорте конфигурации: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при экспорте конфигурации. Попробуйте позже.")
 
     async def import_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -459,8 +459,8 @@ class ConfigurationCommands:
             try:
                 with open(temp_file_path, 'r', encoding='utf-8') as f:
                     import_data = json.load(f)
-            except json.JSONDecodeError as e:
-                await update.message.reply_text(f"❌ Неверный формат JSON файла: {str(e)}")
+            except json.JSONDecodeError:
+                await update.message.reply_text("❌ Неверный формат JSON файла.")
                 os.unlink(temp_file_path)
                 return
 
@@ -489,7 +489,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in import config command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при импорте конфигурации: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при импорте конфигурации. Попробуйте позже.")
 
     async def backup_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -528,7 +528,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in backup config command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при создании бэкапа: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при создании бэкапа. Попробуйте позже.")
 
     async def restore_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -574,7 +574,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in restore config command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при восстановлении конфигурации: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при восстановлении конфигурации. Попробуйте позже.")
 
     async def list_backups_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -631,7 +631,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in list backups command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при получении списка бэкапов: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при получении списка бэкапов. Попробуйте позже.")
 
     async def validate_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -685,7 +685,7 @@ class ConfigurationCommands:
 
         except Exception as e:
             logger.error("Error in validate config command", error=str(e))
-            await update.message.reply_text(f"❌ Ошибка при валидации конфигурации: {str(e)}")
+            await update.message.reply_text("❌ Ошибка при валидации конфигурации. Попробуйте позже.")
 
 
 # Global configuration commands instance

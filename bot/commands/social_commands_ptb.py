@@ -1,10 +1,13 @@
 """Social commands for python-telegram-bot."""
 
+import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.database import get_db
 from core.systems.social_system import SocialSystem
+
+logger = logging.getLogger(__name__)
 
 
 async def friends_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -19,7 +22,8 @@ async def friends_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"- @{friend.get('username', 'N/A')}\n"
         await update.message.reply_text(text)
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in friends command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -42,7 +46,8 @@ async def friend_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else:
             await update.message.reply_text("Ne udalos otpravit zayavku")
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in friend_add command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -63,7 +68,8 @@ async def friend_accept_command(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             await update.message.reply_text("Ne udalos prinyat zayavku")
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in friend_accept command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -92,7 +98,8 @@ async def gift_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Ne udalos: {result.get('error', ' Oshibka')}"
             )
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in gift command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -112,7 +119,8 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = "Vi ne v klane. /clan_create ili /clan_join"
         await update.message.reply_text(text)
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in clan command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -135,7 +143,8 @@ async def clan_create_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"Ne udalos: {result.get('error', 'Oshibka')}"
             )
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in clan_create command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -158,7 +167,8 @@ async def clan_join_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Ne udalos: {result.get('error', 'Oshibka')}"
             )
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in clan_join command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()
 
@@ -174,6 +184,7 @@ async def clan_leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else:
             await update.message.reply_text("Ne udalos pokinut clan")
     except Exception as e:
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        logger.error("Error in clan_leave command", error=str(e))
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()

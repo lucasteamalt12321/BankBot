@@ -371,13 +371,11 @@ def test_trivia_question_and_answer():
     assert "id" in q
     assert "session_id" in q
     assert len(q["options"]) == 4
-    correct_index = q["correct_index"]
-    ans = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": correct_index}).get_json()
-    assert ans["correct"] is True
-    assert ans["explanation"]
-    wrong = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": (correct_index + 1) % 4}).get_json()
-    assert wrong["correct"] is False
-    assert wrong["correct_text"] == q["options"][correct_index]
+    assert "correct_index" not in q, "correct_index must not leak to client"
+    first = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": 0}).get_json()
+    assert "correct" in first
+    assert "explanation" in first
+    assert "correct_text" in first
     stale = client.post("/api/trivia/answer", json={"session_id": 99999, "answer_index": 0}).get_json()
     assert stale["correct"] is False
 
@@ -387,7 +385,7 @@ def test_trivia_manual_distractors_realistic():
     client = app.test_client()
     for _ in range(30):
         q = client.post("/api/trivia/question").get_json()
-        assert q["correct_index"] in range(4)
+        assert "correct_index" not in q, "correct_index must not leak"
         assert len(set(q["options"])) == 4
 
 

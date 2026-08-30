@@ -353,6 +353,6 @@ async def inventory_command(
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in inventory command: {e}")
-        await update.message.reply_text(f"Oshibka: {str(e)}")
+        await update.message.reply_text("❌ Ошибка. Попробуйте позже.")
     finally:
         db.close()

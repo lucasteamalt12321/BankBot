@@ -138,7 +138,7 @@ class AdvancedAdminCommands:
             except Exception as e:
                 logger.error("Error in broadcast command", error=str(e), user_id=user.id)
                 await update.message.reply_text(
-                    f"❌ <b>Ошибка</b>\n\nПроизошла ошибка при рассылке: {html.escape(str(e))}",
+                    "❌ <b>Ошибка</b>\n\nПроизошла ошибка при рассылке. Попробуйте позже.",
                     parse_mode="HTML",
                 )
 
