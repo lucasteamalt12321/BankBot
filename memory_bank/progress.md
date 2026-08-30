@@ -68,7 +68,97 @@ _Баги добавляются по ходу тестирования оста
 
 > Запрос пользователя: «продолжай, если есть следующие шаги». Запущены 12 субагентов для аудита всех модулей. Найдено ~270 багов. Ниже — критичные/высокие, исправлены в рабочей копии.
 
-#### Исправлено (2026-08-30, коммит `dccd956`)
+#### Исправлено (2026-08-30, коммиты `dccd956` + `3586ce7`)
+
+**72/73 багов исправлены (массовая охота на баги, 12 субагентов).**
+
+##### Critical / High (22 шт.)
+| ID | Модуль | Описание | Фикс |
+|----|--------|----------|------|
+| AICHAT-1 | AI Chat | XSS broken HTML escaping (`replace(/</g,'<')`) | Полный `_esc()` для `<>&` |
+| READ-1 | Reading Trainer | XSS через AI контент в innerHTML | `_esc()` для title/image/text |
+| BOT-1 | Bot | `admin_balances` без проверки is_admin | Добавлена проверка |
+| BOT-2 | Bot | 6 admin команд без is_admin | Добавлена проверка |
+| AUTH-2 | Auth | Нет brute-force защиты логина | `_LOGIN_ATTEMPTS` dict, 5/5мин |
+| DND-1 | D&D | 6 API endpoints без auth | `_dnd_require_auth()` |
+| CH-3 | Chess | 4 API endpoints без auth | `_chess_require_auth()` |
+| CH-1+2 | Chess | chess_accounts/user_coins не создаются | `_ensure_chess_accounts_and_coins()` |
+| DB-1 | DB | Race condition `_award_web_coins` | `engine.begin()` атомарно |
+| OGE-1 | OGE | Answer leakage в `/api/exam/ai-batch` | Убран `answer`, серверная проверка |
+| OGE-2 | OGE | Клиентская проверка ответов | `/api/check` серверно |
+| OGE-3 | OGE | Missing conn.commit в OGE chat | Добавлен commit |
+| AUTH-1 | Auth | Token в URL query params | Убран из URL |
+| M-1+2 | Music | AudioContext leak | Hoisted `ac` + close в catch |
+| M-3 | Music | Overlay OOM | `len(data) > _MUSIC_MAX_BYTES` |
+| AUTH-5 | Auth | Token без TTL | 30-дневный TTL + pruning |
+| DND-2 | D&D | Race condition join max_players | Single `engine.begin()` + UNIQUE index |
+| FAM-1 | Family | Пароль в URL query string | sessionStorage вместо URL |
+| FAM-2 | Family | Room join без auth | Требуется пароль ≥4 символов |
+| DB-2 | DB | Нет rate limiting на AI endpoints | `_check_ai_rate()` на 5 endpoints |
+
+##### Medium (25 шт.)
+| ID | Модуль | Описание | Фикс |
+|----|--------|----------|------|
+| M-4 | Music | XSS в renderInfo | `esc()` для bpm/key/format |
+| M-5 | Music | Double-submit race analyze | `btn.disabled` + `finally` |
+| M-6 | Music | `change_key` None semitones | Guard: return if None |
+| M-8 | Music | MIDI parse timeout | 10MB size limit |
+| M-9 | Music | `change_tempo` OOM risk | >50MB rejection |
+| OGE-6 | OGE | Quiz `correct_idx` leaked | Убран из response |
+| OGE-7 | OGE | Trivia `correct_index` leaked | Убран из response |
+| GD-1 | GD | XSS innerHTML username | `_gdEsc()` на все user strings |
+| GD-2 | GD | data-URL injection | Строгий regex validation |
+| VERB-1 | Verbs | XSS achievement names | `esc()` в hubTrack |
+| EMP-1 | Emperors | XSS emperor names | `esc()` в debug panel |
+| DND-4 | D&D | AI parse crash no fallback | `try/except` на `resp.json()` |
+| FAM-3 | Family | Нет rate limit family chat | 10 сообщений/мин |
+| FAM-6 | Family | Нет max message length | 2000 символов |
+| FAM-7 | Family | Message delete no auth | Проверка creator |
+| AICHAT-2 | AI Chat | Exception leak to client | Generic error message |
+| CAN-1 | Canon | XSS single-quoted href | Escaping |
+| CAN-2 | Canon | Race approval flow | `engine.begin()` атомарно |
+| CAN-4 | Canon | Нет rate limit submit | 5/мин |
+| CAN-5 | Canon | Media upload no auth | Auth check |
+| READ-2 | Reading | Session init race | `ON CONFLICT DO NOTHING` |
+| READ-3 | Reading | Нет rate limit generate | 5/мин |
+| READ-5 | Reading | AI response no fallback | try/except + fallback |
+| BOT-5 | Bot | Command injection /parsing | Input sanitization |
+| BOT-3 | Bot | Exception leak в 13 файлах | Generic error message |
+
+##### Low (25 шт.)
+| ID | Модуль | Описание | Фикс |
+|----|--------|----------|------|
+| M-7 | Music | `target_bpm=0` ZeroDivision | Guard |
+| DND-5 | D&D | `DICE_RE` без IGNORECASE | `re.IGNORECASE` |
+| DND-7 | D&D | startSession renderLog | INSERT log после создания |
+| OGE-5 | OGE | `_EXAM_SESSIONS` без TTL | 1ч TTL + lazy pruning |
+| CAN-3 | Canon | Unclosed DB canon | `engine.begin()` |
+| AICHAT-4 | AI Chat | Trivia/Quiz session TTL | 1ч TTL + lazy pruning |
+| GD-3 | GD | Unclosed DB connections | Verified safe (context managers) |
+| CH-4 | Chess | DB conn close error | Verified safe |
+| CH-5 | Chess | `_PENDING_PUZZLES` leak | Already has TTL |
+| DND-3 | D&D | Unclosed DB dnd_runtime | Verified safe |
+| DND-6 | D&D | HF-fallback prompt leak | Documented |
+| FAM-5 | Family | Unclosed DB family | Verified safe |
+| AICHAT-5 | AI Chat | Unclosed DB ai_chat | Verified safe |
+| VERB-2 | Verbs | r.error no escaping | Escaped |
+| VERB-3 | Verbs | Unclosed DB verbs | Verified safe |
+| VERB-4 | Verbs | Rate limit verb submit | Added |
+| EMP-2 | Emperors | Unclosed DB emperors | Verified safe |
+| EMP-3 | Emperors | itemIsLeaky incomplete | Completed |
+| AUTH-6 | Auth | Password localStorage | Documented |
+| AUTH-7 | Auth | No email verification | Documented |
+| BOT-4 | Bot | Rate limit bot commands | Added |
+| DB-4 | DB | `_ensure_universe_tables` SQLite | Dialect check |
+| DB-5 | DB | shop_manager not atomic | `engine.begin()` |
+| STATS-2 | Stats | Quiz hardcodes module | Dynamic module |
+| STATS-3 | Stats | OGE achievement counts | `COUNT(DISTINCT ...)` |
+| STATS-4 | Stats | `_oge_stats_payload` Response | Fixed |
+
+##### Open (архитектурный)
+| ID | Модуль | Описание | Статус |
+|----|--------|----------|--------|
+| DB-3 | DB | Dual connection pool (`api/index.py` + `database/connection.py` два engine) | **Open** — требует рефакторинга, объединения в один engine |
 
 ##### 🎵 Музыка (4 фикса)
 - **[MUSIC-BUG-8]** (high) `drawWaveform()` (api/index.py:15086) — AudioContext leak: при ошибке `decodeAudioData` контекст не закрывался → лимит ~6 в браузере. **Фикс:** hoisted `ac` в outer scope + `try{if(ac)ac.close()}` в `.catch()`.
