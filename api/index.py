@@ -19528,6 +19528,8 @@ function esc(s){{var d=document.createElement('div');d.textContent=s;return d.in
 function colorFor(subj){{return COLORS[subj]||'var(--bb-accent)'}}
 
 function renderBooks(){{
+    var seen={{}};
+    books=books.filter(function(b){{if(!b||seen[b.id])return false;seen[b.id]=1;return true}});
     ['home','backpack','school'].forEach(function(loc){{
         var container=document.getElementById('books-'+loc);
         var filtered=books.filter(function(b){{return b.location===loc}});
@@ -19652,19 +19654,27 @@ document.getElementById('m-cancel').addEventListener('click',function(){{modal.c
 modal.addEventListener('click',function(e){{if(e.target===modal)modal.classList.remove('open')}});
 
 document.getElementById('m-add').addEventListener('click',function(){{
+    var btn=document.getElementById('m-add');
+    if(btn.disabled)return;
     var subj=mSubj.value;
     var title=document.getElementById('m-title').value.trim();
     var loc=document.getElementById('m-location').value;
     if(!title){{document.getElementById('m-title').focus();return}}
+    var dup=books.some(function(b){{return b.subject===subj&&b.title===title&&b.location===loc}});
+    if(dup){{alert('Такой учебник уже добавлен');return}}
+    btn.disabled=true;
     fetch('/api/textbooks',{{method:'POST',headers:{{'Content-Type':'application/json','X-Auth-Token':TOKEN}},body:JSON.stringify({{subject:subj,title:title,location:loc}})}})
     .then(function(r){{return r.json()}})
     .then(function(d){{
         if(d.error){{alert(d.error);return}}
+        books=books.filter(function(b){{return !(b.subject===subj&&b.title===title&&b.location===loc)}});
         books.push({{id:d.id,subject:subj,title:title,location:loc}});
         renderBooks();
         modal.classList.remove('open');
         document.getElementById('m-title').value='';
-    }});
+    }})
+    .catch(function(){{}})
+    .finally(function(){{btn.disabled=false}});
 }});
 
 loadBooks();
