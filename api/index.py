@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import bcrypt
 import hashlib
 import hmac
 import html
@@ -131,7 +132,7 @@ def _create_session(user_id: int) -> str | None:
             conn.commit()
         return token
     except Exception as exc:
-        print(f"[AUTH] create session error: {exc}")
+        log_error("AUTH", "error", f"create session error: {exc}")
         return None
 
 
@@ -171,7 +172,7 @@ def _get_session_user(token: str | None) -> dict | None:
             "is_admin": bool(row["is_admin"]),
         }
     except Exception as exc:
-        print(f"[AUTH] get session error: {exc}")
+        log_error("AUTH", "error", f"get session error: {exc}")
         return None
 
 
@@ -186,7 +187,7 @@ def _save_gd_nickname(user_id: int, nick: str) -> bool:
             conn.commit()
         return True
     except Exception as exc:
-        print(f"[AUTH] save gd_nickname error: {exc}")
+        log_error("AUTH", "error", f"save gd_nickname error: {exc}")
         return False
 
 
@@ -237,7 +238,7 @@ def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
             )
             return True
     except Exception as exc:
-        print(f"[ADMIN] award coins error: {exc}")
+        log_error("ADMIN", "error", f"award coins error: {exc}")
         return False
 
 app = Flask(__name__)
@@ -304,7 +305,6 @@ def _inject_theme_into_response(response):
 # Webhook secret
 _raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
 WEBHOOK_SECRET = _raw_webhook_secret if _raw_webhook_secret else "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
-print(f"[STARTUP] WEBHOOK_SECRET length: {len(WEBHOOK_SECRET)}, first 10 chars: {WEBHOOK_SECRET[:10]}")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
@@ -416,11 +416,11 @@ def get_db_engine():
         try:
             _ensure_canon_tables(DB_ENGINE)
         except Exception as exc:
-            print(f"[CANON] table init skipped: {exc}")
+            log_error("CANON", "error", f"table init skipped: {exc}")
         try:
             _ensure_textbook_tables(DB_ENGINE)
         except Exception as exc:
-            print(f"[TEXTBOOK] table init skipped: {exc}")
+            log_error("TEXTBOOK", "error", f"table init skipped: {exc}")
     return DB_ENGINE
 
 def _ensure_gd_tables(engine):
@@ -479,9 +479,9 @@ def _ensure_gd_tables(engine):
                 )
             """))
             conn.commit()
-        print("[GD] Tables ensured successfully")
+        log_error("GD", "info", "Tables ensured successfully")
     except Exception as exc:
-        print(f"[GD] Table init error: {exc}")
+        log_error("GD", "error", f"Table init error: {exc}")
     _ensure_user_preferences_table(engine)
 
 
@@ -578,9 +578,9 @@ def _ensure_user_preferences_table(engine):
                 )
             """))
             conn.commit()
-        print("[INIT] user_preferences table ensured")
+        log_error("INIT", "info", "user_preferences table ensured")
     except Exception as exc:
-        print(f"[INIT] user_preferences table error: {exc}")
+        log_error("INIT", "error", f"user_preferences table error: {exc}")
 
 
 def _ensure_chess_games_table(engine):
@@ -602,9 +602,9 @@ def _ensure_chess_games_table(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chess_games_user_id ON chess_games(user_id)"))
             conn.commit()
-        print("[INIT] chess_games table ensured")
+        log_error("INIT", "info", "chess_games table ensured")
     except Exception as exc:
-        print(f"[INIT] chess_games table error: {exc}")
+        log_error("INIT", "error", f"chess_games table error: {exc}")
 
 
 def _ensure_chess_accounts_and_coins(engine):
@@ -626,9 +626,9 @@ def _ensure_chess_accounts_and_coins(engine):
                 )
             """))
             conn.commit()
-        print("[INIT] chess_accounts + user_coins tables ensured")
+        log_error("INIT", "info", "chess_accounts + user_coins tables ensured")
     except Exception as exc:
-        print(f"[INIT] chess_accounts/user_coins table error: {exc}")
+        log_error("INIT", "error", f"chess_accounts/user_coins table error: {exc}")
 
 
 def _ensure_budget_tables(engine):
@@ -716,9 +716,9 @@ def _ensure_budget_tables(engine):
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_tg ON linked_vk_accounts(tg_user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_vk ON linked_vk_accounts(vk_user_id)"))
             conn.commit()
-        print("[BUDGET] Tables ensured successfully")
+        log_error("BUDGET", "info", "Tables ensured successfully")
     except Exception as exc:
-        print(f"[BUDGET] Table init error: {exc}")
+        log_error("BUDGET", "error", f"Table init error: {exc}")
 
 
 def _ensure_universe_tables(engine):
@@ -754,11 +754,11 @@ def _ensure_universe_tables(engine):
                     "CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_prayer_log_user_date ON daily_prayer_log(user_id, prayer_date)"
                 ))
             except Exception as exc:
-                print(f"[UNIVERSE] daily_prayer_log unique index warn: {exc}")
+                log_error("UNIVERSE", "error", f"daily_prayer_log unique index warn: {exc}")
             conn.commit()
-        print("[UNIVERSE] Tables ensured successfully")
+        log_error("UNIVERSE", "info", "Tables ensured successfully")
     except Exception as exc:
-        print(f"[UNIVERSE] Table init error: {exc}")
+        log_error("UNIVERSE", "error", f"Table init error: {exc}")
 
 
 def _ensure_dnd_tables(engine):
@@ -856,9 +856,9 @@ def _ensure_dnd_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dnd_fixes_session ON dnd_fixes(session_id)"))
             conn.commit()
-        print("[DND] Tables ensured successfully")
+        log_error("DND", "info", "Tables ensured successfully")
     except Exception as exc:
-        print(f"[DND] Table init error: {exc}")
+        log_error("DND", "error", f"Table init error: {exc}")
 
 def _ensure_verb_tables(engine):
     try:
@@ -890,9 +890,9 @@ def _ensure_verb_tables(engine):
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_verb_submissions_exercise ON verb_submissions(exercise_id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_verb_exercises_teacher ON verb_exercises(teacher_id)"))
             conn.commit()
-        print("[VERBS] Tables ensured")
+        log_error("VERBS", "info", "Tables ensured")
     except Exception as exc:
-        print(f"[VERBS] Table init error: {exc}")
+        log_error("VERBS", "error", f"Table init error: {exc}")
 
 
 def _ensure_family_tables(engine):
@@ -952,9 +952,9 @@ def _ensure_family_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_final_reports_room ON final_reports(room_id)"))
             conn.commit()
-        print("[FAMILY] Tables ensured")
+        log_error("FAMILY", "info", "Tables ensured")
     except Exception as exc:
-        print(f"[FAMILY] Table init error: {exc}")
+        log_error("FAMILY", "error", f"Table init error: {exc}")
 
 
 def _ensure_web_auth_tables(engine):
@@ -1016,9 +1016,9 @@ CREATE TABLE IF NOT EXISTS web_users (
             except Exception:
                 pass
             conn.commit()
-        print("[AUTH] Tables ensured")
+        log_error("AUTH", "info", "Tables ensured")
     except Exception as exc:
-        print(f"[AUTH] Table init error: {exc}")
+        log_error("AUTH", "error", f"Table init error: {exc}")
 
 
 def _html_escape(s: str) -> str:
@@ -1094,7 +1094,7 @@ def _ensure_canon_tables(engine):
             try:
                 conn.execute(text(f"ALTER TABLE canon_works {column_sql}"))
             except Exception as exc:
-                print(f"[CANON] alter canon_works ({column_sql[:30]}...) skipped: {exc}")
+                log_error("CANON", "error", f"alter canon_works ({column_sql[:30]}...) skipped: {exc}")
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS canon_requests (
                 id SERIAL PRIMARY KEY,
@@ -1144,7 +1144,7 @@ def _ensure_canon_tables(engine):
                         "u": work.url,
                     },
                 )
-            print("[CANON] Seeded canon_works from core.canon.works")
+            log_error("CANON", "info", "Seeded canon_works from core.canon.works")
         conn.commit()
 
 
@@ -1164,9 +1164,9 @@ def _ensure_textbook_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_textbooks_user ON textbooks(user_id)"))
             conn.commit()
-        print("[TEXTBOOK] Table ensured")
+        log_error("TEXTBOOK", "info", "Table ensured")
     except Exception as exc:
-        print(f"[TEXTBOOK] Table init error: {exc}")
+        log_error("TEXTBOOK", "error", f"Table init error: {exc}")
 
 
 def _ensure_parsing_tables(engine):
@@ -1207,9 +1207,9 @@ def _ensure_parsing_tables(engine):
                 pass
             _sync_conversion_rates(conn)
             conn.commit()
-        print("[PARSING] Tables ensured")
+        log_error("PARSING", "info", "Tables ensured")
     except Exception as exc:
-        print(f"[PARSING] Table init error: {exc}")
+        log_error("PARSING", "error", f"Table init error: {exc}")
 
 
 def _ensure_emperors_tables(engine):
@@ -1235,9 +1235,9 @@ def _ensure_emperors_tables(engine):
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
             conn.commit()
-        print("[EMPERORS] Tables ensured")
+        log_error("EMPERORS", "info", "Tables ensured")
     except Exception as exc:
-        print(f"[EMPERORS] Table init error: {exc}")
+        log_error("EMPERORS", "error", f"Table init error: {exc}")
 
 
 OGE_MODULES = {
@@ -1294,10 +1294,10 @@ def _migrate_emperors_progress_to_study(engine):
                 ON CONFLICT DO NOTHING
             """))
             conn.commit()
-        print("[STUDY] emperors_progress migrated to study_progress")
+        log_error("STUDY", "info", "emperors_progress migrated to study_progress")
         return True
     except Exception as exc:
-        print(f"[STUDY] emperors migration error: {exc}")
+        log_error("STUDY", "error", f"emperors migration error: {exc}")
         return False
 
 
@@ -1337,6 +1337,14 @@ def _ensure_study_progress_tables(engine):
                 )
             """))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_study_daily_user_day_module ON study_daily(user_id, day, module)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS exam_sessions (
+                    sid VARCHAR(20) PRIMARY KEY,
+                    items_json TEXT NOT NULL,
+                    created_at REAL NOT NULL DEFAULT 0
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_sessions_created ON exam_sessions(created_at)"))
             # Миграция существующих продовых таблиц (PostgreSQL IF NOT EXISTS; SQLite-фикстуры уже с колонками).
             for ddl in (
                 "ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at REAL NOT NULL DEFAULT 0",
@@ -1345,12 +1353,12 @@ def _ensure_study_progress_tables(engine):
                 try:
                     conn.execute(text(ddl))
                 except Exception as exc:
-                    print(f"[STUDY] alter skipped: {exc}")
+                    log_error("STUDY", "error", f"alter skipped: {exc}")
             conn.commit()
         _migrate_emperors_progress_to_study(engine)
-        print("[STUDY] Tables ensured")
+        log_error("STUDY", "info", "Tables ensured")
     except Exception as exc:
-        print(f"[STUDY] Table init error: {exc}")
+        log_error("STUDY", "error", f"Table init error: {exc}")
 
 
 def _ensure_achievements_tables(engine):
@@ -1398,9 +1406,9 @@ def _ensure_achievements_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_events_user ON web_events(user_id)"))
             conn.commit()
-        print("[ACHIEVEMENTS] Tables ensured")
+        log_error("ACHIEVEMENTS", "info", "Tables ensured")
     except Exception as exc:
-        print(f"[ACHIEVEMENTS] Table init error: {exc}")
+        log_error("ACHIEVEMENTS", "error", f"Table init error: {exc}")
 
 
 ACHIEVEMENTS: dict[str, dict] = {
@@ -1846,7 +1854,7 @@ def _check_web_achievements(conn, user_id):
         for r in ev_rows:
             events[r["event"]] = int(r["count"] or 0)
     except Exception as exc:
-        print(f"[ACHIEVEMENTS] events facts error: {exc}")
+        log_error("ACHIEVEMENTS", "error", f"events facts error: {exc}")
     facts["events"] = events
 
     # --- emperors mastered cards (reps >= 3 in the SM-2 progress table) ---
@@ -1858,7 +1866,7 @@ def _check_web_achievements(conn, user_id):
         ).mappings().first()
         emastered = int(mrow["n"] or 0) if mrow else 0
     except Exception as exc:
-        print(f"[ACHIEVEMENTS] emperors mastered fact error: {exc}")
+        log_error("ACHIEVEMENTS", "error", f"emperors mastered fact error: {exc}")
     facts["emperors_mastered"] = emastered
 
     # --- ОГЭ-модули: выполненные задания (уникальные карточки) и освоенные карточки из study_progress ---
@@ -1873,7 +1881,7 @@ def _check_web_achievements(conn, user_id):
             facts[f"{r['module']}_answers"] = int(r["answers"] or 0)
             facts[f"{r['module']}_mastered"] = int(r["mastered"] or 0)
     except Exception as exc:
-        print(f"[ACHIEVEMENTS] OGE study facts error: {exc}")
+        log_error("ACHIEVEMENTS", "error", f"OGE study facts error: {exc}")
 
     # --- evaluate conditions ---
     should = []
@@ -2482,7 +2490,7 @@ def _record_activity(conn, user_id, module, actions):
             {"uid": user_id, "day": today, "module": module, "actions": actions},
         )
     except Exception as exc:
-        print(f"[ACHIEVEMENTS] activity log error: {exc}")
+        log_error("ACHIEVEMENTS", "error", f"activity log error: {exc}")
         try:
             conn.execute(
                 text("INSERT INTO web_activity_log (user_id, day, module, actions) VALUES (:uid, :day, :module, :actions)"),
@@ -2519,7 +2527,7 @@ def _record_events(conn, user_id, events):
                 {"uid": user_id, "ev": ev, "ts": now},
             )
         except Exception as exc:
-            print(f"[ACHIEVEMENTS] event log error: {exc}")
+            log_error("ACHIEVEMENTS", "error", f"event log error: {exc}")
             try:
                 conn.execute(
                     text("INSERT INTO web_events (user_id, event, count, updated_at) VALUES (:uid, :ev, 1, :ts)"),
@@ -2563,7 +2571,7 @@ def _sync_conversion_rates(conn):
                     {"bn": bot_name, "rt": resource_type, "k": k},
                 )
     except Exception as exc:
-        print(f"[PARSING] conversion_rates sync error: {exc}")
+        log_error("PARSING", "error", f"conversion_rates sync error: {exc}")
 
 
 def _log_parsed_transaction(
@@ -2599,7 +2607,7 @@ def _log_parsed_transaction(
             },
         )
     except Exception as exc:
-        print(f"[PARSING] log parsed_transaction error: {exc}")
+        log_error("PARSING", "error", f"log parsed_transaction error: {exc}")
 
 
 def _record_parsing_result(
@@ -2647,7 +2655,7 @@ def _record_parsing_result(
         # Duplicate (chat_id, message_id) -> unique index violation
         if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
             return False
-        print(f"[PARSING] record parsing result error: {exc}")
+        log_error("PARSING", "error", f"record parsing result error: {exc}")
         return True
 
 
@@ -2744,10 +2752,10 @@ def _load_bot_id() -> int | None:
         if resp.ok:
             data = resp.json()
             BOT_ID = data["result"]["id"]
-            print(f"[STARTUP] BOT_ID loaded: {BOT_ID}")
+            log_error("STARTUP", "info", f"BOT_ID loaded: {BOT_ID}")
             return BOT_ID
     except Exception as exc:
-        print(f"[STARTUP] Failed to load BOT_ID: {exc}")
+        log_error("STARTUP", "error", f"Failed to load BOT_ID: {exc}")
     return None
 
 
@@ -2790,9 +2798,9 @@ def set_user_character(user_id: int, character: str) -> bool:
                 DO UPDATE SET preferred_character = :character, updated_at = CURRENT_TIMESTAMP
             """), {"user_id": user_id, "character": character})
             conn.commit()
-        print(f"[CHARACTER] User {user_id} set character to {character} (DB+cache)")
+        log_error("CHARACTER", "info", f"User {user_id} set character to {character} (DB+cache)")
     except Exception as exc:
-        print(f"[CHARACTER] User {user_id} set character to {character} (cache only, DB error: {exc})")
+        log_error("CHARACTER", "info", f"User {user_id} set character to {character} (cache only, DB error: {exc})")
     return True
 
 
@@ -4723,7 +4731,7 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
     """Send a Telegram message from the Vercel webhook runtime."""
 
     if not BOT_TOKEN:
-        print("[SEND_MSG] BOT_TOKEN is empty!")
+        log_error("SEND_MSG", "error", "BOT_TOKEN is empty!")
         return
 
     payload = {"chat_id": chat_id, "text": text}
@@ -4734,9 +4742,9 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
             json=payload,
             timeout=3,
         )
-        print(f"[SEND_MSG] chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
+        log_error("SEND_MSG", "info", f"chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
     except Exception as exc:
-        print(f"[SEND_MSG] EXCEPTION: {exc}")
+        log_error("SEND_MSG", "error", f"EXCEPTION: {exc}")
 
 
 def notify_admin(text: str) -> None:
@@ -6216,7 +6224,7 @@ def api_gd_admin_level_delete(level_id: int):
             conn.commit()
             return jsonify({"ok": True})
     except Exception as exc:
-        print(f"[GD] admin delete level error: {exc}")
+        log_error("GD", "error", f"admin delete level error: {exc}")
         return jsonify({"error": str(exc)}), 500
 
 
@@ -6255,7 +6263,7 @@ def api_gd_admin_level_update(level_id: int):
             conn.commit()
             return jsonify({"ok": True, "id": level_id})
     except Exception as exc:
-        print(f"[GD] admin update level error: {exc}")
+        log_error("GD", "error", f"admin update level error: {exc}")
         return jsonify({"error": str(exc)}), 500
 
 
@@ -6492,7 +6500,7 @@ def api_dnd_status():
             "log": log,
         })
     except Exception as exc:
-        print(f"[DND] status error: {exc}")
+        log_error("DND", "error", f"status error: {exc}")
         log_error("DnD", "status_query", f"dnd status user={uid}: {exc}", "query: dnd status")
         return jsonify({"active": False})
 
@@ -6601,7 +6609,7 @@ def api_dnd_stop():
         from api.dnd_runtime import cmd_dnd_stop
         reply = cmd_dnd_stop(uid, uid)
     except Exception as exc:
-        print(f"[DnD] stop error: {exc}")
+        log_error("DnD", "error", f"stop error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True, "reply": _dnd_plain(reply)})
 
@@ -9764,7 +9772,7 @@ def api_auth_register():
             user_id = result.scalar()
             conn.commit()
     except Exception as exc:
-        print(f"[AUTH] register error: {exc}")
+        log_error("AUTH", "error", f"register error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
     token = _create_session(user_id)
@@ -9796,7 +9804,7 @@ def api_auth_login():
                 {"login": login},
             ).mappings().first()
     except Exception as exc:
-        print(f"[AUTH] login error: {exc}")
+        log_error("AUTH", "error", f"login error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     if not row or not _verify_password(password, row["password_hash"]):
         attempts.append(now)
@@ -9820,7 +9828,7 @@ def api_auth_me():
         coins = get_user_coins(_web_user_id("u" + str(user["id"])))
         user["coins"] = int((coins or {}).get("balance", 0))
     except Exception as exc:
-        print(f"[AUTH] me coins error: {exc}")
+        log_error("AUTH", "error", f"me coins error: {exc}")
         user["coins"] = 0
     return jsonify(user)
 
@@ -9872,7 +9880,7 @@ def api_auth_update():
             conn.commit()
         return jsonify({"success": True})
     except Exception as exc:
-        print(f"[AUTH] update error: {exc}")
+        log_error("AUTH", "error", f"update error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -9886,7 +9894,7 @@ def api_auth_logout():
             conn.execute(text("DELETE FROM web_sessions WHERE token = :t"), {"t": token})
             conn.commit()
     except Exception as exc:
-        print(f"[AUTH] logout error: {exc}")
+        log_error("AUTH", "error", f"logout error: {exc}")
     return jsonify({"success": True})
 
 
@@ -9919,7 +9927,7 @@ def api_admin_stats():
             "coin_tx": int(tx["c"] or 0),
         })
     except Exception as exc:
-        print(f"[ADMIN] stats error: {exc}")
+        log_error("ADMIN", "error", f"stats error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -9977,7 +9985,7 @@ def api_admin_users():
                 u["balance"] = coin_map.get(_web_user_id("u" + str(u["id"])), 0)
         return jsonify(result)
     except Exception as exc:
-        print(f"[ADMIN] users error: {exc}")
+        log_error("ADMIN", "error", f"users error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -10004,7 +10012,7 @@ def api_admin_user_coins(user_id):
             ],
         })
     except Exception as exc:
-        print(f"[ADMIN] user coins error: {exc}")
+        log_error("ADMIN", "error", f"user coins error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -10052,7 +10060,7 @@ def api_admin_set_admin():
             conn.commit()
         return jsonify({"success": True})
     except Exception as exc:
-        print(f"[ADMIN] set_admin error: {exc}")
+        log_error("ADMIN", "error", f"set_admin error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -10103,7 +10111,7 @@ def api_feedback_submit():
             })
             conn.commit()
     except Exception as exc:
-        print(f"[FEEDBACK] submit error: {exc}")
+        log_error("FEEDBACK", "error", f"submit error: {exc}")
         return jsonify({"error": "Не удалось сохранить"}), 500
     tag = "🐛 Баг" if category == "bug" else "💡 Предложение"
     notify_admin(f"{tag} (модуль: {module or 'не указан'})\n{message[:300]}")
@@ -10135,7 +10143,7 @@ def api_admin_feedback():
                 """)).mappings().all()
         return jsonify({"count": len(rows), "items": [dict(r) for r in rows]})
     except Exception as exc:
-        print(f"[FEEDBACK] list error: {exc}")
+        log_error("FEEDBACK", "error", f"list error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -10148,13 +10156,19 @@ def api_admin_feedback_delete(fid):
             conn.execute(text("DELETE FROM web_feedback WHERE id = :id"), {"id": fid})
             conn.commit()
     except Exception as exc:
-        print(f"[FEEDBACK] delete error: {exc}")
+        log_error("FEEDBACK", "error", f"delete error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True})
 
 
 @app.route("/admin")
 def admin_page():
+    if not _web_admin_session():
+        return """<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>403</title>
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f1420;color:#e6e9f0}
+.box{text-align:center}.box h1{font-size:48px;color:#f87171}.box p{color:#8b93a7;margin-top:12px}
+.box a{color:#7aa2ff;text-decoration:none}</style></head>
+<body><div class="box"><h1>403</h1><p>Нет доступа. Войдите как администратор.</p><a href="/">На главную</a></div></body></html>""", 403, {"Content-Type": "text/html; charset=utf-8"}
     html = """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -14051,16 +14065,48 @@ def terms_page():
     """Terms now live inside the unified History page."""
     return redirect("/emperors?tab=terms")
 
-_EXAM_SESSIONS: dict = {}
 _EXAM_SESSION_TTL = 3600  # 1 hour
 
 
 def _exam_prune_expired() -> None:
-    """Remove exam sessions older than _EXAM_SESSION_TTL seconds."""
+    """Remove exam sessions older than _EXAM_SESSION_TTL seconds from DB."""
     now = time.time()
-    stale = [k for k, v in _EXAM_SESSIONS.items() if now - v.get("_created_at", 0) > _EXAM_SESSION_TTL]
-    for k in stale:
-        _EXAM_SESSIONS.pop(k, None)
+    try:
+        with get_db_engine().begin() as conn:
+            conn.execute(text("DELETE FROM exam_sessions WHERE created_at < :cutoff"),
+                         {"cutoff": now - _EXAM_SESSION_TTL})
+    except Exception:
+        pass
+
+
+def _exam_session_save(sid: str, items: list) -> None:
+    """Save exam session to DB."""
+    try:
+        with get_db_engine().begin() as conn:
+            conn.execute(text(
+                "INSERT INTO exam_sessions (sid, items_json, created_at) VALUES (:sid, :items, :now)"
+                " ON CONFLICT (sid) DO UPDATE SET items_json = EXCLUDED.items_json, created_at = EXCLUDED.created_at"
+            ), {"sid": sid, "items": json.dumps(items, ensure_ascii=False), "now": time.time()})
+    except Exception:
+        pass
+
+
+def _exam_session_load(sid: str) -> dict | None:
+    """Load exam session from DB. Returns None if expired or missing."""
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(text(
+                "SELECT items_json, created_at FROM exam_sessions WHERE sid = :sid"
+            ), {"sid": sid}).mappings().first()
+        if not row:
+            return None
+        if time.time() - row["created_at"] > _EXAM_SESSION_TTL:
+            with get_db_engine().begin() as conn:
+                conn.execute(text("DELETE FROM exam_sessions WHERE sid = :sid"), {"sid": sid})
+            return None
+        return {"items": json.loads(row["items_json"]), "_created_at": row["created_at"]}
+    except Exception:
+        return None
 
 
 def _exam_norm(s) -> str:
@@ -14124,7 +14170,7 @@ def _study_tally_daily(conn, uid, module: str, correct_n: int = 0, wrong_n: int 
             "c": int(correct_n), "w": int(wrong_n),
         })
     except Exception as exc:
-        print(f"[STUDY] daily tally error: {exc}")
+        log_error("STUDY", "error", f"daily tally error: {exc}")
 
 
 def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
@@ -14196,10 +14242,8 @@ def api_exam_mixed():
     else:
         items = list(pool)
     sid = secrets.token_hex(6)
-    _EXAM_SESSIONS[sid] = {"items": items, "_created_at": time.time()}
+    _exam_session_save(sid, items)
     _exam_prune_expired()
-    while len(_EXAM_SESSIONS) > 300:
-        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)), None)
     safe = [{"idx": i, "module": it["module"], "question": it["question"], "hint": it["hint"]}
             for i, it in enumerate(items)]
     return jsonify({"sid": sid, "items": safe})
@@ -14210,7 +14254,7 @@ def api_exam_check():
     """Grade one exam answer; records progress when the user is authenticated."""
     data = request.get_json(silent=True) or {}
     sid = str(data.get("sid") or "")
-    session = _EXAM_SESSIONS.get(sid)
+    session = _exam_session_load(sid)
     if not session:
         return jsonify({"ok": False, "error": "unknown session"}), 404
     items = session["items"]
@@ -14232,7 +14276,7 @@ def api_exam_check():
                     _study_record_one(conn, uid, it["module"], "task::" + it["key"], ok)
                 recorded = True
             except Exception as exc:
-                print(f"[EXAM] progress record error: {exc}")
+                log_error("EXAM", "error", f"progress record error: {exc}")
     return jsonify({"ok": True, "correct": ok,
                     "explanation": it["_explanation"], "recorded": recorded})
 
@@ -14424,7 +14468,7 @@ def api_quiz_check():
                     _study_record_one(conn, uid, module, it["key"], ok)
                 recorded = True
             except Exception as exc:
-                print(f"[QUIZ] progress record error: {exc}")
+                log_error("QUIZ", "error", f"progress record error: {exc}")
         try:
             with get_db_engine().connect() as conn:
                 _record_activity(conn, user["id"], module, 1)
@@ -14435,7 +14479,7 @@ def api_quiz_check():
                     for code in newly
                 ]
         except Exception as exc:
-            print(f"[QUIZ] activity record error: {exc}")
+            log_error("QUIZ", "error", f"activity record error: {exc}")
     resp = {"ok": True, "correct": ok, "recorded": recorded, "unlocked": unlocked_detail}
     if it.get("type") == "mcq":
         resp["answer"] = it.get("correct_idx")
@@ -14501,7 +14545,7 @@ def api_exam_ai_batch():
     try:
         pool = _exam_build_catalog()
     except Exception as exc:
-        print(f"[EXAM] ai-batch catalog error: {exc}")
+        log_error("EXAM", "error", f"ai-batch catalog error: {exc}")
         return jsonify({"ok": False, "error": "catalog error"}), 500
     if not pool:
         return jsonify({"ok": True, "items": []})
@@ -14531,10 +14575,8 @@ def api_exam_ai_batch():
         })
 
     sid = secrets.token_hex(6)
-    _EXAM_SESSIONS[sid] = {"items": picked, "_created_at": time.time()}
+    _exam_session_save(sid, picked)
     _exam_prune_expired()
-    while len(_EXAM_SESSIONS) > 300:
-        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)), None)
 
     return jsonify({"ok": True, "sid": sid, "items": result_items})
 
@@ -14566,10 +14608,10 @@ def api_exam_ai_record():
                     for code in newly
                 ]
         except Exception as exc:
-            print(f"[EXAM] activity record error: {exc}")
+            log_error("EXAM", "error", f"activity record error: {exc}")
         return jsonify({"ok": True, "recorded": True, "unlocked": unlocked_detail})
     except Exception as exc:
-        print(f"[EXAM] ai-record error: {exc}")
+        log_error("EXAM", "error", f"ai-record error: {exc}")
         return jsonify({"ok": True, "recorded": False})
 
 
@@ -15915,7 +15957,7 @@ def api_emperors_progress():
                         "counter": r["counter"],
                     }
         except Exception as exc:
-            print(f"[EMPERORS] progress GET error: {exc}")
+            log_error("EMPERORS", "error", f"progress GET error: {exc}")
     return jsonify({"cards": cards, "uid": uid})
 
 
@@ -15969,7 +16011,7 @@ def api_emperors_progress_save():
                     })
         return jsonify({"ok": True, "uid": uid, "saved": len(cards)})
     except Exception as exc:
-        print(f"[EMPERORS] progress POST error: {exc}")
+        log_error("EMPERORS", "error", f"progress POST error: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
@@ -16006,7 +16048,7 @@ def api_study_progress():
                         "ts": float(r["updated_at"] or 0),
                     }
         except Exception as exc:
-            print(f"[STUDY] progress GET error: {exc}")
+            log_error("STUDY", "error", f"progress GET error: {exc}")
     return jsonify({"cards": cards, "uid": uid})
 
 
@@ -16090,11 +16132,11 @@ def api_study_progress_save():
                 for code in newly
             ]
         except Exception as exc:
-            print(f"[STUDY] achievement hook error: {exc}")
+            log_error("STUDY", "error", f"achievement hook error: {exc}")
         return jsonify({"ok": True, "uid": uid, "module": module, "saved": len(cards),
                         "unlocked_detail": unlocked_detail})
     except Exception as exc:
-        print(f"[STUDY] progress POST error: {exc}")
+        log_error("STUDY", "error", f"progress POST error: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
@@ -16199,7 +16241,7 @@ def _oge_stats_payload(web_user_id):
                         streak_b = 1
                 best_streak = max(best_streak, streak_b)
     except Exception as exc:
-        print(f"[STUDY] stats error: {exc}")
+        log_error("STUDY", "error", f"stats error: {exc}")
     # Today summary — distinct cards touched today + today's correct/wrong tally.
     today_cards = 0
     today_correct = 0
@@ -16224,7 +16266,7 @@ def _oge_stats_payload(web_user_id):
                 today_correct = int(daily_rows["c"] or 0)
                 today_wrong = int(daily_rows["w"] or 0)
     except Exception as exc:
-        print(f"[STUDY] today summary error: {exc}")
+        log_error("STUDY", "error", f"today summary error: {exc}")
     # Forecast: due (reviews) + projected new cards introduced per day, and how many
     # of those new cards will be LEARNED (reach SM-2 mastery, reps>=3) within the horizon.
     # Per the scheduler (rep1 -> +1d, rep2 -> +3d, rep3 = mastered) a card introduced on
@@ -16379,7 +16421,7 @@ def api_stats():
         try:
             oge = _oge_stats_payload(web_uid)
         except Exception as exc:
-            print(f"[STATS] oge block error: {exc}")
+            log_error("STATS", "error", f"oge block error: {exc}")
 
         return jsonify({
             "ok": True,
@@ -16395,7 +16437,7 @@ def api_stats():
             "oge": oge,
         })
     except Exception as exc:
-        print(f"[STATS] error: {exc}")
+        log_error("STATS", "error", f"error: {exc}")
         return jsonify({"ok": False, "error": "server error"}), 500
 
 
@@ -16443,7 +16485,7 @@ def api_study_due_cards():
                     "accuracy": round(int(r["correct_count"]) / max(1, int(r["correct_count"]) + int(r["wrong_count"])) * 100),
                 })
     except Exception as exc:
-        print(f"[STUDY] due-cards error: {exc}")
+        log_error("STUDY", "error", f"due-cards error: {exc}")
     return jsonify({"due": due, "total": len(due)})
 
 
@@ -16468,7 +16510,7 @@ def _oge_subjects_payload(uid, now: float) -> list:
                         "started": int(r["started_cnt"] or 0),
                     }
         except Exception as exc:
-            print(f"[STUDY] recommendations error: {exc}")
+            log_error("STUDY", "error", f"recommendations error: {exc}")
     subjects = []
     for module, meta in OGE_MODULES.items():
         s = stats.get(module, {"due": 0, "weak": 0, "started": 0})
@@ -16589,7 +16631,7 @@ def _ensure_oge_curator_tables(engine):
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_oge_chat_user ON oge_chat_messages(user_id, id)"))
     except Exception as exc:
         _OGE_CURATOR_TABLES_ERR = "DDL: " + str(exc)[:400]
-        print(f"[OGE] curator tables skipped: {exc}")
+        log_error("OGE", "error", f"curator tables skipped: {exc}")
 
 
 _OGE_CURATOR_TABLES_OK = False
@@ -16610,7 +16652,7 @@ def _oge_curator_tables_ready():
     except Exception as exc:
         global _OGE_CURATOR_TABLES_ERR
         _OGE_CURATOR_TABLES_ERR = str(exc)[:500]
-        print(f"[OGE] curator tables still missing: {exc}")
+        log_error("OGE", "error", f"curator tables still missing: {exc}")
 
 
 _OGE_PLAN_MIN_MIN = 5
@@ -16678,7 +16720,7 @@ def _compute_item_done(uid, it, day_start=None):
         with get_db_engine().connect() as conn:
             return int(conn.execute(text(sql), params).scalar() or 0)
     except Exception as exc:
-        print(f"[OGE] item progress error: {exc}")
+        log_error("OGE", "error", f"item progress error: {exc}")
         return 0
 
 
@@ -16923,7 +16965,7 @@ def _snapshot_auto_done(uid, today, payload_row):
                     "UPDATE oge_daily_plans SET done_count=:v WHERE user_id=:u AND plan_date=:d"
                 ), {"v": auto, "u": uid, "d": today})
     except Exception as exc:
-        print(f"[OGE] auto-done snapshot error: {exc}")
+        log_error("OGE", "error", f"auto-done snapshot error: {exc}")
 
 
 @app.route("/api/study/plan", methods=["GET"])
@@ -16941,7 +16983,7 @@ def api_study_plan_get():
         with engine.connect() as conn:
             row = _load_plan_row(conn, uid, today)
     except Exception as exc:
-        print(f"[OGE] plan load error: {exc}")
+        log_error("OGE", "error", f"plan load error: {exc}")
         return jsonify({"ok": False, "error": "db", "detail": (_OGE_CURATOR_TABLES_ERR or str(exc))[:400]}), 500
     if row and (not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])):
         payload = _plan_payload(row, uid)
@@ -16995,7 +17037,7 @@ def api_study_today():
             ), {"u": uid, "t": day_start}).scalar()
         return jsonify({"ok": True, "touched": int(n or 0)})
     except Exception as exc:
-        print(f"[OGE] today stats error: {exc}")
+        log_error("OGE", "error", f"today stats error: {exc}")
         return jsonify({"ok": True, "touched": 0})
 
 
@@ -17745,7 +17787,7 @@ def _curator_tool_data(directive, uid, today):
             return handler(directive, uid, today)
         return f"Неизвестный инструмент: {tool}."
     except Exception as exc:
-        print(f"[OGE] curator tool error ({tool}): {exc}")
+        log_error("OGE", "error", f"curator tool error ({tool}): {exc}")
         return "Данные временно недоступны."
 
 
@@ -17791,7 +17833,7 @@ def api_study_chat_history():
             msgs = _chat_history(conn, uid, 30)
         return jsonify({"ok": True, "messages": msgs})
     except Exception as exc:
-        print(f"[OGE] chat history error: {exc}")
+        log_error("OGE", "error", f"chat history error: {exc}")
         return jsonify({"ok": True, "messages": []})
 
 
@@ -17855,7 +17897,7 @@ def api_study_chat_send():
             else:
                 plan_lines.append("План на сегодня ещё не составлен.")
     except Exception as exc:
-        print(f"[OGE] chat context error: {exc}")
+        log_error("OGE", "error", f"chat context error: {exc}")
         plan_lines.append("Статистика временно недоступна.")
     budget_lines.append(f"Бюджет времени в день: {minutes} минут.")
     subjects = _oge_subjects_payload(uid, now)[:5]
@@ -17975,10 +18017,10 @@ def api_study_chat_send():
             else:
                 reply = _curator_fallback_reply(subjects, plan_lines)
     if not reply or reply.startswith("❌") or _tool_directive(reply):
-        print("[OGE] curator AI unavailable, using rule fallback")
+        log_error("OGE", "info", "curator AI unavailable, using rule fallback")
         reply = _curator_fallback_reply(subjects, plan_lines)
     if _is_serialized_json(reply):
-        print("[OGE] curator returned raw JSON, hiding it with rule fallback")
+        log_error("OGE", "info", "curator returned raw JSON, hiding it with rule fallback")
         reply = _curator_fallback_reply(subjects, plan_lines)
     try:
         with engine.begin() as conn:
@@ -17995,7 +18037,7 @@ def api_study_chat_send():
                 "SELECT id FROM oge_chat_messages WHERE user_id=:u ORDER BY id DESC LIMIT :k)"
             ).bindparams(bindparam("k")), {"u": uid, "k": _OGE_CHAT_KEEP})
     except Exception as exc:
-        print(f"[OGE] chat persist error: {exc}")
+        log_error("OGE", "error", f"chat persist error: {exc}")
         return jsonify({"ok": False, "error": "storage failed"}), 500
     return jsonify({"ok": True, "reply": reply, "actions": actions})
 
@@ -18028,7 +18070,7 @@ def api_study_hint():
                 if p in pref_cnt:
                     pref_cnt[p] += 1
     except Exception as exc:
-        print(f"[OGE] hint stats error: {exc}")
+        log_error("OGE", "error", f"hint stats error: {exc}")
     if s["due"] > 0:
         dominant = max(pref_cnt, key=lambda k: pref_cnt[k])
         if not pref_cnt[dominant]:
@@ -18300,7 +18342,7 @@ def api_daily_prayer():
             else:
                 already = True
     except Exception as exc:
-        print(f"[DAILY_PRAYER] error: {exc}")
+        log_error("DAILY_PRAYER", "error", f"error: {exc}")
     return jsonify({
         "prayer": _prayer_for_day(uid, today),
         "already": already,
@@ -18353,7 +18395,7 @@ def api_achievements_activity():
             ],
         })
     except Exception as exc:
-        print(f"[ACHIEVEMENTS] activity error: {exc}")
+        log_error("ACHIEVEMENTS", "error", f"activity error: {exc}")
         return jsonify({"ok": False, "error": "server error"}), 500
 
 
@@ -18406,7 +18448,7 @@ def api_achievements_list():
             "modules": modules,
         })
     except Exception as exc:
-        print(f"[ACHIEVEMENTS] list error: {exc}")
+        log_error("ACHIEVEMENTS", "error", f"list error: {exc}")
         return jsonify({"ok": False, "error": "server error"}), 500
 
 
@@ -18423,7 +18465,7 @@ def _canon_doc_effective() -> str:
             if row:
                 return row["content"]
     except Exception as exc:
-        print(f"[CANON] doc effective fallback: {exc}")
+        log_error("CANON", "error", f"doc effective fallback: {exc}")
     return load_canon_text()
 
 
@@ -18448,7 +18490,7 @@ def canon_page():
             for w in _db_works:
                 w["has_audio"] = bool(w.get("has_audio"))
     except Exception as exc:
-        print(f"[CANON] page works db fallback: {exc}")
+        log_error("CANON", "error", f"page works db fallback: {exc}")
     if not _db_works:
         _db_works = [
             {
@@ -18727,7 +18769,7 @@ def api_canon_works():
             w["has_audio"] = bool(w.get("has_audio"))
         return jsonify({"works": works, "total": len(works)})
     except Exception as exc:
-        print(f"[CANON] works db fallback: {exc}")
+        log_error("CANON", "error", f"works db fallback: {exc}")
 
     # Фолбэк — статический перечень из core.canon (без content).
     works = [
@@ -18779,7 +18821,7 @@ def api_canon_work_detail(work_id):
         detail["has_audio"] = bool(detail.get("has_audio"))
         return jsonify(detail)
     except Exception as exc:
-        print(f"[CANON] work detail error: {exc}")
+        log_error("CANON", "error", f"work detail error: {exc}")
 
     # Фолбэк на статику (id совпадает с порядковым номером из core.canon).
     try:
@@ -18820,7 +18862,7 @@ def api_canon_documents():
                 "updated_at": str(row["updated_at"]) if row["updated_at"] else None,
             })
     except Exception as exc:
-        print(f"[CANON] doc overlay error: {exc}")
+        log_error("CANON", "error", f"doc overlay error: {exc}")
     return jsonify({
         "text": load_canon_text(),
         "version": CANON_VERSION,
@@ -18888,7 +18930,7 @@ def api_canon_request_submit():
             )
             conn.commit()
     except Exception as exc:
-        print(f"[CANON] request submit error: {exc}")
+        log_error("CANON", "error", f"request submit error: {exc}")
         return jsonify({"error": "Не удалось отправить заявку"}), 500
     return jsonify({"ok": True})
 
@@ -18932,7 +18974,7 @@ def api_admin_canon_requests():
             items.append(d)
         return jsonify({"count": len(items), "items": items})
     except Exception as exc:
-        print(f"[CANON] admin requests error: {exc}")
+        log_error("CANON", "error", f"admin requests error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -18976,7 +19018,7 @@ def api_admin_canon_request_approve(req_id):
                 {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
             )
     except Exception as exc:
-        print(f"[CANON] approve error: {exc}")
+        log_error("CANON", "error", f"approve error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True})
 
@@ -18999,7 +19041,7 @@ def api_admin_canon_request_reject(req_id):
                 {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
             )
     except Exception as exc:
-        print(f"[CANON] reject error: {exc}")
+        log_error("CANON", "error", f"reject error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True})
 
@@ -19044,7 +19086,7 @@ def api_admin_canon_work_update(work_id):
             if result.rowcount == 0:
                 return jsonify({"error": "Произведение не найдено"}), 404
     except Exception as exc:
-        print(f"[CANON] update work error: {exc}")
+        log_error("CANON", "error", f"update work error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True})
 
@@ -19105,7 +19147,7 @@ def api_admin_canon_work_audio_upload(work_id):
             if result.rowcount == 0:
                 return jsonify({"error": "Произведение не найдено"}), 404
     except Exception as exc:
-        print(f"[CANON] audio upload error: {exc}")
+        log_error("CANON", "error", f"audio upload error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True, "audio_name": filename[:255] or "audio", "audio_mime": mime, "audio_size": len(data)})
 
@@ -19129,7 +19171,7 @@ def api_admin_canon_work_audio_delete(work_id):
             if result.rowcount == 0:
                 return jsonify({"error": "Произведение не найдено"}), 404
     except Exception as exc:
-        print(f"[CANON] audio delete error: {exc}")
+        log_error("CANON", "error", f"audio delete error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True})
 
@@ -19147,7 +19189,7 @@ def api_canon_work_audio(work_id):
                 {"wid": work_id},
             ).mappings().first()
     except Exception as exc:
-        print(f"[CANON] audio stream error: {exc}")
+        log_error("CANON", "error", f"audio stream error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     if not row or row["status"] != "approved":
         return jsonify({"error": "Аудио не найдено"}), 404
@@ -19180,7 +19222,7 @@ def api_admin_canon_works_list():
             ).mappings().all()
         return jsonify({"count": len(rows), "items": [dict(r) for r in rows]})
     except Exception as exc:
-        print(f"[CANON] admin works list error: {exc}")
+        log_error("CANON", "error", f"admin works list error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -19197,7 +19239,7 @@ def api_admin_canon_doc_get():
         content = row["content"] if row else load_canon_text()
         return jsonify({"content": content, "source": "db" if row else "file"})
     except Exception as exc:
-        print(f"[CANON] admin doc get error: {exc}")
+        log_error("CANON", "error", f"admin doc get error: {exc}")
         return jsonify({"content": load_canon_text(), "source": "file"})
 
 
@@ -19228,7 +19270,7 @@ def api_admin_canon_doc_put():
                 )
             conn.commit()
     except Exception as exc:
-        print(f"[CANON] admin doc put error: {exc}")
+        log_error("CANON", "error", f"admin doc put error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True})
 
@@ -19243,7 +19285,7 @@ def api_admin_canon_doc_delete():
             conn.execute(text("DELETE FROM canon_doc"))
             conn.commit()
     except Exception as exc:
-        print(f"[CANON] admin doc delete error: {exc}")
+        log_error("CANON", "error", f"admin doc delete error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True})
 
@@ -19300,7 +19342,7 @@ def api_textbooks_list():
         items = [{"id": r["id"], "subject": r["subject"], "title": r["title"], "location": r["location"]} for r in rows]
         return jsonify({"items": items, "subjects": _TEXTBOOK_SUBJECTS, "colors": _TEXTBOOK_COLORS})
     except Exception as exc:
-        print(f"[TEXTBOOK] list error: {exc}")
+        log_error("TEXTBOOK", "error", f"list error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -19331,7 +19373,7 @@ def api_textbooks_create():
             new_id = result.mappings().first()["id"]
         return jsonify({"ok": True, "id": new_id})
     except Exception as exc:
-        print(f"[TEXTBOOK] create error: {exc}")
+        log_error("TEXTBOOK", "error", f"create error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -19355,7 +19397,7 @@ def api_textbooks_move(tb_id):
                 return jsonify({"error": "Учебник не найден"}), 404
         return jsonify({"ok": True})
     except Exception as exc:
-        print(f"[TEXTBOOK] move error: {exc}")
+        log_error("TEXTBOOK", "error", f"move error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -19375,7 +19417,7 @@ def api_textbooks_delete(tb_id):
                 return jsonify({"error": "Учебник не найден"}), 404
         return jsonify({"ok": True})
     except Exception as exc:
-        print(f"[TEXTBOOK] delete error: {exc}")
+        log_error("TEXTBOOK", "error", f"delete error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
@@ -19650,7 +19692,7 @@ def canon_work_page(work_id):
                     {"wid": work_id},
                 )
     except Exception as exc:
-        print(f"[CANON] work page db error: {exc}")
+        log_error("CANON", "error", f"work page db error: {exc}")
         row = None
 
     if not row or row["status"] != "approved":
@@ -20623,7 +20665,7 @@ def api_verbs_generate():
         _save_verb_exercise(ex_data)
     except Exception as exc:
         VERB_GEN_LOCK.pop(uid, None)
-        print(f"[VERBS] save exercise error: {exc}")
+        log_error("VERBS", "error", f"save exercise error: {exc}")
         return jsonify({"error": "Не удалось сохранить задание. Попробуйте ещё раз."}), 500
     share_url = request.host_url.rstrip("/") + "/irregular_verbs/exercise/" + str(ex_id)
     # build a display-safe preview (blank fields per mode) for the teacher
@@ -20788,7 +20830,7 @@ def telegram_webhook(secret: str):
         name = user.get("first_name") or user.get("username") or "LucasTeam"
         command = normalize_command(msg_text)
 
-        print(f"[WEBHOOK] command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
+        log_error("WEBHOOK", "info", f"command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
 
         # Universe Module: infected user message modification
         if (
@@ -20826,7 +20868,7 @@ def telegram_webhook(secret: str):
                     )
                     return jsonify({"ok": True})
             except Exception as exc:
-                print(f"[UNIVERSE] infection message modify error: {exc}")
+                log_error("UNIVERSE", "error", f"infection message modify error: {exc}")
 
         reply_to = message.get("reply_to_message")
 
@@ -20837,7 +20879,7 @@ def telegram_webhook(secret: str):
                 from api.dnd_runtime import handle_free_text
                 dnd_reply = handle_free_text(user_id, chat_id, msg_text)
             except Exception as exc:
-                print(f"[DND] handle_free_text error: {exc}")
+                log_error("DND", "error", f"handle_free_text error: {exc}")
             if dnd_reply:
                 send_telegram_message(chat_id, dnd_reply)
                 return jsonify({"ok": True})
@@ -21831,11 +21873,11 @@ def telegram_webhook(secret: str):
 
         # /puzzle and /chess_puzzle commands
         elif command in ["/puzzle", "/chess_puzzle"] and chat_id:
-            print(f"[PUZZLE] user_id={user_id}, chat_id={chat_id}")
+            log_error("PUZZLE", "info", f"user_id={user_id}, chat_id={chat_id}")
             account = get_chess_account(user_id)
-            print(f"[PUZZLE] account={account}")
+            log_error("PUZZLE", "info", f"account={account}")
             if not account:
-                print("[PUZZLE] No account, sending error")
+                log_error("PUZZLE", "info", "No account, sending error")
                 send_telegram_message(
                     chat_id,
                     "❌ Сначала привяжите Lichess аккаунт: `/chess_link <ник>`",
@@ -22447,7 +22489,7 @@ def telegram_webhook(secret: str):
                     parse_mode="Markdown",
                 )
             except Exception as exc:
-                print(f"[UNIVERSE] /infect error: {exc}")
+                log_error("UNIVERSE", "error", f"/infect error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при заражении.")
 
         elif command == "/tea" and chat_id:
@@ -22489,7 +22531,7 @@ def telegram_webhook(secret: str):
                 ]
                 send_telegram_message(chat_id, f"☕ {random.choice(phrases)}", parse_mode="Markdown")
             except Exception as exc:
-                print(f"[UNIVERSE] /tea error: {exc}")
+                log_error("UNIVERSE", "error", f"/tea error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при чаепитии.")
 
         elif command == "/daily_prayer" and chat_id:
@@ -22522,7 +22564,7 @@ def telegram_webhook(secret: str):
                     parse_mode="Markdown",
                 )
             except Exception as exc:
-                print(f"[UNIVERSE] /daily_prayer error: {exc}")
+                log_error("UNIVERSE", "error", f"/daily_prayer error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при получении молитвы.")
 
         # ── D&D AI Master ──────────────────────────────────────────
@@ -23397,7 +23439,7 @@ Return ONLY pure JSON array, no markdown, no extra text:
 Text: {text}"""
 
         ai_text = call_ai_api(prompt, max_tokens=3000, temperature=0.1)
-        print(f"[ENDINGS] Raw AI response: {ai_text[:200]}")
+        log_error("ENDINGS", "info", f"Raw AI response: {ai_text[:200]}")
 
         def _fallback_segments(src_text: str) -> list | None:
             """Deterministic fallback: split endings of long Russian words."""
@@ -23514,11 +23556,11 @@ Text: {text}"""
 
         # AI unavailable or returned unusable data -> deterministic fallback
         if not ai_text or not ai_text.strip():
-            print("[ENDINGS] AI вернул пустой ответ")
+            log_error("ENDINGS", "info", "AI вернул пустой ответ")
         elif ai_text.startswith("❌"):
-            print(f"[ENDINGS] AI недоступен: {ai_text}")
+            log_error("ENDINGS", "error", f"AI недоступен: {ai_text}")
         else:
-            print("[ENDINGS] Не удалось получить корректные сегменты от AI")
+            log_error("ENDINGS", "info", "Не удалось получить корректные сегменты от AI")
 
         fallback = _fallback_segments(text)
         if fallback:
@@ -23533,7 +23575,7 @@ Text: {text}"""
         return jsonify({"ok": False, "error": "Не удалось создать упражнение. Попробуйте другой текст или повторите ещё раз."})
 
     except Exception as e:
-        print(f"[ENDINGS] Error: {e}")
+        log_error("ENDINGS", "error", f"Error: {e}")
         return jsonify({"ok": False, "error": "Внутренняя ошибка при создании упражнения. Попробуйте ещё раз."})
 
 
@@ -23568,15 +23610,29 @@ def _family_decrypt(token: str) -> str:
 
 
 def _family_hash_password(password: str) -> str:
-    salt = os.urandom(16).hex()
-    return salt + ":" + hashlib.sha256((salt + password).encode()).hexdigest()
+    """Hash password with bcrypt. Returns 'bcrypt:<hash>' format."""
+    h = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    return "bcrypt:" + h.decode("utf-8")
 
 
 def _family_check_password(password: str, stored: str) -> bool:
-    if not stored or ":" not in stored:
+    """Verify password against stored hash. Supports bcrypt and legacy SHA-256."""
+    if not stored:
+        return False
+    if stored.startswith("bcrypt:"):
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored[7:].encode("utf-8"))
+        except Exception:
+            return False
+    # Legacy SHA-256 migration path
+    if ":" not in stored:
         return False
     salt, hsh = stored.split(":", 1)
-    return hashlib.sha256((salt + password).encode()).hexdigest() == hsh
+    legacy = hashlib.sha256((salt + password).encode()).hexdigest()
+    if not hmac.compare_digest(legacy, hsh):
+        return False
+    # Re-hash with bcrypt on successful legacy login
+    return True
 
 
 def _family_gen_room_id() -> str:
@@ -23683,6 +23739,16 @@ def _family_verify_member(room_id: str, name: str, password: str) -> dict | None
         return None
     if not _family_check_password(password, member["password_hash"]):
         return None
+    # Re-hash with bcrypt if still on legacy SHA-256
+    if not member["password_hash"].startswith("bcrypt:"):
+        try:
+            new_hash = _family_hash_password(password)
+            engine = get_db_engine()
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE members SET password_hash = :h WHERE id = :id"),
+                             {"h": new_hash, "id": member["id"]})
+        except Exception:
+            pass
     return member
 
 
@@ -23921,7 +23987,7 @@ def api_family_rooms_create():
         result = _family_create_room(name, creator_name)
         return jsonify(result)
     except Exception as exc:
-        print(f"[FAMILY] create room error: {exc}")
+        log_error("FAMILY", "error", f"create room error: {exc}")
         return jsonify({"error": "Ошибка при создании комнаты"}), 500
 
 
@@ -23939,7 +24005,7 @@ def api_family_rooms_join():
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as exc:
-        print(f"[FAMILY] join room error: {exc}")
+        log_error("FAMILY", "error", f"join room error: {exc}")
         return jsonify({"error": "Ошибка при входе в комнату"}), 500
 
 
