@@ -251,6 +251,57 @@ _Баги добавляются по ходу тестирования оста
 - **Проверка:** прод `audioservice.vercel.app` `/api/music/analyze` на 30с WAV теперь 200 за ~22с (холодный, с JIT) — в лимите 60с; MIDI 120 BPM. **Закоммичено `7547813`, задеплоено (audioservice + bank-bot-ruby).**
 - **Остаток:** `change_tempo`/`change_key`/`overlay` грузят полный трек (нужен для синтеза) — на очень длинных файлах всё ещё могут упираться в 60с; при необходимости тоже капать длительность.
 
+### 2026-08-31 (Session: аудит и фикс бета-модулей — 3 раунда, ~29 багов)
+
+> Запрос пользователя: «еще улучшь бета модули и найди больше багов(и пофикси их)». Запущены параллельные субагенты для глубокого аудита D&D, Trivia, Family, Verbs, Music, AI Chat, Exam, Suggest, Textbooks.
+
+#### Raund 1 (12 багов, коммит `c79243d` → `86773f8`)
+- **[DND-FIX-1]** `dnd_page()` — добавлен `Content-Type: text/html; charset=utf-8` (был bare `return html`).
+- **[DND-FIX-2]** `sendAction()` — добавлен `hubTrack('dnd', 1)` (AI-действия не считались в ачивки).
+- **[DND-FIX-3]** CSS hover кнопки `.btn:hover`/`.btn-stop:hover` — были одинаковые с дефолтом, добавлены darker shades.
+- **[DND-FIX-4]** `_dnd_plain()` — убран redundant `import re` внутри функции (уже импортирован на уровне модуля).
+- **[TRIVIA-FIX-1]** `_TRIVIA_SESSIONS` — исправлен тип `dict[int, dict]` → `dict[str, dict]` (ключи hex strings).
+- **[TRIVIA-FIX-2]** `api_trivia_answer()` — сессия удаляется после ответа (`pop`), предотвращая replay.
+- **[TRIVIA-FIX-3]** `random.sample(pool, 3)` → `min(3, len(pool))` — защита от ValueError при pool<3.
+- **[FAMILY-FIX-1]** `api_family_report_generate()` — добавлена проверка `finished=FALSE` у всех участников перед генерацией отчёта.
+- **[FAMILY-FIX-2]** `api_family_rooms_delete()` — каскадное удаление: final_reports → needs → messages → members → rooms.
+- **[VERB-FIX-1]** `api_verbs_generate()` — `count=0` больше не превращается в 10 (фикс через `"count" in data`).
+- **[VERB-FIX-2]** `api_verbs_submit()` — убран двойной `_load_verb_exercise()` (2 DB queries → 1).
+- **[MUSIC-FIX-1]** Все music endpoints — добавлен `shutil.rmtree` в `finally` для temp file cleanup.
+
+#### Raund 2 (10 багов, коммит `5a4a526` → `0927dd9`)
+- **[DND-FIX-5]** Ограничения длины ввода: action text 2000, session name 100, fix text 1000, dice 50, purpose 200.
+- **[DND-FIX-6]** `api_dnd_stop()` — generic error message вместо утечки Python-исключений.
+- **[DND-FIX-7]** `api_dnd_roll()` — rate limiting 20/min (триггерит AI calls).
+- **[DND-RUNTIME-1]** Gemini/Groq response parsing — добавлен `try/except (KeyError, IndexError, ValueError)`.
+- **[EXAM-FIX-1]** `_EXAM_SESSIONS` cleanup — `dict.pop(next(iter(...)), None)` вместо без None (race condition).
+- **[SUGGEST-FIX-1]** `api_feedback_submit()` — rate limiting 5/min.
+- **[TRIVIA-FIX-4]** `api_trivia_question()` — rate limiting 30/min.
+- **[AICHAT-FIX-1]** File upload size limit — 2MB base64 (~1.5MB raw), `continue` если превышен.
+- **[AICHAT-FIX-2]** `_VIRTUAL_PC` eviction — max 50 виртуальных ПК, LRU-style eviction.
+- **[AICHAT-FIX-3]** Message limits — 4000 chars, history cap 20 messages.
+
+#### Raund 3 (7 багов, коммит `72ecbf5` → `78484ad`)
+- **[AICHAT-FIX-4]** `_tool_browse_web` SSRF protection — блокировка private/loopback/reserved IP через `ipaddress.ip_address()`, блокировка internal hostname'ов (localhost, 169.254.169.254, metadata.google.internal), ограничение редиректов (макс. 2), cap response 50KB.
+- **[VERB-FIX-3]** `_load_verb_exercise()` — `json.loads` с try/except (2 crash-бага).
+- **[VERB-FIX-4]** `_load_verb_submissions()` — аналогично.
+- **[CHAR-FIX-1]** `set_user_character()` — None guard перед `character.lower()`.
+- **[AICHAT-FIX-5]** `_pc_extract_reply()` — fix type handling: `isinstance(part.get("text"), str)` вместо `part.get("type") == "text"`, возврат `str(content)` для non-string/non-list.
+- **[FAMILY-FIX-3]** `_family_chat_dialog()` — расширенная проверка AI ошибок (пустой ответ, "Error" префикс, слишком короткий).
+- **[FAMILY-FIX-4]** `intent_type` sanitization — max 50 символов, isinstance проверка.
+- **[DND-FIX-8]** Prompt injection protection — явный разделитель `[ДЕЙСТВИЕ ИГРОКА]` + инструкция игнорировать поправки.
+
+### 2026-08-31 (Session: канон аудио + Supabase Storage)
+- **10 треков** загружены в Supabase Storage (`canon-audio` bucket, public URL).
+- **`audio_url`** колонка добавлена в `canon_works`, URL-ы заполнены через временный migration endpoint.
+- **`/api/canon/work/{id}/audio`** теперь делает **302 redirect** на Storage вместо отдачи BYTEA из БД.
+- **`has_audio`** SQL обновлён: `audio_url IS NOT NULL OR audio_data IS NOT NULL`.
+- Временный migrate endpoint удалён после использования.
+
+### 2026-08-31 (Session: перенос модулей из беты в основной раздел)
+- **История** и **Geometry Dash** перенесены из «Бета-модули» в «Основные» на хабе `/`.
+- Geometry Dash — без бейджа «Бета»; История — с бейджем «ОГЭ».
+
 ### 2026-08-28 (Session: музыка — цепочка регрессов кнопки/анализа)
 - **Истинная первопричина «не работает музыка»**: `MUSIC_API_BASE` инжектился через `json.dumps` внутри ШАБЛОНА в одинарных кавычках → `var MUSIC_API_BASE='"https://audioservice..."'` — двойные кавычки стали литералами внутри JS-строки. fetch уходил по невалидному URL и резолвился ОТНОСИТЕЛЬНО ОРИГИНА LTHub (а не на audioservice) → крупные файлы давали **413** на прокси LTHub, мелкие — **404**. Все предыдущие симптомы (timeout/ничего не происходит/413/404) были следствием этого + побочных правок.
 - **Фикс:** убраны одинарные кавычки из шаблона, `json.dumps` теперь формирует корректную JS-строку `var MUSIC_API_BASE="https://audioservice.vercel.app";`. Плюс client-side компрессор аудио (20с@16кГц моно WAV ~0.6МБ) как защита от реального лимита Vercel ~4.5МБ. Коммиты `357d969`, `707268a`, задеплоено.
