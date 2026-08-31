@@ -5757,8 +5757,6 @@ def gd_page():
         var USER_ID = localStorage.getItem('gd_user_id');
         if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('gd_user_id', USER_ID); }
         var urlParams = new URLSearchParams(window.location.search);
-        var qid = urlParams.get('user_id');
-        if (qid) { USER_ID = qid; localStorage.setItem('gd_user_id', qid); }
         var IS_ADMIN = false;
         var ACCOUNT_ID = null;
         var LB_LEVELS = [];
@@ -6617,8 +6615,11 @@ def api_dnd_fix():
     text = (data.get("text") or "").strip()[:1000]
     if not text:
         return jsonify({"error": "Пустой текст исправления"}), 400
-    from api.dnd_runtime import cmd_dnd_fix
-    reply = cmd_dnd_fix(uid, uid, text)
+    try:
+        from api.dnd_runtime import cmd_dnd_fix
+        reply = cmd_dnd_fix(uid, uid, text)
+    except Exception:
+        return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True, "reply": _dnd_plain(reply)})
 
 
@@ -6739,8 +6740,6 @@ def dnd_page():
         var USER_ID = localStorage.getItem('dnd_user_id');
         if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('dnd_user_id', USER_ID); }
         var urlParams = new URLSearchParams(window.location.search);
-        var qid = urlParams.get('user_id');
-        if (qid) { USER_ID = qid; localStorage.setItem('dnd_user_id', qid); }
         var SESSION_CODE = urlParams.get('session');
 
         function post(url, body, cb) {
@@ -10501,7 +10500,6 @@ def trivia_page():
                             btn.className = 'opt-btn';
                             btn.textContent = opt;
                             btn.dataset.index = i;
-                            btn.dataset.correct = (i === q.correct_index) ? '1' : '0';
                             btn.addEventListener('click', function() { answerClick(q.id, i); });
                             opts.appendChild(btn);
                         });
@@ -10540,7 +10538,7 @@ def trivia_page():
                             return;
                         }
                         btns.forEach(function(b) {
-                            if (b.dataset.correct === '1') b.classList.add('correct');
+                            if (r.correct_text && b.textContent === r.correct_text) b.classList.add('correct');
                             else if (parseInt(b.dataset.index) === idx && !r.correct) b.classList.add('wrong');
                         });
                         if (r.correct) { score++; }
@@ -14235,7 +14233,7 @@ def api_exam_check():
                 recorded = True
             except Exception as exc:
                 print(f"[EXAM] progress record error: {exc}")
-    return jsonify({"ok": True, "correct": ok, "answer": it["_answer"],
+    return jsonify({"ok": True, "correct": ok,
                     "explanation": it["_explanation"], "recorded": recorded})
 
 
@@ -14764,7 +14762,7 @@ function showNext() {
   if (it.hint) {
     var hb = document.getElementById('hint-box');
     hb.style.display = 'block';
-    hb.innerHTML = '<button class="mcq-btn" style="font-style:italic;color:var(--bb-muted);" onclick="this.nextElementSibling.style.display=\\'block\\';this.style.display=\\'none\\';">\U0001F4A1 \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443</button><div class="hint-text" style="display:none;">' + it.hint + '</div>';
+    hb.innerHTML = '<button class="mcq-btn" style="font-style:italic;color:var(--bb-muted);" onclick="this.nextElementSibling.style.display=\\'block\\';this.style.display=\\'none\\';">\U0001F4A1 \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443</button><div class="hint-text" style="display:none;">' + esc(it.hint) + '</div>';
   }
 
   prefetch();
@@ -14777,7 +14775,7 @@ function showFeedback(ok, it, serverResp) {
   fb.innerHTML = (ok
     ? '<span class="ok">\u2705 \u0412\u0435\u0440\u043D\u043E!</span>'
     : '<span class="bad">\u274C \u041D\u0435\u0432\u0435\u0440\u043E. \u041E\u0442\u0432\u0435\u0442: ' + esc(String(ansText)) + '</span>')
-    + (serverResp.explanation ? '<div class="explain">' + serverResp.explanation + '</div>' : '');
+    + (serverResp.explanation ? '<div class="explain">' + esc(serverResp.explanation) + '</div>' : '');
   document.getElementById('next').style.display = '';
   fetch('/api/exam/ai-record', {method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({key:it.key, module:it.module, correct:ok})}).catch(function(){});
@@ -15034,8 +15032,8 @@ def api_music_analyze():
         res = analyze(path)
         res["audio_available"] = audio_utils._LIBROSA
         return jsonify(res)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Ошибка анализа аудио"}), 500
     finally:
         shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
@@ -20433,10 +20431,11 @@ def irregular_verbs_page():
                     xhr.send(JSON.stringify({verbs: verbs, count: count, mode: mode, wishes: wishes, user_id: USER_ID}));
                 },
                 confirmExercise: function(exId, shareUrl) {
+                    var safeUrl = esc(shareUrl);
                     render(
                         '<div class="card" style="text-align:center"><h2>\\u2705 \\u0417\\u0430\\u0434\\u0430\\u043d\\u0438\\u0435 \\u0441\\u043e\\u0437\\u0434\\u0430\\u043d\\u043e!</h2>' +
-                        '<p style="margin:12px 0;color:#888">ID: <strong style="color:var(--bb-accent)">'+exId+'</strong></p>' +
-                        '<div class="share-link"><code>'+shareUrl+'</code><button class="btn-copy" data-url="'+shareUrl+'" onclick="copyUrl(this)">Copy</button></div>' +
+                        '<p style="margin:12px 0;color:#888">ID: <strong style="color:var(--bb-accent)">'+esc(exId)+'</strong></p>' +
+                        '<div class="share-link"><code>'+safeUrl+'</code><button class="btn-copy" data-url="'+esc(shareUrl)+'" onclick="copyUrl(this)">Copy</button></div>' +
                         '<button class="btn btn-secondary btn-full" onclick="app.myExercises()">\\ud83d\\udcca \\u041c\\u043e\\u0438 \\u0437\\u0430\\u0434\\u0430\\u043d\\u0438\\u044f</button>' +
                         '<button class="btn btn-secondary btn-full" onclick="app.createExercise()">\\ud83d\\udccb \\u0415\\u0449\\u0451</button>' +
                         '<button class="back-link" onclick="app.teacherMenu()">\\u2190 \\u041d\\u0430\\u0437\\u0430\\u0434</button></div>'
@@ -20597,8 +20596,11 @@ VERB_GEN_LOCK: dict[int, float] = {}
 def api_verbs_generate():
     data = request.get_json(silent=True) or {}
     verbs = (data.get("verbs") or "").strip()
-    count = int(data["count"]) if "count" in data else 10
-    mode = int(data["mode"]) if "mode" in data else 2
+    try:
+        count = int(data["count"]) if "count" in data else 10
+        mode = int(data["mode"]) if "mode" in data else 2
+    except (ValueError, TypeError):
+        return jsonify({"error": "count и mode должны быть числами"}), 400
     wishes = (data.get("wishes") or "").strip()
     user_id_raw = data.get("user_id")
     if not verbs:
@@ -20733,7 +20735,7 @@ def api_verbs_submit():
         for field in ("inf", "past", "pp"):
             if field in ans:
                 total_fields += 1
-                user_val = ans[field].strip().lower()
+                user_val = str(ans[field]).strip().lower()
                 d[field] = ans[field]
                 expected = task.get(field, "").strip().lower()
                 d[field + "_correct"] = user_val == expected if expected else True
@@ -23580,7 +23582,7 @@ def _family_check_password(password: str, stored: str) -> bool:
 def _family_gen_room_id() -> str:
     engine = get_db_engine()
     while True:
-        rid = str(random.randint(100000, 999999))
+        rid = secrets.token_hex(4).upper()
         with engine.connect() as conn:
             row = conn.execute(text("SELECT id FROM rooms WHERE id = :rid"), {"rid": rid}).fetchone()
         if not row:
