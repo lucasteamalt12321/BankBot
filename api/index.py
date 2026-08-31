@@ -2679,7 +2679,10 @@ def _load_verb_exercise(ex_id: int) -> dict | None:
     if not row:
         return None
     d = dict(row._mapping)
-    d["tasks"] = json.loads(d["tasks"])
+    try:
+        d["tasks"] = json.loads(d["tasks"])
+    except (json.JSONDecodeError, TypeError):
+        d["tasks"] = []
     return d
 
 
@@ -2721,7 +2724,10 @@ def _load_verb_submissions(ex_id: int) -> list[dict]:
     result = []
     for r in rows:
         d = dict(r._mapping)
-        d["details"] = json.loads(d["details"])
+        try:
+            d["details"] = json.loads(d["details"])
+        except (json.JSONDecodeError, TypeError):
+            d["details"] = []
         result.append(d)
     return result
 
@@ -2767,6 +2773,8 @@ def get_user_character(user_id: int) -> str:
 
 def set_user_character(user_id: int, character: str) -> bool:
     """Set user's preferred character. Updates cache always, DB if possible."""
+    if not character:
+        return False
     character = character.lower()
     if character not in CHARACTER_PROMPTS:
         return False
@@ -7859,13 +7867,46 @@ def _tool_browse_web(url: str) -> str:
     """Fetch a web page and return readable text."""
     if not url.startswith(("http://", "https://")):
         return "URL must start with http:// or https://"
+    # SSRF protection: block private/loopback IPs
+    import ipaddress
+    from urllib.parse import urlparse
     try:
-        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+        # Block localhost, loopback, private ranges, link-local, cloud metadata
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return "Доступ к внутренним ресурсам запрещён."
+    except ValueError:
+        # hostname is a domain name, not IP — block common internal names
+        blocked = ("localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
+                    "metadata.google.internal", "instance-data")
+        if hostname.lower() in blocked or hostname.endswith(".local"):
+            return "Доступ к внутренним ресурсам запрещён."
+    try:
+        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"},
+                            allow_redirects=False, max_redirects=0)
+        # Follow at most 2 redirects, block redirect to internal IPs
+        for _ in range(2):
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("Location", "")
+                if not loc.startswith(("http://", "https://")):
+                    break
+                try:
+                    redir_ip = ipaddress.ip_address(urlparse(loc).hostname or "")
+                    if redir_ip.is_private or redir_ip.is_loopback or redir_ip.is_link_local:
+                        return "Редирект на внутренний ресурс запрещён."
+                except ValueError:
+                    pass
+                resp = requests.get(loc, timeout=8, headers={"User-Agent": "Mozilla/5.0"},
+                                    allow_redirects=False)
+            else:
+                break
     except Exception as exc:
         return f"Fetch error: {exc}"
     if resp.status_code != 200:
         return f"HTTP {resp.status_code}"
-    html = resp.text
+    html = resp.text[:50000]  # limit response size
     html = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", html)
     text = re.sub(r"(?s)<[^>]+>", " ", html)
     text = re.sub(r"\s+", " ", text).strip()
@@ -8148,9 +8189,11 @@ def _pc_extract_reply(resp: "requests.Response") -> str:
         return " ".join(
             str(part.get("text", ""))
             for part in content
-            if isinstance(part, dict) and part.get("type") == "text"
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
         )
-    return content or ""
+    if isinstance(content, str):
+        return content
+    return str(content) if content else ""
 
 
 def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
@@ -23538,7 +23581,7 @@ def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dic
     parts.append(user_message)
     full_prompt = "\n\n".join(parts)
     ai_text = call_ai_api(full_prompt, max_tokens=1024)
-    if ai_text.startswith("❌"):
+    if not ai_text or ai_text.startswith("❌") or ai_text.startswith("Error") or len(ai_text.strip()) < 2:
         return "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.", None
 
     intent_type = None
@@ -23546,7 +23589,9 @@ def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dic
     if json_match:
         try:
             parsed = json.loads("{" + json_match.group(1) + "}")
-            intent_type = parsed.get("intent_type")
+            intent_val = parsed.get("intent_type")
+            if isinstance(intent_val, str) and len(intent_val) <= 50:
+                intent_type = intent_val
         except json.JSONDecodeError:
             pass
         ai_text = re.sub(r'\s*\{("intent_type"\s*:\s*"[^"]+")\}\s*$', '', ai_text).strip()
