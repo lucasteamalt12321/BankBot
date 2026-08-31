@@ -5115,6 +5115,20 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <p>Полный текст канона, произведения и глоссарий</p>
                 </div>
             </a>
+            <a class="card" href="/gd">
+                <div class="card-icon">🎮</div>
+                <div class="card-content">
+                    <h2>Geometry Dash</h2>
+                    <p>Профили, топ уровней, статистика прохождений</p>
+                </div>
+            </a>
+            <a class="card" data-oge="1" href="/emperors">
+                <div class="card-icon">👑</div>
+                <div class="card-content">
+                    <h2>История <span class="beta-tag">ОГЭ</span></h2>
+                    <p>Шпаргалка и тренажёр: имена и события к императорам</p>
+                </div>
+            </a>
             <div class="oge-mode-bar" id="oge-mode-bar">
                 <label><input type="checkbox" id="oge-mode-toggle"> 🎯 Режим подготовки к ОГЭ</label>
             </div>
@@ -5150,13 +5164,6 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Текстовая RPG с AI-мастером</p>
                     </div>
                 </a>
-                <a class="card" href="/gd">
-                    <div class="card-icon">🎮</div>
-                    <div class="card-content">
-                        <h2>Geometry Dash <span class="beta-tag">Бета</span></h2>
-                        <p>Профили, топ уровней, статистика прохождений</p>
-                    </div>
-                </a>
                 <a class="card" href="/trivia">
                     <div class="card-icon">🧠</div>
                     <div class="card-content">
@@ -5169,13 +5176,6 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <div class="card-content">
                         <h2>Практика глаголов <span class="beta-tag">Бета</span></h2>
                         <p>Практика неправильных глаголов с AI</p>
-                    </div>
-                </a>
-                <a class="card" data-oge="1" href="/emperors">
-                    <div class="card-icon">👑</div>
-                    <div class="card-content">
-                        <h2>История <span class="beta-tag">Бета</span><span class="beta-tag">ОГЭ</span></h2>
-                        <p>Шпаргалка и тренажёр: имена и события к императорам</p>
                     </div>
                 </a>
                 <a class="card" data-oge="1" href="/informatics">
