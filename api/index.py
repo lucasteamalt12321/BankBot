@@ -17124,6 +17124,8 @@ def _curator_fallback_reply(subjects, plan_lines):
 _CURATOR_TOOLS = {
     "stats", "progress", "plan", "card", "due", "weak", "topics",
     "mastered", "streak", "due_cards", "recommend", "exam",
+    "achievements", "coins", "activity", "daily_log", "textbooks",
+    "history_detail", "trivia_stats",
 }
 
 
@@ -17218,6 +17220,20 @@ def _curator_tool_action(directive):
         return "подбирает следующий шаг \U0001F4A1"
     if tool == "exam":
         return "сверяется с обратным отсчётом до экзаменов \U0001F3C6"
+    if tool == "achievements":
+        return "смотрит твои достижения \U0001F3C6"
+    if tool == "coins":
+        return "проверяет баланс монет \U0001FA99"
+    if tool == "activity":
+        return "смотрит твою активность за неделю \U0001F4C5"
+    if tool == "daily_log":
+        return "сверяет сегодняшние результаты \U0001F4DD"
+    if tool == "textbooks":
+        return "проверяет, где лежат учебники \U0001F4DA"
+    if tool == "history_detail":
+        return "углубляется в прогресс по Истории \U0001F3DB"
+    if tool == "trivia_stats":
+        return "смотрит статистику викторины \U0001F9E0"
     module = str(directive.get("module") or "")
     meta = OGE_MODULES.get(module)
     topic = str(directive.get("topic") or "").strip()
@@ -17442,6 +17458,218 @@ def _cur_tool_exam(directive, uid, today):
     return "\n".join(lines)
 
 
+def _cur_tool_achievements(directive, uid, today):
+    """Показать достижения ученика: открытые и ближайшие закрытые."""
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        unlocked = conn.execute(text(
+            "SELECT code FROM web_achievements WHERE user_id=:u"
+        ), {"u": uid}).scalars().all()
+    unlocked_set = set(unlocked)
+    lines = [f"Открыто достижений: {len(unlocked_set)} из {len(ACHIEVEMENTS)}."]
+    # Show last 5 unlocked
+    recent = [c for c in unlocked_set][-5:]
+    if recent:
+        names = []
+        for c in recent:
+            a = ACHIEVEMENTS.get(c, {})
+            names.append(f"{a.get('icon', '🏅')} {a.get('name', c)}")
+        lines.append("Последние: " + ", ".join(names))
+    # Show 3 closest locked
+    locked = []
+    for code, ach in ACHIEVEMENTS.items():
+        if code not in unlocked_set:
+            locked.append((code, ach))
+    if locked:
+        lines.append("Ближайшие закрытые:")
+        for code, ach in locked[:3]:
+            lines.append(f"  {ach.get('icon', '🔒')} {ach.get('name', code)} — {ach.get('desc', '')}")
+    return "\n".join(lines)
+
+
+def _cur_tool_coins(directive, uid, today):
+    """Показать баланс монет и последние транзакции."""
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT balance FROM user_coins WHERE user_id=:u"
+        ), {"u": uid}).mappings().first()
+        balance = int(row["balance"]) if row else 0
+        txns = conn.execute(text(
+            "SELECT amount, description, created_at FROM web_coin_log"
+            " WHERE user_id=:u ORDER BY created_at DESC LIMIT 5"
+        ), {"u": uid}).mappings().all()
+    lines = [f"Баланс: {balance} монет."]
+    if txns:
+        lines.append("Последние операции:")
+        for t in txns:
+            desc = t["description"] or "—"
+            lines.append(f"  {'+' if t['amount'] > 0 else ''}{t['amount']} монет — {desc}")
+    else:
+        lines.append("Транзакций пока нет.")
+    return "\n".join(lines)
+
+
+def _cur_tool_activity(directive, uid, today):
+    """Показать активность за последние 14 дней (дни, модули, действия)."""
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT day, module, actions FROM web_activity_log"
+            " WHERE user_id=:u ORDER BY day DESC LIMIT 30"
+        ), {"u": uid}).mappings().all()
+        streak = conn.execute(text(
+            "SELECT current_streak, longest_streak, total_active_days FROM web_streak"
+            " WHERE user_id=:u"
+        ), {"u": uid}).mappings().first()
+    # Aggregate by day
+    by_day: dict[str, int] = {}
+    by_module: dict[str, int] = {}
+    for r in rows:
+        day = str(r["day"])
+        mod = str(r["module"] or "unknown")
+        act = int(r["actions"] or 0)
+        by_day[day] = by_day.get(day, 0) + act
+        by_module[mod] = by_module.get(mod, 0) + act
+    lines = []
+    if streak:
+        lines.append(f"Серия: {streak['current_streak']} дн. (рекорд {streak['longest_streak']}), "
+                      f"всего активных дней: {streak['total_active_days']}.")
+    # Last 7 days summary
+    recent_days = sorted(by_day.keys(), reverse=True)[:7]
+    if recent_days:
+        active = sum(1 for d in recent_days if by_day[d] > 0)
+        lines.append(f"Активных из последних 7 дней: {active}/7.")
+    # Module breakdown
+    if by_module:
+        top = sorted(by_module.items(), key=lambda x: -x[1])[:5]
+        mod_labels = {k: OGE_MODULES.get(k, {}).get("label", k) for k, _ in top}
+        parts = [f"{mod_labels.get(m, m)}: {a}" for m, a in top]
+        lines.append("По модулям: " + ", ".join(parts) + ".")
+    return "\n".join(lines) if lines else "Данные об активности пока отсутствуют."
+
+
+def _cur_tool_daily_log(directive, uid, today):
+    """Показать сегодняшнюю и вчерашнюю статистику (верно/ошибки) по модулям."""
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        today_rows = conn.execute(text(
+            "SELECT module, correct, wrong FROM study_daily"
+            " WHERE user_id=:u AND day=:d"
+        ), {"u": uid, "d": today}).mappings().all()
+        # Yesterday
+        from datetime import date, timedelta
+        try:
+            yest = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+        except Exception:
+            yest = ""
+        yest_rows = conn.execute(text(
+            "SELECT module, correct, wrong FROM study_daily"
+            " WHERE user_id=:u AND day=:d"
+        ), {"u": uid, "d": yest}).mappings().all() if yest else []
+    lines = []
+    if today_rows:
+        lines.append(f"Сегодня ({today}):")
+        for r in today_rows:
+            mod = OGE_MODULES.get(r["module"], {}).get("label", r["module"])
+            lines.append(f"  {mod}: {r['correct']}✓ / {r['wrong']}✗")
+    else:
+        lines.append(f"Сегодня ({today}): занятий ещё не было.")
+    if yest_rows:
+        lines.append(f"Вчера ({yest}):")
+        for r in yest_rows:
+            mod = OGE_MODULES.get(r["module"], {}).get("label", r["module"])
+            lines.append(f"  {mod}: {r['correct']}✓ / {r['wrong']}✗")
+    return "\n".join(lines)
+
+
+def _cur_tool_textbooks(directive, uid, today):
+    """Показать учебники ученика (где лежат: дом/школа/рюкзак)."""
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT subject, title, location FROM textbooks"
+            " WHERE user_id=:u ORDER BY subject, title"
+        ), {"u": uid}).mappings().all()
+    if not rows:
+        return "Учебники ещё не добавлены. Зайди в раздел «Учебники», чтобы отметить, где лежат учебники."
+    loc_labels = {"home": "дом", "school": "школа", "backpack": "рюкзак"}
+    by_loc: dict[str, list[str]] = {}
+    for r in rows:
+        loc = loc_labels.get(r["location"], r["location"])
+        by_loc.setdefault(loc, []).append(f"{r['subject']}: {r['title']}")
+    lines = ["Твои учебники:"]
+    for loc, books in by_loc.items():
+        lines.append(f"  📍 {loc.upper()} ({len(books)}):")
+        for b in books[:5]:
+            lines.append(f"    - {b}")
+        if len(books) > 5:
+            lines.append(f"    ... и ещё {len(books) - 5}")
+    return "\n".join(lines)
+
+
+def _cur_tool_history_detail(directive, uid, today):
+    """Детальный прогресс по Истории: императоры/события/личности/термины."""
+    module = "history"
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count, streak"
+            " FROM study_progress WHERE user_id=:u AND module=:m"
+            " ORDER BY due ASC"
+        ), {"u": uid, "m": module}).mappings().all()
+    if not rows:
+        return "По Истории пока нет данных. Начни с изучения карточек!"
+    # Categorize by card prefix
+    cats: dict[str, dict] = {}
+    for r in rows:
+        key = r["card_key"]
+        prefix = key.split("::")[0] if "::" in key else "other"
+        if prefix not in cats:
+            cats[prefix] = {"total": 0, "mastered": 0, "due": 0, "weak": 0}
+        cats[prefix]["total"] += 1
+        if (r["streak"] or 0) >= 3:
+            cats[prefix]["mastered"] += 1
+        if r["due"] and r["due"] <= time.time():
+            cats[prefix]["due"] += 1
+        if (r["correct_count"] or 0) < (r["wrong_count"] or 0):
+            cats[prefix]["weak"] += 1
+    cat_labels = {"emperor": "Императоры", "event": "События", "person": "Личности",
+                  "term": "Термины", "ruler": "Правители", "other": "Прочее"}
+    lines = ["Прогресс по Истории:"]
+    for prefix, data in sorted(cats.items()):
+        label = cat_labels.get(prefix, prefix)
+        lines.append(f"  {label}: {data['total']} карточек, "
+                     f"{data['mastered']} выучено, {data['due']} на повторение, "
+                     f"{data['weak']} слабых")
+    total = sum(d["total"] for d in cats.values())
+    mastered = sum(d["mastered"] for d in cats.values())
+    due = sum(d["due"] for d in cats.values())
+    lines.append(f"Итого: {total} карточек, {mastered} выучено ({round(100*mastered/max(1,total))}%), "
+                 f"{due} на повторение сегодня.")
+    return "\n".join(lines)
+
+
+def _cur_tool_trivia_stats(directive, uid, today):
+    """Показать статистику викторины (викторина: сколько вопросов, серия)."""
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT event, count FROM web_events WHERE user_id=:u"
+            " AND event LIKE 'trivia%'"
+        ), {"u": uid}).mappings().all()
+    events = {r["event"]: int(r["count"] or 0) for r in rows}
+    total = events.get("trivia_answered", 0)
+    correct = events.get("trivia_correct", 0)
+    if total == 0:
+        return "Викторину ещё не запускали. Попробуй — это весело и полезно для эрудиции!"
+    acc = round(100 * correct / max(1, total))
+    lines = [f"Викторина: {total} вопросов отвечено, {correct} верных ({acc}%)."]
+    if "trivia_streak_best" in events:
+        lines.append(f"Лучшая серия: {events['trivia_streak_best']} подряд.")
+    return "\n".join(lines)
+
+
 def _curator_tool_data(directive, uid, today):
     """Fetch the data the curator asked for via a tool directive."""
     tool = str(directive.get("tool") or "")
@@ -17506,6 +17734,13 @@ _CURATOR_HANDLERS = {
     "due_cards": _cur_tool_due_cards,
     "recommend": _cur_tool_recommend,
     "exam": _cur_tool_exam,
+    "achievements": _cur_tool_achievements,
+    "coins": _cur_tool_coins,
+    "activity": _cur_tool_activity,
+    "daily_log": _cur_tool_daily_log,
+    "textbooks": _cur_tool_textbooks,
+    "history_detail": _cur_tool_history_detail,
+    "trivia_stats": _cur_tool_trivia_stats,
 }
 
 
@@ -17665,6 +17900,13 @@ def api_study_chat_send():
         '- {"tool":"streak"} — серия и точность, динамика за вчера\n'
         '- {"tool":"recommend"} — готовый следующий шаг по каждому предмету\n'
         '- {"tool":"exam"} — дни до каждого экзамена ОГЭ\n'
+        '- {"tool":"achievements"} — достижения ученика (открытые + ближайшие закрытые)\n'
+        '- {"tool":"coins"} — баланс монет и последние транзакции\n'
+        '- {"tool":"activity"} — активность за последние 14 дней (дни, модули)\n'
+        '- {"tool":"daily_log"} — сегодняшняя и вчерашняя статистика (верно/ошибки)\n'
+        '- {"tool":"textbooks"} — где лежат учебники (дом/школа/рюкзак)\n'
+        '- {"tool":"history_detail"} — детальный прогресс по Истории по категориям\n'
+        '- {"tool":"trivia_stats"} — статистика викторины (вопросы, точность, серия)\n'
         "Если данные не нужны — отвечай сразу текстом на русском, БЕЗ JSON.\n"
         "НИКОГДА не показывай JSON-объект ученику — это технический вызов инструмента.\n\n"
         "ДАННЫЕ УЧЕНИКА:\n"
