@@ -4742,7 +4742,8 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
             json=payload,
             timeout=3,
         )
-        log_error("SEND_MSG", "info", f"chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
+        if response.status_code != 200:
+            log_error("SEND_MSG", "error", f"chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
     except Exception as exc:
         log_error("SEND_MSG", "error", f"EXCEPTION: {exc}")
 
@@ -4770,7 +4771,8 @@ def log_error(module: str, error_type: str, message: str, context: str = "") -> 
     _ERROR_LOG.append(entry)
     if len(_ERROR_LOG) > _ERROR_LOG_LIMIT:
         _ERROR_LOG.pop(0)
-    notify_admin(f"🔴 [{module}] {message}\n💡 {recommendation}")
+    if error_type != "info":
+        notify_admin(f"🔴 [{module}] {message}\n💡 {recommendation}")
 
 
 def _get_ai_recommendation(module: str, error_type: str, message: str, context: str = "") -> str:
