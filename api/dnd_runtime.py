@@ -83,7 +83,10 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
                 timeout=15,
             )
             if resp.status_code == 200:
-                content = resp.json()["choices"][0]["message"].get("content") or ""
+                try:
+                    content = resp.json()["choices"][0]["message"].get("content") or ""
+                except (KeyError, IndexError, ValueError):
+                    content = ""
                 if content.strip():
                     return content
             print(f"[DND] Gemini error {resp.status_code}: {resp.text[:200]}")
@@ -105,7 +108,10 @@ def call_ai(prompt: str, max_tokens: int = 800) -> str:
                 timeout=15,
             )
             if resp.status_code == 200:
-                content = resp.json()["choices"][0]["message"].get("content") or ""
+                try:
+                    content = resp.json()["choices"][0]["message"].get("content") or ""
+                except (KeyError, IndexError, ValueError):
+                    content = ""
                 if content.strip():
                     return content
             print(f"[DND] Groq error {resp.status_code}: {resp.text[:200]}")
