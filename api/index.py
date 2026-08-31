@@ -12,6 +12,7 @@ import os
 import random
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -6446,7 +6447,6 @@ def api_gd_moderate_approve():
 
 def _dnd_plain(text: str) -> str:
     """Strip Telegram HTML tags from D&D replies for clean web display."""
-    import re
     return re.sub(r"<[^>]+>", "", text or "").strip()
 
 
@@ -6497,7 +6497,7 @@ def api_dnd_start():
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
-    name = (data.get("name") or "").strip()
+    name = (data.get("name") or "").strip()[:100]
     from api.dnd_runtime import cmd_dnd_start, find_active_session, get_session_players
     reply = cmd_dnd_start(uid, uid, name)
     session = find_active_session(uid)
@@ -6557,7 +6557,7 @@ def api_dnd_act():
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
-    text = (data.get("text") or "").strip()
+    text = (data.get("text") or "").strip()[:2000]
     if not text:
         return jsonify({"error": "Пустое действие"}), 400
     from api.dnd_runtime import handle_free_text
@@ -6570,11 +6570,13 @@ def api_dnd_act():
 @app.route("/api/dnd/roll", methods=["POST"])
 def api_dnd_roll():
     data = request.get_json(silent=True) or {}
+    if _check_ai_rate("dnd_roll:" + (request.remote_addr or ""), max_requests=20, window=60):
+        return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
-    dice = (data.get("dice") or "").strip()
-    purpose = (data.get("purpose") or "").strip()
+    dice = (data.get("dice") or "").strip()[:50]
+    purpose = (data.get("purpose") or "").strip()[:200]
     if not dice:
         return jsonify({"error": "Укажите кубик, например d20 или 2d6+3"}), 400
     from api.dnd_runtime import cmd_dnd_roll
@@ -6593,7 +6595,8 @@ def api_dnd_stop():
         from api.dnd_runtime import cmd_dnd_stop
         reply = cmd_dnd_stop(uid, uid)
     except Exception as exc:
-        return jsonify({"error": f"Ошибка: {exc}"}), 500
+        print(f"[DnD] stop error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
     return jsonify({"ok": True, "reply": _dnd_plain(reply)})
 
 
@@ -6603,7 +6606,7 @@ def api_dnd_fix():
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
-    text = (data.get("text") or "").strip()
+    text = (data.get("text") or "").strip()[:1000]
     if not text:
         return jsonify({"error": "Пустой текст исправления"}), 400
     from api.dnd_runtime import cmd_dnd_fix
@@ -6641,12 +6644,12 @@ def dnd_page():
         .input-row input { flex: 1; padding: 12px; border: 1px solid var(--gh-border); border-radius: 8px; background: var(--gh-bg); color: var(--gh-text); font-size: 15px; font-family: inherit; }
         .input-row input:focus { outline: none; border-color: var(--gh-accent); }
         .btn { padding: 12px 20px; border: none; border-radius: 8px; background: var(--gh-green); color: var(--gh-text2); font-size: 15px; font-family: inherit; cursor: pointer; }
-        .btn:hover { background: var(--gh-green); }
+        .btn:hover { background: #2ea043; }
         .btn:disabled { opacity: 0.6; cursor: default; }
         .btn-roll { background: #b06e28; }
         .btn-roll:hover { background: var(--gh-warn); }
         .btn-stop { background: var(--gh-red); }
-        .btn-stop:hover { background: var(--gh-red); }
+        .btn-stop:hover { background: #da3633; }
         .btn-fix { background: var(--gh-accent); }
         .btn-fix:hover { background: var(--bb-link); }
         .error { color: var(--gh-red); margin-top: 10px; font-size: 14px; }
@@ -6839,6 +6842,7 @@ def dnd_page():
                 if (r.error) { showMsg('system', '❌ ' + r.error); return; }
                 showMsg('ai', r.reply);
                 refreshStatus();
+                hubTrack('dnd', 1);
             });
         }
 
@@ -6961,7 +6965,7 @@ def dnd_page():
     </script>
 </body>
 </html>"""
-    return html
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/health")
@@ -7524,7 +7528,7 @@ def endings_trainer():
 # Единый пул вопросов импортируется из core.canon.questions (source of truth).
 
 # In-memory storage for generated questions (question_id -> {options, correct_index, explanation})
-_TRIVIA_SESSIONS: dict[int, dict] = {}
+_TRIVIA_SESSIONS: dict[str, dict] = {}
 _TRIVIA_SESSION_TTL = 3600  # 1 hour
 
 
@@ -7725,11 +7729,20 @@ CHARACTER_PROMPTS_AI_CHAT = {
 # ===== Virtual Computer (Manus-like tools for AI Chat) =====
 
 _VIRTUAL_PC: dict[str, dict] = {}  # user_id -> {cwd, fs, uploads}
+_VIRTUAL_PC_MAX = 50  # max concurrent virtual PCs
+
+def _pc_evict():
+    """Evict oldest virtual PCs if over limit."""
+    if len(_VIRTUAL_PC) > _VIRTUAL_PC_MAX:
+        keys = list(_VIRTUAL_PC.keys())
+        for k in keys[:len(keys) - _VIRTUAL_PC_MAX]:
+            _VIRTUAL_PC.pop(k, None)
 
 
 def _pc_state(user_id: str) -> dict:
     """Get (or create) the virtual computer state for a user."""
     if user_id not in _VIRTUAL_PC:
+        _pc_evict()
         _VIRTUAL_PC[user_id] = {
             "cwd": "/home/user",
             "fs": {
@@ -8469,7 +8482,7 @@ def api_ai_chat():
             return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
         data = request.get_json(silent=True) or {}
         character = data.get("character", "olegov")
-        message = (data.get("message") or "").strip()
+        message = (data.get("message") or "").strip()[:4000]
         if not message:
             return jsonify({"error": "Введите сообщение"}), 400
         char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
@@ -8477,7 +8490,7 @@ def api_ai_chat():
             return jsonify({"error": "Персонаж не найден"}), 400
 
         user_id = str(data.get("user_id") or "anon")
-        messages = data.get("history") or []
+        messages = (data.get("history") or [])[-20:]  # cap at 20 messages
         state = _pc_state(user_id)
 
         uploads = data.get("files") or []
@@ -8485,6 +8498,8 @@ def api_ai_chat():
         for f in uploads[:4]:
             fname = re.sub(r"[^A-Za-z0-9._-]", "_", (f.get("name") or "file.bin"))[:80]
             raw = f.get("data") or ""
+            if len(raw) > 2_000_000:  # ~1.5MB after base64 decode
+                continue
             try:
                 raw_bytes = base64.b64decode(raw)
             except Exception:
@@ -10013,6 +10028,8 @@ def api_admin_errors_clear():
 @app.route("/api/feedback", methods=["POST"])
 def api_feedback_submit():
     """Submit a suggestion or bug report (any web user or anonymous)."""
+    if _check_ai_rate("feedback:" + (request.remote_addr or ""), max_requests=5, window=60):
+        return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     data = request.get_json(silent=True) or {}
     category = (data.get("category") or "").strip().lower()
     message = (data.get("message") or "").strip()
@@ -14127,7 +14144,7 @@ def api_exam_mixed():
     _EXAM_SESSIONS[sid] = {"items": items, "_created_at": time.time()}
     _exam_prune_expired()
     while len(_EXAM_SESSIONS) > 300:
-        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)))
+        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)), None)
     safe = [{"idx": i, "module": it["module"], "question": it["question"], "hint": it["hint"]}
             for i, it in enumerate(items)]
     return jsonify({"sid": sid, "items": safe})
@@ -14462,7 +14479,7 @@ def api_exam_ai_batch():
     _EXAM_SESSIONS[sid] = {"items": picked, "_created_at": time.time()}
     _exam_prune_expired()
     while len(_EXAM_SESSIONS) > 300:
-        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)))
+        _EXAM_SESSIONS.pop(next(iter(_EXAM_SESSIONS)), None)
 
     return jsonify({"ok": True, "sid": sid, "items": result_items})
 
@@ -14962,6 +14979,8 @@ def api_music_analyze():
         return jsonify(res)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+    finally:
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
 
 @app.route("/api/music/change_tempo", methods=["POST"])
@@ -14982,6 +15001,8 @@ def api_music_change_tempo():
         return _music_send(out)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+    finally:
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
 
 @app.route("/api/music/change_key", methods=["POST"])
@@ -15002,6 +15023,8 @@ def api_music_change_key():
         return _music_send(out)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+    finally:
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
 
 @app.route("/api/music/overlay", methods=["POST"])
@@ -15031,6 +15054,8 @@ def api_music_overlay():
         return _music_send(out)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 @app.route("/music")
@@ -17718,6 +17743,8 @@ def api_study_hint():
 
 @app.route("/api/trivia/question", methods=["POST"])
 def api_trivia_question():
+    if _check_ai_rate("trivia:" + (request.remote_addr or ""), max_requests=30, window=60):
+        return jsonify({"error": "Слишком много запросов."}), 429
     import random
     q = random.choice(_TRIVIA_QUESTIONS)
     correct = q["correct_text"]
@@ -17728,7 +17755,7 @@ def api_trivia_question():
     else:
         same = [x["correct_text"] for x in _TRIVIA_QUESTIONS if x.get("group") == group and x["correct_text"] != correct]
         pool = same if len(same) >= 3 else [x["correct_text"] for x in _TRIVIA_QUESTIONS if x["correct_text"] != correct]
-        distractors = random.sample(pool, 3)
+        distractors = random.sample(pool, min(3, len(pool)))
     options = [correct] + distractors
     random.shuffle(options)
     correct_index = options.index(correct)
@@ -17754,6 +17781,7 @@ def api_trivia_answer():
         and 0 <= answer_idx < len(session["options"])
         and answer_idx == correct_index
     )
+    _TRIVIA_SESSIONS.pop(session_id, None)
     return jsonify({"correct": is_correct, "correct_text": session["options"][correct_index], "explanation": session["explanation"]})
 
 
@@ -20241,8 +20269,8 @@ VERB_GEN_LOCK: dict[int, float] = {}
 def api_verbs_generate():
     data = request.get_json(silent=True) or {}
     verbs = (data.get("verbs") or "").strip()
-    count = int(data.get("count") or 10)
-    mode = int(data.get("mode") or 2)
+    count = int(data["count"]) if "count" in data else 10
+    mode = int(data["mode"]) if "mode" in data else 2
     wishes = (data.get("wishes") or "").strip()
     user_id_raw = data.get("user_id")
     if not verbs:
@@ -20358,11 +20386,13 @@ def api_verbs_submit():
     user_id_raw = data.get("user_id")
     name = (data.get("name") or "").strip()
     answers = data.get("answers", [])
-    if not ex_id or not _load_verb_exercise(ex_id):
+    if not ex_id:
         return jsonify({"error": "Задание не найдено"}), 404
     if not name:
         return jsonify({"error": "Укажите имя"}), 400
     ex = _load_verb_exercise(ex_id)
+    if not ex:
+        return jsonify({"error": "Задание не найдено"}), 404
     uid = _web_user_id(user_id_raw)
     tasks = ex["tasks"]
     total_fields = 0
@@ -23607,6 +23637,10 @@ def api_family_rooms_delete(room_id):
     if not creator or creator["id"] != member["id"]:
         return jsonify({"error": "Удалить комнату может только её создатель"}), 403
     with engine.begin() as conn:
+        conn.execute(text("DELETE FROM final_reports WHERE room_id = :rid"), {"rid": room_id})
+        conn.execute(text("DELETE FROM needs WHERE room_id = :rid"), {"rid": room_id})
+        conn.execute(text("DELETE FROM messages WHERE member_id IN (SELECT id FROM members WHERE room_id = :rid)"), {"rid": room_id})
+        conn.execute(text("DELETE FROM members WHERE room_id = :rid"), {"rid": room_id})
         result = conn.execute(text("DELETE FROM rooms WHERE id = :rid"), {"rid": room_id})
     if result.rowcount == 0:
         return jsonify({"error": "Комната не найдена"}), 404
@@ -23700,6 +23734,14 @@ def api_family_report_generate():
     room = _family_get_room(room_id)
     if not room or room["status"] != "active":
         return jsonify({"error": "Комната недоступна"}), 400
+
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        unfinished = conn.execute(text(
+            "SELECT COUNT(*) FROM members WHERE room_id = :rid AND finished = FALSE"
+        ), {"rid": room_id}).scalar()
+    if unfinished:
+        return jsonify({"error": f"Подождите завершения всех участников ({unfinished} ещё не завершили)"}), 400
 
     existing = _family_get_report(room_id)
     if existing:
