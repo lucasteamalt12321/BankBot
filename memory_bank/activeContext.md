@@ -7,7 +7,8 @@
 ### ✅ Выполнено (в этой сессии)
 - ✅ Загрузка 10 канонических аудио-треков в Supabase Storage (canon-audio bucket), добавление `audio_url` колонки в `canon_works`, redirect из `/api/canon/work/{id}/audio` на Storage URL. Все 10 треков работают (`has_audio: true`).
 - ✅ Перенос Истории и Geometry Dash из бета-секции в основной раздел хаба.
-- ✅ **Массовый аудит и фикс бета-модулей (3 раунда, ~29 багов):**
+- ✅ **Массовый аудит и фикс бета-модулей (3 раунда, ~29 багов):** (см. progress.md Changelog 2026-08-31)
+- ✅ [TASK] Добавлено 7 новых tools для ИИ-куратора: achievements, coins, activity, daily_log, textbooks, history_detail, trivia_stats (12→19 tools).
   - **Raund 1 (12 багов):** D&D Content-Type, hubTrack, hover кнопки, import re; Trivia тип session, удаление после ответа, pool<3 guard; Family finished=True перед отчётом, каскадное удаление; Verbs type coercion, двойной load; Music temp cleanup.
   - **Raund 2 (10 багов):** D&D input validation (action 2000, name 100, fix 1000, dice 50), generic errors, roll rate limiting; DnD runtime guarded JSON (Gemini/Groq); Exam safe dict cleanup; Suggest rate limiting (5/min); Trivia rate limiting (30/min); AI Chat file upload limit (2MB), _VIRTUAL_PC eviction (max 50), message limits (4000 chars, 20 history).
   - **Raund 3 (7 багов):** SSRF protection browse_web (block private IPs, limit redirects, cap response 50KB); json.loads try/except (2 crash-бага); None guard character.lower(); _pc_extract_reply type handling; Family chat error detection + intent_type sanitization; DnD prompt injection protection.
