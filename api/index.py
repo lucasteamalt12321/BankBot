@@ -6880,7 +6880,10 @@ def dnd_page():
         }
 
         function stopSession() {
+            var btn = document.querySelector('.btn-stop');
+            if (btn) { btn.disabled = true; btn.textContent = 'Остановка...'; }
             post('/api/dnd/stop', {user_id: USER_ID}, function(r) {
+                if (btn) { btn.disabled = false; btn.textContent = 'Остановить'; }
                 if (r.error) { showMsg('system', '❌ ' + r.error); return; }
                 showMsg('system', r.reply);
                 showStart();
@@ -6912,9 +6915,10 @@ def dnd_page():
             var inp = document.getElementById('share-url');
             if (!inp || !inp.value) return;
             inp.select();
-            try { navigator.clipboard.writeText(inp.value); } catch(e) {}
-            try { document.execCommand('copy'); } catch(e) {}
-            showMsg('system', '🔗 Ссылка скопирована — отправьте друзьям!');
+            var ok = false;
+            try { navigator.clipboard.writeText(inp.value).then(function() { ok = true; }); } catch(e) {}
+            if (!ok) { try { document.execCommand('copy'); ok = true; } catch(e) {} }
+            showMsg('system', ok ? '🔗 Ссылка скопирована — отправьте друзьям!' : 'Не удалось скопировать. Скопируйте вручную.');
         }
 
         function showRegNotice() {
@@ -10525,6 +10529,16 @@ def trivia_page():
                 xhr.onload = function() {
                     try {
                         var r = JSON.parse(xhr.responseText);
+                        if (xhr.status === 410 && r.expired) {
+                            var expl = document.getElementById('explanation');
+                            expl.textContent = r.explanation || 'Вопрос устарел. Загрузите новый.';
+                            expl.style.display = 'block';
+                            var nextBtn = document.getElementById('next-btn');
+                            nextBtn.textContent = 'Загрузить новый вопрос';
+                            nextBtn.onclick = loadQuestion;
+                            nextBtn.style.display = 'block';
+                            return;
+                        }
                         btns.forEach(function(b) {
                             if (b.dataset.correct === '1') b.classList.add('correct');
                             else if (parseInt(b.dataset.index) === idx && !r.correct) b.classList.add('wrong');
@@ -13163,7 +13177,7 @@ def informatics_page():
         .answer-btn.wrong { background: var(--bb-red); border-color: var(--bb-red); }
         .stats { text-align: center; color: var(--bb-muted); margin-top: 24px; font-size: 13px; }
         .hint-box { background: var(--bb-primary); border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 14px; color: var(--bb-muted); line-height: 1.5; display: none; }
-        .hint-btn { display: block; width: 100%; padding: 10px; background: none; border: 1px dashed var(--bb-link); color: var(--bb-muted); border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10x; font-family: inherit; }
+        .hint-btn { display: block; width: 100%; padding: 10px; background: none; border: 1px dashed var(--bb-link); color: var(--bb-muted); border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10px; font-family: inherit; }
         .hint-btn:hover { border-color: var(--bb-warn); color: var(--bb-warn); }
         .next-btn { display: none; width: 100%; padding: 14px; background: var(--bb-accent); color: white; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; font-family: inherit; }
         .next-btn:hover { background: var(--bb-accent2); }
@@ -13178,8 +13192,8 @@ def informatics_page():
         .diff-pts { background: var(--bb-primary); border: 1px solid var(--bb-link); color: var(--bb-text); border-radius: 8px; padding: 2px 8px; font-weight: 600; }
         .info { background: var(--bb-primary); border-radius: 12px; padding: 16px; margin-top: 16px; font-size: 14px; line-height: 1.5; color: var(--bb-muted); display: none; }
         .info .info-label { color: var(--bb-accent); font-weight: 600; }
-        .stats-card {{ font-size: 13px; color: var(--bb-muted); }}
-        .stats-card .stat-line {{ margin: 4px 0; }}
+        .stats-card { font-size: 13px; color: var(--bb-muted); }
+        .stats-card .stat-line { margin: 4px 0; }
     </style>
 </head>
 <body>
@@ -15036,14 +15050,22 @@ def api_music_change_tempo():
     factor = request.form.get("factor")
     try:
         if target:
-            out = change_tempo(path, target_bpm=float(target))
+            bpm = float(target)
+            if bpm < 20 or bpm > 400:
+                return jsonify({"error": "target_bpm должен быть от 20 до 400"}), 400
+            out = change_tempo(path, target_bpm=bpm)
         elif factor:
-            out = change_tempo(path, factor=float(factor))
+            f = float(factor)
+            if f < 0.25 or f > 4.0:
+                return jsonify({"error": "factor должен быть от 0.25 до 4.0"}), 400
+            out = change_tempo(path, factor=f)
         else:
             return jsonify({"error": "нужен target_bpm или factor"}), 400
         return _music_send(out)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    except ValueError:
+        return jsonify({"error": "Некорректное число"}), 400
+    except Exception:
+        return jsonify({"error": "Ошибка обработки аудио"}), 500
     finally:
         shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
@@ -15058,14 +15080,19 @@ def api_music_change_key():
     target_key = request.form.get("target_key") or None
     try:
         if semitones:
-            out = change_key(path, semitones=int(semitones))
+            semi = int(semitones)
+            if semi < -12 or semi > 12:
+                return jsonify({"error": "semitones должен быть от -12 до 12"}), 400
+            out = change_key(path, semitones=semi)
         elif target_key:
             out = change_key(path, target_key=target_key)
         else:
             return jsonify({"error": "нужен semitones или target_key"}), 400
         return _music_send(out)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    except ValueError:
+        return jsonify({"error": "Некорректное число"}), 400
+    except Exception:
+        return jsonify({"error": "Ошибка обработки аудио"}), 500
     finally:
         shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
@@ -15095,8 +15122,8 @@ def api_music_overlay():
     try:
         out = overlay(paths)
         return _music_send(out)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Ошибка наложения аудио"}), 500
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -18058,7 +18085,7 @@ def api_trivia_answer():
     answer_idx = data.get("answer_index")
     session = _TRIVIA_SESSIONS.get(session_id)
     if not session:
-        return jsonify({"correct": False, "correct_text": "", "explanation": "Вопрос не найден или устарел."})
+        return jsonify({"correct": False, "correct_text": "", "explanation": "Вопрос не найден или устарел.", "expired": True}), 410
     correct_index = session["correct_index"]
     is_correct = (
         isinstance(answer_idx, int)
@@ -19482,12 +19509,28 @@ function renderBooks(){{
 }}
 
 function loadBooks(){{
+    ['home','backpack','school'].forEach(function(loc){{
+        var c=document.getElementById('books-'+loc);
+        if(c)c.innerHTML='<div class="loc-empty">Загрузка...</div>';
+    }});
     fetch('/api/textbooks',{{headers:{{'X-Auth-Token':TOKEN}}}})
     .then(function(r){{return r.json()}})
     .then(function(d){{
-        if(d.error){{return}}
+        if(d.error){{
+            ['home','backpack','school'].forEach(function(loc){{
+                var c=document.getElementById('books-'+loc);
+                if(c)c.innerHTML='<div class="loc-empty" style="color:var(--bb-red)">'+esc(d.error)+'</div>';
+            }});
+            return;
+        }}
         books=d.items||[];
         renderBooks();
+    }})
+    .catch(function(){{
+        ['home','backpack','school'].forEach(function(loc){{
+            var c=document.getElementById('books-'+loc);
+            if(c)c.innerHTML='<div class="loc-empty" style="color:var(--bb-red)">Ошибка загрузки</div>';
+        }});
     }});
 }}
 
