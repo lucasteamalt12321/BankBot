@@ -191,6 +191,31 @@ def test_multiple_books_same_subject(mock_engine):
 
 
 @patch("api.index.get_db_engine")
+def test_duplicate_subject_title_rejected(mock_engine):
+    engine = _make_engine()
+    mock_engine.return_value = engine
+    client = app.test_client()
+    token = _create_user(client)
+
+    r = client.post("/api/textbooks", json={"subject": "Математика", "title": "Алгебра 9"},
+                    headers=_auth_headers(token))
+    assert r.status_code == 200
+
+    r = client.post("/api/textbooks", json={"subject": "Математика", "title": "Алгебра 9"},
+                    headers=_auth_headers(token))
+    assert r.status_code == 409
+    assert r.get_json()["error"] == "Такой учебник уже добавлен"
+
+    r = client.post("/api/textbooks", json={"subject": "Математика", "title": "Алгебра 9",
+                                            "location": "school"},
+                    headers=_auth_headers(token))
+    assert r.status_code == 409
+
+    items = client.get("/api/textbooks", headers=_auth_headers(token)).get_json()["items"]
+    assert len(items) == 1
+
+
+@patch("api.index.get_db_engine")
 def test_move_nonexistent(mock_engine):
     engine = _make_engine()
     mock_engine.return_value = engine
