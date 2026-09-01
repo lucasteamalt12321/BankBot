@@ -216,6 +216,14 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-01 (Session: 🏛 Трекер учебников — защита от дубликатов)
+- **[TASK] «Нельзя добавить 2 учебника с одинаковым предметом и описанием»:** уникальность по `(subject, title)`, локация игнорируется.
+  - Сервер (`api_textbooks_create`): SELECT перед INSERT по `(user_id, subject, title)` → `409 {error: "Такой учебник уже добавлен"}` (защита от обхода, напр. добавление с разных устройств). Проверено: тот же subject+title с другой локацией → 409.
+  - Клиент (`/textbooks`): `m-add` сверяет `subject+title` в `books` и отклоняет дубль до отправки; кнопка блокируется на время fetch.
+  - Тест `test_duplicate_subject_title_rejected` → suite 9/9 passed. JS `node --check` OK, `py_compile`/`ruff` чистые.
+  - **Замечание (среда):** локально в Termux bcrypt не импортируется (пакет Rust-based, нет wheel для py3.13 Termux, `pkg`/`apt` не дают rust) → тесты прогоняю с ручным stub'ом `bcrypt` в sys.modules. На Vercel/CI bcrypt ставится из requirements.txt. В PR-код стуб не вносился.
+  - **Git: `git pull` вызвал конфликт веток (remote `ffe5e5f` vs local `29f3ce5`)** — сделан `rebase origin/main`, конфликты `activeContext.md` разрешены, stash (серверная проверка) применён, bcrypt и remote-фиксы (Family bcrypt, Exam DB, admin auth, log_error) подтянуты.
+
 ### 2026-08-27 (Session 9d: 🐉 DnD — шаринг сессий + выпуск модулей из беты)
 - **[DND-BUG-1] исправлен:** добавлен шаринг DnD-сессий для совместной игры с друзьями.
   - `dnd_sessions.share_code` (VARCHAR(16), 8 символов из набора без ambiguous) — добавлен в `_ensure_dnd_tables`.
@@ -1620,6 +1628,10 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+4d65831 (2026-09-01; textbooks — защита от дубликатов (subject+title), fix 1→5 после rebase origin/main `ffe5e5f`; локально bcrypt-stub для тестов Termux)
+ffe5e5f (2026-09-01; remote: остановить spam log_error — notify_admin только на реальные ошибки)
+8703706 (2026-09-01; remote: docs(mb) changelog архитектурных фиксов)
+d250021 (2026-09-01; remote: архитектурные фиксы — bcrypt, exam DB, admin auth, log_error)
 70f00b5 (2026-08-27; Session 9b: максимальная прокачка ИИ-куратора — починены due/weak/topics + отсчёт + fallback, +5 инструментов, +5 тестов; деплой через CLI)
 c9e4021 (2026-08-26; максимальная прокачка OGE: SM-2 с ростом ease, инфо-тренажёр с самооценкой, физика в экзамене, /api/study/stats, /api/study/due-cards, /api/quiz/generate+check, /analytics, хаб-прогрессбары; деплой через CLI)
 f2ef98e (2026-08-26; автозачёт плана дня: пункт закрыт когда по предмету сегодня тронуто >= cards карточек, кнопка/роут plan/done удалены, снапшот в done_count; ранее fbbc59d — нормы времени + названия без ключей; 68249a9 — тулы topic/card + фикс JS хаба; прод: деплой через CLI по мере сессий)

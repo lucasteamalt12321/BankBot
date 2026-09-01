@@ -19368,6 +19368,12 @@ def api_textbooks_create():
         return jsonify({"error": "Неизвестная локация"}), 400
     try:
         with get_db_engine().begin() as conn:
+            existing = conn.execute(
+                text("SELECT id FROM textbooks WHERE user_id = :uid AND subject = :subj AND title = :title LIMIT 1"),
+                {"uid": user["id"], "subj": subject, "title": title},
+            ).mappings().first()
+            if existing:
+                return jsonify({"error": "Такой учебник уже добавлен"}), 409
             result = conn.execute(
                 text("INSERT INTO textbooks (user_id, subject, title, location) VALUES (:uid, :subj, :title, :loc) RETURNING id"),
                 {"uid": user["id"], "subj": subject, "title": title, "loc": location},
@@ -19660,14 +19666,14 @@ document.getElementById('m-add').addEventListener('click',function(){{
     var title=document.getElementById('m-title').value.trim();
     var loc=document.getElementById('m-location').value;
     if(!title){{document.getElementById('m-title').focus();return}}
-    var dup=books.some(function(b){{return b.subject===subj&&b.title===title&&b.location===loc}});
+    var dup=books.some(function(b){{return b.subject===subj&&b.title===title}});
     if(dup){{alert('Такой учебник уже добавлен');return}}
     btn.disabled=true;
     fetch('/api/textbooks',{{method:'POST',headers:{{'Content-Type':'application/json','X-Auth-Token':TOKEN}},body:JSON.stringify({{subject:subj,title:title,location:loc}})}})
     .then(function(r){{return r.json()}})
     .then(function(d){{
         if(d.error){{alert(d.error);return}}
-        books=books.filter(function(b){{return !(b.subject===subj&&b.title===title&&b.location===loc)}});
+        books=books.filter(function(b){{return !(b.subject===subj&&b.title===title)}});
         books.push({{id:d.id,subject:subj,title:title,location:loc}});
         renderBooks();
         modal.classList.remove('open');
