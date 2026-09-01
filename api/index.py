@@ -825,6 +825,15 @@ def _ensure_dnd_tables(engine):
                     last_active_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """))
+            # Deduplicate before creating unique index (PostgreSQL can't create
+            # UNIQUE INDEX if duplicate rows already exist).
+            conn.execute(text("""
+                DELETE FROM dnd_characters
+                WHERE id NOT IN (
+                    SELECT MIN(id) FROM dnd_characters
+                    GROUP BY session_id, player_id
+                )
+            """))
             conn.execute(text("""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_dnd_characters_session_player
                 ON dnd_characters (session_id, player_id)
