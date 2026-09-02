@@ -10183,12 +10183,6 @@ def api_admin_feedback_delete(fid):
 
 @app.route("/admin")
 def admin_page():
-    if not _web_admin_session():
-        return """<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>403</title>
-<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f1420;color:#e6e9f0}
-.box{text-align:center}.box h1{font-size:48px;color:#f87171}.box p{color:#8b93a7;margin-top:12px}
-.box a{color:#7aa2ff;text-decoration:none}</style></head>
-<body><div class="box"><h1>403</h1><p>Нет доступа. Войдите как администратор.</p><a href="/">На главную</a></div></body></html>""", 403, {"Content-Type": "text/html; charset=utf-8"}
     html = """<!DOCTYPE html>
 <html lang="ru">
 <head>
