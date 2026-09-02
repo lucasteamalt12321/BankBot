@@ -2327,3 +2327,39 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - Deployed to Vercel (bank-bot-ruby.vercel.app).
 
 **Commit:** 9a4510c (feat: add light/dark theme system injected via after_request for all pages)
+
+### Changelog 2026-09-01 — log_error spam fix + bug audit
+
+**Сессия:** Устранение спама + глубокий аудит безопасности/ошибок/логики.
+
+#### log_error spam fixes
+- `log_error()` — `notify_admin()` только при `error_type != "info"` (раньше шлёт всегда, включая info-логи).
+- SEND_MSG — не логирует успешные отправки (status=200), только ошибки.
+- **Коммит:** `ffe5e5f`
+
+#### DnD UniqueViolation spam fix
+- Дедупликация перед `CREATE UNIQUE INDEX uq_dnd_characters_session_player` — PostgreSQL не может создать UNIQUE INDEX если уже есть дубли.
+- **Коммит:** `be3fba4`
+
+#### Глубокий аудит (4 субагента: безопасность, ошибки, логика, dnd_runtime)
+
+**Исправлено (9 багов):**
+
+| # | Severity | Модуль | Баг | Фикс |
+|---|----------|--------|-----|------|
+| 1 | CRITICAL | Debug | 5 debug endpoints без auth (`/api/debug_dnd`, `debug_last_error`, `debug_db`, `debug_submissions`, `debug_addexpense`) | `_web_admin_session()` guard |
+| 2 | HIGH | GD Admin | `int()` без try/except на user input (6 локаций) | `try/except (TypeError, ValueError)` → 400 |
+| 3 | HIGH | Webhook | `request.get_json()` без `silent=True` — malformed body крашит весь бот | `silent=True` |
+| 4 | MEDIUM | GD Moderate | `gd_moderate_callback` IndexError — `len(parts) < 3` нужен `< 4` для `.parts[3]` | `len(parts) < 4` |
+| 5 | HIGH | DnD Runtime | `_resolve_user_id` — `conn.commit()` на autocommit connection → connection pool corruption | `engine.begin()` |
+| 6 | HIGH | DnD Runtime | `cmd_dnd_stop` останавливает player-сессию вместо master | master-сессия ищется сначала |
+| 7 | MEDIUM | DnD Runtime | `session_summary`/`build_prompt` falsy HP=0 → отображался "?" | `is not None` |
+| 8 | MEDIUM | DnD Runtime | `/dnd_fix` без авторизации — любой игрок может hijack AI | только master |
+| 9 | MEDIUM | DnD Runtime | `cmd_dnd_start` race condition — SELECT после INSERT | INSERT RETURNING id |
+
+**Остались незафиксированными (обнаружены, требуют отдельной работы):**
+- Family budget user_id spoofing через query param (`family_budget.py:18-23`)
+- Family budget XSS — uid в HTML/JS без экранирования (`family_budget.py:1066-1075`)
+- Webhook secret hardcoded fallback (`index.py:307`)
+- AI chat / Verbs user_id spoofing — нет session verification
+- In-memory rate limiting неэффективен в serverless

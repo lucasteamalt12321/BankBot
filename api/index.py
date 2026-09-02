@@ -6246,7 +6246,10 @@ def api_gd_admin_level_update(level_id: int):
         return jsonify({"error": "Нет прав администратора"}), 403
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
-    position = int(data.get("position") or 0)
+    try:
+        position = int(data.get("position") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Позиция должна быть числом"}), 400
     difficulty = (data.get("difficulty") or "").strip() or None
     if not name:
         return jsonify({"error": "Название не может быть пустым"}), 400
@@ -6425,7 +6428,10 @@ def api_gd_moderate_reject():
     admin = _web_admin_session()
     if admin is None:
         return jsonify({"error": "Нет прав администратора"}), 403
-    sub_id = int(data.get("submission_id") or 0)
+    try:
+        sub_id = int(data.get("submission_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "submission_id должен быть числом"}), 400
     admin_id = admin.get("id") or 0
     if not sub_id:
         return jsonify({"error": "Нет submission_id"}), 400
@@ -6440,8 +6446,11 @@ def api_gd_moderate_approve():
     admin = _web_admin_session()
     if admin is None:
         return jsonify({"error": "Нет прав администратора"}), 403
-    sub_id = int(data.get("submission_id") or 0)
-    position = int(data.get("position") or 0)
+    try:
+        sub_id = int(data.get("submission_id") or 0)
+        position = int(data.get("position") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "submission_id и position должны быть числами"}), 400
     admin_id = admin.get("id") or 0
     if not sub_id:
         return jsonify({"error": "Нет submission_id"}), 400
@@ -14310,7 +14319,10 @@ def api_quiz_generate():
     data = request.get_json(silent=True) or {}
     module = str(data.get("module") or "")
     algo = str(data.get("algo") or "smart")
-    n = max(3, min(30, int(data.get("n") or 10)))
+    try:
+        n = max(3, min(30, int(data.get("n") or 10)))
+    except (TypeError, ValueError):
+        n = 10
     if module not in OGE_MODULES:
         return jsonify({"ok": False, "error": "unknown module"}), 400
 
@@ -20832,7 +20844,7 @@ def telegram_webhook(secret: str):
         return jsonify({"error": "invalid_secret"}), 404
 
     # Get update
-    update = request.get_json()
+    update = request.get_json(silent=True)
     if not update:
         return jsonify({"ok": True})
 
@@ -22651,7 +22663,7 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
         if not user_id or not chat_id:
             return
         parts = callback_data.split("_")
-        if len(parts) < 3:
+        if len(parts) < 4:
             return
         action = parts[2]
         if action == "page":
@@ -23320,6 +23332,8 @@ _last_error: str | None = None
 @app.route("/api/debug_dnd", methods=["GET"])
 def debug_dnd():
     """Debug D&D start flow (must pass user_id and optionally chat_id as query params)."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     try:
         uid = int(request.args.get("user_id", 111))
         cid = int(request.args.get("chat_id", uid))
@@ -23334,6 +23348,8 @@ def debug_dnd():
 
 @app.route("/api/debug_last_error", methods=["GET"])
 def debug_last_error():
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     return jsonify({"last_error": _last_error})
 
 
@@ -23344,6 +23360,8 @@ def debug_last_error():
 @app.route("/api/debug_db", methods=["GET"])
 def debug_db():
     """Debug database and GD tables."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     result = {"db_url_set": bool(os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("SUPABASE_DB_URL"))}
     try:
         engine = get_db_engine()
@@ -23378,6 +23396,8 @@ def debug_db():
 @app.route("/api/debug_submissions", methods=["GET"])
 def debug_submissions():
     """List all submissions for debugging."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -23390,6 +23410,8 @@ def debug_submissions():
 @app.route("/api/debug_addexpense", methods=["GET"])
 def debug_addexpense():
     """Show recent /addexpense callers."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     return jsonify({"calls": list(reversed(_ADDE_LOG))})
 
 

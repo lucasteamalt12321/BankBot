@@ -17,13 +17,31 @@
 - ✅ [NEW MODULE] Трекер учебников (`/textbooks`) — бета-модуль. 3 локации (дом/школа/рюкзак), drag-and-drop (десктоп) + tap-to-move (мобайл), модалка добавления с 15 предметами и цветами. API: GET/POST/PUT/DELETE. Тесты 8/8 passed.
 - ✅ [BUG] `textbooks`: «создал 1 учебник → появилось 5; при удалении появляются новые». Диагностика: бэкенд корректен (репро: 5 POST = 5 строк, 1 DELETE = минус 1 строка). Причина — фронтенд: кнопка «Добавить» не блокировалась во время async-запроса (двойной тап/клик → несколько POST) и массив `books` мог копиться без дедупликации. Фикс: (1) `renderBooks()` дедуплицирует `books` по `id`; (2) в обработчике `m-add` — guard `if(btn.disabled)return`, `btn.disabled=true/false` вокруг fetch, и отсев дубликатов по (subject,title,location) с подтверждением «Такой учебник уже добавлен». JS проверен `node --check`, JS `renderBooks`/`m-add` синтаксически валидны.
 - ✅ [BUG] `textbooks`: серверная защита от дубликатов — в `api_textbooks_create` перед INSERT выполняется SELECT по `(user_id, subject, title)`; если совпадение найдено → `409 {error: "Такой учебник уже добавлен"}` (защита от обхода клиентской проверки, например добавление с разных устройств).
-- ✅ [TASK] «Нельзя добавить 2 учебника с одинаковым предметом и описанием»: теперь нельзя. Уникальность по `(subject, title)` (локация игнорируется). Сервер: 409 «Такой учебник уже добавлен» (SELECT перед INSERT в `api_textbooks_create`). Клиент: `m-add` сверяет `subject+title` в массиве и отсекает дубль до отправки запроса; кнопка блокируется на время fetch. Тест `test_duplicate_subject_title_rejected` (9/9 passed, локально bcrypt заглушён — Termux без Rust, на проде/CI bcrypt ставится из requirements.txt). Внимание: при rebase после `git pull` были конфликты в `activeContext.md` — разрешены.
+- ✅ [TASK] «Нельзя добавить 2 учебника с одинаковым предметом и описанием»: теперь нельзя. Уникальность по `(subject, title)` (локация игнорируется). Сервер: 409 «Такой учебник уже добавлен» (SELECT перед INSERT в `api_textbooks_create`). Клиент: `m-add` сверяет `subject+title` в массиве и отсекает дубль до отправки запроса; кнопка блокируется на время fetch. Тест `test_duplicate_subject_title_rejected` (9/9 passed, локально bcrypt заглушён — Termux без Rust, на проде/CI bcrypt ставится из requirements.txt).
+- ✅ [BUG] log_error spam fix — `notify_admin()` только при `error_type != "info"`, SEND_MSG не логирует status=200 (commit `ffe5e5f`).
+- ✅ [BUG] DnD UniqueViolation spam — дедупликация перед `CREATE UNIQUE INDEX` в `dnd_characters` (commit `be3fba4`).
+- ✅ [BUG] Admin panel 403 fix — убрана серверная проверка в хендлере `/admin` (браузер не шлёт заголовки при навигации; клиентский auth gate уже работает корректно).
+- ✅ [AUDIT] Глубокий аудит безопасности, ошибок, логики + dnd_runtime (4 субагента). Найдено и исправлено:
+  - **[CRITICAL]** Debug endpoints без авторизации → добавлен `_web_admin_session()` guard на все 5 эндпоинтов (`/api/debug_dnd`, `/debug_last_error`, `/debug_db`, `/debug_submissions`, `/debug_addexpense`).
+  - **[HIGH]** `int()` без try/except на user input → обёрнуто в 6 локациях (GD admin level update, moderate reject/approve, quiz generate, debug_dnd).
+  - **[HIGH]** `request.get_json()` без `silent=True` в Telegram webhook → исправлено (блокирует бота при malformed body).
+  - **[MEDIUM]** `gd_moderate_callback` IndexError → `len(parts) < 3` → `< 4` (.parts[3] требует 4 элемента).
+  - **[HIGH]** dnd_runtime `_resolve_user_id` — `conn.commit()` на autocommit connection → `engine.begin()` (connection pool corruption).
+  - **[HIGH]** `cmd_dnd_stop` останавливает player-сессию вместо master-сессии → теперь ищет master-сессию сначала.
+  - **[MEDIUM]** `session_summary`/`build_prompt` — falsy check `if c.get('hit_points')` → `is not None` (HP=0 отображался как "?").
+  - **[MEDIUM]** `/dnd_fix` без авторизации → только master может исправлять AI.
+  - **[MEDIUM]** `cmd_dnd_start` race condition → INSERT RETURNING id вместо SELECT AFTER INSERT.
 
 ### 🔲 Осталось (бэклог, по приоритету)
 - 🔲 [DB-3] Dual connection pool — архитектурный рефакторинг `database/connection.py` + `api/index.py` (объединить два engine в один).
 - 🔲 [AI-1] `_tool_run_python` — полный RCE без sandboxing (требует решения по безопасности: seccomp/namespace/WASM).
 - 🔲 [AI-2] DnD `build_prompt` — prompt injection через book content (system/user role separation).
 - 🔲 [ARCH] 50+ `except Exception: pass` блоков — нужен аудит на критичные скрытые ошибки.
+- 🔲 [SEC] Family budget user_id spoofing через query param (`bot/web/family_budget.py:18-23`).
+- 🔲 [SEC] Family budget XSS — uid инжектится в HTML/JS без экранирования (`family_budget.py:1066-1075`).
+- 🔲 [SEC] Webhook secret hardcoded fallback (`api/index.py:307`) — критично если env не задан.
+- 🔲 [SEC] AI chat / Verbs user_id spoofing — нет session verification.
+- 🔲 [BUG] In-memory rate limiting неэффективен в serverless (Vercel cold start сбрасывает).
 
 ## Previous Context (from earlier sessions)
 
