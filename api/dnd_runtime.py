@@ -392,8 +392,8 @@ def session_summary(session: dict) -> str:
 
     char_lines = []
     for c in chars:
-        hp = f"❤️ {c['hit_points']}/{c['max_hit_points']}" if c.get('hit_points') else "❤️ ?"
-        ac = f"🛡️ КБ {c['armor_class']}" if c.get('armor_class') else ""
+        hp = f"❤️ {c['hit_points']}/{c['max_hit_points']}" if c.get('hit_points') is not None else "❤️ ?"
+        ac = f"🛡️ КБ {c['armor_class']}" if c.get('armor_class') is not None else ""
         char_lines.append(f"  • <b>{c['name']}</b> ({c['character_class']}, ур.{c['level']}) {hp} {ac}")
 
     scene = session.get("current_scene") or "Новая игра"
@@ -443,9 +443,9 @@ def build_prompt(session: dict, action_text: str) -> str:
         cl = ["\nАктивные персонажи:"]
         for c in chars:
             info = f"{c['name']} ({c['character_class']}, ур. {c['level']})"
-            if c.get("hit_points"):
+            if c.get("hit_points") is not None:
                 info += f", ХП: {c['hit_points']}/{c['max_hit_points']}"
-            if c.get("armor_class"):
+            if c.get("armor_class") is not None:
                 info += f", КБ: {c['armor_class']}"
             cl.append(f" - {info}")
         parts.append("\n".join(cl))
@@ -486,7 +486,7 @@ def build_prompt(session: dict, action_text: str) -> str:
 def _resolve_user_id(telegram_id: int) -> int:
     """Return users.id for a telegram_id, creating a minimal row if needed."""
     engine = get_db_engine()
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         row = conn.execute(
             text("SELECT id FROM users WHERE telegram_id = :tid"),
             {"tid": telegram_id},
@@ -497,7 +497,6 @@ def _resolve_user_id(telegram_id: int) -> int:
             text("INSERT INTO users (telegram_id) VALUES (:tid) RETURNING id"),
             {"tid": telegram_id},
         )
-        conn.commit()
         return result.mappings().first()["id"]
 
 
@@ -510,23 +509,20 @@ def cmd_dnd_start(telegram_id: int, chat_id: int, args: str) -> str:
 
     name = args if args else f"Кампания #{telegram_id % 10000}"
     share_code = _gen_share_code()
-    _execute(
-        "INSERT INTO dnd_sessions (master_id, name, status, started_at, max_players, current_players, share_code) "
-        "VALUES (:uid, :name, 'active', :now, 6, 0, :code)",
-        {"uid": db_user_id, "name": name, "now": datetime.now(timezone.utc), "code": share_code},
-    )
-
-    session = _fetch_one(
-        "SELECT id FROM dnd_sessions WHERE master_id = :uid AND status = 'active' ORDER BY id DESC LIMIT 1",
-        {"uid": db_user_id},
-    )
-    if session:
-        _execute(
-            "INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
-            "VALUES (:sid, :uid, 'system', :content)",
-            {"sid": session["id"], "uid": db_user_id,
-             "content": f"Сессия «{name}» начата. Код приглашения: {share_code}"},
-        )
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("INSERT INTO dnd_sessions (master_id, name, status, started_at, max_players, current_players, share_code) "
+                 "VALUES (:uid, :name, 'active', :now, 6, 0, :code) RETURNING id"),
+            {"uid": db_user_id, "name": name, "now": datetime.now(timezone.utc), "code": share_code},
+        ).mappings().first()
+        if result:
+            conn.execute(
+                text("INSERT INTO dnd_session_logs (session_id, player_id, message_type, content) "
+                     "VALUES (:sid, :uid, 'system', :content)"),
+                {"sid": result["id"], "uid": db_user_id,
+                 "content": f"Сессия «{name}» начата. Код приглашения: {share_code}"},
+            )
 
     return (
         f"🎲 <b>D&D сессия запущена!</b>\n\n"
@@ -542,7 +538,11 @@ def cmd_dnd_start(telegram_id: int, chat_id: int, args: str) -> str:
 
 
 def cmd_dnd_stop(user_id: int, chat_id: int) -> str:
-    session = find_active_session(user_id)
+    db_uid = _resolve_user_id(user_id)
+    session = _fetch_one(
+        "SELECT * FROM dnd_sessions WHERE master_id = :uid AND status = 'active' ORDER BY id DESC LIMIT 1",
+        {"uid": db_uid},
+    ) or find_active_session(user_id)
     if not session:
         return "❌ Нет активной D&D сессии."
     _execute(
@@ -608,6 +608,8 @@ def cmd_dnd_fix(user_id: int, chat_id: int, fix_text: str) -> str:
         return "❌ Нет активной D&D сессии."
 
     db_uid = _resolve_user_id(user_id)
+    if session["master_id"] != db_uid:
+        return "❌ Только мастер может использовать /dnd_fix."
     last_log = _fetch_one(
         "SELECT content FROM dnd_session_logs WHERE session_id = :sid ORDER BY created_at DESC LIMIT 1",
         {"sid": session["id"]},
