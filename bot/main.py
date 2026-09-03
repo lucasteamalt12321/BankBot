@@ -201,6 +201,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # Bridge-модуль запускается отдельно через bot/bridge/main_bridge.py (aiogram)
     # Текущий main.py использует python-telegram-bot для основного функционала
     main()
