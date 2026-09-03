@@ -1310,6 +1310,52 @@ def _migrate_emperors_progress_to_study(engine):
         return False
 
 
+def _column_exists(conn, table, column):
+    """Check column existence in a portable way (PostgreSQL + SQLite)."""
+    engine_backend = conn.engine.dialect.name
+    try:
+        if engine_backend == "sqlite":
+            row = conn.execute(text(
+                "SELECT COUNT(*) AS c FROM pragma_table_info(:t) WHERE name = :c"
+            ), {"t": table, "c": column}).mappings().first()
+            return bool(row and row["c"])
+        row = conn.execute(text(
+            "SELECT COUNT(*) AS c FROM information_schema.columns "
+            "WHERE table_name = :t AND column_name = :c"
+        ), {"t": table, "c": column}).mappings().first()
+        return bool(row and row["c"])
+    except Exception:
+        return False
+
+
+def _alter_add_column_if_missing(engine, table, column, ddl_type, max_retries=4):
+    """Idempotent, deadlock-safe ALTER ADD COLUMN in its own transaction.
+
+    Runs each migration in an autonomous transaction and retries on
+    PostgreSQL deadlock / serialization failures, so concurrent serverless
+    cold starts (each running _ensure* tables) cannot wedge the table or
+    poison the surrounding transaction.
+    """
+    for attempt in range(max_retries):
+        try:
+            with engine.begin() as conn:
+                exists = _column_exists(conn, table, column)
+                if exists:
+                    return
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"
+                ))
+            return
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "deadlock" in msg or "serialization" in msg or "being aborted" in msg or "in failed sql transaction" in msg:
+                time.sleep(0.15 * (attempt + 1))
+                continue
+            log_error("STUDY", "error", f"alter {table}.{column} skipped: {exc}")
+            return
+    log_error("STUDY", "error", f"alter {table}.{column} failed after {max_retries} retries")
+
+
 def _ensure_study_progress_tables(engine):
     """Create the unified OGE progress table and migrate Emperors rows into it."""
     try:
@@ -1354,16 +1400,13 @@ def _ensure_study_progress_tables(engine):
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_sessions_created ON exam_sessions(created_at)"))
-            # Миграция существующих продовых таблиц (PostgreSQL IF NOT EXISTS; SQLite-фикстуры уже с колонками).
-            for ddl in (
-                "ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at REAL NOT NULL DEFAULT 0",
-                "ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS last_correct_at REAL NOT NULL DEFAULT 0",
-            ):
-                try:
-                    conn.execute(text(ddl))
-                except Exception as exc:
-                    log_error("STUDY", "error", f"alter skipped: {exc}")
             conn.commit()
+        # Миграция существующих продовых таблиц. Каждая в своей автономной
+        # транзакции с проверкой существования колонки, чтобы параллельные
+        # серверлесс cold starts не дедлокились на ALTER TABLE (см. прод-логи
+        # DeadlockDetected / InFailedSqlTransaction на study_progress).
+        _alter_add_column_if_missing(engine, "study_progress", "created_at", "REAL NOT NULL DEFAULT 0")
+        _alter_add_column_if_missing(engine, "study_progress", "last_correct_at", "REAL NOT NULL DEFAULT 0")
         _migrate_emperors_progress_to_study(engine)
         log_error("STUDY", "info", "Tables ensured")
     except Exception as exc:
