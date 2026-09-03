@@ -34,6 +34,8 @@
   - **[MEDIUM]** `cmd_dnd_start` race condition → INSERT RETURNING id вместо SELECT AFTER INSERT.
 
 ### 🔲 Осталось (бэклог, по приоритету)
+- 🔲 [BUGHUNT] **Большая охота на баги (2026-09-01)** — запущены N субагентов по модулям: auth/security, OGE study, GD/Chess/DnD/Trivia, Family+VK, Canon/Music/Exam, TG-bot, core ОГЭ-данные, frontend JS, database, AI-curator. Отчёт в процессе.
+- ✅ [PROD-BUG] **Study ALTER deadlock в live-логах Telegram** (`[STUDY] alter skipped`): каждый serverless cold start гоняет `_ensure_study_progress_tables`, и параллельные `ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at/last_correct_at` в одной общей транзакции взаимно дедлочатся (`DeadlockDetected`) и «убивают» транзакцию (`InFailedSqlTransaction` → дальнейшие команды aborted). Фикс: миграции вынесены из общей транзакции в автономные `_alter_add_column_if_missing` (свой `engine.begin()` на каждую), перед ALTER — проверка `_column_exists` (pragma_table_info для SQLite / information_schema для PG), retry ×4 на deadlock/serialization/aborted с backoff. Прямые проверки: старая таблица без колонок → мигрируется; свежая → no-op; `_column_exists` корректно определяет наличие. `py_compile`/`ruff` чисто.
 - 🔲 [DB-3] Dual connection pool — архитектурный рефакторинг `database/connection.py` + `api/index.py` (объединить два engine в один).
 - 🔲 [AI-1] `_tool_run_python` — полный RCE без sandboxing (требует решения по безопасности: seccomp/namespace/WASM).
 - 🔲 [AI-2] DnD `build_prompt` — prompt injection через book content (system/user role separation).
