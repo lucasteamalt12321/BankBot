@@ -216,6 +216,12 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-01 (Session: 🔧 Дедлок миграций + чистка мёртвого кода и моста)
+- **[PROD-BUG] Study ALTER deadlock в live-логах Telegram** (`[STUDY] alter skipped`): каждый serverless cold start гонял `_ensure_study_progress_tables`, параллельные `ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at/last_correct_at` в одной общей транзакции дедлочились (`DeadlockDetected`) и «убивали» транзакцию (`InFailedSqlTransaction` → aborted). Фикс (`0346cf8`): ALTER вынесены в автономные `_alter_add_column_if_missing` (свой `engine.begin()` на каждую), перед ALTER — `_column_exists` (pragma_table_info SQLite / information_schema PG), retry ×4 на deadlock/serialization/aborted с backoff. Проверки: старая таблица без колонок → мигрируется; свежая → no-op. `py_compile`/`ruff` чисто.
+- **[CHORE] Удаление мёртвого кода** (`1aa158c`): `bot/commands/beta_commands.py`, `bot/handlers/message_handler.py`/`callback_handler.py` (aiogram-стабы, не регистрировались), `core/managers/scheduler_manager.py`, `core/school/` (пустой пакет), `core/systems/beta_economy.py` — ни одного импорта в коде/тестах.
+- **[CHORE] Удаление неиспользуемого TG↔VK моста** (`bab353c`): `bridge_bot/` + `vk_bot/` + `bot/bridge/` целиком + тесты (`tests/bridge/`, `tests/vk_bot/`, `tests/unit/test_bridge_*`) + `TestBridgeBotSmoke`/`TestVKBotSmoke` из `tests/smoke/test_startup.py` + докстринги (`bot/main.py`, `bot/middleware`, `common`). Мост выключен `BRIDGE_ENABLED=false`, не используется прод-путём (`run_bot.py`/`api/index.py`). Архитектура: **один** основной PTB-бот в `bot/`; мост был вложенным отдельным aiogram-входом.
+  - **NE трогать (ложные срабатывания аудита):** `core/repositories/` (активно, через core.di/services), reading_trainer (рабочая страница `/reading_trainer.html`), `audio_service/`, `vk_mini_app/` (сервисы), `database/migrations/*.sql` (читаются `migrate.py` через glob).
+
 ### 2026-09-01 (Session: 🏛 Трекер учебников — защита от дубликатов)
 - **[TASK] «Нельзя добавить 2 учебника с одинаковым предметом и описанием»:** уникальность по `(subject, title)`, локация игнорируется.
   - Сервер (`api_textbooks_create`): SELECT перед INSERT по `(user_id, subject, title)` → `409 {error: "Такой учебник уже добавлен"}` (защита от обхода, напр. добавление с разных устройств). Проверено: тот же subject+title с другой локацией → 409.
@@ -1628,6 +1634,10 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+47cb41a (2026-09-01; docs(mb) — удаление мёртвого кода + моста)
+bab353c (2026-09-01; chore: удаление TG↔VK моста bridge_bot/vk_bot/bot/bridge + тесты)
+1aa158c (2026-09-01; chore: удаление мёртвого кода — beta_commands, message/callback_handler, scheduler_manager, core/school, beta_economy)
+0346cf8 (2026-09-01; fix(study): deadlock-safe миграция study_progress — автономные ALTER + _column_exists + retry; прод-баг DeadlockDetected/InFailedSqlTransaction)
 4d65831 (2026-09-01; textbooks — защита от дубликатов (subject+title), fix 1→5 после rebase origin/main `ffe5e5f`; локально bcrypt-stub для тестов Termux)
 ffe5e5f (2026-09-01; remote: остановить spam log_error — notify_admin только на реальные ошибки)
 8703706 (2026-09-01; remote: docs(mb) changelog архитектурных фиксов)
