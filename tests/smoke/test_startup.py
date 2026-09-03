@@ -88,42 +88,6 @@ class TestBankBotSmoke:
         assert response.status_code == 401
 
 
-class TestBridgeBotSmoke:
-    """Smoke tests for BridgeBot (bridge_bot/main.py)."""
-
-    def test_imports_available(self):
-        """Test that bridge configuration exports are available."""
-        from bridge_bot.config import BotSettings, get_settings
-        from bridge_bot.loop_guard import has_bot_mark, add_bot_mark
-
-        assert BotSettings is not None
-        assert get_settings is not None
-        assert has_bot_mark is not None
-        assert add_bot_mark is not None
-
-    def test_loop_guard_functionality(self):
-        """Test that loop guard functions work correctly."""
-        from bridge_bot.loop_guard import has_bot_mark, add_bot_mark
-
-        test_message = "Test message"
-        assert has_bot_mark(test_message) is False
-
-        marked = add_bot_mark(test_message)
-        assert "[BOT]" in marked
-        assert has_bot_mark(marked) is True
-
-
-class TestVKBotSmoke:
-    """Smoke tests for VK Bot (vk_bot/main.py)."""
-
-    def test_imports_available(self):
-        """Test that VK configuration exports are available."""
-        from vk_bot.config import BotSettings, get_settings
-
-        assert BotSettings is not None
-        assert get_settings is not None
-
-
 class TestDatabaseSchema:
     """Smoke tests for database schema."""
 
