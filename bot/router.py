@@ -2,13 +2,7 @@
 
 from aiogram import Router
 
-from bot.commands import (
-    admin_router,
-    user_router,
-    shop_router,
-    game_router,
-    system_router,
-)
+from bot.commands import user_router
 
 
 def create_router() -> Router:
@@ -21,11 +15,7 @@ def create_router() -> Router:
     router = Router()
 
     # Регистрируем роутеры команд
-    router.include_router(system_router)
     router.include_router(user_router)
-    router.include_router(shop_router)
-    router.include_router(game_router)
-    router.include_router(admin_router)
 
     return router
 
