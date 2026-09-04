@@ -2381,3 +2381,32 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Причина:** хендлер `/admin` проверял сессию серверно через заголовки (`X-Auth-Token`/`Authorization`), но браузер при обычном переходе по URL не отправляет кастомные заголовки — токен лежит в `localStorage` и передаётся только через JS `fetch`. Сервер отдавал 403 ещё до загрузки HTML, клиентский JS gate не успевал отработать.
 
 **Фикс:** убрана серверная проверка в хендлере `/admin` (`api/index.py`). Клиентская проверка (init() → `/api/auth/me`) уже корректно обрабатывает авторизацию. API-эндпоинты `/api/admin/*` по-прежнему защищены серверной проверкой (фронт шлёт токен в заголовках при `fetch`).
+
+### Changelog 2026-09-04 — Ревизия проекта: удаление мёртвого кода
+
+**Сессия:** Полный аудит проекта на мёртвые/недоделанные модули + удаление.
+
+#### Удалено (мёртвый код + мусор)
+
+| Файл | Причина |
+|------|---------|
+| `database/migrations/apply_beta_migration.py` | SQLite-only миграция, проект на PostgreSQL/Supabase |
+| `database/migrations/002_beta_features_schema.sql` | SQLite DDL для beta-таблиц, не используется |
+| `setup_webhook.html` | Не ссылается ни из одного маршрута |
+| `reading_trainer.html` (корень) | Дубликат; работают из `api/index.py` inline |
+| `webapp/reading_trainer/` (app.js, index.html) | Дубликат reading_trainer |
+| `public/reading_trainer/` (app.js, index.html) | Дубликат reading_trainer |
+| `public/reading_trainer.html` | Дубликат; не импортируется из index.py |
+| 20× `test_*.db` | Мусор от тестов (уже в .gitignore) |
+
+#### Вычищены пустые aiogram stub-роутеры
+
+- `bot/commands/__init__.py`: удалены `game_router`, `system_router`, `admin_router`, `shop_router` из `__all__`; убран `from aiogram import Router`.
+- `bot/router.py`: удалены импорты и `include_router()` для пустых роутеров.
+- `bank_bot/handlers/__init__.py`: удалены ссылки на удалённые роутеры.
+
+#### Недоделанные модули (решили удалить)
+
+- `core/managers/scheduler_manager.py` — `_execute_message_deletion`/`_execute_custom_task` были TODO (стабы, не интегрированы с ботом). Удалён в предыдущем коммите `1aa158c`.
+
+**Коммит:** `4e606a6`, задеплоен на `bank-bot-ruby.vercel.app`.
