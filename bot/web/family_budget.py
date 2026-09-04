@@ -1064,14 +1064,16 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
 def family_budget_page():
     """GET /family_budget — serve the SPA with user_id pre-filled from query."""
     uid = request.args.get("user_id", "")
+    safe_uid = uid.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
     html = FAMILY_BUDGET_HTML.replace(
         'id="auth-user-id" placeholder="Например, 123456789" value=""',
-        f'id="auth-user-id" placeholder="Например, 123456789" value="{uid}"',
+        f'id="auth-user-id" placeholder="Например, 123456789" value="{safe_uid}"',
     )
     # Also set USER_ID via server-rendered script variable instead of URL parse
+    safe_uid_js = uid.replace("\\", "\\\\").replace("'", "\\'")
     html = html.replace(
         "// USER_ID_SERVER_INJECT",
-        f"USER_ID = '{uid}' || USER_ID;",
+        f"USER_ID = '{safe_uid_js}' || USER_ID;",
     )
     return Response(html, mimetype="text/html")
 
