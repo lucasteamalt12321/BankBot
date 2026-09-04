@@ -11031,6 +11031,7 @@ def emperors_page():
         .emperor-card .reign { font-size: 13px; color: var(--bb-muted); margin-bottom: 12px; }
         .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
         .chip { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 13px; background: var(--bb-primary); border: 1px solid var(--bb-link); cursor: default; line-height: 1.4; }
+        .chip.learned { background: var(--bb-accent); color: #fff; border-color: var(--bb-accent); }
         .chip small { color: var(--bb-muted); }
         .stars { color: var(--bb-warn); letter-spacing: 1px; }
         .chip-title { font-size: 12px; color: var(--bb-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
@@ -11133,6 +11134,14 @@ def emperors_page():
                     <select class="algo-select scope-sel" id="scope-select-study" onchange="app.toggleScope(this)">
                         <option value="emperors">5 императоров</option>
                         <option value="all">Все правители (Рюрик–Путин)</option>
+                    </select>
+                </label>
+                <label>Показать:
+                    <select class="algo-select" id="study-type-mode" onchange="app.toggleStudyType()">
+                        <option value="all">Все сразу</option>
+                        <option value="events">События</option>
+                        <option value="persons">Имена</option>
+                        <option value="terms">Термины</option>
                     </select>
                 </label>
             </div>
@@ -11316,6 +11325,8 @@ __PANEL_TERMS__
             document.getElementById('qdir-select').value = qdir;
             var typeMode = localStorage.getItem('emperors_typemode') || 'all';
             document.getElementById('type-mode').value = typeMode;
+            var studyTypeMode = localStorage.getItem('emperors_study_type') || 'all';
+            document.getElementById('study-type-mode').value = studyTypeMode;
             function typeMatch(it) {
                 if (typeMode === 'persons') return it.type === 'person';
                 if (typeMode === 'events') return it.type === 'event';
@@ -11745,6 +11756,7 @@ function diffInfo() {
             var streakCorrect = 0;
             function currentStreakCorrect() { return streakCorrect; }
 
+            var studyTypeMode = localStorage.getItem('emperors_study_type') || 'all';
             function studyPanel() {
                 var html = '';
                 html += '<div class="timeline"><div class="timeline-title">🗓 Хронология по эпохам</div>';
@@ -11760,6 +11772,9 @@ function diffInfo() {
                     html += '</div></div>';
                 });
                 html += '</div>';
+                var showEvents = studyTypeMode === 'all' || studyTypeMode === 'events';
+                var showPersons = studyTypeMode === 'all' || studyTypeMode === 'persons';
+                var showTerms = studyTypeMode === 'all' || studyTypeMode === 'terms';
                 var rulers = activeRulers();
                 rulers.forEach(function(e) {
                     html += '<div class="card emperor-card" style="border-left-color:' + COLORS[e.id] + '">';
@@ -11767,18 +11782,36 @@ function diffInfo() {
                     html += '<div class="reign">Правил: ' + esc(e.reign) + '</div>';
                     var events = DATA.events.filter(function(ev) { return ev.emperor === e.id; });
                     var persons = DATA.persons.filter(function(p) { return p.emperor === e.id; });
-                    if (events.length) {
+                    if (showEvents && events.length) {
                         html += '<div class="chip-title">События</div><div class="chip-row">';
                         events.forEach(function(ev) { html += '<span class="chip clickable" data-type="event" data-text="' + esc(ev.title) + '" onclick="app.showInfo(this)"><small>' + esc(ev.year) + '</small> ' + esc(ev.title) + starRow(ev.importance || 3) + '</span>'; });
                         html += '</div>';
                     }
-                    if (persons.length) {
+                    if (showPersons && persons.length) {
                         html += '<div class="chip-title">Личности</div><div class="chip-row">';
                         persons.forEach(function(p) { html += '<span class="chip clickable" data-type="person" data-text="' + esc(p.name) + '" onclick="app.showInfo(this)">' + esc(p.name) + starRow(p.importance || 3) + '</span>'; });
                         html += '</div>';
                     }
                     html += '</div>';
                 });
+                if (showTerms && DATA.terms && DATA.terms.length) {
+                    html += '<div class="card" style="margin-top:12px"><h2 style="font-size:16px;margin-bottom:10px">🏛 Термины ОГЭ</h2>';
+                    var cats = {};
+                    DATA.terms.forEach(function(t) {
+                        if (!cats[t.category]) cats[t.category] = [];
+                        cats[t.category].push(t);
+                    });
+                    Object.keys(cats).forEach(function(cat) {
+                        html += '<div class="chip-title">' + esc(cat) + '</div><div class="chip-row">';
+                        cats[cat].forEach(function(t) {
+                            var prog = tProg['term::' + t.id] || {};
+                            var learned = (prog.streak || 0) >= 3;
+                            html += '<span class="chip' + (learned ? ' learned' : '') + '" title="' + esc(t.definition) + '">' + esc(t.term) + (learned ? ' ✅' : '') + '</span>';
+                        });
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                }
                 document.getElementById('study-body').innerHTML = html;
             }
             function starRow(imp) {
@@ -12161,6 +12194,11 @@ function diffInfo() {
                     deck = [];
                     updateScore();
                     loadQuestion();
+                },
+                toggleStudyType: function() {
+                    studyTypeMode = document.getElementById('study-type-mode').value;
+                    localStorage.setItem('emperors_study_type', studyTypeMode);
+                    studyPanel();
                 },
                 toggleOptCount: function() {
                     optCount = document.getElementById('opt-count').value;
