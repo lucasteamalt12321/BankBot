@@ -13284,6 +13284,12 @@ def informatics_page():
         .answer-btn { width: 100%; padding: 12px; background: var(--bb-primary); color: var(--bb-text); border: 1px solid var(--bb-link); border-radius: 10px; font-size: 14px; cursor: pointer; margin-top: 8px; }
         .answer-btn.correct { background: var(--bb-green); border-color: var(--bb-green2); }
         .answer-btn.wrong { background: var(--bb-red); border-color: var(--bb-red); }
+        .autocheck-row { display: flex; gap: 8px; margin-top: 8px; }
+        .autocheck-input { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--bb-link); background: var(--bb-bg); color: var(--bb-text); font-size: 14px; font-family: inherit; }
+        .autocheck-input:focus { outline: none; border-color: var(--bb-accent); }
+        .autocheck-fb { margin-top: 8px; font-size: 14px; display: none; }
+        .autocheck-fb.correct { color: var(--bb-green3); display: block; }
+        .autocheck-fb.wrong { color: #e07373; display: block; }
         .stats { text-align: center; color: var(--bb-muted); margin-top: 24px; font-size: 13px; }
         .hint-box { background: var(--bb-primary); border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 14px; color: var(--bb-muted); line-height: 1.5; display: none; }
         .hint-btn { display: block; width: 100%; padding: 10px; background: none; border: 1px dashed var(--bb-link); color: var(--bb-muted); border-radius: 10px; font-size: 13px; cursor: pointer; margin-top: 10px; font-family: inherit; }
@@ -13346,7 +13352,6 @@ def informatics_page():
             <div class="task" id="current-task">
                 <h3>Выберите тему и нажмите «Получить задачу»</h3>
             </div>
-            <button class="answer-btn" id="answer-btn">Ответить</button>
             <div class="stats" id="stats"></div>
             <button class="next-btn" id="next-btn">Следующая задача</button>
         </div>
@@ -13509,6 +13514,25 @@ def informatics_page():
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
+        function norm(s) { return (s == null ? '' : s).toString().trim().toLowerCase().replace(/\s+/g, ' '); }
+        function normList(s) {
+            return norm(s).split(/[;,]\s*/).filter(Boolean).sort().join(', ');
+        }
+        function checkAnswer(user, ans) {
+            if (user == null || ans == null) return false;
+            var u = norm(user), a = norm(ans);
+            if (u === a) return true;
+            var nu = parseFloat(String(user).replace(',', '.'));
+            var na = parseFloat(String(ans).replace(',', '.'));
+            if (!isNaN(nu) && !isNaN(na) && Math.abs(nu - na) < 1e-9) return true;
+            if (Array.isArray(ans)) {
+                var ua = normList(user);
+                var aa = normList(ans.join(', '));
+                if (ua === aa) return true;
+            }
+            return false;
+        }
+
         // --- Study tab: browse topics ---
         function renderStudyTab() {
             const grid = document.getElementById('topics-grid');
@@ -13557,16 +13581,42 @@ def informatics_page():
                     hint.textContent = '💡 ' + task.hint;
                     taskDiv.appendChild(hint);
                 }
-                const btn = document.createElement('button');
-                btn.className = 'answer-btn';
-                btn.textContent = 'Показать ответ';
-                btn.addEventListener('click', function () {
-                    const ans = document.createElement('p');
-                    ans.className = 'task answer';
-                    ans.style.display = 'block';
-                    ans.style.color = 'var(--bb-green3)';
-                    ans.textContent = 'Ответ: ' + task.answer;
-                    taskDiv.appendChild(ans);
+                const row = document.createElement('div');
+                row.className = 'autocheck-row';
+                const inp = document.createElement('input');
+                inp.className = 'autocheck-input';
+                inp.placeholder = 'Введите ответ...';
+                inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') checkBtn.click(); });
+                row.appendChild(inp);
+                const checkBtn = document.createElement('button');
+                checkBtn.className = 'answer-btn';
+                checkBtn.style.width = 'auto';
+                checkBtn.style.whiteSpace = 'nowrap';
+                checkBtn.textContent = 'Проверить';
+                row.appendChild(checkBtn);
+                taskDiv.appendChild(row);
+                const fb = document.createElement('div');
+                fb.className = 'autocheck-fb';
+                taskDiv.appendChild(fb);
+                let revealed = false;
+                checkBtn.addEventListener('click', function () {
+                    if (revealed) return;
+                    const userAns = inp.value.trim();
+                    if (!userAns) { fb.textContent = 'Введите ответ'; fb.className = 'autocheck-fb wrong'; return; }
+                    const ok = checkAnswer(userAns, task.answer);
+                    infoRecord(task.id, ok);
+                    revealed = true;
+                    inp.disabled = true;
+                    checkBtn.disabled = true;
+                    if (ok) {
+                        fb.textContent = '✅ Верно!';
+                        fb.className = 'autocheck-fb correct';
+                        checkBtn.classList.add('correct');
+                    } else {
+                        fb.textContent = '❌ Правильно: ' + (Array.isArray(task.answer) ? task.answer.join(', ') : task.answer);
+                        fb.className = 'autocheck-fb wrong';
+                        checkBtn.classList.add('wrong');
+                    }
                     if (task.explanation) {
                         const exp = document.createElement('p');
                         exp.className = 'explanation';
@@ -13575,10 +13625,7 @@ def informatics_page():
                         exp.textContent = 'Пояснение: ' + task.explanation;
                         taskDiv.appendChild(exp);
                     }
-                    btn.disabled = true;
-                    btn.textContent = '✓ Ответ показан';
                 });
-                taskDiv.appendChild(btn);
                 grid.appendChild(taskDiv);
             });
             const backBtn = document.createElement('button');
@@ -13656,16 +13703,51 @@ def informatics_page():
                 hint.textContent = '💡 ' + task.hint;
                 box.appendChild(hint);
             }
-            const reveal = document.createElement('button');
-            reveal.className = 'answer-btn';
-            reveal.textContent = 'Показать ответ';
-            reveal.addEventListener('click', function () {
-                const ans = document.createElement('p');
-                ans.className = 'task answer';
-                ans.style.display = 'block';
-                ans.style.color = 'var(--bb-green3)';
-                ans.textContent = 'Ответ: ' + task.answer;
-                box.appendChild(ans);
+            const row = document.createElement('div');
+            row.className = 'autocheck-row';
+            const inp = document.createElement('input');
+            inp.className = 'autocheck-input';
+            inp.placeholder = 'Введите ответ...';
+            inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') checkBtn.click(); });
+            row.appendChild(inp);
+            const checkBtn = document.createElement('button');
+            checkBtn.className = 'answer-btn';
+            checkBtn.style.width = 'auto';
+            checkBtn.style.whiteSpace = 'nowrap';
+            checkBtn.textContent = 'Проверить';
+            row.appendChild(checkBtn);
+            box.appendChild(row);
+            const fb = document.createElement('div');
+            fb.className = 'autocheck-fb';
+            box.appendChild(fb);
+            let checked = false;
+            function finish(correct) {
+                totalSolved++;
+                if (correct) correctStreak++; else correctStreak = 0;
+                infoRecord(task.id, correct);
+                trainDone.push(task);
+                trainQueue.shift();
+                document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved + ' (точность: ' + (totalSolved ? Math.round(correctStreak / totalSolved * 100) : 0) + '%)';
+                document.getElementById('next-btn').style.display = 'block';
+            }
+            checkBtn.addEventListener('click', function () {
+                if (checked) return;
+                const userAns = inp.value.trim();
+                if (!userAns) { fb.textContent = 'Введите ответ'; fb.className = 'autocheck-fb wrong'; return; }
+                checked = true;
+                inp.disabled = true;
+                checkBtn.disabled = true;
+                const ok = checkAnswer(userAns, task.answer);
+                finish(ok);
+                if (ok) {
+                    fb.textContent = '✅ Верно!';
+                    fb.className = 'autocheck-fb correct';
+                    checkBtn.classList.add('correct');
+                } else {
+                    fb.textContent = '❌ Правильно: ' + (Array.isArray(task.answer) ? task.answer.join(', ') : task.answer);
+                    fb.className = 'autocheck-fb wrong';
+                    checkBtn.classList.add('wrong');
+                }
                 if (task.explanation) {
                     const exp = document.createElement('p');
                     exp.className = 'explanation';
@@ -13674,36 +13756,7 @@ def informatics_page():
                     exp.textContent = 'Пояснение: ' + task.explanation;
                     box.appendChild(exp);
                 }
-                reveal.style.display = 'none';
-                const selfRow = document.createElement('div');
-                selfRow.style.cssText = 'display:flex;gap:10px;margin-top:10px;justify-content:center;';
-                const yesBtn = document.createElement('button');
-                yesBtn.className = 'answer-btn';
-                yesBtn.textContent = '✅ Знал';
-                yesBtn.style.background = '#065f46';
-                yesBtn.style.color = '#fff';
-                const noBtn = document.createElement('button');
-                noBtn.className = 'answer-btn';
-                noBtn.textContent = '❌ Ошибся';
-                noBtn.style.background = '#991b1b';
-                noBtn.style.color = '#fff';
-                function finish(correct) {
-                    totalSolved++;
-                    if (correct) correctStreak++; else correctStreak = 0;
-                    infoRecord(task.id, correct);
-                    trainDone.push(task);
-                    trainQueue.shift();
-                    document.getElementById('trainer-score').textContent = 'Решено: ' + totalSolved + ' (точность: ' + (totalSolved ? Math.round(correctStreak / totalSolved * 100) : 0) + '%)';
-                    document.getElementById('next-btn').style.display = 'block';
-                    selfRow.remove();
-                }
-                yesBtn.addEventListener('click', function () { finish(true); });
-                noBtn.addEventListener('click', function () { finish(false); });
-                selfRow.appendChild(yesBtn);
-                selfRow.appendChild(noBtn);
-                box.appendChild(selfRow);
             });
-            box.appendChild(reveal);
             document.getElementById('next-btn').style.display = 'none';
         }
 
