@@ -304,7 +304,7 @@ def _inject_theme_into_response(response):
 
 # Webhook secret
 _raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
-WEBHOOK_SECRET = _raw_webhook_secret if _raw_webhook_secret else "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
+WEBHOOK_SECRET = _raw_webhook_secret or "fallback_not_configured"
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
@@ -413,6 +413,8 @@ def get_db_engine():
         _ensure_chess_games_table(DB_ENGINE)
         _ensure_chess_accounts_and_coins(DB_ENGINE)
         _ensure_oge_curator_tables(DB_ENGINE)
+        if not _raw_webhook_secret:
+            log_error("SECURITY", "error", "WEBHOOK_SECRET env var not set — webhook verification uses fallback")
         try:
             _ensure_canon_tables(DB_ENGINE)
         except Exception as exc:
@@ -23324,7 +23326,9 @@ def get_fallback_sets():
 @app.route("/api/set_webhook", methods=["GET"])
 def set_webhook():
     """Set Telegram webhook to the current Vercel deployment."""
-    secret = os.getenv("WEBHOOK_SECRET") or "2f0cada15d8c40d3331d895340329c328494cba48aef25ee8c1461a7fc81d266"
+    secret = os.getenv("WEBHOOK_SECRET") or ""
+    if not secret:
+        return jsonify({"error": "WEBHOOK_SECRET env var not configured"}), 500
     base = request.host_url.rstrip("/")
     webhook_url = f"{base}/telegram/webhook/{secret}"
     drop_pending = request.args.get("drop") == "1"
