@@ -2515,5 +2515,11 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 **Фикс:** `_sanitize_for_prompt()` — regex-замена role markers (`system:`, `assistant:`, `user:`) и injection keywords (`ignore`, `override`, `disregard`, `forget`, `reset`, `new instructions`, `忽略`). Применяется к `context_summary`, `current_scene`, `fixes.original_context`/`correction`.
 
+### Changelog 2026-09-05 — CRASH FIX: broken regex in _tool_run_python
+
+**Проблема:** Regex blocklist в `_PYTHON_BLOCKLIST` содержал синтаксическую ошибку (`code` модуль конфликтовал с regex-парсером) → `re.error: missing ), unterminated subpattern at position 2` → модуль не импортируется → Vercel 500 на ВСЕХ страницах.
+
+**Фикс (commit `1b0f631`):** Regex заменён на AST-based sandbox (`ast.parse` + `ast.walk`): проверяет `Import`, `ImportFrom`, `Call` узлы. Блокирует `_BLOCKED_MODULES` (os, subprocess, socket и др.) и `_BLOCKED_KEYWORDS` (__import__, eval, exec, open, __builtins__). `import ast` — lazy import внутри функции.
+
 ## last_checked_commit
-  f1a2e06 (2026-09-05; fix(security): _tool_run_python blocklist + env isolation, DnD prompt injection sanitization).
+  1b0f631 (2026-09-05; fix(crash): replace broken regex blocklist with AST-based sandbox for _tool_run_python).
