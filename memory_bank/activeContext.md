@@ -24,6 +24,7 @@
 ### 🔲 Осталось (бэклог, по приоритету)
 - ✅ [SEC] Family budget user_id spoofing — фикс: `_get_user_id()` теперь проверяет `X-Auth-Token` → web session → `telegram_id`, frontend шлёт `X-Auth-Token` (commit pending).
 - ✅ [SEC] AI chat user_id spoofing — фикс: `_get_session_user(token)` из `X-Auth-Token` перед fallback на POST body (commit pending).
+- ✅ [ARCH] except Exception audit — 55 блоков найдено: 0 CRITICAL, 2 HIGH исправлены (_exam_session_save, _create_transaction_via_api), 4/13 MEDIUM исправлены (forecast, student context). Остальные 9 MEDIUM + ~40 LOW в процессе (commit `112f8c5`).
 - 🔲 [DB-3] Dual connection pool — архитектурный рефакторинг `database/connection.py` + `api/index.py` (объединить два engine в один).
 - 🔲 [AI-1] `_tool_run_python` — полный RCE без sandboxing (требует решения по безопасности: seccomp/namespace/WASM).
 - 🔲 [AI-2] DnD `build_prompt` — prompt injection через book content (system/user role separation).

@@ -2463,5 +2463,30 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 **Фикс:** Добавлена проверка `_get_session_user(token)` из `X-Auth-Token` header перед fallback на POST body.
 
+### Changelog 2026-09-05 — except Exception audit: HIGH+MEDIUM fixes
+
+**Аудит:** 55 `except Exception: pass` блоков найдено. 0 CRITICAL, 2 HIGH, 13 MEDIUM, ~40 LOW.
+
+#### Исправлено (HIGH)
+
+| Где | Проблема | Фикс |
+|-----|----------|------|
+| `_exam_session_save` (L14245) | Тихая потеря данных — сессия экзамена не сохраняется в DB, при перезагрузке все ответы пропадают | `log_error("EXAM", ...)` |
+| `_create_transaction_via_api` (L4545) | Тихий сбой создания транзакции — пользователь не видит ошибку | `log_error("BUDGET", ...)` |
+
+#### Исправлено (MEDIUM)
+
+| Где | Проблема | Фикс |
+|-----|----------|------|
+| `_exam_student_context` (L14689) | Контекст ученика для ИИ-экзамена тихо теряется | `log_error("EXAM", ...)` |
+| Forecast computation (L16466) | Прогноз карточек тихо пустой | `log_error("STUDY", ...)` |
+
+#### Остальные MEDIUM (10 шт.) — в процессе
+
+- `_oge_weak_cards` (L17229), `_oge_streak_info` (L17280), `_oge_yesterday_summary` (L17316)
+- `_update_streak` fallback INSERT (L2553), `_record_events` fallback INSERT (L2590)
+- `_inject_theme_into_response` (L301), `_unlock_achievements` existing lookup (L1830)
+- Curator plan minutes update (L18030), `_exam_prune_expired` (L14233), `_exam_student_context` weak keys (L14716)
+
 ## last_checked_commit
-  e2a541d (2026-09-05; fix(security): family_budget + ai_chat user_id spoofing — session-first auth via X-Auth-Token).
+  112f8c5 (2026-09-05; fix(arch): add log_error to silent except blocks — exam_session_save, transaction API, forecast, student context).
