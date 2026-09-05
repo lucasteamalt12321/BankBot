@@ -4542,7 +4542,8 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
             timeout=10,
         )
         return resp.status_code == 201
-    except Exception:
+    except Exception as exc:
+        log_error("BUDGET", "error", f"create transaction API error: {exc}")
         return False
 
 
@@ -14242,8 +14243,8 @@ def _exam_session_save(sid: str, items: list) -> None:
                 "INSERT INTO exam_sessions (sid, items_json, created_at) VALUES (:sid, :items, :now)"
                 " ON CONFLICT (sid) DO UPDATE SET items_json = EXCLUDED.items_json, created_at = EXCLUDED.created_at"
             ), {"sid": sid, "items": json.dumps(items, ensure_ascii=False), "now": time.time()})
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error("EXAM", "error", f"session save failed: {exc}")
 
 
 def _exam_session_load(sid: str) -> dict | None:
@@ -14685,8 +14686,8 @@ def _exam_student_context(uid, now):
                 for r in rows:
                     if int(r["streak"]) < 0 or int(r["wrong_count"]) > int(r["correct_count"]):
                         weak_keys.append(r["card_key"])
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error("EXAM", "error", f"student context error: {exc}")
     return "\n".join(lines) if lines else "No progress data.", weak_keys
 
 
@@ -16462,8 +16463,8 @@ def _oge_stats_payload(web_user_id):
                     "learned": cumulative_learned,
                     "learned_delta": learned_delta,
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error("STUDY", "error", f"forecast error: {exc}")
     overall_readiness = round(total_mastered / max(1, total_cards) * 100)
     # Days until ALL new cards are learned: introduce at `pace`/day, then +MASTERY_GAP to master the last batch.
     days_to_learn_all = 0
