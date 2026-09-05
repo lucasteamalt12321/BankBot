@@ -25,11 +25,10 @@
 - ✅ [SEC] Family budget user_id spoofing — фикс: `_get_user_id()` теперь проверяет `X-Auth-Token` → web session → `telegram_id`, frontend шлёт `X-Auth-Token` (commit pending).
 - ✅ [SEC] AI chat user_id spoofing — фикс: `_get_session_user(token)` из `X-Auth-Token` перед fallback на POST body (commit pending).
 - ✅ [ARCH] except Exception audit — 55 блоков найдено: 0 CRITICAL, 2 HIGH + 13/13 MEDIUM исправлены (log_error добавлен), ~40 LOW — acceptable defensive code (commit `930ac41`).
+- ✅ [AI-1] `_tool_run_python` RCE sandboxing — regex blocklist + restricted env (commit `f1a2e06`).
+- ✅ [AI-2] DnD `build_prompt` prompt injection — `_sanitize_for_prompt()` для user-supplied полей (commit `f1a2e06`).
+- 🔲 [FIX] In-memory rate limiting неэффективен в serverless (Vercel cold start сбрасывает).
 - 🔲 [DB-3] Dual connection pool — архитектурный рефакторинг `database/connection.py` + `api/index.py` (объединить два engine в один).
-- 🔲 [AI-1] `_tool_run_python` — полный RCE без sandboxing (требует решения по безопасности: seccomp/namespace/WASM).
-- 🔲 [AI-2] DnD `build_prompt` — prompt injection через book content (system/user role separation).
-- 🔲 [ARCH] 50+ `except Exception: pass` блоков — нужен аудит на критичные скрытые ошибки.
-- 🔲 [BUG] In-memory rate limiting неэффективен в serverless (Vercel cold start сбрасывает).
 
 ## Previous Context (from earlier sessions)
 
