@@ -22,8 +22,8 @@
   - **OGE-12** ИИ-подсказки везде (уже реализовано: `/api/study/hint` + floating banner на 5 страницах)
 
 ### 🔲 Осталось (бэклог, по приоритету)
-- 🔲 [SEC] Family budget user_id spoofing через query param (`bot/web/family_budget.py:18-23`) — нужен web_token auth.
-- 🔲 [SEC] AI chat user_id spoofing — нет session verification в `/api/ai_chat`.
+- ✅ [SEC] Family budget user_id spoofing — фикс: `_get_user_id()` теперь проверяет `X-Auth-Token` → web session → `telegram_id`, frontend шлёт `X-Auth-Token` (commit pending).
+- ✅ [SEC] AI chat user_id spoofing — фикс: `_get_session_user(token)` из `X-Auth-Token` перед fallback на POST body (commit pending).
 - 🔲 [DB-3] Dual connection pool — архитектурный рефакторинг `database/connection.py` + `api/index.py` (объединить два engine в один).
 - 🔲 [AI-1] `_tool_run_python` — полный RCE без sandboxing (требует решения по безопасности: seccomp/namespace/WASM).
 - 🔲 [AI-2] DnD `build_prompt` — prompt injection через book content (system/user role separation).

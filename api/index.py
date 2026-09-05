@@ -8609,6 +8609,11 @@ def api_ai_chat():
             return jsonify({"error": "Персонаж не найден"}), 400
 
         user_id = str(data.get("user_id") or "anon")
+        token = _auth_token_from_request()
+        if token:
+            session_user = _get_session_user(token)
+            if session_user:
+                user_id = str(session_user["id"])
         messages = (data.get("history") or [])[-20:]  # cap at 20 messages
         state = _pc_state(user_id)
 
