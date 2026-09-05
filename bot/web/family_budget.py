@@ -16,11 +16,36 @@ def _generate_invite_code() -> str:
 
 
 def _get_user_id() -> str:
-    """Extract user_id from request args (Telegram user_id passed as query param)."""
-    uid = request.args.get("user_id", "")
-    if not uid:
-        uid = request.headers.get("X-User-Id", "")
-    return uid
+    """Extract user_id with session-first auth.
+
+    Priority:
+    1. X-Auth-Token header → web session → web_users.telegram_id (spoof-proof)
+    2. X-User-Id header (legacy, used by VK mini-app)
+    3. user_id query param (legacy, kept for backward compat)
+    """
+    token = request.headers.get("X-Auth-Token", "").strip()
+    if token:
+        try:
+            from database.database import get_db
+            from sqlalchemy import text
+            db = next(get_db())
+            try:
+                row = db.execute(
+                    text("SELECT u.telegram_id FROM web_sessions s "
+                         "JOIN web_users u ON u.id = s.user_id "
+                         "WHERE s.token = :t"),
+                    {"t": token},
+                ).fetchone()
+                if row and row[0]:
+                    return str(row[0])
+            finally:
+                db.close()
+        except Exception:
+            pass
+    uid = request.headers.get("X-User-Id", "").strip()
+    if uid:
+        return uid
+    return request.args.get("user_id", "")
 
 
 def api_family_status():
@@ -35,7 +60,7 @@ def api_family_status():
     try:
         member = db.query(FamilyMember).filter(FamilyMember.user_id == user_id).first()
         if not member:
-            return jsonify({"family": None})
+            return jsonify({"user_id": user_id, "family": None})
 
         family = db.query(Family).filter(Family.id == member.family_id).first()
         if not family:
@@ -47,6 +72,7 @@ def api_family_status():
             .all()
         )
         return jsonify({
+            "user_id": user_id,
             "family": {
                 "id": family.id,
                 "name": family.name,
@@ -810,7 +836,8 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
           if (_dbg) { _dbg.style.background = '#d4edda'; _dbg.style.color = '#155724'; _dbg.textContent = '✅ onerror установлен'; }
 
           var BASE = '/api/budget';
-          var USER_ID = (window.location.search.match(/[?&]user_id=([^&]*)/) || [,''])[1] || localStorage.getItem('budget_user_id') || '';
+          var WEB_TOKEN = localStorage.getItem('web_token') || '';
+          var USER_ID = '';
           // USER_ID_SERVER_INJECT
           var STATE = { family: null, debts: [], members: [] };
           if (_dbg) { _dbg.textContent = '✅ JS работает, ID=' + USER_ID; }
@@ -824,9 +851,23 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
               loadDashboard();
           }
 
+          function autoLogin() {
+              if (!WEB_TOKEN) return false;
+              get('/family/status').then(function(status) {
+                  if (status && status.user_id) {
+                      USER_ID = status.user_id;
+                      showToast('Авторизация через LTHub');
+                  }
+                  loadDashboard();
+              }).catch(function() {});
+              return true;
+          }
+
           function api(method, path, body) {
               if (typeof fetch !== 'undefined') {
-                  var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-User-Id': USER_ID } };
+                  var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+                  if (WEB_TOKEN) { opts.headers['X-Auth-Token'] = WEB_TOKEN; }
+                  if (USER_ID) { opts.headers['X-User-Id'] = USER_ID; }
                   if (body) { opts.body = JSON.stringify(body); }
                   return fetch(BASE + path, opts).then(function(res) { return res.json(); });
               }
@@ -835,7 +876,8 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
                   var xhr = new XMLHttpRequest();
                   xhr.open(method, BASE + path, true);
                   xhr.setRequestHeader('Content-Type', 'application/json');
-                  xhr.setRequestHeader('X-User-Id', USER_ID);
+                  if (WEB_TOKEN) { xhr.setRequestHeader('X-Auth-Token', WEB_TOKEN); }
+                  if (USER_ID) { xhr.setRequestHeader('X-User-Id', USER_ID); }
                   xhr.onreadystatechange = function() {
                       if (xhr.readyState === 4) {
                           if (xhr.status >= 200 && xhr.status < 300) {
@@ -902,18 +944,19 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
           }
 
           function loadDashboard() {
-              if (!USER_ID) { showToast('Необходима авторизация'); showAuth(); return; }
-              get('/family/status?user_id=' + USER_ID).then(function(status) {
+              if (!USER_ID && !WEB_TOKEN) { showToast('Необходима авторизация'); showAuth(); return; }
+              get('/family/status').then(function(status) {
+                  if (status.user_id && !USER_ID) { USER_ID = status.user_id; }
                   if (!status.family) { showAuth(); return; }
                   STATE.family = status.family;
                   document.getElementById('dash-family-name').textContent = '🏠 ' + status.family.name;
                   document.getElementById('dash-invite-code').textContent = 'Код приглашения: ' + status.family.invite_code;
                   STATE.members = status.family.members || [];
                   renderMembers();
-                  get('/debts?family_id=' + status.family.id + '&user_id=' + USER_ID).then(function(debtsRes) {
+                  get('/debts?family_id=' + status.family.id).then(function(debtsRes) {
                       STATE.debts = debtsRes.debts || [];
                       renderDebts();
-                      get('/balance?family_id=' + status.family.id + '&user_id=' + USER_ID).then(function(balanceRes) {
+                      get('/balance?family_id=' + status.family.id).then(function(balanceRes) {
                           renderBalances(balanceRes.balances || []);
                           showScreen('screen-dashboard');
                       });
