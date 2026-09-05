@@ -2442,5 +2442,26 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 
 Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/10/11/12).
 
+### Changelog 2026-09-05 — Security fixes: user_id spoofing (family_budget + ai_chat)
+
+**Сессия:** Два критичных security-фикса.
+
+#### Family budget user_id spoofing (commit `e2a541d`)
+
+**Проблема:** `_get_user_id()` в `bot/web/family_budget.py` читал `user_id` из query param (`request.args.get("user_id")`) — любой мог подставить чужой ID и управлять чужой семьёй/бюджетом.
+
+**Фикс:**
+- `_get_user_id()` теперь проверяет по приоритету: `X-Auth-Token` header → web session → `web_users.telegram_id` → `X-User-Id` header → query param (fallback для VK mini app).
+- Frontend: `api()` шлёт `X-Auth-Token` (web_token из localStorage) + `X-User-Id` заголовки вместо `?user_id=` в URL.
+- `api_family_status` возвращает `"user_id"` в JSON — фронт автоматически узнаёт ID из сессии.
+- `loadDashboard()` вызывает `/family/status` без query param, USER_ID устанавливается из ответа.
+- Добавлен `autoLogin()` для автоматической авторизации через web_token.
+
+#### AI chat user_id spoofing (commit `e2a541d`)
+
+**Проблема:** `user_id = str(data.get("user_id") or "anon")` в `/api/ai_chat` читал ID из POST body без проверки сессии — любой мог отправить чужой user_id.
+
+**Фикс:** Добавлена проверка `_get_session_user(token)` из `X-Auth-Token` header перед fallback на POST body.
+
 ## last_checked_commit
-  28cc3f2 (2026-09-04; docs: mark OGE-12 completed, score 100/100 — all Phase 6 deliverables done).
+  e2a541d (2026-09-05; fix(security): family_budget + ai_chat user_id spoofing — session-first auth via X-Auth-Token).
