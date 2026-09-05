@@ -7918,25 +7918,44 @@ def _pc_write(state: dict, path: str, content: str) -> str:
     return f"written: {path} ({len(content)} chars)"
 
 
-_PYTHON_BLOCKLIST = re.compile(
-    r'\b(import\s+(os|subprocess|socket|shutil|pathlib|ctypes|signal|multiprocessing|threading|_thread|'
-    r'sys|platform|pdb|code|codeop|compileall|py_compile|venv|ensurepip|runpy|'
-    r'webbrowser|xmlrpc|ftplib|smtplib|poplib|imaplib|nntplib|telnetlib|uuid|'
-    r'warnings|atexit|inspect|traceback|linecache|pickle|shelve|dbm|sqlite3|'
-    r'tkinter|turtle|asyncio|concurrent|logging|unittest|doctest|profile|pstats|'
-    r'timeit|zipimport|pkgutil|runpy|compileall|py_compile)\b|'
-    r'\b__import__\b|\bglobals\(\)|\blocals\(\)|\beval\(|\bexec\(|'
-    r'\bopen\(|\b__builtins__\b|getattr\(.*["\']__(?:import|builtins|subclasses)',
-    re.IGNORECASE,
-)
+_BLOCKED_MODULES = {
+    'os', 'subprocess', 'socket', 'shutil', 'pathlib', 'ctypes', 'signal',
+    'multiprocessing', 'threading', '_thread', 'sys', 'platform', 'pdb',
+    'codeop', 'compileall', 'py_compile', 'venv', 'ensurepip', 'runpy',
+    'webbrowser', 'xmlrpc', 'ftplib', 'smtplib', 'poplib', 'imaplib',
+    'nntplib', 'telnetlib', 'uuid', 'warnings', 'atexit', 'inspect',
+    'traceback', 'linecache', 'pickle', 'shelve', 'dbm', 'sqlite3',
+    'tkinter', 'turtle', 'asyncio', 'concurrent', 'logging', 'unittest',
+    'doctest', 'profile', 'pstats', 'timeit', 'zipimport', 'pkgutil',
+}
+_BLOCKED_KEYWORDS = {'__import__', 'eval', 'exec', 'open', '__builtins__'}
 
 
 def _tool_run_python(code: str) -> str:
     """Execute Python code in a restricted sandbox."""
+    import ast
     if not code.strip():
         return "empty code"
-    if _PYTHON_BLOCKLIST.search(code):
-        return "Blocked: forbidden import/function detected (os, subprocess, socket, file I/O, eval, exec, __import__ are not allowed)"
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    mod = alias.name.split('.')[0]
+                    if mod in _BLOCKED_MODULES:
+                        return f"Blocked: import {mod} is not allowed"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    mod = node.module.split('.')[0]
+                    if mod in _BLOCKED_MODULES:
+                        return f"Blocked: from {mod} import is not allowed"
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id in _BLOCKED_KEYWORDS:
+                    return f"Blocked: {node.func.id}() is not allowed"
+    except SyntaxError:
+        return "Syntax error in code"
+    except Exception:
+        pass
     try:
         proc = subprocess.run(
             [sys.executable, "-c", code],
