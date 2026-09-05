@@ -415,6 +415,16 @@ def session_summary(session: dict) -> str:
 
 # ── AI Master prompts ──────────────────────────────────────────────
 
+def _sanitize_for_prompt(text: str, max_len: int = 3000) -> str:
+    """Strip potential prompt-injection patterns from user-supplied text."""
+    if not text:
+        return ""
+    t = text[:max_len]
+    t = re.sub(r'(?i)\b(system|assistant|user)\s*:', '[REDACTED]', t)
+    t = re.sub(r'(?i)\b忽略|ignore|override|disregard|forget|reset|new instructions?\b', '[REDACTED]', t)
+    return t
+
+
 def build_prompt(session: dict, action_text: str) -> str:
     sys_prompt = session.get("ai_system_prompt") or (
         "Ты — мастер подземелий (Game Master) D&D. Отвечай на русском языке. "
