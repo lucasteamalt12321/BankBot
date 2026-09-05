@@ -7918,10 +7918,25 @@ def _pc_write(state: dict, path: str, content: str) -> str:
     return f"written: {path} ({len(content)} chars)"
 
 
+_PYTHON_BLOCKLIST = re.compile(
+    r'\b(import\s+(os|subprocess|socket|shutil|pathlib|ctypes|signal|multiprocessing|threading|_thread|'
+    r'sys|platform|pdb|code|codeop|compileall|py_compile|venv|ensurepip|runpy|'
+    r'webbrowser|xmlrpc|ftplib|smtplib|poplib|imaplib|nntplib|telnetlib|uuid|'
+    r'warnings|atexit|inspect|traceback|linecache|pickle|shelve|dbm|sqlite3|'
+    r'tkinter|turtle|asyncio|concurrent|logging|unittest|doctest|profile|pstats|'
+    r'timeit|zipimport|pkgutil|runpy|compileall|py_compile)\b|'
+    r'\b__import__\b|\bglobals\(\)|\blocals\(\)|\beval\(|\bexec\(|'
+    r'\bopen\(|\b__builtins__\b|getattr\(.*["\']__(?:import|builtins|subclasses)',
+    re.IGNORECASE,
+)
+
+
 def _tool_run_python(code: str) -> str:
-    """Actually execute Python code in a sandbox."""
+    """Execute Python code in a restricted sandbox."""
     if not code.strip():
         return "empty code"
+    if _PYTHON_BLOCKLIST.search(code):
+        return "Blocked: forbidden import/function detected (os, subprocess, socket, file I/O, eval, exec, __import__ are not allowed)"
     try:
         proc = subprocess.run(
             [sys.executable, "-c", code],
@@ -7929,6 +7944,7 @@ def _tool_run_python(code: str) -> str:
             text=True,
             timeout=10,
             cwd=tempfile.gettempdir(),
+            env={"PATH": "/usr/bin:/bin", "HOME": tempfile.gettempdir(), "PYTHONPATH": ""},
         )
     except subprocess.TimeoutExpired:
         return "Timeout: code took more than 10 seconds"
