@@ -298,8 +298,8 @@ def _inject_theme_into_response(response):
             if mod and "</html>" in body:
                 body = body.replace("</html>", _OGE_HINT_JS % mod + "</html>", 1)
             response.set_data(inject_theme(body))
-        except Exception:
-            pass
+        except Exception as exc:
+            log_error("THEME", "error", f"theme injection error: {exc}")
     return response
 
 # Webhook secret
@@ -1827,7 +1827,8 @@ def _unlock_achievements(conn, user_id, codes, now_ts):
                 {"user_id": user_id},
             ).mappings().all()
         }
-    except Exception:
+    except Exception as exc:
+        log_error("ACHIEVEMENTS", "error", f"existing achievements lookup failed: {exc}")
         existing = set()
     newly = []
     for code in codes:
@@ -2550,8 +2551,8 @@ def _record_activity(conn, user_id, module, actions):
                 text("INSERT INTO web_activity_log (user_id, day, module, actions) VALUES (:uid, :day, :module, :actions)"),
                 {"uid": user_id, "day": today, "module": module, "actions": actions},
             )
-        except Exception:
-            pass
+        except Exception as exc2:
+            log_error("ACHIEVEMENTS", "error", f"activity log fallback INSERT failed: {exc2}")
     conn.commit()
     return new_streak, longest, total
 
@@ -2587,8 +2588,8 @@ def _record_events(conn, user_id, events):
                     text("INSERT INTO web_events (user_id, event, count, updated_at) VALUES (:uid, :ev, 1, :ts)"),
                     {"uid": user_id, "ev": ev, "ts": now},
                 )
-            except Exception:
-                pass
+            except Exception as exc2:
+                log_error("ACHIEVEMENTS", "error", f"event log fallback INSERT failed: {exc2}")
 
 
 def _prev_day(day_str):
@@ -14231,8 +14232,8 @@ def _exam_prune_expired() -> None:
         with get_db_engine().begin() as conn:
             conn.execute(text("DELETE FROM exam_sessions WHERE created_at < :cutoff"),
                          {"cutoff": now - _EXAM_SESSION_TTL})
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error("EXAM", "error", f"prune expired sessions failed: {exc}")
 
 
 def _exam_session_save(sid: str, items: list) -> None:
@@ -14713,8 +14714,8 @@ def api_exam_ai_batch():
     if uid:
         try:
             _, weak_keys = _exam_student_context(uid, now)
-        except Exception:
-            pass
+        except Exception as exc:
+            log_error("EXAM", "error", f"weak keys lookup failed: {exc}")
 
     avail = [p for p in pool if p["key"] not in seen]
     if not avail:
@@ -17226,8 +17227,8 @@ def _oge_weak_topics_summary(uid):
                     pct = round(100 * c / total) if total else 0
                     weak.append(f"{name} ({pct}%)")
                 lines.append(f"{meta['label']}: {', '.join(weak)}")
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error("STUDY", "error", f"weak cards error: {exc}")
     return lines
 
 
@@ -17272,8 +17273,8 @@ def _oge_streak_info(uid, now):
                 else:
                     cur = 1
             result["best"] = max(best, streak)
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error("STUDY", "error", f"streak info error: {exc}")
     return result
 
 
@@ -17308,8 +17309,8 @@ def _oge_yesterday_summary(uid):
             result["touched"] = len(rows)
             result["correct"] = sum(int(r["correct_count"] or 0) for r in rows)
             result["wrong"] = sum(int(r["wrong_count"] or 0) for r in rows)
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error("STUDY", "error", f"yesterday summary error: {exc}")
     return result
 
 
@@ -18028,8 +18029,8 @@ def api_study_chat_send():
                         "UPDATE oge_daily_plans SET target_minutes=:m WHERE user_id=:u AND plan_date=:d"
                     ), {"m": _new_min, "u": uid, "d": today})
                     minutes = _new_min
-        except Exception:
-            pass
+        except Exception as exc:
+            log_error("OGE", "error", f"plan minutes update failed: {exc}")
     try:
         with get_db_engine().connect() as conn:
             row = _load_plan_row(conn, uid, today)
