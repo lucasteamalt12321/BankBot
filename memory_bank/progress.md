@@ -2481,12 +2481,22 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 | `_exam_student_context` (L14689) | Контекст ученика для ИИ-экзамена тихо теряется | `log_error("EXAM", ...)` |
 | Forecast computation (L16466) | Прогноз карточек тихо пустой | `log_error("STUDY", ...)` |
 
-#### Остальные MEDIUM (10 шт.) — в процессе
+#### Остальные MEDIUM (10 шт.) — исправлены
 
-- `_oge_weak_cards` (L17229), `_oge_streak_info` (L17280), `_oge_yesterday_summary` (L17316)
-- `_update_streak` fallback INSERT (L2553), `_record_events` fallback INSERT (L2590)
-- `_inject_theme_into_response` (L301), `_unlock_achievements` existing lookup (L1830)
-- Curator plan minutes update (L18030), `_exam_prune_expired` (L14233), `_exam_student_context` weak keys (L14716)
+| Где | Фикс |
+|-----|------|
+| `_oge_weak_cards` (L17229) | `log_error("STUDY", ...)` |
+| `_oge_streak_info` (L17275) | `log_error("STUDY", ...)` |
+| `_oge_yesterday_summary` (L17311) | `log_error("STUDY", ...)` |
+| `_update_streak` fallback INSERT (L2553) | `log_error("ACHIEVEMENTS", ...)` |
+| `_record_events` fallback INSERT (L2590) | `log_error("ACHIEVEMENTS", ...)` |
+| `_inject_theme_into_response` (L301) | `log_error("THEME", ...)` |
+| `_unlock_achievements` existing lookup (L1830) | `log_error("ACHIEVEMENTS", ...)` |
+| Curator plan minutes update (L18032) | `log_error("OGE", ...)` |
+| `_exam_prune_expired` (L14235) | `log_error("EXAM", ...)` |
+| `_exam_student_context` weak keys (L14717) | `log_error("EXAM", ...)` |
+
+**Итого:** Все 2 HIGH + 13/13 MEDIUM исправлены. ~40 LOW — acceptable defensive code, не требуют фикса.
 
 ## last_checked_commit
-  112f8c5 (2026-09-05; fix(arch): add log_error to silent except blocks — exam_session_save, transaction API, forecast, student context).
+  930ac41 (2026-09-05; fix(arch): add log_error to all remaining MEDIUM except Exception blocks (9 fixes)).
