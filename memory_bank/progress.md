@@ -2498,5 +2498,22 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 **Итого:** Все 2 HIGH + 13/13 MEDIUM исправлены. ~40 LOW — acceptable defensive code, не требуют фикса.
 
+### Changelog 2026-09-05 — AI sandboxing + DnD prompt injection
+
+#### AI-1: `_tool_run_python` RCE sandboxing (commit `f1a2e06`)
+
+**Проблема:** AI chat мог executed任意 Python code через `subprocess.run([sys.executable, "-c", code])` — полный RCE без ограничений.
+
+**Фикс:**
+- Regex blocklist: `os`, `subprocess`, `socket`, `shutil`, `pathlib`, `ctypes`, `signal`, `multiprocessing`, `threading`, `sys`, `platform`, `pdb`, `code`, `compileall`, `py_compile`, `venv`, `ensurepip`, `runpy`, `webbrowser`, `xmlrpc`, `ftplib`, `smtplib`, `poplib`, `imaplib`, `nntplib`, `telnetlib`, `uuid`, `warnings`, `atexit`, `inspect`, `traceback`, `linecache`, `pickle`, `shelve`, `dbm`, `sqlite3`, `tkinter`, `turtle`, `asyncio`, `concurrent`, `logging`, `unittest`, `doctest`, `profile`, `pstats`, `timeit`, `zipimport`, `pkgutil`, `compileall`, `py_compile`.
+- Блокировка `__import__`, `globals()`, `locals()`, `eval()`, `exec()`, `open()`, `__builtins__`, `getattr(..., "__import__")`.
+- Окружение: `PATH=/usr/bin:/bin`, `HOME=tempdir`, пустой `PYTHONPATH`.
+
+#### AI-2: DnD `build_prompt` prompt injection (commit `f1a2e06`)
+
+**Проблема:** User-supplied поля (`context_summary`, `current_scene`, `fixes`) могли содержать prompt injection (system/assistant/user role markers, override commands).
+
+**Фикс:** `_sanitize_for_prompt()` — regex-замена role markers (`system:`, `assistant:`, `user:`) и injection keywords (`ignore`, `override`, `disregard`, `forget`, `reset`, `new instructions`, `忽略`). Применяется к `context_summary`, `current_scene`, `fixes.original_context`/`correction`.
+
 ## last_checked_commit
-  930ac41 (2026-09-05; fix(arch): add log_error to all remaining MEDIUM except Exception blocks (9 fixes)).
+  f1a2e06 (2026-09-05; fix(security): _tool_run_python blocklist + env isolation, DnD prompt injection sanitization).
