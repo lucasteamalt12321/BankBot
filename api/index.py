@@ -318,13 +318,40 @@ _AI_RATE_WINDOW = 60  # 1 minute window
 _AI_RATE_MAX = 10     # max 10 requests per minute per key
 
 def _check_ai_rate(key: str, max_requests: int = _AI_RATE_MAX, window: int = _AI_RATE_WINDOW) -> bool:
-    """Return True if rate limit exceeded for the given key."""
+    """Return True if rate limit exceeded for the given key.
+
+    Uses in-memory dict (fast but resets on cold start). For critical
+    endpoints, callers should also check DB-backed rate via _check_db_rate.
+    """
     now = time.time()
     timestamps = _AI_RATE_LIMITS.setdefault(key, [])
     timestamps[:] = [t for t in timestamps if now - t < window]
     if len(timestamps) >= max_requests:
         return True
     timestamps.append(now)
+    return False
+
+
+def _check_db_rate(key: str, max_requests: int = 10, window: int = 60) -> bool:
+    """DB-backed rate limit — persists across cold starts. Returns True if exceeded."""
+    now = time.time()
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            conn.execute(text(
+                "DELETE FROM rate_limits WHERE key = :k AND ts < :cutoff"
+            ), {"k": key, "cutoff": now - window})
+            row = conn.execute(text(
+                "SELECT COUNT(*) as cnt FROM rate_limits WHERE key = :k"
+            ), {"k": key}).mappings().first()
+            cnt = int(row["cnt"] or 0) if row else 0
+            if cnt >= max_requests:
+                return True
+            conn.execute(text(
+                "INSERT INTO rate_limits (key, ts) VALUES (:k, :ts)"
+            ), {"k": key, "ts": now})
+    except Exception:
+        pass  # DB failure → fall back to in-memory only
     return False
 
 # Bot identity for reply/mention detection
@@ -380,25 +407,28 @@ def normalize_database_url(url: str) -> str:
 
 
 def get_db_engine():
-    """Get SQLAlchemy engine for DATABASE_URL/Supabase or local SQLite."""
-
+    """Get SQLAlchemy engine — reuses the shared engine from database.connection."""
     global DB_ENGINE
     if DB_ENGINE is None:
-        database_url = (
-            os.getenv("DATABASE_URL")
-            or os.getenv("POSTGRES_URL")
-            or os.getenv("SUPABASE_DB_URL")
-            or "sqlite:///data/bot.db"
-        )
-        DB_ENGINE = create_engine(
-            normalize_database_url(database_url),
-            pool_size=2,
-            max_overflow=1,
-            pool_pre_ping=True,
-            pool_recycle=60,
-            pool_timeout=5,
-            connect_args={"connect_timeout": 10},
-        )
+        try:
+            from database.database import engine as shared_engine
+            DB_ENGINE = shared_engine
+        except Exception:
+            database_url = (
+                os.getenv("DATABASE_URL")
+                or os.getenv("POSTGRES_URL")
+                or os.getenv("SUPABASE_DB_URL")
+                or "sqlite:///data/bot.db"
+            )
+            DB_ENGINE = create_engine(
+                normalize_database_url(database_url),
+                pool_size=2,
+                max_overflow=1,
+                pool_pre_ping=True,
+                pool_recycle=60,
+                pool_timeout=5,
+                connect_args={"connect_timeout": 10},
+            )
         _ensure_gd_tables(DB_ENGINE)
         _ensure_budget_tables(DB_ENGINE)
         _ensure_universe_tables(DB_ENGINE)
@@ -423,6 +453,17 @@ def get_db_engine():
             _ensure_textbook_tables(DB_ENGINE)
         except Exception as exc:
             log_error("TEXTBOOK", "error", f"table init skipped: {exc}")
+        try:
+            with DB_ENGINE.begin() as conn:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS rate_limits ("
+                    "key TEXT NOT NULL, ts DOUBLE PRECISION NOT NULL)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_rate_limits_key_ts ON rate_limits (key, ts)"
+                ))
+        except Exception:
+            pass
     return DB_ENGINE
 
 def _ensure_gd_tables(engine):
@@ -6633,7 +6674,7 @@ def api_dnd_join():
 @app.route("/api/dnd/act", methods=["POST"])
 def api_dnd_act():
     data = request.get_json(silent=True) or {}
-    if _check_ai_rate("dnd:" + request.remote_addr):
+    if _check_ai_rate("dnd:" + request.remote_addr) or _check_db_rate("dnd:" + (request.remote_addr or ""), 15, 60):
         return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
@@ -8634,7 +8675,7 @@ xhr.onload = function() {
 @app.route("/api/ai_chat", methods=["POST"])
 def api_ai_chat():
     try:
-        if _check_ai_rate("ai_chat:" + request.remote_addr):
+        if _check_ai_rate("ai_chat:" + request.remote_addr) or _check_db_rate("ai_chat:" + (request.remote_addr or ""), 15, 60):
             return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
         data = request.get_json(silent=True) or {}
         character = data.get("character", "olegov")
