@@ -2521,5 +2521,23 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 **Фикс (commit `1b0f631`):** Regex заменён на AST-based sandbox (`ast.parse` + `ast.walk`): проверяет `Import`, `ImportFrom`, `Call` узлы. Блокирует `_BLOCKED_MODULES` (os, subprocess, socket и др.) и `_BLOCKED_KEYWORDS` (__import__, eval, exec, open, __builtins__). `import ast` — lazy import внутри функции.
 
+### Changelog 2026-09-05 — DB-backed rate limiting + connection pool unification
+
+#### In-memory rate limiting fix (commit `8ab128b`)
+
+**Проблема:** `_check_ai_rate` использовал in-memory dict `_AI_RATE_LIMITS`, который сбрасывался при каждом Vercel cold start — rate limiting не работал.
+
+**Фикс:**
+- Добавлен `_check_db_rate()` — DB-backed rate limiting через таблицу `rate_limits` (key, ts). Auto-cleanup старых записей.
+- Таблица `rate_limits` создаётся при старте (`CREATE TABLE IF NOT EXISTS` + index).
+- DB rate check добавлен к DnD (`dnd:`) и AI chat (`ai_chat:`) — критичные AI-эндпоинты.
+- In-memory check остаётся как fast path, DB — как persistent fallback.
+
+#### Dual connection pool unification — DB-3 (commit `8ab128b`)
+
+**Проблема:** `api/index.py` создавал свой `DB_ENGINE` через `get_db_engine()`, а `database/database.py` — свой через `get_pooled_engine()`. Два отдельных connection pool на одну PostgreSQL БД → лишние соединения, wastage на Vercel Hobby (connection limit).
+
+**Фикс:** `get_db_engine()` в `api/index.py` теперь импортирует `engine` из `database.database` (shared engine). Fallback на создание нового engine только если import не удался.
+
 ## last_checked_commit
-  1b0f631 (2026-09-05; fix(crash): replace broken regex blocklist with AST-based sandbox for _tool_run_python).
+  8ab128b (2026-09-05; fix: DB-backed rate limiting + dual connection pool unification (DB-3)).
