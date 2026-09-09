@@ -25977,12 +25977,12 @@ function hlLang(langKey) {{
 }}
 function renderFile(d) {{
     var fv = document.getElementById('fileView');
-    var langMeta = langMeta(d.language);
+    var lMeta = langMeta(d.language);
     var ai = d.ai_line_comments || {{}};
     var uc = (d.user_comments || []).reduce(function(m,c) {{ (m[c.line_start] = m[c.line_start] || []).push(c); return m; }}, {{}});
     var lines = (d.content || '').split('\\n');
-    var head = '<div class="file-head"><h2>' + (langMeta.icon ? langMeta.icon + ' ' : '') + esc(d.path) + '</h2>'
-             + '<span class="tag">' + esc(langMeta.name) + '</span>'
+    var head = '<div class="file-head"><h2>' + (lMeta.icon ? lMeta.icon + ' ' : '') + esc(d.path) + '</h2>'
+             + '<span class="tag">' + esc(lMeta.name) + '</span>'
              + '<span class="pill">' + lines.length + ' строк</span>'
              + '<button class="btn ghost" onclick="openAddComment()">➕ Комментарий</button></div>';
     var summary = d.ai_summary ? '<div class="summary-note">🤖 <b>AI:</b> ' + esc(d.ai_summary) + '</div>' : '';
