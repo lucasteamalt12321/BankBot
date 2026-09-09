@@ -371,7 +371,11 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **Phase 1 (Core): 100/100 completed**  
 **Phase 2 (Features): 97/100 completed** (GD-01-07: 27%, CH-01-06: 18%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-05: 20%, AIC-01-08: 8%, BGT-01-10: 98%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST/BGT-TEST: 0%)  
-**Общий прогресс проекта: 100% (Phase 1) + 97% (Phase 2)**
+**Phase 3 (Web Portal): 123/123 completed**  
+**Phase 6 (OGE Center): 100/100 completed**  
+**Phase 6.5 (General Statistics): 100/100 completed**  
+**Phase 7 (Code Explainer): 90/100 completed**  
+**Общий прогресс проекта: 100% (Phases 1,3,6,6.5) + 97% (Phase 2) + 90% (Phase 7)**
 
 **Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
 
@@ -555,6 +559,27 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | STAT-04 | ОГЭ-ачивки (5 модулей × шкалы выполненных заданий и освоенных карточек) + activity-хуки `_record_activity` в quiz/exam/study-progress с разблокировкой в `_check_web_achievements` и отдачей `unlocked_detail` | completed | 20 |
 
 **General Statistics: 100/100** (все deliverables completed; тесты: 10 в test_achievements.py + test_web_portal_e2e.py, ruff clean, `node --check` account/stats JS OK)
+
+---
+
+### Phase 7: Code Explainer — обьяснялка кода из репозиториев (2026-09-02)
+
+**Цель:** Пользователь скидывает ссылку на GitHub-репозиторий → система клонирует, AI анализирует файлы, сайт показывает дерево проекта с AI-комментариями к коду. Можно добавлять собственные комментарии к строкам кода. Начинаем с Godot (GDScript), архитектура расширяемая (25+ ЯП).
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| CODE-01 | БД: `_ensure_code_tables()` — 3 таблицы `code_projects`, `code_files`, `code_user_comments` + индексы, регистрация в `get_db_engine()` | completed | 10 |
+| CODE-02 | Языковой маппинг `_CODE_LANGUAGES` — 30 расширений → `{name, icon, hint}`, `_CODE_SPECIAL_FILES`, `_CODE_SKIP_EXT` | completed | 5 |
+| CODE-03 | API: POST `/api/code/analyze` — clone (`--depth 1`), walk tree, batch AI (5 файлов/запрос, max 20, 60s timeout), store results | completed | 20 |
+| CODE-04 | API: GET `/api/code/projects`, GET `/api/code/project/<id>` (дерево + AI summaries + comment counts) | completed | 10 |
+| CODE-05 | API: GET `/api/code/project/<id>/file?path=...` (содержимое + AI + user comments), POST/DELETE комментарии, DELETE проект | completed | 15 |
+| CODE-06 | SPA-страница `/code` — дерево файлов, подсветка highlight.js, AI- (синие) и пользовательские (зелёные) комментарии, add/delete | completed | 15 |
+| CODE-07 | Хаб-карточка «💻 Code Explainer (Бета)» + `vercel.json` maxDuration 60 | completed | 5 |
+| CODE-TEST | Тесты `test_code_explainer.py` — 7 тестов, ruff clean, py_compile, node --check JS OK | completed | 10 |
+
+**Code Explainer: 90/100**
+
+**Факт (2026-09-02):** Vercel serverless — no persistent filesystem, repos stored in PostgreSQL. Batched AI analysis within 60s budget. Language-agnostic architecture with GDScript as first-class. All 7 tests pass.
 
 ## Additional Tasks (2026-04-03)
 

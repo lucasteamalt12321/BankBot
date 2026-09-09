@@ -216,6 +216,36 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-02 (Session: 💻 Code Explainer Module)
+
+> Запрос пользователя: модуль «объяснялка кода» — человек скидывает ссылку на репозиторий, система клонирует, AI анализирует файлы, сайт показывает дерево проекта с комментариями. Можно добавлять комментарии к строкам кода. Начинаем с Godot (GDScript), архитектура расширяемая.
+
+#### Реализовано
+
+| # | Компонент | Описание |
+|---|----------|----------|
+| 1 | `_ensure_code_tables()` | Таблицы `code_projects`, `code_files`, `code_user_comments` + индексы. Зарегистрирован в `get_db_engine()` |
+| 2 | `_CODE_LANGUAGES` | Mapping из 30 расширений → `{name, icon, hint}`. Godot, Python, JS, TS, C#, Go, Rust и др. |
+| 3 | `api_code_analyze` | `POST /api/code/analyze` → clone `git clone --depth 1` → walk tree → batch AI анализ (5 файлов/запрос, max 20) → store |
+| 4 | `api_code_projects` | `GET /api/code/projects` — список проектов пользователя |
+| 5 | `api_code_project` | `GET /api/code/project/<id>` — дерево файлов (path, type, language, line_count, ai_summary, comment_count) |
+| 6 | `api_code_file` | `GET /api/code/project/<id>/file?path=...` — содержимое файла + ai_summary + ai_line_comments + user_comments |
+| 7 | `api_code_comment` | `POST /api/code/project/<id>/comment` — добавить комментарий к строкам |
+| 8 | `api_code_comment_delete` | `DELETE /api/code/project/<id>/comment/<cid>` — удалить свой комментарий |
+| 9 | `api_code_project_delete` | `DELETE /api/code/project/<id>` — удалить проект и все данные |
+| 10 | `code_page()` | GET `/code` — SPA с деревом файлов, подсветкой highlight.js, AI- (синие) и пользовательскими (зелёными) комментариями |
+| 11 | Хаб-карточка | «💻 Code Explainer (Бета)» в бета-секции на `/` |
+| 12 | vercel.json | `maxDuration: 60` для `api/index.py` (анализ может занять 30-60 секунд) |
+| 13 | Тесты | `test_code_explainer.py` — 7 тестов: analyze_flow, comment_flow, project_delete, auth_required, validation, other_user_cannot_access, degraded_ai_fallback |
+
+#### Ключевые архитектурные решения
+
+- **Хранение кода в PostgreSQL**: содержимое файлов + дерево + AI-комментарии. Позволяет line-level комментарии. Лимиты: 5000 строк/500KB на файл.
+- **Батч-анализ AI**: 5 файлов за один запрос, reduces API calls от N до ceil(N/5).
+- **Fallback**: при недоступности AI генерируется эвристическое описание из имени файла и лимита строк.
+- **git clone --depth 1**:浅克隆 в temp dir, cleanup в finally блоке.
+- **Верифицировано**: `py_compile` ✓, `ruff` ✓, `node --check` JS ✓, 7/7 тестов ✓
+
 ### 2026-09-01 (Session: 🔧 Дедлок миграций + чистка мёртвого кода и моста)
 - **[PROD-BUG] Study ALTER deadlock в live-логах Telegram** (`[STUDY] alter skipped`): каждый serverless cold start гонял `_ensure_study_progress_tables`, параллельные `ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at/last_correct_at` в одной общей транзакции дедлочились (`DeadlockDetected`) и «убивали» транзакцию (`InFailedSqlTransaction` → aborted). Фикс (`0346cf8`): ALTER вынесены в автономные `_alter_add_column_if_missing` (свой `engine.begin()` на каждую), перед ALTER — `_column_exists` (pragma_table_info SQLite / information_schema PG), retry ×4 на deadlock/serialization/aborted с backoff. Проверки: старая таблица без колонок → мигрируется; свежая → no-op. `py_compile`/`ruff` чисто.
 - **[CHORE] Удаление мёртвого кода** (`1aa158c`): `bot/commands/beta_commands.py`, `bot/handlers/message_handler.py`/`callback_handler.py` (aiogram-стабы, не регистрировались), `core/managers/scheduler_manager.py`, `core/school/` (пустой пакет), `core/systems/beta_economy.py` — ни одного импорта в коде/тестах.
