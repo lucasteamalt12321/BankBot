@@ -1228,7 +1228,7 @@ def _ensure_textbook_tables(engine):
 def _ensure_code_tables(engine):
     """Create Code Explainer tables if they don't exist."""
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS code_projects (
                     id SERIAL PRIMARY KEY,
@@ -1272,7 +1272,6 @@ def _ensure_code_tables(engine):
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_comments_project ON code_user_comments(project_id, file_path)"))
-            conn.commit()
         log_error("CODE", "info", "Table ensured")
     except Exception as exc:
         log_error("CODE", "error", f"Table init error: {exc}")
@@ -25095,20 +25094,46 @@ def _code_file_language(path: str) -> str | None:
 
 
 def _code_clone_repo(repo_url: str, dest: str, timeout: int = 30) -> bool:
-    """Clone repository shallowly into a destination dir. Returns success."""
+    """Clone repository shallowly via GitHub tarball API (no git needed)."""
+    import io
+    import tarfile
     try:
-        proc = subprocess.run(
-            ["git", "clone", "--depth", "1", repo_url, dest],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if proc.returncode != 0:
-            log_error("CODE", "error", f"git clone failed: {(proc.stderr or proc.stdout or '')[:300]}")
+        m = re.match(r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
+        if not m:
+            log_error("CODE", "error", f"Not a GitHub URL: {repo_url}")
             return False
+        owner, repo = m.group(1), m.group(2)
+        for branch in ("main", "master"):
+            tarball_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.tar.gz"
+            try:
+                r = requests.get(tarball_url, timeout=timeout, allow_redirects=True)
+                if r.status_code == 200:
+                    break
+            except requests.RequestException:
+                continue
+        else:
+            log_error("CODE", "error", f"Could not fetch tarball for {owner}/{repo}")
+            return False
+        with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tf:
+            top = tf.getnames()[0].split("/")[0]
+            members = [
+                m for m in tf.getmembers()
+                if not m.name.startswith(f"{top}/.git/")
+                and not m.name.startswith(f"{top}/.godot/")
+                and not m.name.startswith(f"{top}/node_modules/")
+            ]
+            tf.extractall(dest, members=members)
+        # Move contents out of the top-level dir
+        src_dir = os.path.join(dest, top)
+        if os.path.isdir(src_dir):
+            for item in os.listdir(src_dir):
+                s = os.path.join(src_dir, item)
+                d = os.path.join(dest, item)
+                os.rename(s, d)
+            os.rmdir(src_dir)
         return True
     except Exception as exc:
-        log_error("CODE", "error", f"git clone error: {exc}")
+        log_error("CODE", "error", f"Clone error: {exc}")
         return False
 
 
@@ -25743,6 +25768,11 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
 .langs-map{{display:none}}
 .tag{{display:inline-block;padding:2px 8px;border-radius:20px;background:rgba(91,141,239,.15);color:var(--bb-accent);font-size:11px}}
 .pill{{display:inline-block;padding:2px 8px;border-radius:20px;background:var(--bb-elev);border:1px solid var(--bb-border);font-size:11px}}
+.progress-wrap{{display:none;padding:6px 16px}}
+.progress-wrap.active{{display:block}}
+.progress-bar{{height:6px;background:var(--bb-elev);border-radius:3px;overflow:hidden}}
+.progress-fill{{height:100%;width:0%;background:linear-gradient(90deg,var(--bb-primary),var(--bb-accent));border-radius:3px;transition:width .4s ease}}
+.progress-text{{font-size:12px;color:var(--bb-muted);margin-top:4px}}
 </style>
 </head>
 <body>
@@ -25756,6 +25786,10 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
     <button class="btn" id="analyzeBtn" onclick="analyzeRepo()">🔍 Разобрать код</button>
 </div>
 <div id="statusMsg" class="muted" style="padding:6px 16px"></div>
+<div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-text" id="progressText">Подготовка…</div>
+</div>
 <div class="layout">
     <div class="sidebar" id="sidebar">
         <div class="empty">Введите ссылку на репозиторий и нажмите «Разобрать код»</div>
@@ -25783,18 +25817,47 @@ async function analyzeRepo() {{
     var url = document.getElementById('repoUrl').value.trim();
     if (!url) {{ showErr('Введите ссылку на репозиторий'); return; }}
     var btn = document.getElementById('analyzeBtn');
+    var pw = document.getElementById('progressWrap');
+    var pf = document.getElementById('progressFill');
+    var pt = document.getElementById('progressText');
     btn.disabled = true;
     var old = btn.textContent;
-    btn.textContent = '⏳ Клонируем и анализируем…';
-    setMsg('Это может занять 30–90 секунд…');
+    btn.textContent = '⏳ Анализ…';
+    pw.classList.add('active');
+    pf.style.width = '0%';
+    pt.textContent = '📥 Загружаем репозиторий…';
+    // Animate progress bar through stages
+    var stages = [
+        {{pct:15, text:'📥 Загружаем репозиторий…', delay:800}},
+        {{pct:30, text:'📂 Сканируем файлы…', delay:2000}},
+        {{pct:50, text:'🤖 Анализируем код (это займёт 20–60 сек)…', delay:4000}},
+        {{pct:75, text:'🤖 Анализируем файлы…', delay:8000}},
+        {{pct:90, text:'📝 Сохраняем результат…', delay:15000}},
+    ];
+    var timer = null;
+    var si = 0;
+    function tick() {{
+        if (si < stages.length) {{
+            pf.style.width = stages[si].pct + '%';
+            pt.textContent = stages[si].text;
+            si++;
+            timer = setTimeout(tick, stages[si - 1].delay);
+        }}
+    }}
+    tick();
+    setMsg('');
     try {{
         var r = await fetch('/api/code/analyze', {{method:'POST', headers: authH(), body: JSON.stringify({{repo_url: url}})}});
         var d = await r.json();
+        clearTimeout(timer);
+        pf.style.width = '100%';
+        pt.textContent = '✅ Готово!';
         if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
         setMsg('Готово: ' + d.file_count + ' файлов, из них проанализировано ' + d.analyzed_count + (d.trivial_files_skipped ? ' (+' + d.trivial_files_skipped + ' пропущено)' : ''));
         CURRENT_PROJECT = {{id: d.project_id}};
         await loadProject(d.project_id, true);
-    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+        setTimeout(function() {{ pw.classList.remove('active'); }}, 1500);
+    }} catch(e) {{ clearTimeout(timer); pw.classList.remove('active'); showErr('Сеть: ' + e.message); }}
     finally {{ btn.disabled = false; btn.textContent = old; }}
 }}
 async function loadProjects() {{
