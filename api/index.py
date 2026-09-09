@@ -25677,6 +25677,7 @@ def api_code_project_delete_route(project_id):
     return api_code_project_delete(project_id)
 
 
+@app.route("/code")
 def code_page():
     """GET /code — Code Explainer SPA."""
     languages_json = json.dumps(_CODE_LANGUAGES, ensure_ascii=False)
