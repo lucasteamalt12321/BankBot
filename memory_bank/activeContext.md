@@ -5,6 +5,24 @@
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
 ### ✅ Выполнено (в этой сессии)
+- ✅ [TASK] **Code Explainer Module** — обьяснялка кода из репозиториев (2026-09-02):
+  - POST `/api/code/analyze` → clone + AI-анализ файлов с комментариями
+  - GET `/api/code/projects` — список проектов пользователя
+  - GET `/api/code/project/<id>` — дерево файлов с AI-сводками
+  - GET `/api/code/project/<id>/file?path=...` — содержимое файла + AI/пользовательские комментарии
+  - POST `/api/code/project/<id>/comment` — добавить свой комментарий к строкам кода
+  - DELETE `/api/code/project/<id>/comment/<cid>` — удалить свой комментарий
+  - DELETE `/api/code/project/<id>` — удалить проект
+  - GET `/code` — SPA с деревом файлов + подсветкой кода + AI- и пользовательскими комментариями
+  - Расширяемый mapping 25+ ЯП (GDScript, Python, JS, TS, C#, Go, Rust и др.)
+  - 3 таблицы PostgreSQL: `code_projects`, `code_files`, `code_user_comments`
+  - AI-бюджет: батчи по 5 файлов за запрос, max 20 файлов, timeout 60s на Vercel
+  - Rate limit: 5 анализов/час, 10 проектов/пользователь
+  - Тесты: `tests/unit/test_code_explainer.py` — 7 тестов (analyze flow, comment flow, project delete, auth required, validation, other-user block, AI degraded fallback)
+  - `ruff` чисто, `py_compile` чисто, `node --check` JS чисто
+  - Карточка добавлена в бета-секцию хаба `/`
+
+### ✅ Выполнено (ранее)
 - ✅ [BUG] Admin panel 403 fix — убрана серверная проверка в хендлере `/admin` (браузер не шлёт заголовки при навигации; клиентский auth gate уже работает корректно).
 - ✅ Загрузка 10 канонических аудио-треков в Supabase Storage (canon-audio bucket), добавление `audio_url` колонки в `canon_works`, redirect из `/api/canon/work/{id}/audio` на Storage URL. Все 10 треков работают (`has_audio: true`).
 - ✅ Перенос Истории и Geometry Dash из бета-секции в основной раздел хаба.

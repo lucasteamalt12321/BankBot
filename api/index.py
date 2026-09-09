@@ -454,6 +454,10 @@ def get_db_engine():
         except Exception as exc:
             log_error("TEXTBOOK", "error", f"table init skipped: {exc}")
         try:
+            _ensure_code_tables(DB_ENGINE)
+        except Exception as exc:
+            log_error("CODE", "error", f"table init skipped: {exc}")
+        try:
             with DB_ENGINE.begin() as conn:
                 conn.execute(text(
                     "CREATE TABLE IF NOT EXISTS rate_limits ("
@@ -1219,6 +1223,59 @@ def _ensure_textbook_tables(engine):
         log_error("TEXTBOOK", "info", "Table ensured")
     except Exception as exc:
         log_error("TEXTBOOK", "error", f"Table init error: {exc}")
+
+
+def _ensure_code_tables(engine):
+    """Create Code Explainer tables if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS code_projects (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    repo_url VARCHAR(500) NOT NULL,
+                    repo_name VARCHAR(300),
+                    primary_language VARCHAR(50),
+                    status VARCHAR(20) NOT NULL DEFAULT 'analyzing',
+                    file_count INTEGER NOT NULL DEFAULT 0,
+                    error_message TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_projects_user ON code_projects(user_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS code_files (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL,
+                    file_path TEXT NOT NULL,
+                    file_type VARCHAR(10) NOT NULL,
+                    parent_path TEXT,
+                    language VARCHAR(50),
+                    line_count INTEGER NOT NULL DEFAULT 0,
+                    content TEXT,
+                    ai_summary TEXT,
+                    ai_line_comments TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(project_id, file_path)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_files_project ON code_files(project_id)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS code_user_comments (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL,
+                    file_path TEXT NOT NULL,
+                    line_start INTEGER,
+                    line_end INTEGER,
+                    comment TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_comments_project ON code_user_comments(project_id, file_path)"))
+            conn.commit()
+        log_error("CODE", "info", "Table ensured")
+    except Exception as exc:
+        log_error("CODE", "error", f"Table init error: {exc}")
 
 
 def _ensure_parsing_tables(engine):
@@ -5355,6 +5412,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     <div class="card-content">
                         <h2>Учебники <span class="beta-tag">Бета</span></h2>
                         <p>Где лежат учебники: дом, школа, рюкзак</p>
+                    </div>
+                </a>
+                <a class="card" href="/code">
+                    <div class="card-icon">💻</div>
+                    <div class="card-content">
+                        <h2>Code Explainer <span class="beta-tag">Бета</span></h2>
+                        <p>Объяснение кода из репозитория: дерево проекта с ИИ-комментариями</p>
                     </div>
                 </a>
                 <a class="card" href="/suggest">
@@ -24929,6 +24993,1013 @@ def family_result_page():
 </body>
 </html>"""
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# ── Code Explainer ─────────────────────────────────────────────────────
+
+_CODE_LANGUAGES = {
+    ".gd": {"name": "GDScript", "icon": "🎮", "hint": "Godot GDScript, node system, signals, exports, @onready"},
+    ".tscn": {"name": "Godot Scene", "icon": "🎬", "hint": "Godot scene file, node hierarchy, resources"},
+    ".tres": {"name": "Godot Resource", "icon": "📦", "hint": "Godot resource file, exported properties"},
+    ".cs": {"name": "C#", "icon": "🟣", "hint": "C# .NET, Unity or Godot conventions"},
+    ".py": {"name": "Python", "icon": "🐍", "hint": "Python, classes, functions, imports"},
+    ".js": {"name": "JavaScript", "icon": "📜", "hint": "JavaScript, ES6+, modules, functions"},
+    ".ts": {"name": "TypeScript", "icon": "📘", "hint": "TypeScript, interfaces, types, generics"},
+    ".tsx": {"name": "TSX", "icon": "⚛️", "hint": "TypeScript + React JSX components"},
+    ".jsx": {"name": "JSX", "icon": "⚛️", "hint": "JavaScript + React JSX components"},
+    ".html": {"name": "HTML", "icon": "🌐", "hint": "HTML structure, semantic elements"},
+    ".htm": {"name": "HTML", "icon": "🌐", "hint": "HTML structure, semantic elements"},
+    ".css": {"name": "CSS", "icon": "🎨", "hint": "CSS, selectors, variables, layout"},
+    ".scss": {"name": "SCSS", "icon": "🎨", "hint": "SCSS/Sass stylesheets"},
+    ".json": {"name": "JSON", "icon": "📋", "hint": "JSON configuration, schema"},
+    ".yml": {"name": "YAML", "icon": "⚙️", "hint": "YAML configuration"},
+    ".yaml": {"name": "YAML", "icon": "⚙️", "hint": "YAML configuration"},
+    ".md": {"name": "Markdown", "icon": "📝", "hint": "documentation, structure"},
+    ".toml": {"name": "TOML", "icon": "⚙️", "hint": "TOML configuration"},
+    ".sh": {"name": "Shell", "icon": "🐚", "hint": "bash shell script"},
+    ".sql": {"name": "SQL", "icon": "🗄️", "hint": "SQL queries and schema"},
+    ".java": {"name": "Java", "icon": "☕", "hint": "Java, classes, methods"},
+    ".go": {"name": "Go", "icon": "🏃", "hint": "Go, packages, functions"},
+    ".rb": {"name": "Ruby", "icon": "💎", "hint": "Ruby, classes, methods"},
+    ".php": {"name": "PHP", "icon": "🐘", "hint": "PHP, functions, classes"},
+    ".rs": {"name": "Rust", "icon": "🦀", "hint": "Rust, functions, structs, impl"},
+    ".dart": {"name": "Dart", "icon": "🎯", "hint": "Dart, Flutter widgets, classes"},
+    ".kt": {"name": "Kotlin", "icon": "🅾️", "hint": "Kotlin, classes, functions"},
+    ".swift": {"name": "Swift", "icon": "🦅", "hint": "Swift, classes, functions"},
+    ".make": {"name": "Makefile", "icon": "🔨", "hint": "Makefile build rules"},
+    "project.godot": {"name": "Godot Config", "icon": "🕹️", "hint": "Godot project configuration"},
+}
+
+# Special files that should always be treated as code, regardless of extension
+_CODE_SPECIAL_FILES = {"project.godot", "CMakeLists.txt", "Makefile", "Dockerfile"}
+
+# Binary / non-code extensions to skip entirely
+_CODE_SKIP_EXT = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".tga",
+    ".mp3", ".wav", ".ogg", ".flac", ".mp4", ".webm", ".avi", ".mov",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".exe", ".dll", ".so", ".dylib",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".wasm", ".pck",
+    ".godot", ".godot_local", ".import", ".fbx", ".obj", ".dae", ".glb", ".gltf",
+}
+
+_CODE_MAX_FILES = 20          # max files analyzed by AI
+_CODE_MAX_ANALYZE_LINES = 500 # lines sent to AI per file
+_CODE_MAX_STORE_LINES = 5000  # lines stored in DB per file
+_CODE_MAX_STORE_BYTES = 400_000
+_CODE_MAX_PROJECTS = 10
+_CODE_ANALYZE_RATE_LIMIT = 5  # analyses per hour per user
+
+
+def _code_parse_json(text: str) -> dict | None:
+    """Extract a JSON object from an AI response (tolerates fences/prose)."""
+    if not text:
+        return None
+    cleaned = text.strip()
+    # Strip markdown code fences
+    cleaned = re.sub(r"^```(?:json|JSON)?\s*", "", cleaned).rstrip("`").strip()
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        return json.loads(cleaned[start : end + 1])
+    except Exception:
+        # Some models return single-quoted or trailing-comma JSON — try to repair lightly
+        repaired = re.sub(r",\s*}", "}", cleaned[start : end + 1])
+        repaired = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', repaired)
+        try:
+            return json.loads(repaired)
+        except Exception:
+            return None
+
+
+def _code_is_code_file(name: str) -> bool:
+    """Determine whether a file should be included in analysis."""
+    if name in _CODE_SPECIAL_FILES:
+        return True
+    _, ext = os.path.splitext(name)
+    return ext.lower() in _CODE_LANGUAGES
+
+
+def _code_file_language(path: str) -> str | None:
+    """Return language key (extension) for a file, or None."""
+    name = os.path.basename(path)
+    if name in _CODE_SPECIAL_FILES:
+        if name == "project.godot":
+            return "project.godot"
+        for key in _CODE_SPECIAL_FILES:
+            if key == name:
+                return None  # Makefile/Dockerfile handled as generic code
+    _, ext = os.path.splitext(name)
+    return ext.lower() if ext.lower() in _CODE_LANGUAGES else None
+
+
+def _code_clone_repo(repo_url: str, dest: str, timeout: int = 30) -> bool:
+    """Clone repository shallowly into a destination dir. Returns success."""
+    try:
+        proc = subprocess.run(
+            ["git", "clone", "--depth", "1", repo_url, dest],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if proc.returncode != 0:
+            log_error("CODE", "error", f"git clone failed: {(proc.stderr or proc.stdout or '')[:300]}")
+            return False
+        return True
+    except Exception as exc:
+        log_error("CODE", "error", f"git clone error: {exc}")
+        return False
+
+
+def _code_collect_files(repo_dir: str) -> list[dict]:
+    """Walk a cloned repo and collect code files (path, lang_key, lines, size, content)."""
+    collected: list[dict] = []
+    for root, dirs, files in os.walk(repo_dir):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in (".git", "node_modules", ".godot", "lib")]
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            rel = os.path.relpath(fpath, repo_dir).replace("\\", "/")
+            if rel.startswith(".git/"):
+                continue
+            if not _code_is_code_file(fname):
+                continue
+            try:
+                size = os.path.getsize(fpath)
+                if size > _CODE_MAX_STORE_BYTES:
+                    continue
+                with open(fpath, "r", encoding="utf-8", errors="replace") as fh:
+                    content = fh.read()
+            except Exception:
+                continue
+            lines = content.splitlines()
+            collected.append({
+                "path": rel,
+                "lang_key": _code_file_language(fname),
+                "line_count": len(lines),
+                "content": content,
+            })
+    # Sort: prioritize by line count descending for AI budget, but keep dirs stable
+    collected.sort(key=lambda f: -f["line_count"])
+    return collected
+
+
+def _code_detect_primary_language(files: list[dict]) -> str | None:
+    """Pick the most common language key among analyzed files."""
+    counts: dict[str, int] = {}
+    for f in files:
+        lk = f.get("lang_key")
+        if lk:
+            counts[lk] = counts.get(lk, 0) + 1
+    if not counts:
+        return None
+    top = max(counts.items(), key=lambda kv: kv[1])[0]
+    return _CODE_LANGUAGES.get(top, {}).get("name") or top
+
+
+def _code_ai_call(prompt: str, max_tokens: int = 1200) -> str:
+    """AI call tuned for code analysis (longer timeout than call_ai_api)."""
+    try:
+        resp = _ai_chat(
+            {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.2},
+            timeout=25.0,
+        )
+        if resp is not None and resp.status_code == 200:
+            try:
+                return resp.json()["choices"][0]["message"]["content"].strip()
+            except Exception:
+                return ""
+    except Exception as exc:
+        log_error("CODE", "error", f"AI call error: {exc}")
+    return ""
+
+
+def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
+    """Analyze a single file via AI -> (summary, {line: comment})."""
+    lang_key = file_info.get("lang_key") or ""
+    lang_cfg = _CODE_LANGUAGES.get(lang_key, {})
+    lang_name = lang_cfg.get("name", lang_key or "code")
+    hint = lang_cfg.get("hint", "generic source code")
+    content = file_info["content"]
+    lines = content.splitlines()
+    if len(lines) > _CODE_MAX_ANALYZE_LINES:
+        content = "\n".join(lines[: _CODE_MAX_ANALYZE_LINES]) + "\n# …(обрезано)"
+    prompt = (
+        "Ты — опытный разработчик. Проанализируй этот файл кода и верни ТОЛЬКО JSON "
+        "без markdown-разметки и пояснений:\n"
+        '{"summary": "краткое описание назначения файла (1-2 предложения на русском)", '
+        '"line_comments": {"<номер_строки>": "комментарий на русском"} }\n'
+        "line_comments — объект с комментариями только к КЛЮЧЕВЫМ местам (макс. 8): "
+        "экспорты, сигналы, классы, функции, сложные участки.\n"
+        f"Язык: {lang_name}. Особенности: {hint}. Файл: {file_info['path']}\n"
+        f"```\n{content}\n```"
+    )
+    ai_text = _code_ai_call(prompt, max_tokens=1600)
+    parsed = _code_parse_json(ai_text)
+    if not parsed:
+        # Fallback: heuristic summary from file name
+        return (
+            f"Файл {os.path.basename(file_info['path'])} ({len(lines)} строк, {lang_name}) — анализ недоступен.",
+            {},
+        )
+    summary = str(parsed.get("summary", "") or "").strip()
+    line_comments = parsed.get("line_comments", {})
+    if not isinstance(line_comments, dict):
+        line_comments = {}
+    cleaned: dict[str, str] = {}
+    for k, v in list(line_comments.items())[:8]:
+        try:
+            line_no = int(k)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= line_no <= len(lines) and isinstance(v, str) and v.strip():
+            cleaned[str(line_no)] = v.strip()[:300]
+    if not summary:
+        summary = f"Файл {os.path.basename(file_info['path'])} — {lang_name}."
+    return summary, cleaned
+
+
+_CODE_AI_BATCH_SIZE = 5  # files per AI analysis call
+
+
+def _code_analyze_batch(files: list[dict]) -> dict[str, tuple[str, dict]]:
+    """Analyze a list of files in small batches. Returns path -> (summary, line_comments)."""
+    results: dict[str, tuple[str, dict]] = {}
+    for i in range(0, len(files), _CODE_AI_BATCH_SIZE):
+        batch = files[i : i + _CODE_AI_BATCH_SIZE]
+        sections = []
+        for f in batch:
+            lang_key = f.get("lang_key") or ""
+            lang_name = _CODE_LANGUAGES.get(lang_key, {}).get("name", lang_key or "code")
+            content = f["content"]
+            lines = content.splitlines()
+            if len(lines) > _CODE_MAX_ANALYZE_LINES:
+                content = "\n".join(lines[: _CODE_MAX_ANALYZE_LINES]) + "\n# …(обрезано)"
+            sections.append(f"### FILE: {f['path']}\nФайл: {f['path']}, язык: {lang_name}\n```\n{content}\n```")
+        prompt = (
+            "Ты — опытный разработчик. Проанализируй каждый из этих файлов кода и верни ТОЛЬКО JSON "
+            "без markdown-разметки и пояснений:\n"
+            '{"files": {"<путь>": {"summary": "краткое описание файла (1-2 предложения на русском)", '
+            '"line_comments": {"<номер_строки>": "комментарий"}}}}\n'
+            "- summary для каждого файла; line_comments — только к КЛЮЧЕВЫМ местам (макс. 5 на файл).\n"
+            "- Возвращай все файлы из запроса, не пропускай ни один.\n\n"
+            + "\n".join(sections)
+        )
+        ai_text = _code_ai_call(prompt, max_tokens=3000)
+        parsed = _code_parse_json(ai_text)
+        entries = {}
+        if parsed:
+            entries = parsed.get("files", parsed)
+            if not isinstance(entries, dict):
+                entries = {}
+        for f in batch:
+            entry = entries.get(f["path"])
+            summary = ""
+            line_comments = {}
+            if isinstance(entry, dict):
+                summary = str(entry.get("summary", "") or "").strip()
+                lc = entry.get("line_comments")
+                if not isinstance(lc, dict):
+                    lc = {}
+                lines = f["content"].splitlines()
+                for k, v in list(lc.items())[:5]:
+                    try:
+                        line_no = int(k)
+                    except (TypeError, ValueError):
+                        continue
+                    if 1 <= line_no <= len(lines) and isinstance(v, str) and v.strip():
+                        line_comments[str(line_no)] = v.strip()[:300]
+            if not summary:
+                lk = f.get("lang_key") or ""
+                lang_name = _CODE_LANGUAGES.get(lk, {}).get("name", lk or "code")
+                summary = (
+                    f"Файл {os.path.basename(f['path'])} ({len(f['content'].splitlines())} строк, "
+                    f"{lang_name}) — анализ недоступен."
+                )
+            results[f["path"]] = (summary, line_comments)
+    return results
+
+
+def api_code_analyze():
+    """POST /api/code/analyze — clone a repo, AI-analyze it, store for the user."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    uid = int(user["id"])
+
+    if _check_db_rate(f"code_analyze_{uid}", _CODE_ANALYZE_RATE_LIMIT, 3600) or _check_ai_rate(f"code_{uid}"):
+        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+
+    data = request.get_json(silent=True) or {}
+    repo_url = str(data.get("repo_url", "")).strip()
+    if not repo_url:
+        return jsonify({"ok": False, "error": "Укажите ссылку на репозиторий"}), 400
+    if not re.match(r"^https?://.+", repo_url) or len(repo_url) > 500:
+        return jsonify({"ok": False, "error": "Некорректная ссылка на репозиторий"}), 400
+
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT COUNT(*) as cnt FROM code_projects WHERE user_id = :u"
+            ), {"u": uid}).mappings().first()
+            if int(row["cnt"] or 0) >= _CODE_MAX_PROJECTS:
+                return jsonify({"ok": False, "error": f"Максимум {_CODE_MAX_PROJECTS} проектов. Удалите старые."}), 400
+    except Exception as exc:
+        log_error("CODE", "error", f"project count error: {exc}")
+
+    repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")[:300] or "репозиторий"
+
+    try:
+        with engine.begin() as conn:
+            res = conn.execute(text(
+                "INSERT INTO code_projects (user_id, repo_url, repo_name, status) "
+                "VALUES (:u, :url, :name, 'analyzing') RETURNING id"
+            ), {"u": uid, "url": repo_url, "name": repo_name})
+            project_id = int(res.scalar() or res.fetchone()[0])
+    except Exception as exc:
+        log_error("CODE", "error", f"project create error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось создать проект"}), 500
+
+    tmp_dir = None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="code_")
+        repo_dir = os.path.join(tmp_dir, "repo")
+        if not _code_clone_repo(repo_url, repo_dir):
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE code_projects SET status = 'failed', error_message = 'Не удалось клонировать репозиторий' WHERE id = :id"
+                ), {"id": project_id})
+            return jsonify({"ok": False, "error": "Не удалось клонировать репозиторий. Проверьте ссылку."}), 400
+
+        files = _code_collect_files(repo_dir)
+        # AI budget: analyze up to _CODE_MAX_FILES files
+        analyze_pool = files[: _CODE_MAX_FILES]
+        analyzed_count = 0
+        trivia_count = max(0, len(files) - _CODE_MAX_FILES)
+
+        dir_summaries: dict[str, list[str]] = {}
+        batch_results = _code_analyze_batch(analyze_pool)
+
+        for f in analyze_pool:
+            summary, line_comments = batch_results.get(f["path"], ("", {}))
+            analyzed_count += 1
+            # Build directory path summaries incrementally
+            parts = f["path"].split("/")
+            for i in range(len(parts) - 1):
+                dpath = "/".join(parts[: i + 1])
+                dir_summaries.setdefault(dpath, []).append(summary)
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
+                        "line_count, content, ai_summary, ai_line_comments) "
+                        "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, :comments) "
+                        "ON CONFLICT (project_id, file_path) DO NOTHING"
+                    ), {
+                        "pid": project_id,
+                        "path": f["path"],
+                        "parent": "/".join(f["path"].split("/")[:-1]),
+                        "lang": f["lang_key"],
+                        "lc": f["line_count"],
+                        "content": "\n".join(f["content"].splitlines()[:_CODE_MAX_STORE_LINES]),
+                        "summary": summary,
+                        "comments": json.dumps(line_comments, ensure_ascii=False),
+                    })
+            except Exception as exc:
+                log_error("CODE", "error", f"file store error: {exc}")
+
+        # Store directory rows with auto-built summaries
+        for dpath, child_summaries in dir_summaries.items():
+            summary = _code_dir_summary_table(dpath, child_summaries)
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
+                        "line_count, content, ai_summary) "
+                        "VALUES (:pid, :path, 'dir', :parent, NULL, 0, NULL, :summary) "
+                        "ON CONFLICT (project_id, file_path) DO NOTHING"
+                    ), {
+                        "pid": project_id,
+                        "path": dpath,
+                        "parent": "/".join(dpath.split("/")[:-1]),
+                        "summary": summary,
+                    })
+            except Exception as exc:
+                log_error("CODE", "error", f"dir store error: {exc}")
+
+        primary_lang = _code_detect_primary_language(files)
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE code_projects SET status = 'ready', file_count = :cnt, primary_language = :lang WHERE id = :id"
+            ), {"cnt": len(files), "lang": primary_lang, "id": project_id})
+
+        return jsonify({
+            "ok": True,
+            "project_id": project_id,
+            "status": "ready",
+            "file_count": len(files),
+            "analyzed_count": analyzed_count,
+            "trivial_files_skipped": trivia_count,
+            "primary_language": primary_lang,
+        })
+    except Exception as exc:
+        log_error("CODE", "error", f"analyze error: {exc}")
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE code_projects SET status = 'failed', error_message = :msg WHERE id = :id"
+                ), {"id": project_id, "msg": str(exc)[:500]})
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": "Ошибка анализа репозитория"}), 500
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _code_dir_summary_table(dpath: str, child_summaries: list[str]) -> str:
+    """Build a short directory summary from child file summaries."""
+    unique = list(dict.fromkeys(child_summaries))[:5]
+    base = f"Папка «{dpath.split('/')[-1]}» — назначение: "
+    if unique:
+        return base + " содержит: " + "; ".join(u[:90] for u in unique)[:600]
+    return base + "вспомогательные файлы проекта."
+
+
+def api_code_projects():
+    """GET /api/code/projects — list current user's projects."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
+                "created_at FROM code_projects WHERE user_id = :u ORDER BY id DESC"
+            ), {"u": int(user["id"])}).mappings().fetchall()
+        items = []
+        for r in rows:
+            items.append({
+                "id": r["id"],
+                "repo_url": r["repo_url"],
+                "repo_name": r["repo_name"],
+                "primary_language": r["primary_language"],
+                "status": r["status"],
+                "file_count": r["file_count"],
+                "error_message": r["error_message"],
+                "created_at": str(r["created_at"] or ""),
+            })
+        return jsonify({"ok": True, "items": items})
+    except Exception as exc:
+        log_error("CODE", "error", f"projects list error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось получить список проектов"}), 500
+
+
+def _code_project_owned(project_id: int, user_id: int) -> dict | None:
+    """Fetch a project iff owned by user; else None. Returns dict row."""
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT id, user_id, repo_url, repo_name, primary_language, status, file_count "
+                "FROM code_projects WHERE id = :id"
+            ), {"id": project_id}).mappings().first()
+        if not row:
+            return None
+        rows = dict(row)
+        if rows["user_id"] != user_id:
+            return None
+        return rows
+    except Exception:
+        return None
+
+
+def api_code_project(project_id):
+    """GET /api/code/project/<id> — tree of files with AI summaries."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT file_path, file_type, language, line_count, ai_summary, ai_line_comments "
+                "FROM code_files WHERE project_id = :pid ORDER BY file_path"
+            ), {"pid": project_id}).mappings().fetchall()
+            crows = conn.execute(text(
+                "SELECT file_path, COUNT(*) as cnt FROM code_user_comments WHERE project_id = :pid GROUP BY file_path"
+            ), {"pid": project_id}).mappings().fetchall()
+        comment_counts = {str(r["file_path"]): int(r["cnt"]) for r in crows}
+        nodes = []
+        for r in rows:
+            nodes.append({
+                "path": r["file_path"],
+                "type": r["file_type"],
+                "language": r["language"],
+                "line_count": r["line_count"],
+                "ai_summary": r["ai_summary"],
+                "ai_line_comments": json.loads(r["ai_line_comments"]) if r["ai_line_comments"] else {},
+                "comment_count": comment_counts.get(str(r["file_path"]), 0),
+            })
+        return jsonify({
+            "ok": True,
+            "project": project,
+            "tree": nodes,
+            "languages": _CODE_LANGUAGES,
+        })
+    except Exception as exc:
+        log_error("CODE", "error", f"project tree error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось загрузить проект"}), 500
+
+
+def api_code_file(project_id):
+    """GET /api/code/project/<id>/file?path=... — file content + comments."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+
+    file_path = (request.args.get("path") or "").strip().lstrip("/")
+    if not file_path or ".." in file_path.split("/"):
+        return jsonify({"ok": False, "error": "Некорректный путь к файлу"}), 400
+
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT file_path, file_type, language, line_count, content, ai_summary, ai_line_comments "
+                "FROM code_files WHERE project_id = :pid AND file_path = :path"
+            ), {"pid": project_id, "path": file_path}).mappings().first()
+            if not row:
+                return jsonify({"ok": False, "error": "Файл не найден"}), 404
+            comments = conn.execute(text(
+                "SELECT id, line_start, line_end, comment, created_at "
+                "FROM code_user_comments WHERE project_id = :pid AND file_path = :path ORDER BY line_start"
+            ), {"pid": project_id, "path": file_path}).mappings().fetchall()
+        return jsonify({
+            "ok": True,
+            "path": row["file_path"],
+            "language": row["language"],
+            "line_count": row["line_count"],
+            "content": row["content"],
+            "ai_summary": row["ai_summary"],
+            "ai_line_comments": json.loads(row["ai_line_comments"]) if row["ai_line_comments"] else {},
+            "user_comments": [dict(c) for c in comments],
+        })
+    except Exception as exc:
+        log_error("CODE", "error", f"file content error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось загрузить файл"}), 500
+
+
+def api_code_comment(project_id):
+    """POST /api/code/project/<id>/comment — add a user comment to a file/line range."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+
+    data = request.get_json(silent=True) or {}
+    file_path = str(data.get("file_path", "")).strip().lstrip("/")
+    comment = str(data.get("comment", "")).strip()
+    if not file_path or not comment:
+        return jsonify({"ok": False, "error": "Укажите файл и текст комментария"}), 400
+    if len(comment) > 2000:
+        return jsonify({"ok": False, "error": "Комментарий слишком длинный (макс. 2000 символов)"}), 400
+
+    try:
+        line_start = int(data.get("line_start") or 0)
+        line_end = int(data.get("line_end") or line_start)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Некорректные номера строк"}), 400
+    if line_start < 0 or line_end < line_start:
+        return jsonify({"ok": False, "error": "Некорректные номера строк"}), 400
+    line_start = max(1, line_start)
+    line_end = max(line_start, line_end)
+
+    engine = get_db_engine()
+    try:
+        with engine.begin() as conn:
+            res = conn.execute(text(
+                "INSERT INTO code_user_comments (project_id, file_path, line_start, line_end, comment) "
+                "VALUES (:pid, :path, :ls, :le, :c) RETURNING id"
+            ), {"pid": project_id, "path": file_path, "ls": line_start, "le": line_end, "c": comment})
+            cid = int(res.scalar() or res.fetchone()[0])
+        return jsonify({"ok": True, "id": cid})
+    except Exception as exc:
+        log_error("CODE", "error", f"comment add error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось добавить комментарий"}), 500
+
+
+def api_code_comment_delete(project_id, comment_id):
+    """DELETE /api/code/project/<id>/comment/<cid> — remove a user comment."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+    engine = get_db_engine()
+    try:
+        with engine.begin() as conn:
+            res = conn.execute(text(
+                "DELETE FROM code_user_comments WHERE id = :cid AND project_id = :pid"
+            ), {"cid": comment_id, "pid": project_id})
+            if res.rowcount == 0:
+                return jsonify({"ok": False, "error": "Комментарий не найден"}), 404
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log_error("CODE", "error", f"comment delete error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось удалить комментарий"}), 500
+
+
+def api_code_project_delete(project_id):
+    """DELETE /api/code/project/<id> — remove a project and all its data."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+    engine = get_db_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM code_user_comments WHERE project_id = :pid"), {"pid": project_id})
+            conn.execute(text("DELETE FROM code_files WHERE project_id = :pid"), {"pid": project_id})
+            conn.execute(text("DELETE FROM code_projects WHERE id = :pid"), {"pid": project_id})
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log_error("CODE", "error", f"project delete error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось удалить проект"}), 500
+
+
+@app.route("/api/code/analyze", methods=["POST"])
+def api_code_analyze_route():
+    return api_code_analyze()
+
+
+@app.route("/api/code/projects")
+def api_code_projects_route():
+    return api_code_projects()
+
+
+@app.route("/api/code/project/<int:project_id>")
+def api_code_project_route(project_id):
+    return api_code_project(project_id)
+
+
+@app.route("/api/code/project/<int:project_id>/file")
+def api_code_file_route(project_id):
+    return api_code_file(project_id)
+
+
+@app.route("/api/code/project/<int:project_id>/comment", methods=["POST"])
+def api_code_comment_route(project_id):
+    return api_code_comment(project_id)
+
+
+@app.route("/api/code/project/<int:project_id>/comment/<int:comment_id>", methods=["DELETE"])
+def api_code_comment_delete_route(project_id, comment_id):
+    return api_code_comment_delete(project_id, comment_id)
+
+
+@app.route("/api/code/project/<int:project_id>", methods=["DELETE"])
+def api_code_project_delete_route(project_id):
+    return api_code_project_delete(project_id)
+
+
+def code_page():
+    """GET /code — Code Explainer SPA."""
+    languages_json = json.dumps(_CODE_LANGUAGES, ensure_ascii=False)
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>💻 Code Explainer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+:root{{--bb-bg:#0f1420;--bb-panel:#171c2b;--bb-elev:#1f2638;--bb-border:#2a3346;--bb-text:#e6e9f0;--bb-text-soft:#c2c9d6;--bb-muted:#8b93a7;--bb-primary:#5b8def;--bb-accent:#7aa2ff;--bb-red:#f87171;--bb-green:#34d399;--bb-amber:#fbbf24}}
+[data-theme="light"]{{--bb-bg:#eef1f7;--bb-panel:#fff;--bb-elev:#e6e9f2;--bb-border:#cdd4e1;--bb-text:#1f2430;--bb-text-soft:#3b4250;--bb-muted:#5c6373;--bb-primary:#5b8def;--bb-accent:#4a90e8;--bb-red:#dc2626;--bb-green:#059669;--bb-amber:#b45309}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}}
+.topbar{{display:flex;align-items:center;padding:12px 16px;gap:12px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel);flex-wrap:wrap}}
+.topbar a{{color:var(--bb-accent);text-decoration:none;font-size:14px}}
+.topbar h1{{flex:1;text-align:center;font-size:18px;font-weight:600}}
+.projects-bar{{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel);flex-wrap:wrap}}
+.projects-bar input[type="text"]{{flex:1;min-width:220px;padding:8px 12px;border:1px solid var(--bb-border);border-radius:8px;background:var(--bb-elev);color:var(--bb-text);font-size:14px}}
+.btn{{padding:8px 14px;border:none;border-radius:8px;background:var(--bb-primary);color:#fff;font-size:13px;cursor:pointer;font-weight:600}}
+.btn:hover{{filter:brightness(1.1)}}
+.btn.ghost{{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(--bb-border)}}
+.btn.danger{{background:var(--bb-red)}}
+.btn:disabled{{opacity:.5;cursor:not-allowed}}
+.layout{{display:grid;grid-template-columns:300px 1fr;gap:12px;padding:12px;height:calc(100vh - 115px)}}
+@media(max-width:760px){{.layout{{grid-template-columns:1fr;height:auto}}}}
+.sidebar{{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:auto;padding:10px}}
+.tree-node{{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap}}
+.tree-node:hover{{background:var(--bb-elev)}}
+.tree-node.selected{{background:rgba(91,141,239,.18);color:var(--bb-accent)}}
+.tree-node .caret{{display:inline-block;width:12px;text-align:center;color:var(--bb-muted);flex:0 0 auto}}
+.tree-node .icon{{flex:0 0 auto}}
+.tree-node .name{{overflow:hidden;text-overflow:ellipsis}}
+.tree-node .badge{{margin-left:auto;font-size:10px;color:var(--bb-amber);flex:0 0 auto}}
+.tree-node .cnt{{margin-left:3px;font-size:10px;color:var(--bb-muted);flex:0 0 auto}}
+.dirs{{padding-left:16px}}
+.file-view{{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:auto;position:relative}}
+.file-head{{padding:10px 14px;border-bottom:1px solid var(--bb-border);display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
+.file-head h2{{font-size:15px;font-weight:600;flex:1;word-break:break-all}}
+.summary-note{{padding:10px 14px;margin:10px;background:rgba(91,141,239,.1);border:1px solid rgba(91,141,239,.3);border-radius:10px;font-size:13px;line-height:1.5;color:var(--bb-text-soft)}}
+.code-wrap{{padding:10px}}
+.code-wrap pre{{margin:0;background:var(--bb-elev);border-radius:10px;overflow:auto}}
+.code-wrap code{{font-family:'Cascadia Code','Fira Code',ui-monospace,Consolas,monospace;font-size:13px;line-height:1.55;display:block}}
+.line-row{{display:flex;align-items:flex-start}}
+.line-no{{min-width:44px;text-align:right;padding-right:12px;color:var(--bb-muted);user-select:none;font-size:12px;line-height:20px;border-right:1px solid var(--bb-border);margin-right:12px;font-family:ui-monospace,Consolas,monospace}}
+.line-text{{flex:1;white-space:pre;font-family:'Cascadia Code','Fira Code',ui-monospace,Consolas,monospace;font-size:13px;line-height:20px}}
+.line-row.has-ai{{background:rgba(91,141,239,.12)}}
+.line-row.has-user{{background:rgba(52,211,153,.12)}}
+.ai-pop,.user-pop{{margin-left:8px;padding:2px 6px;border-radius:4px;font-size:11px;line-height:1.35;white-space:normal}}
+.ai-pop{{background:rgba(91,141,239,.16);color:var(--bb-accent)}}
+.user-pop{{background:rgba(52,211,153,.16);color:var(--bb-green)}}
+.add-comment-form{{padding:10px 14px;border-top:1px solid var(--bb-border);background:var(--bb-elev);display:none}}
+.add-comment-form.open{{display:block}}
+.add-comment-form textarea{{width:100%;min-height:60px;padding:8px;border:1px solid var(--bb-border);border-radius:8px;background:var(--bb-panel);color:var(--bb-text);font-size:13px;resize:vertical}}
+.muted{{color:var(--bb-muted);font-size:12px}}
+.empty{{padding:40px 20px;text-align:center;color:var(--bb-muted)}}
+.list-item{{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--bb-border);border-radius:10px;margin-bottom:8px;background:var(--bb-elev)}}
+.list-item .meta{{flex:1;min-width:0}}
+.list-item .repo{{font-weight:600;font-size:14px;word-break:break-all}}
+.list-item .sub{{color:var(--bb-muted);font-size:12px;margin-top:2px}}
+.langs-map{{display:none}}
+.tag{{display:inline-block;padding:2px 8px;border-radius:20px;background:rgba(91,141,239,.15);color:var(--bb-accent);font-size:11px}}
+.pill{{display:inline-block;padding:2px 8px;border-radius:20px;background:var(--bb-elev);border:1px solid var(--bb-border);font-size:11px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <a href="/">← Назад</a>
+    <h1>💻 Code Explainer</h1>
+    <button class="btn ghost" id="refreshBtn" onclick="loadProjects()">🔄 Обновить</button>
+</div>
+<div class="projects-bar">
+    <input type="text" id="repoUrl" placeholder="https://github.com/пользователь/репозиторий">
+    <button class="btn" id="analyzeBtn" onclick="analyzeRepo()">🔍 Разобрать код</button>
+</div>
+<div id="statusMsg" class="muted" style="padding:6px 16px"></div>
+<div class="layout">
+    <div class="sidebar" id="sidebar">
+        <div class="empty">Введите ссылку на репозиторий и нажмите «Разобрать код»</div>
+    </div>
+    <div class="file-view" id="fileView">
+        <div class="empty">Выберите файл в дереве слева</div>
+    </div>
+</div>
+<script>
+var LS = {{}};
+var CURRENT_PROJECT = null;
+var SELECTED_PATH = null;
+var LANG_JS = {{}};
+try {{ LANG_JS = {languages_json}; }} catch(e) {{}}
+function esc(s) {{ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }}
+function authH() {{ var h = {{'Content-Type':'application/json'}}; var t = localStorage.getItem('web_token'); if (t) h['X-Auth-Token'] = t; return h; }}
+function setMsg(m, isErr) {{ var el = document.getElementById('statusMsg'); el.textContent = m; el.style.color = isErr ? 'var(--bb-red)' : 'var(--bb-muted)'; }}
+function showErr(m) {{ setMsg(m, true); alert(m); }}
+function langMeta(key) {{
+    var k = String(key || '');
+    if (LANG_JS[k]) return LANG_JS[k];
+    return {{name: k || 'code', icon: '📄', hint: ''}};
+}}
+async function analyzeRepo() {{
+    var url = document.getElementById('repoUrl').value.trim();
+    if (!url) {{ showErr('Введите ссылку на репозиторий'); return; }}
+    var btn = document.getElementById('analyzeBtn');
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = '⏳ Клонируем и анализируем…';
+    setMsg('Это может занять 30–90 секунд…');
+    try {{
+        var r = await fetch('/api/code/analyze', {{method:'POST', headers: authH(), body: JSON.stringify({{repo_url: url}})}});
+        var d = await r.json();
+        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
+        setMsg('Готово: ' + d.file_count + ' файлов, из них проанализировано ' + d.analyzed_count + (d.trivial_files_skipped ? ' (+' + d.trivial_files_skipped + ' пропущено)' : ''));
+        CURRENT_PROJECT = {{id: d.project_id}};
+        await loadProject(d.project_id, true);
+    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+    finally {{ btn.disabled = false; btn.textContent = old; }}
+}}
+async function loadProjects() {{
+    try {{
+        var r = await fetch('/api/code/projects', {{headers: authH()}});
+        var d = await r.json();
+        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
+        renderProjects(d.items);
+    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+}}
+function renderProjects(items) {{
+    var sb = document.getElementById('sidebar');
+    var fv = document.getElementById('fileView');
+    if (!items || !items.length) {{
+        sb.innerHTML = '<div class="empty">Проектов пока нет. Вставьте ссылку на репозиторий выше.</div>';
+        fv.innerHTML = '<div class="empty">Выберите файл в дереве слева</div>';
+        return;
+    }}
+    var html = '<div class="muted" style="margin-bottom:8px">Проекты:</div>';
+    items.forEach(function(p) {{
+        var st = p.status == 'ready' ? '<span class="pill">✅ готов</span>'
+              : p.status == 'failed' ? '<span class="pill" style="color:var(--bb-red)">❌ ошибка</span>'
+              : '<span class="pill">⏳ анализ…</span>';
+        var lang = p.primary_language ? '<span class="tag">' + esc(p.primary_language) + '</span>' : '';
+        html += '<div class="list-item" style="cursor:pointer" onclick="loadProject(' + p.id + ', true)">'
+             + '  <div class="meta"><div class="repo">📦 ' + esc(p.repo_name) + '</div>'
+             + '  <div class="sub">' + esc(p.repo_url) + ' · ' + (p.file_count||0) + ' файлов</div></div>'
+             + '  ' + lang + ' ' + st
+             + '  <button class="btn ghost" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();deleteProject(' + p.id + ', event)">🗑</button>'
+             + '</div>';
+    }});
+    sb.innerHTML = html;
+}}
+async function deleteProject(id, ev) {{
+    if (!confirm('Удалить проект?')) return;
+    try {{
+        var r = await fetch('/api/code/project/' + id, {{method:'DELETE', headers: authH()}});
+        var d = await r.json();
+        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
+        CURRENT_PROJECT = null;
+        SELECTED_PATH = null;
+        loadProjects();
+    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+}}
+async function loadProject(id) {{
+    try {{
+        var r = await fetch('/api/code/project/' + id, {{headers: authH()}});
+        var d = await r.json();
+        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
+        CURRENT_PROJECT = {{id: id, project: d.project}};
+        renderTree(d.tree);
+        renderProjectHeader(d.project);
+    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+}}
+function renderProjectHeader(p) {{
+    var fv = document.getElementById('fileView');
+    var lang = p.primary_language ? ' <span class="tag">' + esc(p.primary_language) + '</span>' : '';
+    fv.innerHTML = '<div class="empty">Дерево загружено — выберите файл слева</div>';
+    var meta = document.createElement('div');
+}}
+function buildTree(nodes) {{
+    var root = {{children: {{}}}};
+    nodes.forEach(function(n) {{
+        var parts = n.path.split('/');
+        var cur = root;
+        parts.forEach(function(part, i) {{
+            var isFile = i == parts.length - 1;
+            if (!cur.children[part]) cur.children[part] = {{name: part, type: isFile ? 'file' : 'dir', path: parts.slice(0, i+1).join('/'), children: {{}}, node: isFile ? n : null}};
+            cur = cur.children[part];
+        }});
+    }});
+    return root;
+}}
+function treeHTML(node, depth) {{
+    var out = '';
+    var kids = Object.values(node.children || {{}});
+    kids.sort(function(a,b) {{ return (a.type == 'dir' ? 0 : 1) - (b.type == 'dir' ? 0 : 1); }});
+    kids.forEach(function(k) {{
+        var pad = depth * 14;
+        var lt = k.node ? langMeta(k.node.language) : null;
+        var icon = k.type == 'dir' ? '📁' : (lt && lt.icon ? lt.icon : '📄');
+        var badge = k.node && k.node.comment_count > 0 ? '<span class="badge">💬' + k.node.comment_count + '</span>' : '';
+        var sel = SELECTED_PATH == k.path ? ' selected' : '';
+        out += '<div class="tree-node' + sel + '" style="padding-left:' + (10 + pad) + 'px" onclick="openNode(\\'' + k.path.replace(/'/g, "\\\\'") + '\\')">'
+            +  '<span class="caret">' + (k.type == 'dir' ? '▸' : '') + '</span>'
+            +  '<span class="icon">' + icon + '</span>'
+            +  '<span class="name">' + esc(k.name) + '</span>'
+            +  badge
+            +  '</div>';
+        if (k.type == 'dir') out += treeHTML(k, depth + 1);
+    }});
+    return out;
+}}
+function renderTree(nodes) {{
+    var sb = document.getElementById('sidebar');
+    var tree = buildTree(nodes);
+    var html = '<div class="muted" style="margin-bottom:8px">📁 ' + esc(CURRENT_PROJECT.project.repo_name) + '</div>';
+    html += treeHTML(tree, 0);
+    sb.innerHTML = html;
+}}
+async function openNode(path) {{
+    SELECTED_PATH = path;
+    var nodes = null;
+    // re-render selection by reloading tree from cache
+    var fv = document.getElementById('fileView');
+    try {{
+        var r = await fetch('/api/code/project/' + CURRENT_PROJECT.id + '/file?path=' + encodeURIComponent(path), {{headers: authH()}});
+        var d = await r.json();
+        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
+        if (d.language == null && d.content == null) {{ showErr('Это папка — выберите файл'); return; }}
+        renderFile(d);
+    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+}}
+function hlLang(langKey) {{
+    var map = {{'.py':'python','.js':'javascript','.ts':'typescript','.tsx':'typescript','.jsx':'javascript','.gd':'.','.cs':'csharp','.java':'java','.go':'go','.rb':'ruby','.php':'php','.rs':'rust','.dart':'dart','.kt':'kotlin','.swift':'swift','.html':'xml','.htm':'xml','.css':'css','.scss':'scss','.json':'json','.yml':'yaml','.yaml':'yaml','.sql':'sql','.sh':'bash','.md':'markdown','.toml':'ini'}};
+    return map[String(langKey || '')] || 'plaintext';
+}}
+function renderFile(d) {{
+    var fv = document.getElementById('fileView');
+    var langMeta = langMeta(d.language);
+    var ai = d.ai_line_comments || {{}};
+    var uc = (d.user_comments || []).reduce(function(m,c) {{ (m[c.line_start] = m[c.line_start] || []).push(c); return m; }}, {{}});
+    var lines = (d.content || '').split('\\n');
+    var head = '<div class="file-head"><h2>' + (langMeta.icon ? langMeta.icon + ' ' : '') + esc(d.path) + '</h2>'
+             + '<span class="tag">' + esc(langMeta.name) + '</span>'
+             + '<span class="pill">' + lines.length + ' строк</span>'
+             + '<button class="btn ghost" onclick="openAddComment()">➕ Комментарий</button></div>';
+    var summary = d.ai_summary ? '<div class="summary-note">🤖 <b>AI:</b> ' + esc(d.ai_summary) + '</div>' : '';
+    var rows = '';
+    lines.forEach(function(text, i) {{
+        var ln = i + 1;
+        var cls = 'line-row';
+        var pop = '';
+        if (ai[ln]) {{
+            cls += ' has-ai';
+            pop += '<div class="ai-pop">🤖 ' + esc(ai[ln]) + '</div>';
+        }}
+        if (uc[ln] && uc[ln].length) {{
+            cls += ' has-user';
+            uc[ln].forEach(function(c) {{ pop += '<div class="user-pop" title="удалить" onclick="delComment(' + c.id + ')">💬 <b>Вы:</b> ' + esc(c.comment) + ' <span style="cursor:pointer;color:var(--bb-red)">✕</span></div>'; }});
+        }}
+        rows += '<div class="' + cls + '" data-line="' + ln + '"><div class="line-no">' + ln + '</div><div class="line-text">' + esc(text) + '</div>' + pop + '</div>';
+    }});
+    var form = '<div class="add-comment-form" id="addForm" style="display:none">'
+             + '<div class="muted" id="addFormHint">Комментарий будет привязан к выделенным строкам (или строке, на которой стоит курсор).</div>'
+             + '<textarea id="commentText" placeholder="Ваш комментарий…"></textarea>'
+             + '<div style="display:flex;gap:8px;margin-top:6px">'
+             + '<button class="btn" onclick="submitComment()">💾 Сохранить</button>'
+             + '<button class="btn ghost" onclick="toggleAddForm(false)">Отмена</button></div></div>';
+    fv.innerHTML = head + summary + '<div class="code-wrap"><pre><code>' + rows + '</code></pre></div>' + form;
+    CURRENT_FILE_PATH = d.path;
+}}
+var CURRENT_FILE_PATH = null;
+function selectedLines() {{
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return null;
+    var anchor = sel.anchorNode;
+    var focus = sel.focusNode;
+    function lineOf(node) {{
+        var el = node && node.nodeType == 1 ? node : (node ? node.parentNode : null);
+        while (el && !el.getAttribute) el = el.parentNode;
+        while (el && !el.getAttribute('data-line')) el = el.parentNode;
+        return el ? parseInt(el.getAttribute('data-line'), 10) : null;
+    }}
+    var a = lineOf(anchor), b = lineOf(focus);
+    if (!a || !b) return {{start: a, end: a}};
+    return {{start: Math.min(a, b), end: Math.max(a, b)}};
+}}
+function openAddComment() {{
+    document.getElementById('addForm').style.display = 'block';
+    document.getElementById('commentText').focus();
+}}
+function toggleAddForm(show) {{
+    var f = document.getElementById('addForm');
+    if (f) f.style.display = show ? 'block' : 'none';
+}}
+async function submitComment() {{
+    var text = document.getElementById('commentText').value.trim();
+    if (!text) {{ showErr('Введите текст комментария'); return; }}
+    var rng = selectedLines();
+    var ls = rng.start, le = rng.end;
+    try {{
+        var r = await fetch('/api/code/project/' + CURRENT_PROJECT.id + '/comment', {{method:'POST', headers: authH(), body: JSON.stringify({{
+            file_path: CURRENT_FILE_PATH, line_start: ls, line_end: le, comment: text
+        }})}});
+        var d = await r.json();
+        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
+        openNode(CURRENT_FILE_PATH);
+    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+}}
+async function delComment(cid) {{
+    try {{
+        var r = await fetch('/api/code/project/' + CURRENT_PROJECT.id + '/comment/' + cid, {{method:'DELETE', headers: authH()}});
+        var d = await r.json();
+        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
+        openNode(CURRENT_FILE_PATH);
+    }} catch(e) {{ showErr('Сеть: ' + e.message); }}
+}}
+loadProjects();
+</script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+app.route("/code")(code_page)
 
 
 # Vercel handler
