@@ -21,6 +21,15 @@
   - Тесты: `tests/unit/test_code_explainer.py` — 7 тестов (analyze flow, comment flow, project delete, auth required, validation, other-user block, AI degraded fallback)
   - `ruff` чисто, `py_compile` чисто, `node --check` JS чисто
   - Карточка добавлена в бета-секцию хаба `/`
+- ✅ [TASK] **Code Explainer AI Chat** — ИИ-ассистент в боковой панели (2026-09-02):
+  - POST `/api/code/project/<id>/chat` — отправить вопрос ИИ с инструментами
+  - ИИ умеет: читать файлы проекта, добавлять комментарии к строкам, отвечать на вопросы
+  - Инструменты: read_file, add_comment, list_files, search
+  - Использует ту же архитектуру, что и OGE-куратор (tool-calling)
+  - История сохраняется в БД (таблица `code_chat_messages`)
+  - Боковая панель чата в SPA /code
+  - Кнопка «🤖 Разобрать» = ИИ анализирует весь проект и комментирует ключевые места
+  - 7/7 тестов + ruff + py_compile чисто
 
 ### ✅ Выполнено (ранее)
 - ✅ [BUG] Admin panel 403 fix — убрана серверная проверка в хендлере `/admin` (браузер не шлёт заголовки при навигации; клиентский auth gate уже работает корректно).
