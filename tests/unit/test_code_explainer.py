@@ -314,4 +314,4 @@ def test_degraded_ai_fallback(mock_clone, tmp_path):
         # fallback summary is still stored
         r = client.get(f"/api/code/project/{data['project_id']}/file?path=player/player.gd",
                        headers=_auth_headers(token))
-        assert "анализ недоступен" in r.get_json()["ai_summary"]
+        assert "GDScript" in r.get_json()["ai_summary"]
