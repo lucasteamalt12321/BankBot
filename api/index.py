@@ -25199,7 +25199,7 @@ def _code_ai_call(prompt: str, max_tokens: int = 1200) -> str:
     try:
         resp = _ai_chat(
             {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.2},
-            timeout=25.0,
+            timeout=30.0,
         )
         if resp is not None and resp.status_code == 200:
             try:
@@ -25209,6 +25209,38 @@ def _code_ai_call(prompt: str, max_tokens: int = 1200) -> str:
     except Exception as exc:
         log_error("CODE", "error", f"AI call error: {exc}")
     return ""
+
+
+def _code_heuristic_summary(file_info: dict) -> tuple[str, dict]:
+    """Generate summary from file content without AI — for config/ini/key-value files."""
+    content = file_info.get("content", "")
+    lang_key = file_info.get("lang_key") or ""
+    lang_name = _CODE_LANGUAGES.get(lang_key, {}).get("name", lang_key or "code")
+    fname = os.path.basename(file_info.get("path", ""))
+    lines = content.splitlines()
+    line_count = len(lines)
+    # Config-like files: count sections and key-value pairs
+    if lang_key in ("project.godot",) or fname in ("CMakeLists.txt", "Makefile", "Dockerfile"):
+        sections = [l.strip() for l in lines if l.strip().startswith("[") and l.strip().endswith("]")]
+        kv_pairs = [l for l in lines if "=" in l and not l.strip().startswith(";") and not l.strip().startswith("#")]
+        parts = [f"Конфигурационный файл ({line_count} строк)"]
+        if sections:
+            parts.append(f"{len(sections)} секций: {', '.join(s.strip('[]') for s in sections[:5])}")
+        if kv_pairs:
+            parts.append(f"{len(kv_pairs)} параметров")
+        return " — ".join(parts) + ".", {}
+    # Generic fallback: extract identifiers
+    classes = [l.split()[-1].split("(")[0] for l in lines if "class " in l and "extends" in l][:5]
+    funcs = [l.strip().replace("func ", "").split("(")[0] for l in lines if l.strip().startswith("func ")][:5]
+    signals = [l.strip() for l in lines if l.strip().startswith("signal ")][:5]
+    summary_parts = [f"{lang_name}, {line_count} строк"]
+    if classes:
+        summary_parts.append(f"классы: {', '.join(classes)}")
+    if funcs:
+        summary_parts.append(f"функции: {', '.join(funcs)}")
+    if signals:
+        summary_parts.append(f"сигналы: {', '.join(s.replace('signal ', '') for s in signals)}")
+    return f"Файл {fname} — {'; '.join(summary_parts)}.", {}
 
 
 def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
@@ -25234,11 +25266,7 @@ def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
     ai_text = _code_ai_call(prompt, max_tokens=1600)
     parsed = _code_parse_json(ai_text)
     if not parsed:
-        # Fallback: heuristic summary from file name
-        return (
-            f"Файл {os.path.basename(file_info['path'])} ({len(lines)} строк, {lang_name}) — анализ недоступен.",
-            {},
-        )
+        return _code_heuristic_summary(file_info)
     summary = str(parsed.get("summary", "") or "").strip()
     line_comments = parsed.get("line_comments", {})
     if not isinstance(line_comments, dict):
@@ -25311,18 +25339,13 @@ def _code_analyze_batch(files: list[dict]) -> dict[str, tuple[str, dict]]:
                 results[f["path"]] = (summary, line_comments)
             else:
                 missing.append(f)
-        # Per-file retry for files the batch didn't cover
         for f in missing:
             try:
                 s, lc = _code_analyze_file_ai(f)
                 results[f["path"]] = (s, lc)
             except Exception:
-                lk = f.get("lang_key") or ""
-                lang_name = _CODE_LANGUAGES.get(lk, {}).get("name", lk or "code")
-                results[f["path"]] = (
-                    f"Файл {os.path.basename(f['path'])} ({len(f['content'].splitlines())} строк, {lang_name}) — анализ недоступен.",
-                    {},
-                )
+                s, lc = _code_heuristic_summary(f)
+                results[f["path"]] = (s, lc)
     return results
 
 
