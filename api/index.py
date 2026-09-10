@@ -4896,7 +4896,19 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
             timeout=3,
         )
         if response.status_code != 200:
-            log_error("SEND_MSG", "error", f"chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
+            # Retry without parse_mode if entity parsing failed
+            if "can't parse entities" in (response.text or "") and "parse_mode" in payload:
+                retry = {k: v for k, v in payload.items() if k != "parse_mode"}
+                try:
+                    requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json=retry,
+                        timeout=3,
+                    )
+                except Exception:
+                    pass
+            else:
+                log_error("SEND_MSG", "error", f"chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
     except Exception as exc:
         log_error("SEND_MSG", "error", f"EXCEPTION: {exc}")
 
@@ -25270,13 +25282,14 @@ def _code_analyze_batch(files: list[dict]) -> dict[str, tuple[str, dict]]:
             "- Возвращай все файлы из запроса, не пропускай ни один.\n\n"
             + "\n".join(sections)
         )
-        ai_text = _code_ai_call(prompt, max_tokens=3000)
+        ai_text = _code_ai_call(prompt, max_tokens=4000)
         parsed = _code_parse_json(ai_text)
         entries = {}
         if parsed:
             entries = parsed.get("files", parsed)
             if not isinstance(entries, dict):
                 entries = {}
+        missing = []
         for f in batch:
             entry = entries.get(f["path"])
             summary = ""
@@ -25294,14 +25307,22 @@ def _code_analyze_batch(files: list[dict]) -> dict[str, tuple[str, dict]]:
                         continue
                     if 1 <= line_no <= len(lines) and isinstance(v, str) and v.strip():
                         line_comments[str(line_no)] = v.strip()[:300]
-            if not summary:
+            if summary:
+                results[f["path"]] = (summary, line_comments)
+            else:
+                missing.append(f)
+        # Per-file retry for files the batch didn't cover
+        for f in missing:
+            try:
+                s, lc = _code_analyze_file_ai(f)
+                results[f["path"]] = (s, lc)
+            except Exception:
                 lk = f.get("lang_key") or ""
                 lang_name = _CODE_LANGUAGES.get(lk, {}).get("name", lk or "code")
-                summary = (
-                    f"Файл {os.path.basename(f['path'])} ({len(f['content'].splitlines())} строк, "
-                    f"{lang_name}) — анализ недоступен."
+                results[f["path"]] = (
+                    f"Файл {os.path.basename(f['path'])} ({len(f['content'].splitlines())} строк, {lang_name}) — анализ недоступен.",
+                    {},
                 )
-            results[f["path"]] = (summary, line_comments)
     return results
 
 
