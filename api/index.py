@@ -25060,6 +25060,57 @@ _CODE_MAX_STORE_BYTES = 400_000
 _CODE_MAX_PROJECTS = 10
 _CODE_ANALYZE_RATE_LIMIT = 5  # analyses per hour per user
 
+# Инструменты для ИИ при анализе кода
+_CODE_TOOLS = {
+    "read_file": "Прочитать содержимое файла по пути",
+    "add_comment": "Добавить комментарий к строкам файла",
+    "list_files": "Список файлов в проекте",
+    "search": "Найти текст в файлах проекта",
+}
+
+def _code_tool_directive(text: str) -> dict | None:
+    """Extract {"tool": "...", ...} JSON directive from AI reply; dict or None."""
+    if not text:
+        return None
+    for m in _code_iter_json_objects(text):
+        try:
+            d = json.loads(m)
+        except Exception:
+            continue
+        if isinstance(d, dict) and str(d.get("tool") or "") in _CODE_TOOLS:
+            return d
+    return None
+
+
+def _code_iter_json_objects(text: str):
+    """Yield substrings that are syntactically balanced JSON objects (incl. nested braces)."""
+    for start in re.finditer(r"\{", text):
+        depth = 0
+        in_str = False
+        esc = False
+        end = None
+        for i in range(start.start(), len(text)):
+            c = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+                continue
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end is not None:
+            yield text[start.start():end + 1]
+
 
 def _code_parse_json(text: str) -> dict | None:
     """Extract a JSON object from an AI response (tolerates fences/prose)."""
@@ -25349,8 +25400,86 @@ def _code_analyze_batch(files: list[dict]) -> dict[str, tuple[str, dict]]:
     return results
 
 
+def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True) -> dict:
+    """Store collected files in DB; optionally AI-analyze them. Returns stats dict."""
+    engine = get_db_engine()
+    if not files:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE code_projects SET status = 'ready', file_count = 0 WHERE id = :id"
+            ), {"id": project_id})
+        return {"analyzed_count": 0, "trivial_files_skipped": 0, "primary_language": None, "file_count": 0}
+
+    analyze_pool = files[: _CODE_MAX_FILES]
+    batch_results = {}
+    if run_ai:
+        batch_results = _code_analyze_batch(analyze_pool)
+
+    analyzed_count = 0
+    dir_summaries: dict[str, list[str]] = {}
+    for f in analyze_pool:
+        summary, line_comments = batch_results.get(f["path"], ("", {}))
+        if not summary:
+            summary, line_comments = _code_heuristic_summary(f)
+        analyzed_count += 1
+        parts = f["path"].split("/")
+        for i in range(len(parts) - 1):
+            dpath = "/".join(parts[: i + 1])
+            dir_summaries.setdefault(dpath, []).append(summary)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
+                    "line_count, content, ai_summary, ai_line_comments) "
+                    "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, :comments) "
+                    "ON CONFLICT (project_id, file_path) DO NOTHING"
+                ), {
+                    "pid": project_id,
+                    "path": f["path"],
+                    "parent": "/".join(f["path"].split("/")[:-1]),
+                    "lang": f["lang_key"],
+                    "lc": f["line_count"],
+                    "content": "\n".join(f["content"].splitlines()[:_CODE_MAX_STORE_LINES]),
+                    "summary": summary,
+                    "comments": json.dumps(line_comments, ensure_ascii=False),
+                })
+        except Exception as exc:
+            log_error("CODE", "error", f"file store error: {exc}")
+
+    for dpath, child_summaries in dir_summaries.items():
+        summary = _code_dir_summary_table(dpath, child_summaries)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
+                    "line_count, content, ai_summary) "
+                    "VALUES (:pid, :path, 'dir', :parent, NULL, 0, NULL, :summary) "
+                    "ON CONFLICT (project_id, file_path) DO NOTHING"
+                ), {
+                    "pid": project_id,
+                    "path": dpath,
+                    "parent": "/".join(dpath.split("/")[:-1]),
+                    "summary": summary,
+                })
+        except Exception as exc:
+            log_error("CODE", "error", f"dir store error: {exc}")
+
+    primary_lang = _code_detect_primary_language(files)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE code_projects SET status = 'ready', file_count = :cnt, primary_language = :lang WHERE id = :id"
+        ), {"cnt": len(files), "lang": primary_lang, "id": project_id})
+
+    return {
+        "analyzed_count": analyzed_count,
+        "trivial_files_skipped": max(0, len(files) - _CODE_MAX_FILES),
+        "primary_language": primary_lang,
+        "file_count": len(files),
+    }
+
+
 def api_code_analyze():
-    """POST /api/code/analyze — clone a repo, AI-analyze it, store for the user."""
+    """POST /api/code/analyze — clone a repo, optionally AI-analyze it, store for the user."""
     user = _get_session_user(_auth_token_from_request())
     if not user:
         return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
@@ -25361,6 +25490,7 @@ def api_code_analyze():
 
     data = request.get_json(silent=True) or {}
     repo_url = str(data.get("repo_url", "")).strip()
+    run_ai = bool(data.get("analyze", True))
     if not repo_url:
         return jsonify({"ok": False, "error": "Укажите ссылку на репозиторий"}), 400
     if not re.match(r"^https?://.+", repo_url) or len(repo_url) > 500:
@@ -25402,75 +25532,17 @@ def api_code_analyze():
             return jsonify({"ok": False, "error": "Не удалось клонировать репозиторий. Проверьте ссылку."}), 400
 
         files = _code_collect_files(repo_dir)
-        # AI budget: analyze up to _CODE_MAX_FILES files
-        analyze_pool = files[: _CODE_MAX_FILES]
-        analyzed_count = 0
-        trivia_count = max(0, len(files) - _CODE_MAX_FILES)
-
-        dir_summaries: dict[str, list[str]] = {}
-        batch_results = _code_analyze_batch(analyze_pool)
-
-        for f in analyze_pool:
-            summary, line_comments = batch_results.get(f["path"], ("", {}))
-            analyzed_count += 1
-            # Build directory path summaries incrementally
-            parts = f["path"].split("/")
-            for i in range(len(parts) - 1):
-                dpath = "/".join(parts[: i + 1])
-                dir_summaries.setdefault(dpath, []).append(summary)
-            try:
-                with engine.begin() as conn:
-                    conn.execute(text(
-                        "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
-                        "line_count, content, ai_summary, ai_line_comments) "
-                        "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, :comments) "
-                        "ON CONFLICT (project_id, file_path) DO NOTHING"
-                    ), {
-                        "pid": project_id,
-                        "path": f["path"],
-                        "parent": "/".join(f["path"].split("/")[:-1]),
-                        "lang": f["lang_key"],
-                        "lc": f["line_count"],
-                        "content": "\n".join(f["content"].splitlines()[:_CODE_MAX_STORE_LINES]),
-                        "summary": summary,
-                        "comments": json.dumps(line_comments, ensure_ascii=False),
-                    })
-            except Exception as exc:
-                log_error("CODE", "error", f"file store error: {exc}")
-
-        # Store directory rows with auto-built summaries
-        for dpath, child_summaries in dir_summaries.items():
-            summary = _code_dir_summary_table(dpath, child_summaries)
-            try:
-                with engine.begin() as conn:
-                    conn.execute(text(
-                        "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
-                        "line_count, content, ai_summary) "
-                        "VALUES (:pid, :path, 'dir', :parent, NULL, 0, NULL, :summary) "
-                        "ON CONFLICT (project_id, file_path) DO NOTHING"
-                    ), {
-                        "pid": project_id,
-                        "path": dpath,
-                        "parent": "/".join(dpath.split("/")[:-1]),
-                        "summary": summary,
-                    })
-            except Exception as exc:
-                log_error("CODE", "error", f"dir store error: {exc}")
-
-        primary_lang = _code_detect_primary_language(files)
-        with engine.begin() as conn:
-            conn.execute(text(
-                "UPDATE code_projects SET status = 'ready', file_count = :cnt, primary_language = :lang WHERE id = :id"
-            ), {"cnt": len(files), "lang": primary_lang, "id": project_id})
+        stats = _code_persist_files(project_id, files, run_ai=run_ai)
 
         return jsonify({
             "ok": True,
             "project_id": project_id,
             "status": "ready",
-            "file_count": len(files),
-            "analyzed_count": analyzed_count,
-            "trivial_files_skipped": trivia_count,
-            "primary_language": primary_lang,
+            "file_count": stats["file_count"],
+            "analyzed_count": stats["analyzed_count"],
+            "trivial_files_skipped": stats["trivial_files_skipped"],
+            "primary_language": stats["primary_language"],
+            "analyzed": run_ai,
         })
     except Exception as exc:
         log_error("CODE", "error", f"analyze error: {exc}")
@@ -25711,6 +25783,105 @@ def api_code_project_delete(project_id):
         return jsonify({"ok": False, "error": "Не удалось удалить проект"}), 500
 
 
+def api_code_reanalyze(project_id):
+    """POST /api/code/project/<id>/analyze — run AI analysis on already-loaded files."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+    if _check_ai_rate(f"code_{int(user['id'])}") or _check_db_rate(f"code_reanalyze_{int(user['id'])}", 10, 3600):
+        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT file_path, language, line_count, content FROM code_files "
+                "WHERE project_id = :pid AND file_type = 'file' ORDER BY id"
+            ), {"pid": project_id}).mappings().all()
+        files = [{
+            "path": r["file_path"],
+            "lang_key": r["language"],
+            "line_count": int(r["line_count"] or 0),
+            "content": r["content"] or "",
+        } for r in rows]
+    except Exception as exc:
+        log_error("CODE", "error", f"reanalyze load error: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось загрузить файлы"}), 500
+
+    analyze_pool = files[: _CODE_MAX_FILES]
+    batch_results = {}
+    if analyze_pool:
+        batch_results = _code_analyze_batch(analyze_pool)
+    updated = 0
+    for f in analyze_pool:
+        summary, line_comments = batch_results.get(f["path"], ("", {}))
+        if not summary:
+            summary, line_comments = _code_heuristic_summary(f)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE code_files SET ai_summary = :s, ai_line_comments = :c WHERE project_id = :pid AND file_path = :path"
+                ), {"s": summary, "c": json.dumps(line_comments, ensure_ascii=False), "pid": project_id, "path": f["path"]})
+            updated += 1
+        except Exception as exc:
+            log_error("CODE", "error", f"reanalyze update error: {exc}")
+
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE code_projects SET status = 'ready' WHERE id = :id"), {"id": project_id})
+    return jsonify({"ok": True, "analyzed_count": updated, "file_count": len(files)})
+
+
+def api_code_update(project_id):
+    """POST /api/code/project/<id>/update — re-fetch the repo (git pull analog) and re-analyze."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+    if _check_db_rate(f"code_update_{int(user['id'])}", 5, 3600) or _check_ai_rate(f"code_{int(user['id'])}"):
+        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+
+    repo_url = project.get("repo_url") or project.get("repoURL") or ""
+    tmp_dir = None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="code_")
+        repo_dir = os.path.join(tmp_dir, "repo")
+        if not _code_clone_repo(repo_url, repo_dir):
+            return jsonify({"ok": False, "error": "Не удалось обновить репозиторий. Проверьте ссылку."}), 400
+
+        files = _code_collect_files(repo_dir)
+        # Keep user comments; they are keyed by file_path in a separate table.
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM code_files WHERE project_id = :pid"), {"pid": project_id})
+        stats = _code_persist_files(project_id, files, run_ai=True)
+        return jsonify({
+            "ok": True,
+            "status": "ready",
+            "file_count": stats["file_count"],
+            "analyzed_count": stats["analyzed_count"],
+            "trivial_files_skipped": stats["trivial_files_skipped"],
+            "primary_language": stats["primary_language"],
+        })
+    except Exception as exc:
+        log_error("CODE", "error", f"update error: {exc}")
+        try:
+            with get_db_engine().begin() as conn:
+                conn.execute(text(
+                    "UPDATE code_projects SET status = 'failed', error_message = :msg WHERE id = :id"
+                ), {"id": project_id, "msg": str(exc)[:500]})
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": "Ошибка обновления репозитория"}), 500
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 @app.route("/api/code/analyze", methods=["POST"])
 def api_code_analyze_route():
     return api_code_analyze()
@@ -25744,6 +25915,16 @@ def api_code_comment_delete_route(project_id, comment_id):
 @app.route("/api/code/project/<int:project_id>", methods=["DELETE"])
 def api_code_project_delete_route(project_id):
     return api_code_project_delete(project_id)
+
+
+@app.route("/api/code/project/<int:project_id>/analyze", methods=["POST"])
+def api_code_reanalyze_route(project_id):
+    return api_code_reanalyze(project_id)
+
+
+@app.route("/api/code/project/<int:project_id>/update", methods=["POST"])
+def api_code_update_route(project_id):
+    return api_code_update(project_id)
 
 
 @app.route("/code")
@@ -25823,11 +26004,16 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
 <div class="topbar">
     <a href="/">← Назад</a>
     <h1>💻 Code Explainer</h1>
-    <button class="btn ghost" id="refreshBtn" onclick="loadProjects()">🔄 Обновить</button>
+    <button class="btn ghost" id="refreshBtn" onclick="loadProjects()">🔄 Список</button>
 </div>
 <div class="projects-bar">
     <input type="text" id="repoUrl" placeholder="https://github.com/пользователь/репозиторий">
-    <button class="btn" id="analyzeBtn" onclick="analyzeRepo()">🔍 Разобрать код</button>
+    <button class="btn" id="loadBtn" onclick="downloadRepo()">📥 Загрузить</button>
+</div>
+<div class="projects-bar" style="border-bottom:none">
+    <button class="btn" id="analyzeBtn" onclick="analyzeProject()" disabled title="Выберите загруженный проект">🤖 Разобрать</button>
+    <button class="btn ghost" id="updateBtn" onclick="updateProject()" disabled title="Подтянуть изменения (git pull)">🔄 Обновить (git pull)</button>
+    <span class="muted" id="currentProj" style="align-self:center"></span>
 </div>
 <div id="statusMsg" class="muted" style="padding:6px 16px"></div>
 <div class="progress-wrap" id="progressWrap">
@@ -25857,27 +26043,12 @@ function langMeta(key) {{
     if (LANG_JS[k]) return LANG_JS[k];
     return {{name: k || 'code', icon: '📄', hint: ''}};
 }}
-async function analyzeRepo() {{
-    var url = document.getElementById('repoUrl').value.trim();
-    if (!url) {{ showErr('Введите ссылку на репозиторий'); return; }}
-    var btn = document.getElementById('analyzeBtn');
+function startProgress(stages) {{
     var pw = document.getElementById('progressWrap');
     var pf = document.getElementById('progressFill');
     var pt = document.getElementById('progressText');
-    btn.disabled = true;
-    var old = btn.textContent;
-    btn.textContent = '⏳ Анализ…';
     pw.classList.add('active');
     pf.style.width = '0%';
-    pt.textContent = '📥 Загружаем репозиторий…';
-    // Animate progress bar through stages
-    var stages = [
-        {{pct:15, text:'📥 Загружаем репозиторий…', delay:800}},
-        {{pct:30, text:'📂 Сканируем файлы…', delay:2000}},
-        {{pct:50, text:'🤖 Анализируем код (это займёт 20–60 сек)…', delay:4000}},
-        {{pct:75, text:'🤖 Анализируем файлы…', delay:8000}},
-        {{pct:90, text:'📝 Сохраняем результат…', delay:15000}},
-    ];
     var timer = null;
     var si = 0;
     function tick() {{
@@ -25889,19 +26060,84 @@ async function analyzeRepo() {{
         }}
     }}
     tick();
+    return {{
+        done: function() {{ clearTimeout(timer); pf.style.width = '100%'; pt.textContent = '✅ Готово!'; }},
+        fail: function() {{ clearTimeout(timer); pw.classList.remove('active'); }},
+        hide: function() {{ setTimeout(function() {{ pw.classList.remove('active'); }}, 1500); }}
+    }};
+}}
+async function downloadRepo() {{
+    var url = document.getElementById('repoUrl').value.trim();
+    if (!url) {{ showErr('Введите ссылку на репозиторий'); return; }}
+    var btn = document.getElementById('loadBtn');
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = '⏳ Загрузка…';
+    var prog = startProgress([
+        {{pct:25, text:'📥 Загружаем репозиторий…', delay:700}},
+        {{pct:50, text:'📂 Сканируем файлы…', delay:2500}},
+        {{pct:80, text:'📝 Сохраняем файлы…', delay:6000}},
+    ]);
     setMsg('');
     try {{
-        var r = await fetch('/api/code/analyze', {{method:'POST', headers: authH(), body: JSON.stringify({{repo_url: url}})}});
+        var r = await fetch('/api/code/analyze', {{method:'POST', headers: authH(), body: JSON.stringify({{repo_url: url, analyze: false}})}});
         var d = await r.json();
-        clearTimeout(timer);
-        pf.style.width = '100%';
-        pt.textContent = '✅ Готово!';
-        if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
-        setMsg('Готово: ' + d.file_count + ' файлов, из них проанализировано ' + d.analyzed_count + (d.trivial_files_skipped ? ' (+' + d.trivial_files_skipped + ' пропущено)' : ''));
+        prog.done();
+        if (!d.ok) {{ prog.fail(); showErr(d.error || 'Ошибка'); return; }}
+        setMsg('Проект загружен: ' + d.file_count + ' файлов. Теперь нажмите «🤖 Разобрать», чтобы проанализировать.');
         CURRENT_PROJECT = {{id: d.project_id}};
         await loadProject(d.project_id, true);
-        setTimeout(function() {{ pw.classList.remove('active'); }}, 1500);
-    }} catch(e) {{ clearTimeout(timer); pw.classList.remove('active'); showErr('Сеть: ' + e.message); }}
+        prog.hide();
+    }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
+    finally {{ btn.disabled = false; btn.textContent = old; }}
+}}
+async function analyzeProject() {{
+    if (!CURRENT_PROJECT || !CURRENT_PROJECT.id) {{ showErr('Сначала загрузите проект'); return; }}
+    var btn = document.getElementById('analyzeBtn');
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = '⏳ Анализ…';
+    var prog = startProgress([
+        {{pct:15, text:'📂 Читаем файлы…', delay:1000}},
+        {{pct:40, text:'🤖 Анализируем код (20–60 сек)…', delay:5000}},
+        {{pct:75, text:'🤖 Обрабатываем файлы…', delay:10000}},
+        {{pct:90, text:'📝 Сохраняем результат…', delay:15000}},
+    ]);
+    setMsg('');
+    try {{
+        var r = await fetch('/api/code/project/' + CURRENT_PROJECT.id + '/analyze', {{method:'POST', headers: authH()}});
+        var d = await r.json();
+        prog.done();
+        if (!d.ok) {{ prog.fail(); showErr(d.error || 'Ошибка'); return; }}
+        setMsg('Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count);
+        await loadProject(CURRENT_PROJECT.id, false);
+        prog.hide();
+    }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
+    finally {{ btn.disabled = false; btn.textContent = old; }}
+}}
+async function updateProject() {{
+    if (!CURRENT_PROJECT || !CURRENT_PROJECT.id) {{ showErr('Сначала загрузите проект'); return; }}
+    if (!confirm('Обновить проект из репозитория (изменения будут перезагружены)?')) return;
+    var btn = document.getElementById('updateBtn');
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = '⏳ Обновление…';
+    var prog = startProgress([
+        {{pct:20, text:'📥 Загружаем обновления…', delay:1000}},
+        {{pct:45, text:'📂 Сканируем файлы…', delay:4000}},
+        {{pct:70, text:'🤖 Анализируем код…', delay:9000}},
+        {{pct:90, text:'📝 Сохраняем результат…', delay:15000}},
+    ]);
+    setMsg('');
+    try {{
+        var r = await fetch('/api/code/project/' + CURRENT_PROJECT.id + '/update', {{method:'POST', headers: authH()}});
+        var d = await r.json();
+        prog.done();
+        if (!d.ok) {{ prog.fail(); showErr(d.error || 'Ошибка'); return; }}
+        setMsg('Обновлено: ' + d.file_count + ' файлов, проанализировано ' + d.analyzed_count);
+        await loadProject(CURRENT_PROJECT.id, false);
+        prog.hide();
+    }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
     finally {{ btn.disabled = false; btn.textContent = old; }}
 }}
 async function loadProjects() {{
@@ -25918,6 +26154,9 @@ function renderProjects(items) {{
     if (!items || !items.length) {{
         sb.innerHTML = '<div class="empty">Проектов пока нет. Вставьте ссылку на репозиторий выше.</div>';
         fv.innerHTML = '<div class="empty">Выберите файл в дереве слева</div>';
+        document.getElementById('analyzeBtn').disabled = true;
+        document.getElementById('updateBtn').disabled = true;
+        document.getElementById('currentProj').textContent = '';
         return;
     }}
     var html = '<div class="muted" style="margin-bottom:8px">Проекты:</div>';
@@ -25943,6 +26182,9 @@ async function deleteProject(id, ev) {{
         if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
         CURRENT_PROJECT = null;
         SELECTED_PATH = null;
+        document.getElementById('analyzeBtn').disabled = true;
+        document.getElementById('updateBtn').disabled = true;
+        document.getElementById('currentProj').textContent = '';
         loadProjects();
     }} catch(e) {{ showErr('Сеть: ' + e.message); }}
 }}
@@ -25952,6 +26194,10 @@ async function loadProject(id) {{
         var d = await r.json();
         if (!d.ok) {{ showErr(d.error || 'Ошибка'); return; }}
         CURRENT_PROJECT = {{id: id, project: d.project}};
+        document.getElementById('analyzeBtn').disabled = false;
+        document.getElementById('updateBtn').disabled = false;
+        document.getElementById('currentProj').textContent = '📦 ' + esc(d.project.repo_name || '');
+        SELECTED_PATH = null;
         renderTree(d.tree);
         renderProjectHeader(d.project);
     }} catch(e) {{ showErr('Сеть: ' + e.message); }}
