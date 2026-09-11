@@ -6589,9 +6589,87 @@ def _chess_require_auth(data_user_id: str | None) -> int | None:
     return uid
 
 
-@app.route("/api/gd/me")
-def api_gd_me():
-    return jsonify({"is_admin": _web_admin_session() is not None})
+@app.route("/api/gd/_record", methods=["POST"])
+def api_gd_record():
+    """Temp: record a completion for a nickname on a level (one-shot secret)."""
+    if request.headers.get("X-Record-Secret") != os.getenv("GD_RECORD_SECRET"):
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    nick = (data.get("nick") or "").strip()
+    level_name = (data.get("level") or "").strip()
+    if not nick or not level_name:
+        return jsonify({"error": "nick and level required"}), 400
+    try:
+        with get_db_engine().connect() as conn:
+            norm = _gd_norm_name(level_name)
+            lvl = conn.execute(
+                text("SELECT id, name FROM levels WHERE LOWER(TRIM(name)) = :nm LIMIT 1"),
+                {"nm": norm},
+            ).mappings().first()
+            if not lvl:
+                return jsonify({"error": f"level not found: {level_name}"}), 404
+            lid = int(lvl["id"])
+
+            user = (
+                conn.execute(
+                    text("SELECT id, gd_nickname FROM web_users WHERE LOWER(gd_nickname) = :n LIMIT 1"),
+                    {"n": nick.lower()},
+                ).mappings().first()
+                or conn.execute(
+                    text("SELECT id, display_name FROM web_users WHERE LOWER(display_name) = :n LIMIT 1"),
+                    {"n": nick.lower()},
+                ).mappings().first()
+                or conn.execute(
+                    text("SELECT telegram_id AS id FROM users WHERE LOWER(username) = :n LIMIT 1"),
+                    {"n": nick.lower()},
+                ).mappings().first()
+                or conn.execute(
+                    text("SELECT telegram_id AS id FROM users WHERE LOWER(first_name) = :n LIMIT 1"),
+                    {"n": nick.lower()},
+                ).mappings().first()
+                or conn.execute(
+                    text("SELECT user_id AS id FROM submissions WHERE LOWER(username) = :n LIMIT 1"),
+                    {"n": nick.lower()},
+                ).mappings().first()
+            )
+            if not user:
+                return jsonify({"error": f"user not found: {nick}"}), 404
+            uid = int(user["id"])
+
+            conn.execute(
+                text("""
+                    INSERT INTO level_completions (user_id, level_id)
+                    VALUES (:uid, :lid)
+                    ON CONFLICT (user_id, level_id) DO NOTHING
+                """),
+                {"uid": uid, "lid": lid},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO player_stats (user_id, total_approved)
+                    VALUES (:uid, 1)
+                    ON CONFLICT (user_id) DO UPDATE SET total_approved = player_stats.total_approved + 1
+                """),
+                {"uid": uid},
+            )
+            existed = conn.execute(
+                text("SELECT id FROM submissions WHERE user_id = :uid AND level_name = :ln AND status='approved' LIMIT 1"),
+                {"uid": uid, "ln": level_name},
+            ).mappings().first()
+            if not existed:
+                conn.execute(
+                    text("""
+                        INSERT INTO submissions (user_id, username, level_name, media_type, status)
+                        VALUES (:uid, :un, :ln, 'manual', 'approved')
+                    """),
+                    {"uid": uid, "un": nick[:50], "ln": level_name},
+                )
+            _update_gd_hardest_level(conn, uid)
+            conn.commit()
+            return jsonify({"ok": True, "user_id": uid, "level_id": lid, "level": lvl["name"]})
+    except Exception as exc:
+        print(f"gd/_record error: {exc}")
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/gd/submit", methods=["POST"])
