@@ -3039,20 +3039,39 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
     for name, api_key, model, url in providers:
         if not api_key:
             continue
-        try:
-            resp = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": model, **payload},
-                timeout=timeout,
-            )
-        except Exception as exc:
-            print(f"{name} API error: {exc}")
-            continue
-        if resp.status_code == 200:
-            return resp
-        print(f"{name} API error {resp.status_code}: {resp.text[:200]}")
-        last_resp = resp
+        # Groq: перебираем актуальные модели, если primary недоступна (404/429)
+        models_to_try = [model]
+        if name == "Groq":
+            for m in ([model] + _GROQ_MODEL_CANDIDATES):
+                if m not in models_to_try:
+                    models_to_try.append(m)
+        for candidate in models_to_try:
+            try:
+                resp = requests.post(
+                    url,
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": candidate, **payload},
+                    timeout=timeout,
+                )
+            except Exception as exc:
+                print(f"{name} API error ({candidate}): {exc}")
+                continue
+            if resp.status_code == 200:
+                try:
+                    msg = resp.json()["choices"][0].get("message") or {}
+                except Exception:
+                    msg = {}
+                if not msg.get("tool_calls") and not str(msg.get("content") or "").strip():
+                    print(f"{name} empty reply ({candidate}), trying next")
+                    last_resp = resp
+                    continue
+                return resp
+            print(f"{name} API error ({candidate}) {resp.status_code}: {resp.text[:200]}")
+            last_resp = resp
+            # 404 = модель списана провайдером, 429 = rate limit — пробуем следующую.
+            if resp.status_code in (404, 429):
+                continue
+            break
 
     # OpenRouter: перебор бесплатных моделей (пулы :free регулярно отдают 429)
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
@@ -25307,9 +25326,14 @@ def _code_chat_run(project_id: int, user_message: str, history: list[dict]) -> s
         prompt = {"messages": messages, "max_tokens": 2000, "temperature": 0.3}
         try:
             resp = _ai_chat(prompt, timeout=30.0)
-        except Exception:
+        except Exception as exc:
+            log_error("CODE", "error", f"chat _ai_chat exception: {exc}")
             resp = None
         if resp is None or resp.status_code != 200:
+            if resp is not None:
+                log_error("CODE", "error", f"chat AI HTTP {resp.status_code}: {resp.text[:300]}")
+            else:
+                log_error("CODE", "error", "chat AI returned None (keys missing or network)")
             return "ИИ-модель временно недоступна. Попробуйте позже."
         try:
             text = (resp.json()["choices"][0]["message"].get("content") or "").strip()
