@@ -3062,6 +3062,10 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
             if "gpt-oss" not in candidate:
                 continue  # остальные модели Groq выпилены (404)
             base_body = {"model": candidate, **payload}
+            # gpt-oss — агентная модель Groq: автоматически зовёт встроенные
+            # инструменты (repo_browser.*) и падает 400 tool_use_failed либо
+            # отдаёт пустой content. Явно запрещаем tool calling пустым списком.
+            base_body.setdefault("tools", [])
             # gpt-oss и другие reasoning-модели жгут max_tokens на «мысли» и
             # отдают пустой content — сначала пробуем отключить reasoning.
             body_attempts = (
