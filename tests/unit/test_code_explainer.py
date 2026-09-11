@@ -82,6 +82,15 @@ def _make_engine():
         comment TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS code_chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        user_id BIGINT NOT NULL,
+        role VARCHAR(16) NOT NULL,
+        content TEXT NOT NULL,
+        tool_calls TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
     """
     with engine.connect() as conn:
         for stmt in ddl.split(";"):
@@ -315,3 +324,67 @@ def test_degraded_ai_fallback(mock_clone, tmp_path):
         r = client.get(f"/api/code/project/{data['project_id']}/file?path=player/player.gd",
                        headers=_auth_headers(token))
         assert "GDScript" in r.get_json()["ai_summary"]
+
+
+@patch("api.index._code_clone_repo")
+@patch("api.index._code_ai_call")
+@patch("api.index._ai_chat")
+def test_chat_flow(mock_ai_chat, mock_ai, mock_clone, tmp_path):
+    def _fake_clone(url, dest, timeout=30):
+        _fake_godot_repo(dest)
+        return True
+
+    mock_clone.side_effect = _fake_clone
+    mock_ai.return_value = _AI_FILE_RESPONSE
+
+    class _FakeResp:
+        def __init__(self, text):
+            self._text = text
+
+        @property
+        def status_code(self):
+            return 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._text}}]}
+
+    # First turn: AI calls read_file tool; second turn: AI answers the question.
+    mock_ai_chat.side_effect = [
+        _FakeResp(json.dumps({"tool": "read_file", "path": "player/player.gd"})),
+        _FakeResp("Класс Игрока отвечает за движение и здоровье персонажа."),
+    ]
+
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        with patch("api.index._AI_RATE_LIMITS", new_callable=dict) as _:
+            client = app.test_client()
+            token = _create_user(client)
+            r = client.post("/api/code/analyze", json={"repo_url": "https://github.com/x/fake"},
+                            headers=_auth_headers(token))
+            pid = r.get_json()["project_id"]
+
+            r = client.post(f"/api/code/project/{pid}/chat", json={"message": "Что делает player.gd?"},
+                            headers=_auth_headers(token))
+            assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] is True
+        assert "движение" in d["reply"]
+
+        # empty message -> 400
+        r = client.post(f"/api/code/project/{pid}/chat", json={"message": ""},
+                        headers=_auth_headers(token))
+        assert r.status_code == 400
+
+        # AI reads the file and adds a comment
+        mock_ai_chat.side_effect = [
+            _FakeResp(json.dumps({"tool": "add_comment", "path": "player/player.gd", "line": 3, "comment": "Скорость экспортирована"})),
+            _FakeResp("Комментарий добавлен."),
+        ]
+        r = client.post(f"/api/code/project/{pid}/chat", json={"message": "Добавь комментарий к скорости"},
+                        headers=_auth_headers(token))
+        assert r.status_code == 200
+        assert r.get_json()["ok"] is True
+
+        r = client.get(f"/api/code/project/{pid}/file?path=player/player.gd", headers=_auth_headers(token))
+        uc = r.get_json()["user_comments"]
+        assert any(c["comment"] == "Скорость экспортирована" for c in uc)

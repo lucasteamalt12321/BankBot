@@ -216,6 +216,31 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-02 (Session: 💻 Code Explainer AI Chat + 🎮 GD викторы фикс)
+
+> Запрос пользователя: «разрабатывай ии чат в code explainer» + баг «после редактирования уровня acid factory пропал список викторов (Nikitosik)».
+
+#### ИИ-чат в Code Explainer
+
+| # | Компонент | Описание |
+|---|----------|----------|
+| 1 | `code_chat_messages` | Таблица истории чата (`role`, `content`, `tool_calls`) + индекс, добавлена в `_ensure_code_tables` |
+| 2 | Tool-executors | `_code_tool_read_file`, `_code_tool_list_files`, `_code_tool_search`, `_code_tool_add_comment` → `_CODE_TOOL_EXECUTORS` |
+| 3 | `_code_chat_run` | Tool-calling loop: до 4 ходов, результат инструмента возвращается в контекст ИИ |
+| 4 | `_code_chat_system_prompt` | Системный промпт со структурой файлов проекта (пути, языки, строки, сводки) |
+| 5 | `api_code_chat_route` | `POST /api/code/project/<id>/chat` + история 20 сообщений, rate limit 30/час + AI rate |
+| 6 | SPA `/code` | Боковая панель «💬 Чат» (кнопка в projects-bar, сообщения left/right, автобокс) |
+| 7 | Тест `test_chat_flow` | Покрывает: ответ ИИ через read_file tool, добавление комментария через add_comment tool, пустое сообщение → 400 |
+
+#### 🎮 GD фикс: пропал список викторов после редактирования уровня
+
+- **Причина:** список викторов (`completers`) строится JOIN-ом `submissions.level_name` = `levels.name` по **имени**, а `level_completions` — по **id**. При переименовании уровня через `PUT /api/gd/admin/level/<id>` старые submissions оставались под старым именем → JOIN терялся → викторы пустели.
+- **Фикс:** в `api_gd_admin_level_update` — если имя изменилось, `UPDATE submissions SET level_name = :nm WHERE level_name = :old AND status='approved'`.
+
+#### Проверки
+- 8/8 тестов `test_code_explainer.py` (chat_flow новый; rate-limit-коллизия в тесте устранена через патч `_AI_RATE_LIMITS`)
+- `ruff` чисто, `py_compile` чисто, `node --check` JS чисто
+
 ### 2026-09-02 (Session: 💻 Code Explainer Module)
 
 > Запрос пользователя: модуль «объяснялка кода» — человек скидывает ссылку на репозиторий, система клонирует, AI анализирует файлы, сайт показывает дерево проекта с комментариями. Можно добавлять комментарии к строкам кода. Начинаем с Godot (GDScript), архитектура расширяемая.
