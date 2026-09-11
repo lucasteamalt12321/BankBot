@@ -3014,6 +3014,18 @@ def get_global_chat_memory() -> list[dict]:
     return [{"role": m["role"], "content": m["content"]} for m in _CHAT_GLOBAL]
 
 
+def _ai_reply_text(resp: requests.Response) -> str:
+    """Extract assistant text from an OpenAI-compatible response (incl. reasoning_content)."""
+    try:
+        msg = resp.json()["choices"][0].get("message") or {}
+    except Exception:
+        return ""
+    text = str(msg.get("content") or "").strip()
+    if not text and msg.get("reasoning_content"):
+        text = str(msg.get("reasoning_content")).strip()
+    return text
+
+
 def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
     """Call AI via OpenAI-compatible chat/completions endpoints.
 
@@ -3046,25 +3058,47 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                 if m not in models_to_try:
                     models_to_try.append(m)
         for candidate in models_to_try:
-            try:
-                resp = requests.post(
-                    url,
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": candidate, **payload},
-                    timeout=timeout,
-                )
-            except Exception as exc:
-                print(f"{name} API error ({candidate}): {exc}")
+            base_body = {"model": candidate, **payload}
+            # gpt-oss и другие reasoning-модели жгут max_tokens на «мысли» и
+            # отдают пустой content — сначала пробуем отключить reasoning.
+            body_attempts = (
+                ({"reasoning": {"enabled": False}, **base_body}, base_body)
+                if "gpt-oss" in candidate
+                else (base_body,)
+            )
+            resp = None
+            for body in body_attempts:
+                try:
+                    resp = requests.post(
+                        url,
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json=body,
+                        timeout=timeout,
+                    )
+                except Exception as exc:
+                    print(f"{name} API error ({candidate}): {exc}")
+                    resp = None
+                    break
+                if resp.status_code == 400 and body is not body_attempts[-1]:
+                    continue
+                break
+            if resp is None:
                 continue
             if resp.status_code == 200:
                 try:
                     msg = resp.json()["choices"][0].get("message") or {}
                 except Exception:
                     msg = {}
-                if not msg.get("tool_calls") and not str(msg.get("content") or "").strip():
+                content = str(msg.get("content") or "").strip()
+                # reasoning-модели иногда кладут ответ в reasoning_content
+                if not content and msg.get("reasoning_content"):
+                    content = str(msg.get("reasoning_content")).strip()
+                if not msg.get("tool_calls") and not content:
                     print(f"{name} empty reply ({candidate}), trying next")
                     last_resp = resp
                     continue
+                if msg.get("tool_calls") or (content and not msg.get("tool_calls")):
+                    return resp
                 return resp
             print(f"{name} API error ({candidate}) {resp.status_code}: {resp.text[:200]}")
             last_resp = resp
@@ -3363,11 +3397,10 @@ def purchase_item(user_id: int, item_id: int) -> tuple[bool, str]:
 
 
 _GROQ_MODEL_CANDIDATES = [
-    "llama-3.3-70b-versatile",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
     "openai/gpt-oss-120b",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llama-3.1-8b-instant",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3-32b",
+    "moonshotai/kimi-k2-instruct",
 ]
 _groq_active_model = {"name": None}
 
@@ -25336,7 +25369,7 @@ def _code_chat_run(project_id: int, user_message: str, history: list[dict]) -> s
                 log_error("CODE", "error", "chat AI returned None (keys missing or network)")
             return "ИИ-модель временно недоступна. Попробуйте позже."
         try:
-            text = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+            text = _ai_reply_text(resp).strip()
         except Exception:
             return "Ошибка ответа ИИ."
         if not text:
@@ -25480,7 +25513,7 @@ def _code_ai_call(prompt: str, max_tokens: int = 1200) -> str:
         )
         if resp is not None and resp.status_code == 200:
             try:
-                return resp.json()["choices"][0]["message"]["content"].strip()
+                return _ai_reply_text(resp)
             except Exception:
                 return ""
     except Exception as exc:
