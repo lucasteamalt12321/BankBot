@@ -1272,6 +1272,18 @@ def _ensure_code_tables(engine):
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_comments_project ON code_user_comments(project_id, file_path)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS code_chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    role VARCHAR(16) NOT NULL,
+                    content TEXT NOT NULL,
+                    tool_calls JSONB,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_chat_project ON code_chat_messages(project_id, user_id)"))
         log_error("CODE", "info", "Table ensured")
     except Exception as exc:
         log_error("CODE", "error", f"Table init error: {exc}")
@@ -6431,11 +6443,21 @@ def api_gd_admin_level_update(level_id: int):
             ).mappings().first()
             if duplicate:
                 return jsonify({"error": "Уровень с таким названием уже есть в топе"}), 409
+            old_row = conn.execute(
+                text("SELECT name FROM levels WHERE id = :lid"), {"lid": level_id}
+            ).mappings().first()
+            old_name = (old_row["name"] or "").strip() if old_row else ""
             _gd_shift_positions(conn, position, exclude_id=level_id)
             conn.execute(
                 text("UPDATE levels SET name=:nm, position=:pos, difficulty=COALESCE(:diff, difficulty) WHERE id=:lid"),
                 {"lid": level_id, "nm": name, "pos": position, "diff": difficulty},
             )
+            # Sync submission names so victors list stays linked
+            if old_name and old_name != name:
+                conn.execute(
+                    text("UPDATE submissions SET level_name = :nm WHERE level_name = :old AND status = 'approved'"),
+                    {"nm": name, "old": old_name},
+                )
             _gd_compact_positions(conn)
             conn.commit()
             return jsonify({"ok": True, "id": level_id})
@@ -25135,6 +25157,186 @@ def _code_parse_json(text: str) -> dict | None:
             return None
 
 
+# ── Code Chat: tool executors ─────────────────────────────────────────
+
+def _code_tool_read_file(project_id: int, path: str) -> str:
+    """Read file content from DB. Returns first 300 lines."""
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT content, language, line_count FROM code_files "
+                "WHERE project_id = :pid AND file_path = :path AND file_type = 'file'"
+            ), {"pid": project_id, "path": path}).mappings().first()
+        if not row:
+            return f"Файл '{path}' не найден."
+        content = row["content"] or ""
+        lang = row["language"] or ""
+        lines = content.splitlines()
+        total = len(lines)
+        shown = lines[:300]
+        header = f"Файл: {path} | Язык: {lang} | Строк: {total}"
+        if total > 300:
+            header += " (показаны первые 300)"
+        return header + "\n```\n" + "\n".join(shown) + "\n```"
+    except Exception as exc:
+        return f"Ошибка чтения файла: {exc}"
+
+
+def _code_tool_list_files(project_id: int) -> str:
+    """List all files in project."""
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT file_path, language, line_count FROM code_files "
+                "WHERE project_id = :pid AND file_type = 'file' ORDER BY file_path"
+            ), {"pid": project_id}).mappings().all()
+        if not rows:
+            return "Проект пуст."
+        lines = []
+        for r in rows:
+            lang = r["language"] or ""
+            lc = int(r["line_count"] or 0)
+            lines.append(f"{r['file_path']}  ({lang}, {lc} строк)")
+        return "Файлы проекта:\n" + "\n".join(lines)
+    except Exception as exc:
+        return f"Ошибка: {exc}"
+
+
+def _code_tool_search(project_id: int, query: str) -> str:
+    """Search text in file contents."""
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT file_path, content FROM code_files "
+                "WHERE project_id = :pid AND file_type = 'file'"
+            ), {"pid": project_id}).mappings().all()
+        results = []
+        q = query.lower()
+        for r in rows:
+            content = r["content"] or ""
+            for i, line in enumerate(content.splitlines(), 1):
+                if q in line.lower():
+                    results.append(f"{r['file_path']}:{i}: {line.strip()[:120]}")
+                    if len(results) >= 20:
+                        break
+            if len(results) >= 20:
+                break
+        if not results:
+            return f"Ничего не найдено по запросу '{query}'."
+        return f"Результаты поиска '{query}':\n" + "\n".join(results)
+    except Exception as exc:
+        return f"Ошибка поиска: {exc}"
+
+
+def _code_tool_add_comment(project_id: int, path: str, line: int, comment: str) -> str:
+    """Add AI comment to a code file line."""
+    engine = get_db_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO code_user_comments (project_id, file_path, line_start, line_end, comment) "
+                "VALUES (:pid, :path, :ls, :le, :c)"
+            ), {"pid": project_id, "path": path, "ls": line, "le": line, "c": comment})
+        return f"Комментарий добавлен к {path}:{line}"
+    except Exception as exc:
+        return f"Ошибка добавления комментария: {exc}"
+
+
+_CODE_TOOL_EXECUTORS = {
+    "read_file": lambda pid, args: _code_tool_read_file(pid, args.get("path", "")),
+    "list_files": lambda pid, args: _code_tool_list_files(pid),
+    "search": lambda pid, args: _code_tool_search(pid, args.get("query", "")),
+    "add_comment": lambda pid, args: _code_tool_add_comment(pid, args.get("path", ""), int(args.get("line", 0)), args.get("comment", "")),
+}
+
+
+def _code_chat_system_prompt(project_id: int) -> str:
+    """Build system prompt for code chat with full project context."""
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT repo_name, primary_language FROM code_projects WHERE id = :pid"
+            ), {"pid": project_id}).mappings().first()
+            files = conn.execute(text(
+                "SELECT file_path, language, line_count, ai_summary FROM code_files "
+                "WHERE project_id = :pid AND file_type = 'file' ORDER BY file_path"
+            ), {"pid": project_id}).mappings().all()
+        repo_name = row["repo_name"] or "проект" if row else "проект"
+        lang = row["primary_language"] or "" if row else ""
+    except Exception:
+        repo_name, lang, files = "проект", "", []
+
+    file_list = "\n".join(
+        f"- {f['file_path']} ({f['language'] or ''}, {f['line_count'] or 0} строк)"
+        + (f" — {f['ai_summary'][:100]}" if f.get("ai_summary") else "")
+        for f in files[:40]
+    )
+
+    return (
+        f"Ты — опытный программист. Ты работаешь с проектом «{repo_name}» ({lang}).\n"
+        f"Вот структура файлов проекта:\n{file_list}\n\n"
+        "Ты можешь использовать инструменты, чтобы читать файлы, искать код и добавлять комментарии.\n"
+        "Отвечай на русском. Будь конкретным, ссылайся на файлы и строки.\n"
+        "Когда видишь непонятный или сложный код — добавляй комментарий через add_comment.\n"
+        "Если пользователь просит объяснить код — прочитай файл и объясни.\n"
+        "Если просит проанализировать — прочитай ключевые файлы и дай обзор.\n\n"
+        "Инструменты (возвращай JSON):\n"
+        '{"tool": "read_file", "path": "путь/к/файлу"} — прочитать файл\n'
+        '{"tool": "list_files"} — список всех файлов\n'
+        '{"tool": "search", "query": "текст"} — поиск по коду\n'
+        '{"tool": "add_comment", "path": "файл", "line": 42, "comment": "текст"} — добавить комментарий\n\n'
+        "ВАЖНО: сначала вызови инструмент, получи результат, потом ответь пользователю. "
+        "Можешь вызывать несколько инструментов подряд."
+    )
+
+
+def _code_chat_run(project_id: int, user_message: str, history: list[dict]) -> str:
+    """Run one turn of code chat with tool-calling loop. Returns AI reply text."""
+    system = _code_chat_system_prompt(project_id)
+    messages = [{"role": "system", "content": system}]
+    for h in history[-10:]:
+        messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": user_message})
+
+    MAX_TURNS = 4
+    for turn in range(MAX_TURNS):
+        prompt = {"messages": messages, "max_tokens": 2000, "temperature": 0.3}
+        try:
+            resp = _ai_chat(prompt, timeout=30.0)
+        except Exception:
+            resp = None
+        if resp is None or resp.status_code != 200:
+            return "ИИ-модель временно недоступна. Попробуйте позже."
+        try:
+            text = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+        except Exception:
+            return "Ошибка ответа ИИ."
+        if not text:
+            return "Извините, модель не дала ответ. Попробуйте переформулировать вопрос."
+
+        directive = _code_tool_directive(text)
+        if not directive:
+            return text
+
+        tool_name = str(directive.get("tool") or "")
+        tool_args = {k: v for k, v in directive.items() if k != "tool"}
+        executor = _CODE_TOOL_EXECUTORS.get(tool_name)
+        if not executor:
+            messages.append({"role": "assistant", "content": text})
+            messages.append({"role": "user", "content": f"Инструмент '{tool_name}' не найден. Используй другой."})
+            continue
+
+        tool_result = executor(project_id, tool_args)
+        messages.append({"role": "assistant", "content": text})
+        messages.append({"role": "user", "content": f"Результат инструмента {tool_name}:\n{tool_result[:3000]}\nТеперь ответь пользователю на основе этого результата."})
+
+    return "Не удалось завершить обработку (много шагов). Вот что получилось."
+
+
 def _code_is_code_file(name: str) -> bool:
     """Determine whether a file should be included in analysis."""
     if name in _CODE_SPECIAL_FILES:
@@ -25882,6 +26084,52 @@ def api_code_update(project_id):
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+@app.route("/api/code/project/<int:project_id>/chat", methods=["POST"])
+def api_code_chat_route(project_id):
+    """POST /api/code/project/<id>/chat — ask the AI about the project."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    project = _code_project_owned(project_id, int(user["id"]))
+    if not project:
+        return jsonify({"ok": False, "error": "Проект не найден"}), 404
+    if _check_db_rate(f"code_chat_{int(user['id'])}", 30, 3600) or _check_ai_rate(f"code_{int(user['id'])}"):
+        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"ok": False, "error": "Пустое сообщение"}), 400
+    if len(message) > 4000:
+        return jsonify({"ok": False, "error": "Сообщение слишком длинное"}), 400
+
+    engine = get_db_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO code_chat_messages (project_id, user_id, role, content) VALUES (:pid, :uid, 'user', :m)"
+            ), {"pid": project_id, "uid": int(user["id"]), "m": message})
+        with engine.connect() as conn:
+            history = []
+            for r in conn.execute(text(
+                "SELECT role, content FROM code_chat_messages "
+                "WHERE project_id = :pid AND user_id = :uid AND role IN ('user','assistant') "
+                "ORDER BY id DESC LIMIT 20"
+            ), {"pid": project_id, "uid": int(user["id"])}).mappings().all():
+                history.append({"role": r["role"], "content": r["content"]})
+            history.reverse()
+
+        reply = _code_chat_run(project_id, message, history)
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO code_chat_messages (project_id, user_id, role, content) VALUES (:pid, :uid, 'assistant', :m)"
+            ), {"pid": project_id, "uid": int(user["id"]), "m": reply})
+        return jsonify({"ok": True, "reply": reply})
+    except Exception as exc:
+        log_error("CODE", "error", f"chat error: {exc}")
+        return jsonify({"ok": False, "error": "Ошибка обработки сообщения"}), 500
+
+
 @app.route("/api/code/analyze", methods=["POST"])
 def api_code_analyze_route():
     return api_code_analyze()
@@ -25954,8 +26202,21 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
 .btn.ghost{{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(--bb-border)}}
 .btn.danger{{background:var(--bb-red)}}
 .btn:disabled{{opacity:.5;cursor:not-allowed}}
-.layout{{display:grid;grid-template-columns:300px 1fr;gap:12px;padding:12px;height:calc(100vh - 115px)}}
+.layout{{display:grid;grid-template-columns:300px 1fr 320px;gap:12px;padding:12px;height:calc(100vh - 115px)}}
+@media(max-width:1100px){{.layout{{grid-template-columns:300px 1fr;height:auto}}}}
 @media(max-width:760px){{.layout{{grid-template-columns:1fr;height:auto}}}}
+.chat-panel{{display:none;background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:hidden;flex-direction:column;min-height:0}}
+.chat-panel.active{{display:flex}}
+.chat-head{{padding:10px 14px;border-bottom:1px solid var(--bb-border);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}}
+.chat-messages{{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;min-height:0}}
+.chat-msg{{padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.5;max-width:92%}}
+.chat-msg.user{{align-self:flex-end;background:rgba(91,141,239,.2);border:1px solid rgba(91,141,239,.35);color:var(--bb-text)}}
+.chat-msg.assistant{{align-self:flex-start;background:var(--bb-elev);border:1px solid var(--bb-border);color:var(--bb-text-soft)}}
+.chat-msg .role{{font-size:10px;color:var(--bb-muted);margin-bottom:2px;font-weight:600;text-transform:uppercase}}
+.chat-msg pre{{white-space:pre-wrap;word-break:break-word;font-family:inherit;margin:0;background:transparent}}
+.chat-input{{display:flex;gap:8px;padding:10px;border-top:1px solid var(--bb-border)}}
+.chat-input input{{flex:1;padding:8px 12px;border:1px solid var(--bb-border);border-radius:8px;background:var(--bb-elev);color:var(--bb-text);font-size:13px}}
+.chat-open{{margin-left:auto}}
 .sidebar{{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:auto;padding:10px}}
 .tree-node{{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap}}
 .tree-node:hover{{background:var(--bb-elev)}}
@@ -26013,6 +26274,7 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
 <div class="projects-bar" style="border-bottom:none">
     <button class="btn" id="analyzeBtn" onclick="analyzeProject()" disabled title="Выберите загруженный проект">🤖 Разобрать</button>
     <button class="btn ghost" id="updateBtn" onclick="updateProject()" disabled title="Подтянуть изменения (git pull)">🔄 Обновить (git pull)</button>
+    <button class="btn ghost chat-open" id="chatToggleBtn" onclick="toggleChat()">💬 Чат</button>
     <span class="muted" id="currentProj" style="align-self:center"></span>
 </div>
 <div id="statusMsg" class="muted" style="padding:6px 16px"></div>
@@ -26026,6 +26288,19 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
     </div>
     <div class="file-view" id="fileView">
         <div class="empty">Выберите файл в дереве слева</div>
+    </div>
+    <div class="chat-panel" id="chatPanel">
+        <div class="chat-head">
+            <span>🤖 ИИ-ассистент</span>
+            <button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="toggleChat()">✕</button>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-msg assistant"><div class="role">Assistant</div><pre>Спросите про проект — я прочитаю файлы и отвечу. Могу добавлять комментарии к коду.</pre></div>
+        </div>
+        <div class="chat-input">
+            <input id="chatInput" type="text" placeholder="Спросить про код…" onkeydown="if(event.key=='Enter')sendChat()" autocomplete="off">
+            <button class="btn" onclick="sendChat()">➤</button>
+        </div>
     </div>
 </div>
 <script>
@@ -26139,6 +26414,51 @@ async function updateProject() {{
         prog.hide();
     }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
     finally {{ btn.disabled = false; btn.textContent = old; }}
+}}
+function toggleChat() {{
+    var panel = document.getElementById('chatPanel');
+    panel.classList.toggle('active');
+    if (panel.classList.contains('active')) {{
+        document.getElementById('chatInput').focus();
+    }}
+}}
+function chatAdd(role, text) {{
+    var box = document.getElementById('chatMessages');
+    var div = document.createElement('div');
+    div.className = 'chat-msg ' + role;
+    var label = document.createElement('div');
+    label.className = 'role';
+    label.textContent = role == 'user' ? 'Вы' : 'Assistant';
+    var pre = document.createElement('pre');
+    pre.textContent = text;
+    div.appendChild(label);
+    div.appendChild(pre);
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    return div;
+}}
+async function sendChat() {{
+    var input = document.getElementById('chatInput');
+    var msg = input.value.trim();
+    if (!msg) return;
+    if (!CURRENT_PROJECT || !CURRENT_PROJECT.id) {{ showErr('Сначала загрузите или выберите проект'); return; }}
+    input.value = '';
+    chatAdd('user', msg);
+    var wait = chatAdd('assistant', '⏳ Думаю…');
+    var btn = document.querySelector('.chat-input button');
+    btn.disabled = true;
+    try {{
+        var r = await fetch('/api/code/project/' + CURRENT_PROJECT.id + '/chat', {{method:'POST', headers: authH(), body: JSON.stringify({{message: msg}})}});
+        var d = await r.json();
+        if (!d.ok) {{ wait.querySelector('pre').textContent = d.error || 'Ошибка'; return; }}
+        wait.querySelector('pre').textContent = d.reply;
+        if (CURRENT_PROJECT.id) loadProject(CURRENT_PROJECT.id);
+    }} catch(e) {{
+        wait.querySelector('pre').textContent = 'Сеть: ' + e.message;
+    }} finally {{
+        btn.disabled = false;
+        document.getElementById('chatInput').focus();
+    }}
 }}
 async function loadProjects() {{
     try {{
