@@ -3051,13 +3051,16 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
     for name, api_key, model, url in providers:
         if not api_key:
             continue
-        # Groq: перебираем актуальные модели, если primary недоступна (404/429)
-        models_to_try = [model]
-        if name == "Groq":
-            for m in ([model] + _GROQ_MODEL_CANDIDATES):
-                if m not in models_to_try:
-                    models_to_try.append(m)
+        # Groq: перебираем актуальные модели, если primary недоступна (404/429).
+        # Сначала пробуем последнюю рабочую модель (из call_ai_api cache).
+        models_to_try = []
+        active = _groq_active_model["name"] or ""
+        for m in ([active] if active else []) + [model] + _GROQ_MODEL_CANDIDATES:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
         for candidate in models_to_try:
+            if "gpt-oss" not in candidate:
+                continue  # остальные модели Groq выпилены (404)
             base_body = {"model": candidate, **payload}
             # gpt-oss и другие reasoning-модели жгут max_tokens на «мысли» и
             # отдают пустой content — сначала пробуем отключить reasoning.
@@ -3067,24 +3070,35 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                 else (base_body,)
             )
             resp = None
-            for body in body_attempts:
-                try:
-                    resp = requests.post(
-                        url,
-                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                        json=body,
-                        timeout=timeout,
-                    )
-                except Exception as exc:
-                    print(f"{name} API error ({candidate}): {exc}")
-                    resp = None
+            for attempt in range(3):
+                resp = None
+                for body in body_attempts:
+                    try:
+                        resp = requests.post(
+                            url,
+                            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                            json=body,
+                            timeout=timeout,
+                        )
+                    except Exception as exc:
+                        print(f"{name} API error ({candidate}): {exc}")
+                        resp = None
+                        break
+                    if resp.status_code == 400 and body is not body_attempts[-1]:
+                        continue
                     break
-                if resp.status_code == 400 and body is not body_attempts[-1]:
+                if resp is None:
+                    break
+                # 429 rate limit → короткая пауза и повтор той же модели
+                if resp.status_code == 429 and attempt < 2:
+                    print(f"{name} 429 ({candidate}), retrying in {2 * (attempt + 1)}s")
+                    time.sleep(2 * (attempt + 1))
                     continue
                 break
             if resp is None:
                 continue
             if resp.status_code == 200:
+                _groq_active_model["name"] = candidate
                 try:
                     msg = resp.json()["choices"][0].get("message") or {}
                 except Exception:
@@ -3097,8 +3111,6 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                     print(f"{name} empty reply ({candidate}), trying next")
                     last_resp = resp
                     continue
-                if msg.get("tool_calls") or (content and not msg.get("tool_calls")):
-                    return resp
                 return resp
             print(f"{name} API error ({candidate}) {resp.status_code}: {resp.text[:200]}")
             last_resp = resp
@@ -3399,8 +3411,6 @@ def purchase_item(user_id: int, item_id: int) -> tuple[bool, str]:
 _GROQ_MODEL_CANDIDATES = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "qwen/qwen3-32b",
-    "moonshotai/kimi-k2-instruct",
 ]
 _groq_active_model = {"name": None}
 
