@@ -216,6 +216,12 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-12 (Session: 🧹 Хаб — бета-карточки перескочили в основной раздел)
+- **[HUB-BUG]** Репорт пользователя: «бета модули появились в основном».
+  - **Корень:** фича сортировки по популярности (`sortModulesByPopularity`, коммит `61189c4`) — `sortContainer('.cards')` использовал `container.querySelectorAll('a.card')`, который выбирает ВСЕХ потомков-карточек, а `#beta-cards` вложена ВНУТРЬ `.cards` → 13 бета-карточек физически переехали в главную сетку (вставка через insertBefore в `.cards`), `#beta-cards` опустел.
+  - **Фикс (коммит `03c9ab3`):** фильтр `c.parentNode === container` — сортируются только прямые дети контейнера; структура main/beta не трогается, виджеты OGE/куратор остаются на месте.
+  - Проверки: `node --check` (выделенный блок) OK, `py_compile` OK, `ruff` OK. Задеплоено (Ready).
+
 ### 2026-09-12 (Session: 🎮 GD — правка сложности не сохранялась на экране)
 - **[GD-BUG]** Репорт пользователя: «в ГД меняю Хардер на Инсэйн, жму галочку ✅, а оно опять Хардер показывает».
   - **Корень:** `api_gd_leaderboard` (api/index.py:~6535) каждую загрузку **перезаписывал** сохранённую сложность свежим значением из gdbrowser API по имени уровня (`if d and d != "Unknown": lv["difficulty"] = d`). PUT-эндпоинт сохранял «Insane» в БД, но рефреш таблицы показывал live-значение «Harder» снова.
@@ -1724,6 +1730,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+03c9ab3 (2026-09-12; fix(hub): popularity sort — только прямые дети, бета-карточки больше не утекают в основной раздел)
 a60587a (2026-09-12; fix(gd): respect admin-set difficulty — gdbrowser enrichment только как fallback)
 61189c4 (2026-09-12; fix(bug-hunt): SSRF redirects, sandboxed run_python, quiz/history 500, register rate-limit+409, audio temp cleanup, DI close; feat(hub): popularity sort)
 4f6b25b (2026-09-12; remote: ротация Groq API-ключей GROQ_API_KEY_2..., семейство session-token-first auth fix, _sanitize_for_prompt, удаление reading_trainer.html/setup_webhook/webapp, +test_code_explainer)
