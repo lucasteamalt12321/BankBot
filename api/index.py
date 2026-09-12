@@ -5933,7 +5933,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 loadAch();
                 loadOgePlan();
                 loadOgeStats();
-                var hubSortOn = localStorage.getItem('hub_sort_popularity') !== '0';
+                var hubSortOn = localStorage.getItem('hub_sort_popularity') === '1';
                 var HUB_SORT_DATA = null;
                 var HUB_SORT_OK = false;
                 var DEF_MAIN = [];
