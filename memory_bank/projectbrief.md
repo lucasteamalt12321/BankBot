@@ -375,7 +375,8 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 **Phase 6 (OGE Center): 100/100 completed**  
 **Phase 6.5 (General Statistics): 100/100 completed**  
 **Phase 7 (Code Explainer): 90/100 completed**  
-**Общий прогресс проекта: 100% (Phases 1,3,6,6.5) + 97% (Phase 2) + 90% (Phase 7)**
+**Phase 8 (Bug Hunt & Hardening): 100/100 completed**  
+**Общий прогресс проекта: 100% (Phases 1,3,6,6.5,8) + 97% (Phase 2) + 90% (Phase 7)**
 
 **Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
 
@@ -580,6 +581,23 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 **Code Explainer: 90/100**
 
 **Факт (2026-09-02):** Vercel serverless — no persistent filesystem, repos stored in PostgreSQL. Batched AI analysis within 60s budget. Language-agnostic architecture with GDScript as first-class. All 7 tests pass.
+
+### Phase 8: Bug Hunt & Hardening (2026-09-12)
+
+> Запрос пользователя: «продолжай охоту на баги» (многодневная кампания: ~270 найденных багов субагентами, критичные/высокие исправлены партиями). Ниже — deliverables данной сессии.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| BH-01 | RCE sandbox `/api/ai_chat._tool_run_python` — AST blocklist (`_BLOCKED_MODULES`/`_BLOCKED_KEYWORDS`) + isolated `mkdtemp` cwd + env strip (нет DATABASE_URL/API-ключей) + rmtree cleanup | completed | 15 |
+| BH-02 | SSRF browse_web — общий `_blocked()` для исходного URL И редиректов (private/loopback/link-local/reserved IP + `metadata.google.internal`, `.local` и др.) | completed | 10 |
+| BH-03 | History quiz — `/api/quiz/generate` history всегда 500 (`core.history.DATA` не существует) → реальные dataclasses `EVENTS`/`PERSONS` + `emperors.emperor_by_id` + `terms.TERMS` | completed | 15 |
+| BH-04 | Auth register — rate-limit 5/5мин на IP + `IntegrityError` → 409 «уже занят» вместо 500 | completed | 10 |
+| BH-05 | Audio service — temp-dir leak устранён (`_cleanup_after` через `Response.call_on_close`), overlay: max 8 файлов + 8MB/файл | completed | 10 |
+| BH-06 | DI — `Container.close()` сбрасывает `_session` (закрытый контейнер не переиспользуется со stale-сессией) | completed | 5 |
+| BH-07 | Хаб — сортировка карточек по популярности: `GET /api/hub/popularity` (глобальная агрегация `web_activity_log`), JS реордер main/beta-секций отдельно, fallback на дефолт | completed | 25 |
+| BH-08 | Верификация: `py_compile` + `ruff` (api/index.py, audio_service, core/di.py) + ручные вызовы (quiz 200 len=3, popularity 200) | completed | 10 |
+
+**Phase 8: 100/100 completed** (коммит `61189c4`)
 
 ## Additional Tasks (2026-04-03)
 

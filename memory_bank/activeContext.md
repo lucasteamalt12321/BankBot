@@ -4,6 +4,19 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### ✅ Выполнено (в этой сессии, 2026-09-12 Bug Hunt + фича хаба)
+- ✅ [TASK] **Охота на баги продолжена (коммит `61189c4`, до/после pull `4f6b25b`):**
+  - **RCE: `_tool_run_python`** (/api/ai_chat) — AST blocklist `_BLOCKED_MODULES`/`_BLOCKED_KEYWORDS` + isolated `mkdtemp` cwd + sanitized env (PATH/HOME/TMP/TMPDIR/LC_ALL/PYTHONPATH; без DATABASE_URL/API-ключей) + rmtree в finally. Auth-гейт на чат отложен (фича «виртуальный ПК» анонимная).
+  - **SSRF: browse_web** — единый `_blocked()` применяется и к исходному URL, и к редиректам (в т.ч. доменные имена внутренних ресурсов, не только литеральные IP).
+  - **History quiz (всегда 500)**: `/api/quiz/generate` history переведён на реальные dataclasses `core.history.EVENTS/PERSONS` + `emperors.emperor_by_id` + `terms.TERMS`. Проверено 200 для history/informatics/math/russian/physics.
+  - **Register**: rate-limit 5/5мин на IP → 429; `IntegrityError` → 409 «Логин или email уже заняты».
+  - **audio_service**: temp-каталоги чистились до отправки → `_cleanup_after()` через `Response.call_on_close` для analyze/change_tempo/change_key/normalize/reverse/echo/trim; overlay — cap 8 файлов, 8MB/файл.
+  - **core/di**: `close()` сбрасывает `_session = None`.
+- ✅ [TASK] **Хаб: сортировка карточек по популярности:**
+  - `GET /api/hub/popularity` — глобальная агрегация `web_activity_log` (SUM(actions), COUNT(DISTINCT user_id) по модулям).
+  - JS `sortModulesByPopularity()` — reorder `.cards` и `#beta-cards` раздельно, score = actions*1000+users, fallback на дефолтный порядок. Endpoint 200, `node --check` OK.
+- ✅ [AUDIT] **Переклассификация findings (см. progress.md 2026-09-12):** DnD/Chess auth = by-design (анонимная bearer-идентичность, НЕ IDOR); chess `force` = by-design/low; Family Budget IDOR — **исправлен remote** в `4f6b25b`; TransactionService = by-design; XSS `'` в esc() — нет эксплуатируемых single-quote интерполяций (`_gdEsc` DOM-based).
+
 ### ✅ Выполнено (в этой сессии)
 - ✅ [TASK] **Code Explainer Module** — обьяснялка кода из репозиториев (2026-09-02):
   - POST `/api/code/analyze` → clone + AI-анализ файлов с комментариями
