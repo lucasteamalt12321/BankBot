@@ -216,7 +216,11 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
-### 2026-09-12 (Session: 🐛 Охота на баги — раунд 2 + фича популярности хаба)
+### 2026-09-12 (Session: 🎮 GD — правка сложности не сохранялась на экране)
+- **[GD-BUG]** Репорт пользователя: «в ГД меняю Хардер на Инсэйн, жму галочку ✅, а оно опять Хардер показывает».
+  - **Корень:** `api_gd_leaderboard` (api/index.py:~6535) каждую загрузку **перезаписывал** сохранённую сложность свежим значением из gdbrowser API по имени уровня (`if d and d != "Unknown": lv["difficulty"] = d`). PUT-эндпоинт сохранял «Insane» в БД, но рефреш таблицы показывал live-значение «Harder» снова.
+  - **Фикс (коммит `a60587a`):** live-эпричмент теперь только fallback — применяется лишь когда сохранённая сложность пустая/`Unknown`/`-`. Ручная правка админа больше не затирается.
+  - Проверки: `py_compile` OK, `ruff` OK.
 
 > Запрос пользователя: «продолжай охоту на баги». Субагенты аудировали модули; параллельно вытянут `git pull` remote `b275395..4f6b25b` (big-changes: `bot/web/family_budget.py` — session-token-first auth fix, `api/dnd_runtime.py` — `_sanitize_for_prompt`, ротация Groq API-ключей, удалены `reading_trainer.html`/`setup_webhook.html`/`webapp/reading_trainer*`, добавлен `tests/unit/test_code_explainer.py`). Конфликт `api/index.py` разрешён (слейт AST blocklist + sandbox), stash применён, **семейство IDOR починил remote.**
 
@@ -1720,6 +1724,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+a60587a (2026-09-12; fix(gd): respect admin-set difficulty — gdbrowser enrichment только как fallback)
 61189c4 (2026-09-12; fix(bug-hunt): SSRF redirects, sandboxed run_python, quiz/history 500, register rate-limit+409, audio temp cleanup, DI close; feat(hub): popularity sort)
 4f6b25b (2026-09-12; remote: ротация Groq API-ключей GROQ_API_KEY_2..., семейство session-token-first auth fix, _sanitize_for_prompt, удаление reading_trainer.html/setup_webhook/webapp, +test_code_explainer)
 47cb41a (2026-09-01; docs(mb) — удаление мёртвого кода + моста)
