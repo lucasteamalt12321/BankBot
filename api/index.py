@@ -5304,6 +5304,9 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
 .oge-mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 13px; color: var(--bb-muted); }
 .oge-mode-bar label { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
 .oge-mode-bar input { width: 16px; height: 16px; accent-color: var(--bb-primary); }
+.hub-sort-bar { display: flex; align-items: center; justify-content: flex-end; font-size: 13px; color: var(--bb-muted); margin: -4px 0 14px; }
+.hub-sort-bar label { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.hub-sort-bar input { width: 16px; height: 16px; accent-color: var(--bb-primary); }
 .oge-ai-box { background: linear-gradient(135deg, rgba(91,141,239,.14), rgba(74,144,232,.05)); border: 1px solid var(--bb-primary); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
 .oge-ai-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--bb-accent); margin-bottom: 6px; }
 .oge-ai-head button { margin-left: auto; background: none; border: none; color: var(--bb-muted); cursor: pointer; font-size: 15px; line-height: 1; }
@@ -5351,6 +5354,12 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 </div>
             </div>
             <div id="user-actions"></div>
+        </div>
+        <div class="hub-sort-bar" id="hub-sort-bar" style="display:none">
+            <label title="Включить или выключить сортировку модулей по популярности">
+                <input type="checkbox" id="hub-sort-toggle" onchange="toggleHubSort()">
+                Сортировать модули по популярности
+            </label>
         </div>
         <div class="cards">
             <div class="section-label">Основные</div>
@@ -5924,49 +5933,96 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 loadAch();
                 loadOgePlan();
                 loadOgeStats();
-                sortModulesByPopularity();
+                var hubSortOn = localStorage.getItem('hub_sort_popularity') !== '0';
+                var HUB_SORT_DATA = null;
+                var HUB_SORT_OK = false;
+                var DEF_MAIN = [];
+                var DEF_BETA = [];
+                var sortBar = document.getElementById('hub-sort-bar');
+                var sortCtl = document.getElementById('hub-sort-toggle');
+                if (sortBar) sortBar.style.display = 'flex';
+                if (sortCtl) sortCtl.checked = hubSortOn;
+                captureDefaults();
+                if (hubSortOn) sortModulesByPopularity();
+                function captureDefaults() {
+                    DEF_MAIN = collectCards(document.querySelector('.cards'));
+                    DEF_BETA = collectCards(document.getElementById('beta-cards'));
+                }
+                function collectCards(container) {
+                    if (!container) return [];
+                    return Array.prototype.filter.call(container.querySelectorAll('a.card'), function (c) { return c.parentNode === container; });
+                }
+                function toggleHubSort() {
+                    hubSortOn = !hubSortOn;
+                    localStorage.setItem('hub_sort_popularity', hubSortOn ? '1' : '0');
+                    if (sortCtl) sortCtl.checked = hubSortOn;
+                    if (hubSortOn) {
+                        sortModulesByPopularity();
+                    } else {
+                        restoreOrder(document.querySelector('.cards'), DEF_MAIN);
+                        restoreOrder(document.getElementById('beta-cards'), DEF_BETA);
+                    }
+                }
+                function restoreOrder(container, saved) {
+                    if (!container || !Array.isArray(saved) || saved.length < 2) return;
+                    var first = null;
+                    for (var i = 0; i < container.children.length; i++) {
+                        if (container.children[i].classList && container.children[i].classList.contains('card')) { first = container.children[i]; break; }
+                    }
+                    if (!first) return;
+                    var s = saved.filter(function (n) { return n && n.parentNode === container; });
+                    if (s.length < 2) return;
+                    container.insertBefore(s[0], first);
+                    var ref = s[0];
+                    for (var j = 1; j < s.length; j++) { container.insertBefore(s[j], ref.nextSibling); ref = s[j]; }
+                }
                 function sortModulesByPopularity() {
-                    var KEY = {
-                        '/ai_chat': 'ai_chat', '/reading_trainer.html': 'reading_trainer',
-                        '/endings_trainer.html': 'endings_trainer', '/family_budget': 'family_budget',
-                        '/chess': 'chess', '/daily_prayer': 'prayer', '/canon': 'canon', '/gd': 'gd',
-                        '/emperors': 'emperors',
-                        '/dnd': 'dnd', '/trivia': 'trivia', '/irregular_verbs': 'verbs',
-                        '/informatics': 'informatics', '/math': 'math', '/russian': 'russian',
-                        '/physics': 'physics', '/exam': 'exam', '/family': 'family_circle',
-                        '/admin': 'admin', '/music': 'music', '/textbooks': 'textbooks',
-                        '/code': 'code', '/suggest': 'suggest'
-                    };
-                    var data = null;
-                    var ok = false;
+                    if (HUB_SORT_OK) {
+                        applyHubSort();
+                        return;
+                    }
                     fetch('/api/hub/popularity', { cache: 'no-store' })
                         .then(function (r) { return r.ok ? r.json() : null; })
                         .then(function (d) {
                             if (!d || !d.popularity) return;
-                            data = d.popularity;
-                            ok = true;
-                            sortContainer(document.querySelector('.cards'));
-                            sortContainer(document.getElementById('beta-cards'));
+                            HUB_SORT_DATA = d.popularity;
+                            HUB_SORT_OK = true;
+                            if (hubSortOn) applyHubSort();
                         })
                         .catch(function () {});
-                    function score(card) {
-                        if (!ok) return 0;
-                        var href = (card.getAttribute('href') || '').split('?')[0];
-                        var key = KEY[href] || '';
-                        var s = (key && data[key]) || { actions: 0, users: 0 };
-                        return (parseInt(s.actions, 10) || 0) * 1000 + (parseInt(s.users, 10) || 0);
-                    }
-                    function sortContainer(container) {
-                        if (!container) return;
-                        var cards = Array.prototype.filter.call(container.querySelectorAll('a.card'), function (c) { return c.parentNode === container; });
-                        if (cards.length < 2) return;
-                        var sorted = cards.slice().sort(function (a, b) { return score(b) - score(a); });
-                        var ref = cards[0];
-                        var parent = ref.parentNode;
-                        parent.insertBefore(sorted[0], ref);
-                        ref = sorted[0];
-                        for (var i = 1; i < sorted.length; i++) { parent.insertBefore(sorted[i], ref.nextSibling); ref = sorted[i]; }
-                    }
+                }
+                function applyHubSort() {
+                    sortContainer(document.querySelector('.cards'));
+                    sortContainer(document.getElementById('beta-cards'));
+                }
+                var HUB_KEY = {
+                    '/ai_chat': 'ai_chat', '/reading_trainer.html': 'reading_trainer',
+                    '/endings_trainer.html': 'endings_trainer', '/family_budget': 'family_budget',
+                    '/chess': 'chess', '/daily_prayer': 'prayer', '/canon': 'canon', '/gd': 'gd',
+                    '/emperors': 'emperors',
+                    '/dnd': 'dnd', '/trivia': 'trivia', '/irregular_verbs': 'verbs',
+                    '/informatics': 'informatics', '/math': 'math', '/russian': 'russian',
+                    '/physics': 'physics', '/exam': 'exam', '/family': 'family_circle',
+                    '/admin': 'admin', '/music': 'music', '/textbooks': 'textbooks',
+                    '/code': 'code', '/suggest': 'suggest'
+                };
+                function score(card) {
+                    if (!HUB_SORT_OK) return 0;
+                    var href = (card.getAttribute('href') || '').split('?')[0];
+                    var key = HUB_KEY[href] || '';
+                    var s = (key && HUB_SORT_DATA[key]) || { actions: 0, users: 0 };
+                    return (parseInt(s.actions, 10) || 0) * 1000 + (parseInt(s.users, 10) || 0);
+                }
+                function sortContainer(container) {
+                    if (!container) return;
+                    var cards = collectCards(container);
+                    if (cards.length < 2) return;
+                    var sorted = cards.slice().sort(function (a, b) { return score(b) - score(a); });
+                    var ref = cards[0];
+                    var parent = ref.parentNode;
+                    parent.insertBefore(sorted[0], ref);
+                    ref = sorted[0];
+                    for (var i = 1; i < sorted.length; i++) { parent.insertBefore(sorted[i], ref.nextSibling); ref = sorted[i]; }
                 }
                 window.addEventListener('error', function() { showBugBtn(); });
                 window.addEventListener('unhandledrejection', function() { showBugBtn(); });
