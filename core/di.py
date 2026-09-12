@@ -76,7 +76,11 @@ class DIContainer:
     def close(self):
         """Close the container and cleanup resources."""
         if self._session:
-            self._session.close()
+            try:
+                self._session.close()
+            except Exception:
+                pass
+            self._session = None
         self.reset()
 
     # Factory methods
