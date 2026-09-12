@@ -3040,13 +3040,16 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
             os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         ),
-        (
-            "Groq",
-            os.getenv("GROQ_API_KEY"),
-            os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            "https://api.groq.com/openai/v1/chat/completions",
-        ),
     ]
+    for groq_key in _groq_api_keys():
+        providers.append(
+            (
+                "Groq",
+                groq_key,
+                os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                "https://api.groq.com/openai/v1/chat/completions",
+            )
+        )
     last_resp: requests.Response | None = None
     for name, api_key, model, url in providers:
         if not api_key:
@@ -3419,6 +3422,16 @@ _GROQ_MODEL_CANDIDATES = [
 _groq_active_model = {"name": None}
 
 
+def _groq_api_keys() -> list[str]:
+    """Return all configured Groq API keys (primary + rotation)."""
+    keys = []
+    for i in range(1, 10):
+        val = os.getenv(f"GROQ_API_KEY_{i}" if i > 1 else "GROQ_API_KEY")
+        if val:
+            keys.append(val)
+    return keys
+
+
 def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) -> str:
     """Call AI API (Gemini primary, Groq fallback); falls through Groq models when retired."""
     response = _ai_chat(
@@ -3436,9 +3449,9 @@ def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) ->
         except Exception as exc:
             print(f"Error parsing primary AI response: {exc}")
 
-    # Фоллбэк: перебор актуальных моделей Groq
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
+    # Фоллбэк: перебор актуальных моделей Groq по всем ключам
+    keys_to_try = _groq_api_keys()
+    if not keys_to_try:
         return "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)"
 
     try:
@@ -3449,38 +3462,39 @@ def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) ->
             candidates = [active] + [m for m in candidates if m != active]
 
         last_status = "0"
-        for model in candidates:
-            try:
-                response = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {groq_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                    },
-                    timeout=10.0,
-                )
-            except Exception as exc:
-                print(f"Error calling AI API ({model}): {exc}")
-                continue
+        for key in keys_to_try:
+            for model in candidates:
+                try:
+                    response = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": model,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "max_tokens": max_tokens,
+                            "temperature": temperature,
+                        },
+                        timeout=10.0,
+                    )
+                except Exception as exc:
+                    print(f"Error calling AI API ({model}): {exc}")
+                    continue
 
-            if response.status_code == 200:
-                result = response.json()
-                _groq_active_model["name"] = model
-                return result["choices"][0]["message"]["content"]
+                if response.status_code == 200:
+                    result = response.json()
+                    _groq_active_model["name"] = model
+                    return result["choices"][0]["message"]["content"]
 
-            last_status = str(response.status_code)
-            detail = response.text[:200] if response.text else "No details"
-            print(f"AI API error ({model}) {last_status}: {detail}")
-            # 404 = модель списана провайдером, 429 = rate limit — пробуем следующую.
-            if response.status_code in (404, 429):
-                continue
-            break
+                last_status = str(response.status_code)
+                detail = response.text[:200] if response.text else "No details"
+                print(f"AI API error ({model}) {last_status}: {detail}")
+                # 404 = модель списана провайдером, 429 = rate limit — пробуем следующую.
+                if response.status_code in (404, 429):
+                    continue
+                break
         return f"❌ Ошибка AI: {last_status}"
     except Exception as exc:
         print(f"Error calling AI API: {exc}")
