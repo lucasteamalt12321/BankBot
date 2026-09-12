@@ -6534,8 +6534,10 @@ def api_gd_leaderboard():
         with ThreadPoolExecutor(max_workers=5) as pool:
             diffs = list(pool.map(lambda lv: get_gd_difficulty_name(lv.get("name") or ""), levels))
         for lv, d in zip(levels, diffs):
-            if d and d != "Unknown":
-                lv["difficulty"] = d
+            cur = (lv.get("difficulty") or "").strip()
+            if not cur or cur in ("Unknown", "-"):
+                if d and d != "Unknown":
+                    lv["difficulty"] = d
     except Exception as exc:
         print(f"GD leaderboard difficulty enrich error: {exc}")
     return jsonify(levels)
