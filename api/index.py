@@ -8610,7 +8610,7 @@ AI_CHAT_TOOLS = [
 ]
 
 
-def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
+def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str], extra_context: str = "") -> str:
     """Build the agent system prompt with the virtual computer context."""
     state = _pc_state(user_id)
     fs_parts = []
@@ -8650,6 +8650,11 @@ def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
         f"Текущая директория: {state['cwd']}\n\n"
         "Виртуальная файловая система:\n"
         f"{fs_text}"
+    ) + (
+        "\n\nДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ (включён пользователем; используй только если релевантно "
+        "вопросу, не показывай его целиком):\n" + extra_context
+        if extra_context.strip()
+        else ""
     )
 
 
@@ -8679,14 +8684,14 @@ def _pc_extract_reply(resp: "requests.Response") -> str:
     return str(content) if content else ""
 
 
-def _pc_ai_chat(user_id: str, character: str, messages: list[dict]) -> dict:
+def _pc_ai_chat(user_id: str, character: str, messages: list[dict], extra_context: str = "") -> dict:
     """Run the agent loop: AI may call tools, results are fed back. Returns {reply, images}."""
     char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
     char_name = char_data["name"] if char_data else character
     state = _pc_state(user_id)
     uploads = state.get("uploads", [])
 
-    system_msg = _pc_build_prompt(char_name, user_id, uploads)
+    system_msg = _pc_build_prompt(char_name, user_id, uploads, extra_context=extra_context)
     ai_messages = [{"role": "system", "content": system_msg}]
     for m in messages[-12:]:
         if m.get("role") in ("user", "assistant"):
@@ -8809,6 +8814,11 @@ def ai_chat_page():
         .char-bar .info { flex: 1; }
         .char-bar .info .name { font-size: 15px; font-weight: 600; }
         .char-bar .info .hint { font-size: 12px; color: var(--bb-muted); margin-top: 2px; }
+        .ctx-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 8px 14px; background: var(--bb-panel); border: 1px solid var(--bb-primary); border-radius: 10px; margin-bottom: 10px; flex-shrink: 0; font-size: 13px; }
+        .ctx-bar .ctx-title { color: var(--bb-muted); }
+        .ctx-bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: var(--bb-text); }
+        .ctx-bar input { width: 15px; height: 15px; accent-color: var(--bb-accent); cursor: pointer; }
+        .ctx-bar .ctx-hint { font-size: 11px; color: var(--bb-muted); }
         .chat-box { flex: 1; overflow-y: auto; padding: 14px; background: var(--gh-bg2); border-radius: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 10px; }
         .msg { display: flex; flex-direction: column; }
         .msg-user { align-items: flex-end; }
@@ -8849,6 +8859,16 @@ def ai_chat_page():
             <div class="hint" id="char-hint">__CHAR_HINT__</div>
         </div>
     </div>
+    <div class="ctx-bar" id="ctx-bar">
+        <span class="ctx-title">Контекст:</span>
+        <label title="Добавить ИИ-куратора учёбы (руководство к экзаменам)">
+            <input type="checkbox" id="ctx-curator"> Куратор
+        </label>
+        <label title="Добавить профиль учёбы: план на день, прогресс по предметам, слабые темы, серия, обратный отсчёт до экзаменов">
+            <input type="checkbox" id="ctx-oge"> ОГЭ-прогресс
+        </label>
+        <span class="ctx-hint">Выбранные контексты добавляются в промпт AI</span>
+    </div>
     <div class="chat-box" id="chat-box">
         <div class="welcome" id="welcome-msg">Напишите сообщение, чтобы начать диалог с персонажем</div>
     </div>
@@ -8871,6 +8891,21 @@ var CHARS = __CHARS_JSON__;
     var chatHistory = [];
     try { chatHistory = JSON.parse(localStorage.getItem('ai_chat_history') || '[]') || []; } catch(e) { chatHistory = []; }
     var pendingFiles = [];
+    var ctxCurator = document.getElementById('ctx-curator');
+    var ctxOge = document.getElementById('ctx-oge');
+    try {
+        var savedCtx = JSON.parse(localStorage.getItem('ai_chat_context') || '{}') || {};
+        if (ctxCurator) ctxCurator.checked = !!savedCtx.curator;
+        if (ctxOge) ctxOge.checked = !!savedCtx.oge;
+    } catch(e) {}
+    function saveCtx() {
+        try { localStorage.setItem('ai_chat_context', JSON.stringify({
+            curator: !!(ctxCurator && ctxCurator.checked),
+            oge: !!(ctxOge && ctxOge.checked)
+        })); } catch(e) {}
+    }
+    if (ctxCurator) ctxCurator.addEventListener('change', saveCtx);
+    if (ctxOge) ctxOge.addEventListener('change', saveCtx);
     var USER_ID = localStorage.getItem('web_user_id');
     if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10); localStorage.setItem('web_user_id', USER_ID); }
 
@@ -8984,7 +9019,10 @@ xhr.onload = function() {
             msgInput.disabled = false;
             addMsg('bot', 'Ошибка сети.');
         };
-        xhr.send(JSON.stringify({character: charSelect.value, message: text, user_id: USER_ID, history: chatHistory, files: filesPayload}));
+        xhr.send(JSON.stringify({character: charSelect.value, message: text, user_id: USER_ID, history: chatHistory, files: filesPayload, context: {
+            curator: !!(ctxCurator && ctxCurator.checked),
+            oge: !!(ctxOge && ctxOge.checked)
+        }}));
     }
 
     document.getElementById('send-btn').addEventListener('click', sendMsg);
@@ -8999,6 +9037,93 @@ xhr.onload = function() {
     first_hint = first_char[1]["prompt"].split(".")[1].strip() if "." in first_char[1]["prompt"] else first_char[1]["prompt"][:60]
     html = html.replace("__CHAR_HINT__", first_hint)
     return html
+
+
+CURATOR_ROLE_CONTEXT = (
+    "На это сообщение ты также выступаешь как ИИ-куратор учёбы: помогаешь ученику готовиться "
+    "к экзаменам (ОГЭ). Отвечай по-русски, кратко (до 150 слов), по-дружески и конкретно. "
+    "Всегда предлагай конкретный следующий шаг (предмет + тема + режим на сайте). Приоритеты: "
+    "1) повторение просроченных карточек, 2) исправление слабых тем, 3) новые темы. "
+    "Ссылки на модули: [Математика](/math), [Русский](/russian), [Информатика](/informatics), "
+    "[Физика](/physics), [История](/emperors)."
+)
+
+
+def _ai_chat_context_block(session_user: dict | None, ctx: dict) -> str:
+    """Build optional context blocks (curator persona, OGE progress) injected into the AI prompt."""
+    parts = []
+    if ctx.get("curator"):
+        parts.append(CURATOR_ROLE_CONTEXT)
+    if ctx.get("oge"):
+        parts.append(_oge_data_snapshot(session_user))
+    return "\n\n".join(parts)
+
+
+def _oge_data_snapshot(session_user: dict | None) -> str:
+    """Compact OGE progress snapshot (used as optional chat context)."""
+    if not session_user:
+        return "Прогресс ОГЭ недоступен: пользователь не вошёл в аккаунт (нужен вход на /account)."
+    uid = _web_user_id("u" + str(session_user["id"]))
+    now = time.time()
+    lines = []
+    try:
+        subj_lines = []
+        for s in _oge_subjects_payload(uid, now)[:5]:
+            subj_lines.append(
+                f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
+                f"слабых тем {s['weak']} → {s['next_action']['text']}"
+            )
+        if subj_lines:
+            lines.append("Предметы:\n" + "\n".join(subj_lines))
+    except Exception as exc:
+        log_error("AI", "error", f"oge ctx subjects: {exc}")
+    try:
+        today = time.strftime("%Y-%m-%d")
+        with get_db_engine().connect() as conn:
+            row = _load_plan_row(conn, uid, today)
+        if row:
+            items = json.loads(row["items_json"] or "[]")
+            done = 0
+            for it in items:
+                if min(_item_target(it), _compute_item_done(uid, it)) >= _item_target(it):
+                    done += 1
+            lines.append(
+                f"План на сегодня: выполнено {done} из {len(items)} пунктов "
+                f"(бюджет {row['target_minutes']} мин)."
+            )
+        else:
+            lines.append("План на сегодня не составлен.")
+    except Exception as exc:
+        log_error("AI", "error", f"oge ctx plan: {exc}")
+    try:
+        streak = _oge_streak_info(uid, now)
+        if streak.get("total_answers"):
+            lines.append(
+                f"Серия учёбы: {streak['current']} дн. (рекорд: {streak['best']}), "
+                f"точность: {streak['accuracy']}% ({streak['total_answers']} ответов)."
+            )
+    except Exception:
+        pass
+    try:
+        weak = _oge_weak_topics_summary(uid)[:4]
+        if weak:
+            lines.append("Слабые темы:\n" + "\n".join(weak))
+    except Exception:
+        pass
+    try:
+        countdown = _oge_exam_countdown(now)
+        if countdown:
+            lines.append("До экзаменов: " + ", ".join(countdown))
+    except Exception:
+        pass
+    try:
+        y = _oge_yesterday_summary(uid)
+        if y.get("touched"):
+            acc = round(100 * y["correct"] / max(1, y["correct"] + y["wrong"]))
+            lines.append(f"Вчера: тронуто {y['touched']} карточек, точность {acc}%.")
+    except Exception:
+        pass
+    return "ДАННЫЕ УЧЕНИКА (ОГЭ):\n" + ("\n".join(lines) if lines else "статистики пока нет.")
 
 
 @app.route("/api/ai_chat", methods=["POST"])
@@ -9017,10 +9142,14 @@ def api_ai_chat():
 
         user_id = str(data.get("user_id") or "anon")
         token = _auth_token_from_request()
+        session_user = None
         if token:
             session_user = _get_session_user(token)
             if session_user:
                 user_id = str(session_user["id"])
+
+        ctx = data.get("context") or {}
+        extra_context = _ai_chat_context_block(session_user, ctx)
         messages = (data.get("history") or [])[-20:]  # cap at 20 messages
         state = _pc_state(user_id)
 
@@ -9058,7 +9187,7 @@ def api_ai_chat():
             )
             messages = [{"role": "user", "content": note}] + (messages or [])
 
-        result = _pc_ai_chat(user_id, character, messages + [{"role": "user", "content": message}])
+        result = _pc_ai_chat(user_id, character, messages + [{"role": "user", "content": message}], extra_context=extra_context)
         # Ensure reply is always a string
         if not isinstance(result.get("reply"), str):
             result["reply"] = str(result.get("reply", ""))
