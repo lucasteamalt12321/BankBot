@@ -8466,9 +8466,11 @@ def _tool_edit_image(state: dict, path: str, operation: str, params: dict | None
     return f"image saved to {out_path} and returned to the user", data_uri
 
 
-def _pc_exec_tool(state: dict, name: str, args: dict) -> tuple[str, str | None]:
+def _pc_exec_tool(state: dict, name: str, args: dict, oge_uid: int = 0) -> tuple[str, str | None]:
     """Execute a virtual-computer tool. Returns (text, data_uri_or_None)."""
     try:
+        if _oge_tool_name(name) or _curator_tool_name(name):
+            return _oge_tool_execute(name, oge_uid), None
         if name == "run_python":
             return _tool_run_python(args.get("code", "")), None
         if name == "browse_web":
@@ -8609,8 +8611,78 @@ AI_CHAT_TOOLS = [
     },
 ]
 
+AI_CHAT_TOOLS_OGE = [
+    {
+        "type": "function",
+        "function": {
+            "name": "oge_subjects",
+            "description": "Прогресс по всем предметам ОГЭ: начато/всего карточек, к повторению, слабых, приоритетное действие.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "oge_plan",
+            "description": "План занятий на сегодня: пункты, бюджет минут, выполнено.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "oge_streak",
+            "description": "Серия учебных дней, рекорд и точность ответов.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "oge_weak_topics",
+            "description": "Список самых слабых тем по всем предметам.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "oge_countdown",
+            "description": "Сколько дней до каждого экзамена ОГЭ.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "oge_yesterday",
+            "description": "Статистика занятий за вчера.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
 
-def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str], extra_context: str = "") -> str:
+AI_CHAT_TOOLS_CURATOR = [
+    {
+        "type": "function",
+        "function": {
+            "name": "curator_recommend",
+            "description": "Что сейчас учить каждому предмету: приоритетное следующее действие (повторить просроченное, разобрать ошибки, начать новую тему).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "curator_dashboard",
+            "description": "Компактная сводка для куратора: предметы, план, серия, слабые темы, обратный отсчёт до экзаменов.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+
+
+def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
     """Build the agent system prompt with the virtual computer context."""
     state = _pc_state(user_id)
     fs_parts = []
@@ -8650,11 +8722,6 @@ def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str], extra_con
         f"Текущая директория: {state['cwd']}\n\n"
         "Виртуальная файловая система:\n"
         f"{fs_text}"
-    ) + (
-        "\n\nДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ (включён пользователем; используй только если релевантно "
-        "вопросу, не показывай его целиком):\n" + extra_context
-        if extra_context.strip()
-        else ""
     )
 
 
@@ -8684,14 +8751,14 @@ def _pc_extract_reply(resp: "requests.Response") -> str:
     return str(content) if content else ""
 
 
-def _pc_ai_chat(user_id: str, character: str, messages: list[dict], extra_context: str = "") -> dict:
+def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int = 0, tool_groups: list[str] | None = None) -> dict:
     """Run the agent loop: AI may call tools, results are fed back. Returns {reply, images}."""
     char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
     char_name = char_data["name"] if char_data else character
     state = _pc_state(user_id)
     uploads = state.get("uploads", [])
 
-    system_msg = _pc_build_prompt(char_name, user_id, uploads, extra_context=extra_context)
+    system_msg = _pc_build_prompt(char_name, user_id, uploads)
     ai_messages = [{"role": "system", "content": system_msg}]
     for m in messages[-12:]:
         if m.get("role") in ("user", "assistant"):
@@ -8704,7 +8771,13 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], extra_contex
     if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
         return {"reply": "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)", "images": []}
 
-    valid_tool_names = {t["function"]["name"] for t in AI_CHAT_TOOLS}
+    groups = tool_groups or []
+    available_tools = list(AI_CHAT_TOOLS)
+    if "oge" in groups:
+        available_tools += AI_CHAT_TOOLS_OGE
+    if "curator" in groups:
+        available_tools += AI_CHAT_TOOLS_CURATOR
+    valid_tool_names = {t["function"]["name"] for t in available_tools}
 
     def _ai_call(use_tools: bool) -> requests.Response | None:
         payload = {
@@ -8712,8 +8785,8 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], extra_contex
             "max_tokens": 800,
             "temperature": 0.8,
         }
-        if use_tools:
-            payload["tools"] = AI_CHAT_TOOLS
+        if use_tools and available_tools:
+            payload["tools"] = available_tools
             payload["tool_choice"] = "auto"
         return _ai_chat(payload, timeout=20.0)
 
@@ -8769,7 +8842,7 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], extra_contex
                 data_uri = None
             else:
                 try:
-                    result, data_uri = _pc_exec_tool(state, name, args)
+                    result, data_uri = _pc_exec_tool(state, name, args, oge_uid)
                 except Exception as exc:
                     result = f"Ошибка выполнения инструмента {name}: {exc}"
                     data_uri = None
@@ -8867,7 +8940,7 @@ def ai_chat_page():
         <label title="Добавить профиль учёбы: план на день, прогресс по предметам, слабые темы, серия, обратный отсчёт до экзаменов">
             <input type="checkbox" id="ctx-oge"> ОГЭ-прогресс
         </label>
-        <span class="ctx-hint">Выбранные контексты добавляются в промпт AI</span>
+        <span class="ctx-hint">Галочки включают группы инструментов, которые AI может вызывать</span>
     </div>
     <div class="chat-box" id="chat-box">
         <div class="welcome" id="welcome-msg">Напишите сообщение, чтобы начать диалог с персонажем</div>
@@ -9039,91 +9112,93 @@ xhr.onload = function() {
     return html
 
 
-CURATOR_ROLE_CONTEXT = (
-    "На это сообщение ты также выступаешь как ИИ-куратор учёбы: помогаешь ученику готовиться "
-    "к экзаменам (ОГЭ). Отвечай по-русски, кратко (до 150 слов), по-дружески и конкретно. "
-    "Всегда предлагай конкретный следующий шаг (предмет + тема + режим на сайте). Приоритеты: "
-    "1) повторение просроченных карточек, 2) исправление слабых тем, 3) новые темы. "
-    "Ссылки на модули: [Математика](/math), [Русский](/russian), [Информатика](/informatics), "
-    "[Физика](/physics), [История](/emperors)."
-)
+def _oge_tool_name(name: str) -> bool:
+    return name == "oge_subjects" or name == "oge_plan" or name == "oge_streak" \
+        or name == "oge_weak_topics" or name == "oge_countdown" or name == "oge_yesterday"
 
+def _curator_tool_name(name: str) -> bool:
+    return name == "curator_recommend" or name == "curator_dashboard"
 
-def _ai_chat_context_block(session_user: dict | None, ctx: dict) -> str:
-    """Build optional context blocks (curator persona, OGE progress) injected into the AI prompt."""
-    parts = []
-    if ctx.get("curator"):
-        parts.append(CURATOR_ROLE_CONTEXT)
-    if ctx.get("oge"):
-        parts.append(_oge_data_snapshot(session_user))
-    return "\n\n".join(parts)
-
-
-def _oge_data_snapshot(session_user: dict | None) -> str:
-    """Compact OGE progress snapshot (used as optional chat context)."""
-    if not session_user:
-        return "Прогресс ОГЭ недоступен: пользователь не вошёл в аккаунт (нужен вход на /account)."
-    uid = _web_user_id("u" + str(session_user["id"]))
+def _oge_tool_execute(name: str, oge_uid: int) -> str:
+    """Execute a study/curator data tool. Returns text for the AI."""
+    if oge_uid <= 0:
+        return "Требуется вход в аккаунт: отправьте запрос из веб-чата, будучи авторизованным на /account."
     now = time.time()
-    lines = []
     try:
-        subj_lines = []
-        for s in _oge_subjects_payload(uid, now)[:5]:
-            subj_lines.append(
-                f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
-                f"слабых тем {s['weak']} → {s['next_action']['text']}"
-            )
-        if subj_lines:
-            lines.append("Предметы:\n" + "\n".join(subj_lines))
-    except Exception as exc:
-        log_error("AI", "error", f"oge ctx subjects: {exc}")
-    try:
-        today = time.strftime("%Y-%m-%d")
-        with get_db_engine().connect() as conn:
-            row = _load_plan_row(conn, uid, today)
-        if row:
+        if name == "oge_subjects" or name == "curator_recommend":
+            lines = []
+            for s in _oge_subjects_payload(oge_uid, now):
+                lines.append(
+                    f"{s['label']} (приоритет {s['score']}): начато {s['started']}/{s['total']}, "
+                    f"к повторению {s['due']}, слабых {s['weak']} → {s['next_action']['text']} — {s['next_action']['url']}"
+                )
+            return "\n".join(lines) if lines else "Нет данных по предметам."
+        if name == "oge_plan":
+            today = time.strftime("%Y-%m-%d")
+            with get_db_engine().connect() as conn:
+                row = _load_plan_row(conn, oge_uid, today)
+            if not row:
+                return "План на сегодня не составлен."
             items = json.loads(row["items_json"] or "[]")
+            lines = [f"План на сегодня (бюджет {row['target_minutes']} мин):"]
             done = 0
             for it in items:
-                if min(_item_target(it), _compute_item_done(uid, it)) >= _item_target(it):
+                target = _item_target(it)
+                d = min(target, _compute_item_done(oge_uid, it))
+                if d >= target:
                     done += 1
-            lines.append(
-                f"План на сегодня: выполнено {done} из {len(items)} пунктов "
-                f"(бюджет {row['target_minutes']} мин)."
-            )
-        else:
-            lines.append("План на сегодня не составлен.")
-    except Exception as exc:
-        log_error("AI", "error", f"oge ctx plan: {exc}")
-    try:
-        streak = _oge_streak_info(uid, now)
-        if streak.get("total_answers"):
-            lines.append(
-                f"Серия учёбы: {streak['current']} дн. (рекорд: {streak['best']}), "
-                f"точность: {streak['accuracy']}% ({streak['total_answers']} ответов)."
-            )
-    except Exception:
-        pass
-    try:
-        weak = _oge_weak_topics_summary(uid)[:4]
-        if weak:
-            lines.append("Слабые темы:\n" + "\n".join(weak))
-    except Exception:
-        pass
-    try:
-        countdown = _oge_exam_countdown(now)
-        if countdown:
-            lines.append("До экзаменов: " + ", ".join(countdown))
-    except Exception:
-        pass
-    try:
-        y = _oge_yesterday_summary(uid)
-        if y.get("touched"):
+                mark = "✅" if d >= target else f"({d}/{target})"
+                lines.append(f"- {it.get('label', '')}: {it.get('text', '')} {mark}")
+            lines.append(f"Итого выполнено: {done} из {len(items)}.")
+            return "\n".join(lines)
+        if name == "oge_streak":
+            s = _oge_streak_info(oge_uid, now)
+            if not s.get("total_answers"):
+                return "Занятий ещё не было."
+            return f"Серия учёбы: {s['current']} дн. (рекорд: {s['best']}), точность: {s['accuracy']}% ({s['total_answers']} ответов)."
+        if name == "oge_weak_topics":
+            wt = _oge_weak_topics_summary(oge_uid)
+            return "\n".join(wt[:6]) if wt else "Слабых тем пока нет."
+        if name == "oge_countdown":
+            cd = _oge_exam_countdown(now)
+            return ", ".join(cd) if cd else "Даты экзаменов не заданы."
+        if name == "oge_yesterday":
+            y = _oge_yesterday_summary(oge_uid)
+            if not y.get("touched"):
+                return "Вчера занятий не было."
             acc = round(100 * y["correct"] / max(1, y["correct"] + y["wrong"]))
-            lines.append(f"Вчера: тронуто {y['touched']} карточек, точность {acc}%.")
-    except Exception:
-        pass
-    return "ДАННЫЕ УЧЕНИКА (ОГЭ):\n" + ("\n".join(lines) if lines else "статистики пока нет.")
+            return f"Вчера: тронуто {y['touched']} карточек, точность {acc}%."
+        if name == "curator_dashboard":
+            lines = ["СВОДКА ДЛЯ КУРАТОРА:"]
+            for s in _oge_subjects_payload(oge_uid, now)[:5]:
+                lines.append(
+                    f"- {s['label']}: {s['started']}/{s['total']} карточек, к повторению {s['due']}, "
+                    f"слабых {s['weak']} → {s['next_action']['text']}"
+                )
+            today = time.strftime("%Y-%m-%d")
+            with get_db_engine().connect() as conn:
+                row = _load_plan_row(conn, oge_uid, today)
+            if row:
+                items = json.loads(row["items_json"] or "[]")
+                done = 0
+                for it in items:
+                    if min(_item_target(it), _compute_item_done(oge_uid, it)) >= _item_target(it):
+                        done += 1
+                lines.append(f"План на сегодня: {done}/{len(items)} пунктов.")
+            s = _oge_streak_info(oge_uid, now)
+            if s.get("total_answers"):
+                lines.append(f"Серия: {s['current']} дн., точность {s['accuracy']}%.")
+            wt = _oge_weak_topics_summary(oge_uid)
+            if wt:
+                lines.append("Слабые темы: " + "; ".join(wt[:3]))
+            cd = _oge_exam_countdown(now)
+            if cd:
+                lines.append("До экзаменов: " + ", ".join(cd))
+            return "\n".join(lines)
+    except Exception as exc:
+        log_error("AI", "error", f"data tool {name}: {exc}")
+        return f"Ошибка получения данных: {exc}"
+    return f"Unknown tool: {name}"
 
 
 @app.route("/api/ai_chat", methods=["POST"])
@@ -9149,7 +9224,12 @@ def api_ai_chat():
                 user_id = str(session_user["id"])
 
         ctx = data.get("context") or {}
-        extra_context = _ai_chat_context_block(session_user, ctx)
+        tool_groups = []
+        if ctx.get("curator"):
+            tool_groups.append("curator")
+        if ctx.get("oge"):
+            tool_groups.append("oge")
+        oge_uid = _web_user_id("u" + str(session_user["id"])) if session_user else 0
         messages = (data.get("history") or [])[-20:]  # cap at 20 messages
         state = _pc_state(user_id)
 
@@ -9187,7 +9267,7 @@ def api_ai_chat():
             )
             messages = [{"role": "user", "content": note}] + (messages or [])
 
-        result = _pc_ai_chat(user_id, character, messages + [{"role": "user", "content": message}], extra_context=extra_context)
+        result = _pc_ai_chat(user_id, character, messages + [{"role": "user", "content": message}], oge_uid=oge_uid, tool_groups=tool_groups)
         # Ensure reply is always a string
         if not isinstance(result.get("reply"), str):
             result["reply"] = str(result.get("reply", ""))
