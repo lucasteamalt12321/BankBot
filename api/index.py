@@ -6339,7 +6339,28 @@ def gd_page():
 
         function loadMyStats() {
             var out = document.getElementById('mystats-result');
-            if (!ACCOUNT_ID) { out.innerHTML = '<p class="hint">Войдите в аккаунт, чтобы видеть свою статистику. <a href="/account">Войти</a></p>'; return; }
+            var loginHint = '<p class="hint">Войдите в аккаунт, чтобы видеть свою статистику. <a href="/account">Войти</a></p>';
+            if (!ACCOUNT_ID) {
+                var tok = localStorage.getItem('web_token');
+                if (!tok) { out.innerHTML = loginHint; return; }
+                out.innerHTML = '<p class="hint">Загрузка...</p>';
+                fetch('/api/auth/me', { headers: { 'X-Auth-Token': tok } })
+                    .then(function(r) { return r.json(); })
+                    .then(function(p) {
+                        if (!p || p.error) { out.innerHTML = loginHint; return; }
+                        ACCOUNT_ID = p.id;
+                        IS_ADMIN = !!p.is_admin;
+                        USER_ID = 'u' + p.id;
+                        localStorage.setItem('gd_user_id', USER_ID);
+                        renderMyStats(out);
+                    })
+                    .catch(function() { out.innerHTML = loginHint; });
+                return;
+            }
+            renderMyStats(out);
+        }
+
+        function renderMyStats(out) {
             var xhr = new XMLHttpRequest();
             xhr.open('GET', '/api/gd/my_stats?user_id=' + encodeURIComponent(ACCOUNT_ID));
             xhr.onload = function() {
@@ -9069,6 +9090,8 @@ var CHARS = __CHARS_JSON__;
         var xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/ai_chat');
         xhr.setRequestHeader('Content-Type', 'application/json');
+        var authTok = localStorage.getItem('web_token');
+        if (authTok) xhr.setRequestHeader('X-Auth-Token', authTok);
 xhr.onload = function() {
             var loadEl = document.getElementById('loading');
             if (loadEl) loadEl.remove();
