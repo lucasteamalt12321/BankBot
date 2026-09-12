@@ -5958,7 +5958,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     }
                     function sortContainer(container) {
                         if (!container) return;
-                        var cards = Array.prototype.slice.call(container.querySelectorAll('a.card'));
+                        var cards = Array.prototype.filter.call(container.querySelectorAll('a.card'), function (c) { return c.parentNode === container; });
                         if (cards.length < 2) return;
                         var sorted = cards.slice().sort(function (a, b) { return score(b) - score(a); });
                         var ref = cards[0];
