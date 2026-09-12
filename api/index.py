@@ -8682,10 +8682,14 @@ AI_CHAT_TOOLS_CURATOR = [
 ]
 
 
-def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
+def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str], persona: str = "") -> str:
     """Build the agent system prompt with the virtual computer context."""
     state = _pc_state(user_id)
     fs_parts = []
+
+    intro = f"Ты — {char_name}, общающийся с пользователем в веб-чате LTHub."
+    if persona:
+        intro += f"\n\nПерсонаж, будь им:\n{persona}"
 
     def walk(node, path, depth):
         for name, child in sorted(node["children"].items()):
@@ -8704,7 +8708,7 @@ def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str]) -> str:
     uploads_text = "\n".join(f"- {u}" for u in uploads) if uploads else "- (нет загруженных файлов)"
 
     return (
-        f"Ты — {char_name}, общающийся с пользователем в веб-чате LTHub. "
+        intro + "\n\n"
         "Пользователь видит только твои текстовые ответы — НИКОГДА не показывай ему JSON инструментов, "
         "код вызовов или промежуточные технические шаги. Работай инструментами молча, а в ответе "
         "кратко опиши результат (1-3 предложения, в своём характере).\n\n"
@@ -8755,10 +8759,15 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int
     """Run the agent loop: AI may call tools, results are fed back. Returns {reply, images}."""
     char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
     char_name = char_data["name"] if char_data else character
+    persona = ""
+    if char_data:
+        persona = char_data.get("prompt", "") or ""
+        persona = persona.replace("{text}", " ")
+        persona = re.sub(r"\s*Пользователь сказал:.*$", " ", persona).strip()
     state = _pc_state(user_id)
     uploads = state.get("uploads", [])
 
-    system_msg = _pc_build_prompt(char_name, user_id, uploads)
+    system_msg = _pc_build_prompt(char_name, user_id, uploads, persona)
     ai_messages = [{"role": "system", "content": system_msg}]
     for m in messages[-12:]:
         if m.get("role") in ("user", "assistant"):
