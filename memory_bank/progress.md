@@ -216,6 +216,37 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-12 (Session: 🐛 Охота на баги — раунд 2 + фича популярности хаба)
+
+> Запрос пользователя: «продолжай охоту на баги». Субагенты аудировали модули; параллельно вытянут `git pull` remote `b275395..4f6b25b` (big-changes: `bot/web/family_budget.py` — session-token-first auth fix, `api/dnd_runtime.py` — `_sanitize_for_prompt`, ротация Groq API-ключей, удалены `reading_trainer.html`/`setup_webhook.html`/`webapp/reading_trainer*`, добавлен `tests/unit/test_code_explainer.py`). Конфликт `api/index.py` разрешён (слейт AST blocklist + sandbox), stash применён, **семейство IDOR починил remote.**
+
+#### 🔴 Исправлено (коммит `61189c4`, задеплоено на bank-bot-ruby)
+
+| # | Модуль | Проблема | Фикс |
+|---|--------|----------|------|
+| 1 | AI Chat | `_tool_run_python` — RCE/доступ к DATABASE_URL и API-ключам через env, cwd в корне проекта | AST blocklist (`_BLOCKED_MODULES`/`_BLOCKED_KEYWORDS`) + isolated `mkdtemp` cwd + sanitized env (без секретов) + rmtree |
+| 2 | Browse Web | SSRF: редиректы (301/302) на внутренние ресурсы не блокировались (сверялся только литеральный IP) | общий `_blocked()` на исходный URL И каждый редирект (private/loopback/link-local/reserved + `metadata.google.internal`, `.local` и др.) |
+| 3 | History quiz | `/api/quiz/generate` для history — вечный 500 (`ImportError: core.history.DATA` не существует) | импорты `EVENTS`/`PERSONS` + `emperors.emperor_by_id` + `terms.TERMS`, хелпер `_emperor_answer`; 200 len=3 по всем 5 модулям |
+| 4 | Auth | register: нет rate-limit (brute-force); race на UNIQUE → 500 | `_check_ai_rate("register:"+ip, 5/300)` → 429; `except IntegrityError` → 409 |
+| 5 | audio_service | temp-каталоги удалялись ДО отправки файла (after_this_request race при send_file) → пустые ответы | `_cleanup_after()` через `Response.call_on_close(shutil.rmtree)`; overlay — max 8 файлов, 8MB/файл |
+| 6 | core/di | `close()` не сбрасывал `_session` → закрытый контейнер с stale-сессией | `_session = None` |
+| 7 | Хаб | нет сортировки модулей по популярности | `GET /api/hub/popularity` (SUM(actions), COUNT(DISTINCT user_id) из `web_activity_log`) + JS `sortModulesByPopularity()` (main и beta-секции отдельно, fallback на дефолт) |
+
+#### 🟡 Переклассификации (были ошибочные критичные гипотезы субагентов — НЕ фиксы)
+
+- **DnD/Chess `_dnd_require_auth`/`_chess_require_auth`** — НЕ IDOR: это анонимная bearer-идентичность (localStorage `web_*`-токены, шеринг-сессии), менять = сломать званого доступ. Оставлено как есть.
+- **Chess `api_chess_link` `force`** — by-design (при анонимной модели затирание своей же ссылки), но с фиксом remote (`_get_user_id` session-first) риск незначимый. Low.
+- **Family Budget IDOR** — remote в `4f6b25b` уже переключил `_get_user_id` на session-token-first (X-Auth-Token → web session → telegram_id). Больше ничего не нужно.
+- **TransactionService** пишет без явной DI-сессии — by-design: мутации идут через свежий UnitOfWork внутри вызова, а не через открытую сессию.
+- **XSS `'` в esc()** (`api/index.py:~1258`) — не эксплуатируется: `_gdEsc` строит DOM через textContent, нет single-quote интерполяций в HTML-атрибутах. Low/cosmetic.
+
+#### Проверки
+
+- `python -m py_compile api/index.py audio_service/api/index.py` — OK (только pre-existing SyntaxWarnings в JS-строках)
+- `ruff check api/index.py core/di.py audio_service/api/index.py` — All checks passed
+- Ручные вызовы: quiz generate (5 модулей) 200 len=3; `/api/hub/popularity` 200 (пусто на свежей БД)
+- `pytest tests/unit/test_web_portal_e2e.py` — зависает локально в Termux (предсуществующее, не регресс); локальные тесты требуют bcrypt-stub
+
 ### 2026-09-02 (Session: 💻 Code Explainer AI Chat + 🎮 GD викторы фикс)
 
 > Запрос пользователя: «разрабатывай ии чат в code explainer» + баг «после редактирования уровня acid factory пропал список викторов (Nikitosik)».
@@ -1689,6 +1720,8 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+61189c4 (2026-09-12; fix(bug-hunt): SSRF redirects, sandboxed run_python, quiz/history 500, register rate-limit+409, audio temp cleanup, DI close; feat(hub): popularity sort)
+4f6b25b (2026-09-12; remote: ротация Groq API-ключей GROQ_API_KEY_2..., семейство session-token-first auth fix, _sanitize_for_prompt, удаление reading_trainer.html/setup_webhook/webapp, +test_code_explainer)
 47cb41a (2026-09-01; docs(mb) — удаление мёртвого кода + моста)
 bab353c (2026-09-01; chore: удаление TG↔VK моста bridge_bot/vk_bot/bot/bridge + тесты)
 1aa158c (2026-09-01; chore: удаление мёртвого кода — beta_commands, message/callback_handler, scheduler_manager, core/school, beta_economy)
