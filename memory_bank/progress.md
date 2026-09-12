@@ -216,6 +216,13 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-12 (Session: 🔍 аудит других модулей на такие же auth-баги)
+- Полный субагент-аудит всех страниц: остальных CLASS A (API-вызовы без токена) и CLASS B (race с ACCOUNT_ID/USER_ID) НЕ найдено — gd/account/canon/irregular_verbs/code/daily_prayer/family/admin закрыты.
+- **[Fix]** `/exam`: 4 запроса (`/api/exam/ai-batch`, `/api/exam/check` x2, `/api/exam/ai-record`) не слали `X-Auth-Token` → слабые темы не подбирались, прогресс/достижения не записывались (страница при этом писала «Вы вошли — прогресс сохранится»).
+- **[Fix]** `/exam` (найдено тем же аудитом): каждый `ai-batch` создаёт НОВУЮ сессию (sid), а страница хранила только последний sid и глобальный `idx` (который вообще не инкрементился → всегда 0) → вопросы из 2+ пакета грейдились по чужой сессии/индексу; теперь каждая карточка несёт свою пару `sid+idx` (`queue.push({q: it, sid, idx: i})` / `var entry = queue.shift()`).
+  - Проверки: node --check (страница, декод `\U` эскейпов), py_compile, ruff OK; прод: 4 заголовка и новый push присутствуют, /exam 200. Задеплоено.
+- ⚠️ Из аудита (НЕ чинил, вне scope): `/api/gd/my_stats` принимает произвольный `user_id`; `/api/verbs/*` доверяет `user_id`/`teacher_id` из запроса; `/api/dnd/*`, `/api/chess/*` принимают произвольный `user_id` — можно читать чужие статистики/списки/оценки по guess ID. Мёртвые endpoint'ы `/api/quiz/generate`, `/api/quiz/check`.
+
 ### 2026-09-12 (Session: 🔐 Авторизация — хаб залогинен, а GD/AI просят войти)
 - **[TASK]** Жалоба: на хабе «зарегистрирован», а в GD и AI-чате «требуется войти в аккаунт».
   - Root cause 1 (AI): страница `/ai_chat` НЕ слала `X-Auth-Token` в POST `/api/ai_chat` → `session_user=None` → инструменты `oge_*`/`curator_*` всегда отвечали «Требуется вход в аккаунт».
@@ -1764,6 +1771,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
 e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
 caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
 18fa357 (2026-09-12; feat(ai_chat): чекбоксы = группы tools — curator_recommend/dashboard + 6 oge_* в function-calling)
