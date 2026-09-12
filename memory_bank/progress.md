@@ -216,6 +216,15 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-12 (Session: 🔀 Хаб — тумблер вкл/выкл сортировки по популярности)
+- **[TASK]** Запрос пользователя: «сделай чтобы сортировка вкл-выкл».
+  - Чекбокс «Сортировать модули по популярности» над сеткой модулей (`#hub-sort-toggle`, `.hub-sort-bar`).
+  - Состояние в `localStorage.hub_sort_popularity` (default '1' = ON; при '0' — OFF).
+  - ON: кэш популярности грузится один раз, сортируются main и beta-секции отдельно (только прямые дети).
+  - OFF: `restoreOrder()` возвращает карточки в порядок по умолчанию, захваченный при загрузке (`DEF_MAIN`/`DEF_BETA`).
+  - Переключение через `onchange="toggleHubSort()"`; повторное включение без ре-фетча (кэш `HUB_SORT_DATA`).
+  - Проверки: `node --check` OK, `py_compile` OK, `ruff` OK. Задеплоено (Ready, тумблер виден в прод HTML).
+
 ### 2026-09-12 (Session: 🧹 Хаб — бета-карточки перескочили в основной раздел)
 - **[HUB-BUG]** Репорт пользователя: «бета модули появились в основном».
   - **Корень:** фича сортировки по популярности (`sortModulesByPopularity`, коммит `61189c4`) — `sortContainer('.cards')` использовал `container.querySelectorAll('a.card')`, который выбирает ВСЕХ потомков-карточек, а `#beta-cards` вложена ВНУТРЬ `.cards` → 13 бета-карточек физически переехали в главную сетку (вставка через insertBefore в `.cards`), `#beta-cards` опустел.
@@ -1730,6 +1739,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+abec013 (2026-09-12; feat(hub): тумблер вкл/выкл сортировки по популярности — localStorage + restoreOrder)
 03c9ab3 (2026-09-12; fix(hub): popularity sort — только прямые дети, бета-карточки больше не утекают в основной раздел)
 a60587a (2026-09-12; fix(gd): respect admin-set difficulty — gdbrowser enrichment только как fallback)
 61189c4 (2026-09-12; fix(bug-hunt): SSRF redirects, sandboxed run_python, quiz/history 500, register rate-limit+409, audio temp cleanup, DI close; feat(hub): popularity sort)
