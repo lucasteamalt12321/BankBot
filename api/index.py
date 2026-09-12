@@ -15505,7 +15505,6 @@ input[type=text]{width:100%;padding:11px;border-radius:10px;border:1px solid var
 var AUTH_HINT = '__AUTH_HINT__';
 var seen = [];
 var queue = [];
-var idx = 0;
 var score = 0;
 var total = 0;
 var prefetching = false;
@@ -15524,14 +15523,13 @@ function prefetch() {
   document.getElementById('prefetch-status').textContent = '\u23F3 \u0418\u0418 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0435...';
   fetch('/api/exam/ai-batch', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: {'Content-Type': 'application/json', 'X-Auth-Token': localStorage.getItem('web_token') || ''},
     body: JSON.stringify({n: 3, seen: seen})
   }).then(function(r){return r.json();}).then(function(d){
     prefetching = false;
     document.getElementById('prefetch-status').textContent = '';
     if (d.ok && d.items && d.items.length) {
-      if (d.sid) examSid = d.sid;
-      d.items.forEach(function(it){ queue.push(it); });
+      d.items.forEach(function(it, i){ queue.push({q: it, sid: d.sid, idx: i}); });
       document.getElementById('prefetch-status').textContent = '\u2713 \u0415\u0449\u0451 ' + d.items.length + ' \u0432\u043E\u043F\u0440\u043E\u0441\u043E\u0432 \u0433\u043E\u0442\u043E\u0432\u043E';
     }
   }).catch(function(){ prefetching = false; document.getElementById('prefetch-status').textContent = '\u274C \u0421\u0435\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430'; });
@@ -15548,7 +15546,6 @@ document.getElementById('start').onclick = function() {
     if (queue.length > 0) {
       clearInterval(waitInterval);
       total = 0;
-      idx = 0;
       score = 0;
       showNext();
     } else if (waited > 15000) {
@@ -15570,8 +15567,10 @@ function showNext() {
       + '<p class="muted">\u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u043B \u0432\u043E\u043F\u0440\u043E\u0441\u044B \u0438\u0437 \u0411\u0414 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u0442\u0432\u043E\u0438\u0445 \u0441\u043B\u0430\u0431\u044B\u0445 \u043C\u0435\u0441\u0442.</p></div>';
     return;
   }
-  var it = queue.shift();
-  it._examIdx = idx;
+  var entry = queue.shift();
+  var it = entry.q;
+  examSid = entry.sid;
+  it._examIdx = entry.idx;
   seen.push(it.key);
   total++;
   document.getElementById('status').textContent = '\u0412\u043E\u043F\u0440\u043E\u0441 ' + total;
@@ -15600,7 +15599,7 @@ function showNext() {
         var btns = opts.querySelectorAll('.mcq-btn');
         btns.forEach(function(x){ x.disabled = true; });
         fetch('/api/exam/check', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
+          method: 'POST', headers: {'Content-Type': 'application/json', 'X-Auth-Token': localStorage.getItem('web_token') || ''},
           body: JSON.stringify({sid: examSid, idx: it._examIdx, value: String(i)})
         }).then(function(r){return r.json();}).then(function(d){
           var ok = d.correct;
@@ -15637,7 +15636,7 @@ function showFeedback(ok, it, serverResp) {
     : '<span class="bad">\u274C \u041D\u0435\u0432\u0435\u0440\u043E. \u041E\u0442\u0432\u0435\u0442: ' + esc(String(ansText)) + '</span>')
     + (serverResp.explanation ? '<div class="explain">' + esc(serverResp.explanation) + '</div>' : '');
   document.getElementById('next').style.display = '';
-  fetch('/api/exam/ai-record', {method:'POST',headers:{'Content-Type':'application/json'},
+  fetch('/api/exam/ai-record', {method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token': localStorage.getItem('web_token') || ''},
     body:JSON.stringify({key:it.key, module:it.module, correct:ok})}).catch(function(){});
 }
 
@@ -15649,7 +15648,7 @@ function checkTextAnswer() {
   document.getElementById('check').style.display = 'none';
   document.getElementById('ans').disabled = true;
   fetch('/api/exam/check', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
+    method: 'POST', headers: {'Content-Type': 'application/json', 'X-Auth-Token': localStorage.getItem('web_token') || ''},
     body: JSON.stringify({sid: examSid, idx: currentIt._examIdx, value: v})
   }).then(function(r){return r.json();}).then(function(d){
     var ok = d.correct;
