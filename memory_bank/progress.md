@@ -216,6 +216,13 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-12 (Session: 🔐 Авторизация — хаб залогинен, а GD/AI просят войти)
+- **[TASK]** Жалоба: на хабе «зарегистрирован», а в GD и AI-чате «требуется войти в аккаунт».
+  - Root cause 1 (AI): страница `/ai_chat` НЕ слала `X-Auth-Token` в POST `/api/ai_chat` → `session_user=None` → инструменты `oge_*`/`curator_*` всегда отвечали «Требуется вход в аккаунт».
+  - Root cause 2 (GD): `loadMyStats()` падал в «Войдите в аккаунт», если пользователь открывал вкладку раньше, чем отвечал `/api/auth/me` (`ACCOUNT_ID` ещё null; `ensureLoaded` кэшировал флаг).
+  - Fix: ai_chat шлёт `X-Auth-Token`; GD: `loadMyStats` при null ACCOUNT_ID повторно резолвит `/api/auth/me` (извлечён `renderMyStats`).
+  - Проверки: `node --check` (скрипты обеих страниц), `py_compile`, `ruff` OK; на проде `renderMyStats` и `X-Auth-Token` присутствуют, `/gd` 200. Задеплоено (Ready).
+
 ### 2026-09-12 (Session: 🎭 AI-чат — нейтральные ответы → персона в промпте)
 - **[TASK]** Жалоба пользователя: «чай отвечает похоже на нейтралбный» (все персонажи отвечали одинаково сухо).
   - Root cause: `_pc_build_prompt` подставлял только имя персонажа, а его `prompt`-персона (`CHARACTER_PROMPTS_AI_CHAT.*.prompt`) нигде не использовалась.
@@ -1757,6 +1764,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
 caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
 18fa357 (2026-09-12; feat(ai_chat): чекбоксы = группы tools — curator_recommend/dashboard + 6 oge_* в function-calling)
 4d640d9 (2026-09-12; feat(ai_chat): чекбоксы-контекст «Куратор» / «ОГЭ-прогресс» в промпт AI; 18fa357 перевёл это в инструменты)
