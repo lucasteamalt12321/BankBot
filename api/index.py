@@ -24,6 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 import requests
 from flask import Flask, jsonify, redirect, request, send_file
 from sqlalchemy import bindparam, create_engine, text
+from sqlalchemy.exc import IntegrityError
 
 
 def _build_tag():
@@ -5211,6 +5212,31 @@ def build_start_text(name: str, user_id: int, mode: str) -> str:
     return build_short_start_text(name, user_id)
 
 
+@app.route("/api/hub/popularity")
+def api_hub_popularity():
+    """Global module popularity for the hub.
+
+    Aggregates web_activity_log across all users: total actions + number of
+    active users per module. The hub page uses it to reorder cards (main and
+    beta sections separately). Modules without logged activity keep their
+    default order at the bottom.
+    """
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("SELECT module, SUM(actions) AS actions, COUNT(DISTINCT user_id) AS users "
+                     "FROM web_activity_log GROUP BY module")
+            ).mappings().all()
+        popularity = {
+            r["module"]: {"actions": int(r["actions"] or 0), "users": int(r["users"] or 0)}
+            for r in rows
+        }
+        return jsonify({"ok": True, "popularity": popularity})
+    except Exception as exc:
+        log_error("HUB", "error", f"popularity error: {exc}")
+        return jsonify({"ok": False, "popularity": {}}), 500
+
+
 @app.route("/")
 def index():
     html = """<!DOCTYPE html>
@@ -5898,6 +5924,50 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 loadAch();
                 loadOgePlan();
                 loadOgeStats();
+                sortModulesByPopularity();
+                function sortModulesByPopularity() {
+                    var KEY = {
+                        '/ai_chat': 'ai_chat', '/reading_trainer.html': 'reading_trainer',
+                        '/endings_trainer.html': 'endings_trainer', '/family_budget': 'family_budget',
+                        '/chess': 'chess', '/daily_prayer': 'prayer', '/canon': 'canon', '/gd': 'gd',
+                        '/emperors': 'emperors',
+                        '/dnd': 'dnd', '/trivia': 'trivia', '/irregular_verbs': 'verbs',
+                        '/informatics': 'informatics', '/math': 'math', '/russian': 'russian',
+                        '/physics': 'physics', '/exam': 'exam', '/family': 'family_circle',
+                        '/admin': 'admin', '/music': 'music', '/textbooks': 'textbooks',
+                        '/code': 'code', '/suggest': 'suggest'
+                    };
+                    var data = null;
+                    var ok = false;
+                    fetch('/api/hub/popularity', { cache: 'no-store' })
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .then(function (d) {
+                            if (!d || !d.popularity) return;
+                            data = d.popularity;
+                            ok = true;
+                            sortContainer(document.querySelector('.cards'));
+                            sortContainer(document.getElementById('beta-cards'));
+                        })
+                        .catch(function () {});
+                    function score(card) {
+                        if (!ok) return 0;
+                        var href = (card.getAttribute('href') || '').split('?')[0];
+                        var key = KEY[href] || '';
+                        var s = (key && data[key]) || { actions: 0, users: 0 };
+                        return (parseInt(s.actions, 10) || 0) * 1000 + (parseInt(s.users, 10) || 0);
+                    }
+                    function sortContainer(container) {
+                        if (!container) return;
+                        var cards = Array.prototype.slice.call(container.querySelectorAll('a.card'));
+                        if (cards.length < 2) return;
+                        var sorted = cards.slice().sort(function (a, b) { return score(b) - score(a); });
+                        var ref = cards[0];
+                        var parent = ref.parentNode;
+                        parent.insertBefore(sorted[0], ref);
+                        ref = sorted[0];
+                        for (var i = 1; i < sorted.length; i++) { parent.insertBefore(sorted[i], ref.nextSibling); ref = sorted[i]; }
+                    }
+                }
                 window.addEventListener('error', function() { showBugBtn(); });
                 window.addEventListener('unhandledrejection', function() { showBugBtn(); });
                 function showBugBtn() {
@@ -8150,8 +8220,14 @@ _BLOCKED_KEYWORDS = {'__import__', 'eval', 'exec', 'open', '__builtins__'}
 
 
 def _tool_run_python(code: str) -> str:
-    """Execute Python code in a restricted sandbox."""
+    """Execute Python code in an isolated, restricted sandbox.
+
+    The child process gets a sanitized environment (no DB/API secrets) and a
+    private temp cwd, so it cannot reach the app's credentials or filesystem.
+    AST parsing blocks dangerous modules/imports/execution helpers.
+    """
     import ast
+    import shutil
     if not code.strip():
         return "empty code"
     try:
@@ -8174,61 +8250,79 @@ def _tool_run_python(code: str) -> str:
         return "Syntax error in code"
     except Exception:
         pass
+    sandbox_dir = tempfile.mkdtemp(prefix="pc_sandbox_", dir=tempfile.gettempdir())
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=tempfile.gettempdir(),
-            env={"PATH": "/usr/bin:/bin", "HOME": tempfile.gettempdir(), "PYTHONPATH": ""},
-        )
-    except subprocess.TimeoutExpired:
-        return "Timeout: code took more than 10 seconds"
-    except Exception as exc:
-        return f"Execution error: {exc}"
-    out = proc.stdout.strip()
-    err = proc.stderr.strip()
-    if err:
-        return (out + "\n" if out else "") + "STDERR:\n" + err[:4000]
-    return out if out else "(no output)"
+        # Minimal env: PATH for locating the interpreter only. No database or
+        # API credentials are inherited, limiting what leaked code can exfiltrate.
+        clean_env = {
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "HOME": sandbox_dir,
+            "TMP": sandbox_dir,
+            "TMPDIR": sandbox_dir,
+            "LC_ALL": "C.UTF-8",
+            "PYTHONPATH": "",
+        }
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-Ic", code],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=sandbox_dir,
+                env=clean_env,
+            )
+        except subprocess.TimeoutExpired:
+            return "Timeout: code took more than 10 seconds"
+        except Exception as exc:
+            return f"Execution error: {exc}"
+        out = proc.stdout.strip()
+        err = proc.stderr.strip()
+        if err:
+            return (out + "\n" if out else "") + "STDERR:\n" + err[:4000]
+        return out if out else "(no output)"
+    finally:
+        shutil.rmtree(sandbox_dir, ignore_errors=True)
 
 
 def _tool_browse_web(url: str) -> str:
     """Fetch a web page and return readable text."""
     if not url.startswith(("http://", "https://")):
         return "URL must start with http:// or https://"
-    # SSRF protection: block private/loopback IPs
     import ipaddress
     from urllib.parse import urlparse
-    try:
-        parsed = urlparse(url)
-        hostname = parsed.hostname or ""
-        # Block localhost, loopback, private ranges, link-local, cloud metadata
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+    # SSRF protection: block private/loopback IPs and internal metadata names.
+    _BLOCKED_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
+                      "metadata.google.internal", "instance-data", "[::1]", "::1")
+
+    def _blocked(hostname: str, msg: str) -> str | None:
+        hostname = (hostname or "").strip().lower()
+        if not hostname:
             return "Доступ к внутренним ресурсам запрещён."
-    except ValueError:
-        # hostname is a domain name, not IP — block common internal names
-        blocked = ("localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
-                    "metadata.google.internal", "instance-data")
-        if hostname.lower() in blocked or hostname.endswith(".local"):
-            return "Доступ к внутренним ресурсам запрещён."
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return msg
+        except ValueError:
+            pass
+        if hostname in _BLOCKED_HOSTS or hostname.endswith(".local"):
+            return msg
+        return None
+
+    block = _blocked(urlparse(url).hostname or "", "Доступ к внутренним ресурсам запрещён.")
+    if block:
+        return block
     try:
         resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"},
                             allow_redirects=False, max_redirects=0)
-        # Follow at most 2 redirects, block redirect to internal IPs
+        # Follow at most 2 redirects, block redirect to internal resources.
         for _ in range(2):
             if resp.status_code in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("Location", "")
                 if not loc.startswith(("http://", "https://")):
                     break
-                try:
-                    redir_ip = ipaddress.ip_address(urlparse(loc).hostname or "")
-                    if redir_ip.is_private or redir_ip.is_loopback or redir_ip.is_link_local:
-                        return "Редирект на внутренний ресурс запрещён."
-                except ValueError:
-                    pass
+                redir_block = _blocked(urlparse(loc).hostname or "", "Редирект на внутренний ресурс запрещён.")
+                if redir_block:
+                    return redir_block
                 resp = requests.get(loc, timeout=8, headers={"User-Agent": "Mozilla/5.0"},
                                     allow_redirects=False)
             else:
@@ -10030,6 +10124,8 @@ def settings_page():
 @app.route("/api/auth/register", methods=["POST"])
 def api_auth_register():
     """Создать аккаунт с логином/паролем и опциональными полями."""
+    if _check_ai_rate("register:" + (request.remote_addr or "unknown"), max_requests=5, window=300):
+        return jsonify({"error": "Слишком много запросов. Подождите."}), 429
     data = request.get_json(silent=True) or {}
     login = (data.get("login") or "").strip().lower()
     password = data.get("password") or ""
@@ -10096,6 +10192,9 @@ def api_auth_register():
             )
             user_id = result.scalar()
             conn.commit()
+    except IntegrityError:
+        # Race on unique(login/email) — treat like a friendly 409, not a 500.
+        return jsonify({"error": "Логин или email уже заняты"}), 409
     except Exception as exc:
         log_error("AUTH", "error", f"register error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -14718,18 +14817,25 @@ def api_quiz_generate():
 
     pool = []
     if module == "history":
-        from core.history import DATA as HDATA
-        for it in HDATA.get("events", []):
-            pool.append({"key": "event::" + it["text"], "question": it["text"],
-                         "_answer": it.get("emperor", ""), "type": "mcq",
-                         "context": it.get("note", "")})
-        for it in HDATA.get("persons", []):
-            pool.append({"key": "person::" + it["text"], "question": it["text"],
-                         "_answer": it.get("emperor", ""), "type": "mcq",
-                         "context": it.get("description", "")})
-        for it in HDATA.get("terms", []):
-            pool.append({"key": "term::" + it["text"], "question": it.get("definition", it["text"]),
-                         "_answer": it["text"], "type": "mcq", "context": ""})
+        from core.history import EVENTS, PERSONS
+        from core.history.emperors import emperor_by_id
+        from core.history.terms import TERMS
+        def _emperor_answer(emperor_id: str) -> str:
+            if not emperor_id:
+                return ""
+            e = emperor_by_id(emperor_id)
+            return e.name if e else emperor_id
+        for ev in EVENTS:
+            pool.append({"key": "event::" + ev.title, "question": ev.title,
+                         "_answer": _emperor_answer(ev.emperor_id), "type": "mcq",
+                         "context": ev.note})
+        for p in PERSONS:
+            pool.append({"key": "person::" + p.name, "question": p.name,
+                         "_answer": _emperor_answer(p.emperor_id), "type": "mcq",
+                         "context": p.description})
+        for t in TERMS:
+            pool.append({"key": "term::" + t.term, "question": t.definition,
+                         "_answer": t.term, "type": "mcq", "context": t.category})
     elif module == "informatics":
         from core.informatics.tasks import get_all_tasks as info_tasks
         for t in info_tasks():

@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, after_this_request, jsonify, request, send_file
 
 from music import analyze, change_tempo, change_key, overlay, audio_utils, normalize, reverse, echo, trim
 
@@ -36,6 +36,22 @@ def _preflight():
 @app.route("/health")
 def health():
     return jsonify({"ok": True, "audio_available": audio_utils._LIBROSA})
+
+
+def _cleanup_after(path_or_dir):
+    """Schedule removal of a temp file/dir after the response body is sent.
+
+    Uses Response.call_on_close so the temp files survive streaming via
+    send_file and are then deleted, preventing per-request dir leaks.
+    """
+    import shutil
+    target = path_or_dir if os.path.isdir(path_or_dir) else os.path.dirname(path_or_dir)
+
+    @after_this_request
+    def _rm(resp):
+        resp.call_on_close(lambda *a: shutil.rmtree(target, ignore_errors=True))
+        return resp
+    return path_or_dir
 
 
 def _music_save_upload(field):
@@ -69,6 +85,7 @@ def api_music_analyze():
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
+    _cleanup_after(path)
     try:
         res = analyze(path)
         res["audio_available"] = audio_utils._LIBROSA
@@ -82,6 +99,7 @@ def api_music_change_tempo():
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
+    _cleanup_after(path)
     target = request.form.get("target_bpm")
     factor = request.form.get("factor")
     try:
@@ -101,6 +119,7 @@ def api_music_change_key():
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
+    _cleanup_after(path)
     semitones = request.form.get("semitones")
     target_key = request.form.get("target_key") or None
     try:
@@ -120,6 +139,8 @@ def api_music_overlay():
     files = request.files.getlist("files")
     if len(files) < 2:
         return jsonify({"error": "нужно минимум 2 файла для наложения"}), 400
+    if len(files) > 8:
+        return jsonify({"error": "максимум 8 файлов для наложения"}), 400
     d = tempfile.mkdtemp(prefix="music_ov_")
     paths = []
     for i, f in enumerate(files):
@@ -130,10 +151,13 @@ def api_music_overlay():
         data = f.read()
         if not data:
             return jsonify({"error": "Пустой файл: " + fn}), 400
+        if len(data) > _MUSIC_MAX_BYTES:
+            return jsonify({"error": "Файл слишком большой (макс. 8 МБ): " + fn}), 400
         p = os.path.join(d, "in%d%s" % (i, ext))
         with open(p, "wb") as fp:
             fp.write(data)
         paths.append(p)
+    _cleanup_after(d)
     try:
         out = overlay(paths)
         return _music_send(out)
@@ -155,6 +179,7 @@ def api_music_normalize():
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
+    _cleanup_after(path)
     path, err = _audio_only(path)
     if err:
         return jsonify({"error": err}), 400
@@ -169,6 +194,7 @@ def api_music_reverse():
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
+    _cleanup_after(path)
     path, err = _audio_only(path)
     if err:
         return jsonify({"error": err}), 400
@@ -183,6 +209,7 @@ def api_music_echo():
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
+    _cleanup_after(path)
     path, err = _audio_only(path)
     if err:
         return jsonify({"error": err}), 400
@@ -199,6 +226,7 @@ def api_music_trim():
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
+    _cleanup_after(path)
     path, err = _audio_only(path)
     if err:
         return jsonify({"error": err}), 400
