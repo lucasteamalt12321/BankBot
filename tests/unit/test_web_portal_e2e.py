@@ -87,6 +87,42 @@ def _make_engine():
         status VARCHAR(16) DEFAULT 'open',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS friend_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user INTEGER NOT NULL,
+        to_user INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS web_friends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        friend_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS web_activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        day TEXT NOT NULL,
+        module TEXT NOT NULL,
+        actions INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS web_streak (
+        user_id INTEGER PRIMARY KEY,
+        last_active_day TEXT NOT NULL,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        longest_streak INTEGER NOT NULL DEFAULT 0,
+        total_active_days INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS web_achievements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        unlocked_at REAL NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_friend_requests_pair ON friend_requests(from_user, to_user);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_web_friends_pair ON web_friends(user_id, friend_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_web_achievements_user_code ON web_achievements(user_id, code);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_web_activity_user_day_module ON web_activity_log(user_id, day, module);
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_id BIGINT,
