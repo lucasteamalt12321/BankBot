@@ -248,6 +248,20 @@ LTHub/
 
 **Тесты:** `tests/unit/test_music.py` (MIDI + аудио, все зависимости импортируются лениво).
 
+### Profiles & Friends Module (профили и друзья)
+
+Публичные профили пользователей и двусторонняя дружба через заявки (модель как в VK/Steam) в web portal.
+
+**Компоненты:**
+- `api/index.py` — таблицы `friend_requests` (pending-заявки) и `web_friends` (две строки на пару) через `_ensure_social_tables()`.
+- Страница **`/friends`** — вкладки «Друзья» / «Входящие» / «Поиск» (debounce 300 мс), топ недели среди друзей (SUM действий за 7 дней).
+- Страница **`/u/<login>`** — публичный профиль: имя/@логин, монеты, серия, активные дни, активность по модулям, достижения, GD-блок (`/api/gd/user/<nick>`), кнопки по отношению (добавить/принять/отменить/убрать). Без email/telegram/hash.
+- Блок «Друзья» в `/account` и ссылка с бейджем входящих заявок в user-bar хаба `/`.
+
+**API эндпоинты:** `GET /api/u/<login>`, `GET /api/users/search?q=`, `GET /api/friends`, `POST /api/friends/request|accept|decline|cancel|remove`, `GET /api/friends/weekly`. Rate-limit заявок `frq:{uid}` 20/час.
+
+**Тесты:** `tests/unit/test_social.py` (публичный профиль без утечек, полный friend-flow, weekly top).
+
 ## Запуск и проверка
 
 Актуальный практический сценарий запуска описан в `RUN.md`.

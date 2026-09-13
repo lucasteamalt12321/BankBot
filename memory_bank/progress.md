@@ -1771,6 +1771,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
+dbbacc5 (2026-09-13; feat(social): профили и друзья — /api/u/<login>, /api/users/search, /api/friends (list/request/accept/decline/cancel/remove), /api/friends/weekly, friend_requests+web_friends; страницы /friends и /u/<login> + GD-блок, блок «Друзья» в /account, бейдж в user-bar; test_social.py 3 теста; задеплоено, прод smoke OK)
 8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
 e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
 caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
@@ -2685,6 +2686,12 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 **Проблема:** `api/index.py` создавал свой `DB_ENGINE` через `get_db_engine()`, а `database/database.py` — свой через `get_pooled_engine()`. Два отдельных connection pool на одну PostgreSQL БД → лишние соединения, wastage на Vercel Hobby (connection limit).
 
 **Фикс:** `get_db_engine()` в `api/index.py` теперь импортирует `engine` из `database.database` (shared engine). Fallback на создание нового engine только если import не удался.
+
+### Changelog 2026-09-13 — feat(social): система профилей и друзей (commit `dbbacc5`)
+
+- **Backend:** таблицы `friend_requests` + `web_friends` (две строки на пару) через `_ensure_social_tables()` у `get_db_engine()`. Новые роуты: `GET /api/u/<login>` (публичный профиль: id/login/display_name/gd_nickname/created_at/coins/streak/active_days/total_actions/modules/achievements/is_self/relation — без email/telegram/hash), `GET /api/users/search` (LIKE по login/display_name, min 2 симв., limit 20, self исключён), `GET /api/friends`, `POST /api/friends/request` (self 400, дубли/«уже друзья» 409, rate-limit `frq:{uid}` 20/час), `accept`/`decline`/`cancel` (403 на чужие), `remove` (обе стороны), `GET /api/friends/weekly` (SUM actions за 7 дней вручную собранными IN-плейсхолдерами).
+- **Страницы:** `/friends` (вкладки друзья/входящие/поиск с debounce 300ms, топ недели с медалями и progress-bars, кнопки через `data-fid`/`data-action` + делегирование событий), `/u/<login>` (профиль + GD-блок `/api/gd/user/<nick>`, кнопки по relation), блок «Друзья» в `/account`, ссылка «Друзья» + бейдж входящих (`friend-badge`) в user-bar хаба, `loadFriendBadge()`.
+- **Правки по ходу:** `created_at` в профиле — `isoformat()` с fallback на `str()` (SQLite в тестах отдаёт строку). Тесты `test_social.py` (3 зелёных), e2e DDL дополнен social/activity-таблицами, ruff clean, `node --check` со всех 4 страниц OK. Прод smoke: register→search→request→accept→weekly→remove→409 dup — всё OK.
 
 ## last_checked_commit
   8ab128b (2026-09-05; fix: DB-backed rate limiting + dual connection pool unification (DB-3)).

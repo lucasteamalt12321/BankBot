@@ -599,6 +599,20 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **Phase 8: 100/100 completed** (коммит `61189c4`)
 
+---
+
+### Phase 9: Система профилей и друзей (FND) (2026-09-13)
+
+**Контекст:** двусторонняя дружба через заявки (VK/Steam-стиль), публичные профили `/u/<login>` с GD-статистикой, страница `/friends`, топ недели среди друзей. Запрос: «добавь систему профилей и друзей» (одобрено через вопросник).
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| FND-01 | Backend: таблицы `friend_requests` + `web_friends` (две строки на пару, ON CONFLICT DO NOTHING), `_ensure_social_tables` в `get_db_engine()`, `GET /api/u/<login>` (публичный профиль без email/telegram/hash + streak/activity/achievements/modules + relation flag), `GET /api/users/search` (LIKE по login/display_name, min 2 симв., relation-флаги), `GET /api/friends` (friends/incoming/outgoing), `POST /api/friends/request` (rate-limit `frq:{uid}` 20/час, self/дубли 400/409), `accept`/`decline`/`cancel`/`remove` (403 на чужие заявки), `GET /api/friends/weekly` (SUM actions за 7 дней, me-флаг) | completed | 50 |
+| FND-02 | Страницы: `/friends` (вкладки друзья/входящие/поиск, search с debounce 300ms, кнопки действий через `data-fid`/`data-action` + делегирование, топ недели с medal-иконками + progress bars), `/u/<login>` (публичный профиль + GD-блок через `/api/gd/user/<nick>`, кнопки по relation через `data-soc`), блок «Друзья» в `/account` (список + кол-во входящих), ссылка «Друзья» с бейджем (`friend-badge` + `loadFriendBadge()`) в user-bar хаба | completed | 30 |
+| FND-03 | Тесты: `test_social.py` (3 теста — public profile + search без утечек, полный friend flow request→accept→decline→cancel→remove с 403 на чужие, weekly top), e2e DDL дополнен social/activity-таблицами, ruff + py_compile + `node --check` для JS (`\"` в HTML-атрибутах + делегирование событий вместо `onclick`-строк), прод smoke (register → search → request → accept → weekly → remove → 409 dup) | completed | 20 |
+
+**Phase 9: 100/100 completed** (коммит `dbbacc5`)
+
 ## Additional Tasks (2026-04-03)
 
 | ID | Task | Priority | Status |
