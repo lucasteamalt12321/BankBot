@@ -437,6 +437,7 @@ def get_db_engine():
         _ensure_verb_tables(DB_ENGINE)
         _ensure_family_tables(DB_ENGINE)
         _ensure_web_auth_tables(DB_ENGINE)
+        _ensure_social_tables(DB_ENGINE)
         _ensure_parsing_tables(DB_ENGINE)
         _ensure_emperors_tables(DB_ENGINE)
         _ensure_study_progress_tables(DB_ENGINE)
@@ -1076,6 +1077,47 @@ CREATE TABLE IF NOT EXISTS web_users (
         log_error("AUTH", "info", "Tables ensured")
     except Exception as exc:
         log_error("AUTH", "error", f"Table init error: {exc}")
+
+
+def _ensure_social_tables(engine):
+    """Create web social tables (friends + friend requests) if they don't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+CREATE TABLE IF NOT EXISTS friend_requests (
+    id SERIAL PRIMARY KEY,
+    from_user INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
+    to_user INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+)
+            """))
+            conn.execute(text("""
+CREATE TABLE IF NOT EXISTS web_friends (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
+    friend_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+)
+            """))
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_friend_requests_pair ON friend_requests(from_user, to_user)"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_requests_to ON friend_requests(to_user)"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_web_friends_pair ON web_friends(user_id, friend_id)"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_friends_user ON web_friends(user_id)"))
+            except Exception:
+                pass
+            conn.commit()
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"social tables init error: {exc}")
 
 
 def _html_escape(s: str) -> str:
@@ -5281,6 +5323,8 @@ def index():
         .user-bar a:hover { text-decoration: underline; }
         .user-bar .logout-btn { background: none; border: 1px solid var(--bb-link); color: var(--bb-link); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
         .user-bar .logout-btn:hover { background: var(--bb-link); color: var(--bb-panel); }
+        .friend-badge { display: none; min-width: 16px; height: 16px; line-height: 16px; border-radius: 8px; background: var(--bb-accent2); color: #fff; font-size: 10px; font-weight: 700; text-align: center; padding: 0 5px; margin-left: 5px; vertical-align: middle; }
+        .friend-badge.vis { display: inline-block; }
         .bug-fab { position: fixed; right: 20px; bottom: 20px; width: 54px; height: 54px; border-radius: 50%; background: var(--bb-primary); color: var(--bb-panel); font-size: 24px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(0,0,0,.4); z-index: 999; text-decoration: none; }
         .bug-fab:hover { background: var(--bb-accent2); transform: scale(1.08); }
         /* Pico pilot: маппинг палитры Pico на переменные темы + правки утечек */
@@ -5601,12 +5645,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                                 avatar.textContent = name.charAt(0).toUpperCase();
                                 nameEl.textContent = name;
                                 subEl.textContent = '@' + p.login;
-                                actionsEl.innerHTML = '<a class="logout-btn" href="/account">Личный кабинет</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
+                                actionsEl.innerHTML = '<a class="logout-btn" href="/account">Личный кабинет</a> <a class="logout-btn" href="/friends">Друзья<span class="friend-badge" id="friends-badge"></span></a> <button class="logout-btn" onclick="logout()">Выйти</button>';
+                                loadFriendBadge();
                             })
                             .catch(function () {
                                 nameEl.textContent = 'Пользователь';
                                 subEl.textContent = 'Аккаунт';
-                                actionsEl.innerHTML = '<a class="logout-btn" href="/account">Личный кабинет</a> <button class="logout-btn" onclick="logout()">Выйти</button>';
+                                actionsEl.innerHTML = '<a class="logout-btn" href="/account">Личный кабинет</a> <a class="logout-btn" href="/friends">Друзья<span class="friend-badge" id="friends-badge"></span></a> <button class="logout-btn" onclick="logout()">Выйти</button>';
                             });
                     } else {
                         avatar.textContent = uid.slice(4, 5).toUpperCase() || '?';
@@ -5623,6 +5668,19 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     localStorage.removeItem('web_user_id');
                     localStorage.removeItem('web_token');
                     window.location.reload();
+                }
+                function loadFriendBadge() {
+                    var badge = document.getElementById('friends-badge');
+                    if (!badge) return;
+                    var token = localStorage.getItem('web_token');
+                    if (!token) return;
+                    fetch('/api/friends', { headers: { 'X-Auth-Token': token } })
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            var n = (d.incoming || []).length;
+                            if (n > 0) { badge.textContent = n; badge.className = 'friend-badge vis'; }
+                        })
+                        .catch(function() {});
                 }
                 function loadAch() {
                     var token = localStorage.getItem('web_token');
@@ -10134,6 +10192,7 @@ def account_page():
 <div class="container">
     <div class="header">
         <h1>Личный кабинет</h1>
+        <a href="/friends">👥 Друзья</a>
         <a href="/">На главную</a>
     </div>
     <div class="card" id="card">
@@ -10162,6 +10221,7 @@ def account_page():
             '<div class="coins-row"><div class="lbl">💎 Монеты</div><div class="val">' + (p.coins != null ? p.coins : 0) + '</div></div>' +
             '<div class="ach-box" id="ach-box"><div class="spinner">Загружаю достижения...</div></div>' +
             '<div class="stats-box" id="stats-box"><div class="spinner">Загружаю статистику...</div></div>' +
+            '<div class="stats-box" id="friends-box" style="display:none"><div class="spinner">Загружаю друзей...</div></div>' +
             '<div id="missing-box"></div>' +
             '<div class="form-group"><label>Логин</label><input type="text" id="set-login" disabled style="opacity:0.6"></div>' +
             '<div class="form-group"><label>Имя <span class="opt">(если пусто — будет логин)</span></label><input type="text" id="set-name" placeholder="ваше имя"></div>' +
@@ -10175,6 +10235,7 @@ def account_page():
         fillForm(p);
         loadAchievements();
         loadStats();
+        loadFriends();
     }
     function loadAchievements() {
         var box = document.getElementById('ach-box');
@@ -10219,6 +10280,32 @@ def account_page():
                     '</div>' +
                     '<div class="ach-cal">' + calHtml + '</div>' +
                     '<a class="btn btn-secondary" href="/stats">Смотреть всю статистику</a>';
+            })
+            .catch(function() { box.style.display = 'none'; });
+    }
+    function loadFriends() {
+        var box = document.getElementById('friends-box');
+        if (!box) return;
+        fetch('/api/friends', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) { box.style.display = 'none'; return; }
+                var fr = d.friends || [];
+                var inc = d.incoming || [];
+                if (!fr.length && !inc.length) { box.style.display = 'none'; return; }
+                box.style.display = 'block';
+                var html = '<div class="ach-head"><div class="stats-title">👥 Друзья</div>' +
+                    '<div class="ach-stats">' + fr.length + ' др.' +
+                    (inc.length ? ' · <b style="color:var(--bb-accent2)">' + inc.length + ' заявк.</b>' : '') +
+                    '</div></div>';
+                fr.forEach(function(f) {
+                    html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bb-border)">' +
+                        '<b>' + esc(f.display_name || f.login || '') + '</b>' +
+                        '<span style="color:var(--bb-muted);font-size:12px">@' + esc(f.login || '') + '</span>' +
+                        '<a style="margin-left:auto;font-size:12px;color:var(--bb-link)" href="/u/' + encodeURIComponent(f.login || '') + '">профиль →</a></div>';
+                });
+                html += '<a class="btn btn-secondary" href="/friends" style="margin-top:10px">Все друзья и заявки</a>';
+                box.innerHTML = html;
             })
             .catch(function() { box.style.display = 'none'; });
     }
@@ -10291,6 +10378,371 @@ def account_page():
             })
             .catch(function() { showToast('Ошибка сети', true); });
     }
+</script>
+</body>
+</html>"""
+    return html
+
+
+@app.route("/friends")
+def friends_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Друзья — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; }
+        .container { max-width: 560px; width: 100%; margin: 0 auto; padding-top: 20px; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .header h1 { font-size: 22px; color: var(--bb-accent); }
+        .header a { color: var(--bb-muted); text-decoration: none; font-size: 14px; }
+        .header a:hover { color: var(--bb-accent); }
+        .header .sp { margin-left: auto; }
+        .card { background: var(--bb-panel); border: 1px solid var(--bb-primary); border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+        .tab { padding: 8px 14px; border-radius: 12px; border: 1px solid var(--bb-border); background: var(--bb-elev); color: var(--bb-muted); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .tab.active { background: var(--bb-accent); border-color: var(--bb-accent); color: #0f1420; }
+        .tab .cnt { margin-left: 5px; font-weight: 700; color: var(--bb-accent2); }
+        .tab.active .cnt { color: #0f1420; }
+        .row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--bb-border); }
+        .row:last-child { border-bottom: none; }
+        .row .nm { font-weight: 600; }
+        .row .lg { color: var(--bb-muted); font-size: 12px; }
+        .row a.pl { margin-left: auto; color: var(--bb-link); text-decoration: none; font-size: 12px; font-weight: 600; }
+        .row a.pl:hover { text-decoration: underline; }
+        .btn { padding: 6px 12px; border-radius: 10px; border: 1px solid var(--bb-accent); background: var(--bb-accent); color: #0f1420; font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit; }
+        .btn.ghost { background: none; color: var(--bb-accent); }
+        .btn.danger { background: none; border-color: var(--bb-accent2); color: var(--bb-accent2); }
+        .btn:disabled { opacity: .5; cursor: default; }
+        .empty { color: var(--bb-muted); font-size: 13px; text-align: center; padding: 14px 0; }
+        .search-box { display: flex; gap: 8px; margin-bottom: 12px; }
+        .search-box input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bb-border); background: var(--bb-bg); color: var(--bb-text); font-size: 14px; }
+        .weekly-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--bb-border); }
+        .weekly-row:last-child { border-bottom: none; }
+        .place { width: 24px; height: 24px; border-radius: 50%; background: var(--bb-elev); color: var(--bb-accent); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .weekly-row .bar-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
+        .weekly-row .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--bb-elev); overflow: hidden; }
+        .weekly-row .fill { height: 100%; background: var(--bb-accent); border-radius: 4px; }
+        .weekly-row .acts { font-size: 12px; color: var(--bb-muted); white-space: nowrap; }
+        .match-lbl { font-size: 12px; color: var(--bb-muted); margin-bottom: 8px; }
+        .hint { color: var(--bb-muted); font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>👥 Друзья</h1>
+        <a href="/account" class="sp">Личный кабинет</a>
+        <a href="/">На главную</a>
+    </div>
+    <div class="card">
+        <div class="tabs">
+            <button class="tab active" id="t-friends" onclick="showTab('friends')">Друзья<span class="cnt" id="c-friends"></span></button>
+            <button class="tab" id="t-incoming" onclick="showTab('incoming')">Входящие<span class="cnt" id="c-incoming"></span></button>
+            <button class="tab" id="t-search" onclick="showTab('search')">Поиск</button>
+        </div>
+        <div id="p-friends"></div>
+        <div id="p-incoming" style="display:none"></div>
+        <div id="p-search" style="display:none">
+            <div class="search-box"><input id="search-q" placeholder="Найти по логину или имени..." oninput="onSearch()"></div>
+            <div class="match-lbl">Найдено: <b id="search-count">0</b></div>
+            <div id="search-results"></div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="header" style="margin-bottom:8px">
+            <b>🏆 Топ недели среди друзей</b>
+        </div>
+        <div class="hint" style="margin-bottom:10px">по количеству действий за последние 7 дней</div>
+        <div id="weekly"></div>
+    </div>
+</div>
+<script>
+    var token = localStorage.getItem('web_token');
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function post(method, body) {
+        return fetch('/api/friends/' + method, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token }, body: JSON.stringify(body || {}) })
+            .then(function(r) { return r.json(); })
+            .then(function(j) { if (!j.error) { loadAll(); } })
+            .catch(function() {});
+    }
+    document.addEventListener('click', function(e) {
+        var b = e.target && e.target.closest ? e.target.closest('[data-fid]') : null;
+        if (!b || !b.hasAttribute('data-action')) return;
+        e.preventDefault();
+        var method = b.getAttribute('data-action');
+        var fid = b.getAttribute('data-fid');
+        var req = b.getAttribute('data-req');
+        var body = {};
+        if (fid) body.friend_id = Number(fid);
+        if (req) body.request_id = Number(req);
+        if (method === 'accept-incoming') { resolveAndPost(Number(fid), 'accept'); return; }
+        post(method, body);
+    });
+    function resolveAndPost(friendId, method) {
+        fetch('/api/friends', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var inc = d.incoming || [];
+                for (var i = 0; i < inc.length; i++) {
+                    if (inc[i].id === friendId) { post(method, { request_id: inc[i].req_id }); return; }
+                }
+            })
+            .catch(function() {});
+    }
+    function showTab(tab) {
+        document.getElementById('t-friends').className = 'tab' + (tab === 'friends' ? ' active' : '');
+        document.getElementById('t-incoming').className = 'tab' + (tab === 'incoming' ? ' active' : '');
+        document.getElementById('t-search').className = 'tab' + (tab === 'search' ? ' active' : '');
+        document.getElementById('p-friends').style.display = tab === 'friends' ? 'block' : 'none';
+        document.getElementById('p-incoming').style.display = tab === 'incoming' ? 'block' : 'none';
+        document.getElementById('p-search').style.display = tab === 'search' ? 'block' : 'none';
+    }
+    function row(u, btn) {
+        return '<div class="row"><div class="nm">' + esc(u.display_name || u.login || '') + '</div><div class="lg">@' + esc(u.login || '') + '</div><a class="pl" href="/u/' + encodeURIComponent(u.login || '') + '">профиль →</a>' + (btn || '') + '</div>';
+    }
+    function loadAll() {
+        fetch('/api/friends', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) return;
+                var fr = d.friends || [], inc = d.incoming || [], out = d.outgoing || [];
+                document.getElementById('c-friends').textContent = fr.length;
+                document.getElementById('c-incoming').textContent = inc.length;
+                var fEl = document.getElementById('p-friends');
+                if (!fr.length) { fEl.innerHTML = '<div class="empty">Пока нет друзей. Нажмите «Поиск», чтобы найти людей.</div>'; }
+                else {
+                    var fh = '';
+                    fr.forEach(function(u) {
+                        fh += row(u, '<button class="btn danger" data-fid="' + u.id + '" data-action="remove">Убрать</button>');
+                    });
+                    fEl.innerHTML = fh;
+                }
+                var iEl = document.getElementById('p-incoming');
+                if (!inc.length) { iEl.innerHTML = '<div class="empty">Входящих заявок нет</div>'; }
+                else {
+                    var ih = '';
+                    inc.forEach(function(u) {
+                        ih += row(u, '<button class="btn" data-req="' + u.req_id + '" data-action="accept">Принять</button> <button class="btn danger" data-req="' + u.req_id + '" data-action="decline">Отклонить</button>');
+                    });
+                    iEl.innerHTML = ih;
+                }
+                loadWeekly();
+            })
+            .catch(function() {});
+    }
+    function loadWeekly() {
+        fetch('/api/friends/weekly', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var el = document.getElementById('weekly');
+                if (!d.weekly || !d.weekly.length) { el.innerHTML = '<div class="empty">Пока нет данных: пригласите друзей и решайте задания</div>'; return; }
+                var mx = Math.max.apply(null, d.weekly.map(function(w) { return w.actions || 0; })) || 1;
+                var medals = ['🥇', '🥈', '🥉'];
+                var html = '';
+                d.weekly.forEach(function(w, i) {
+                    html += '<div class="weekly-row"><div class="place">' + (medals[i] || (i + 1)) + '</div>' +
+                        '<div class="nm">' + esc(w.display_name || w.login || '') + (w.is_me ? ' <span style="color:var(--bb-link)">(вы)</span>' : '') + '</div>' +
+                        '<div class="bar-wrap"><div class="bar"><div class="fill" style="width:' + Math.round(100 * (w.actions || 0) / mx) + '%"></div></div><div class="acts">' + (w.actions || 0) + '</div></div></div>';
+                });
+                el.innerHTML = html;
+            })
+            .catch(function() { el.innerHTML = '<div class="empty">Не удалось загрузить</div>'; });
+    }
+    var searchTimer = null;
+    function onSearch() {
+        var q = document.getElementById('search-q').value.trim();
+        var el = document.getElementById('search-results');
+        var cnt = document.getElementById('search-count');
+        clearTimeout(searchTimer);
+        if (q.length < 2) { cnt.textContent = '0'; el.innerHTML = ''; return; }
+        searchTimer = setTimeout(function() {
+            fetch('/api/users/search?q=' + encodeURIComponent(q), { headers: { 'X-Auth-Token': token } })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var users = d.users || [];
+                    cnt.textContent = users.length;
+                    if (d.error) { el.innerHTML = '<div class="empty">' + esc(d.error) + '</div>'; return; }
+                    if (!users.length) { el.innerHTML = '<div class="empty">Никого не найдено</div>'; return; }
+                    var html = '';
+                    users.forEach(function(u) {
+                        var btn = '';
+                        if (u.relation === 'friend') { btn = '<button class="btn danger" data-fid="' + u.id + '" data-action="remove">Убрать</button>'; }
+                        else if (u.relation === 'pending_outgoing') { btn = '<button class="btn ghost" disabled>Заявка отправлена</button>'; }
+                        else if (u.relation === 'pending_incoming') { btn = '<button class="btn" data-fid="' + u.id + '" data-action="accept-incoming">Принять заявку</button>'; }
+                        else { btn = '<button class="btn" data-fid="' + u.id + '" data-action="request">Добавить</button>'; }
+                        html += row(u, btn);
+                    });
+                    el.innerHTML = html;
+                })
+                .catch(function() { el.innerHTML = '<div class="empty">Ошибка сети</div>'; });
+        }, 300);
+    }
+    if (!token) { window.location.href = '/login'; } else { loadAll(); }
+</script>
+</body>
+</html>"""
+    return html
+
+
+@app.route("/u/<login>")
+def user_profile_page(login: str):
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Профиль — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bb-bg); min-height: 100vh; color: var(--bb-text); padding: 20px; }
+        .container { max-width: 520px; width: 100%; margin: 0 auto; padding-top: 20px; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+        .header a { color: var(--bb-muted); text-decoration: none; font-size: 14px; }
+        .header a:hover { color: var(--bb-accent); }
+        .header .sp { margin-left: auto; }
+        .card { background: var(--bb-panel); border: 1px solid var(--bb-primary); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+        .profile-top { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+        .avatar { width: 56px; height: 56px; border-radius: 50%; background: var(--bb-accent); display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; color: #fff; flex-shrink: 0; }
+        .who h2 { font-size: 19px; }
+        .who .login { color: var(--bb-muted); font-size: 13px; margin-top: 2px; }
+        .who .gd { color: var(--bb-link); font-size: 12px; margin-top: 2px; }
+        .btn { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--bb-accent); background: var(--bb-accent); color: #0f1420; font-weight: 600; font-size: 13px; cursor: pointer; font-family: inherit; }
+        .btn.ghost { background: none; color: var(--bb-accent); }
+        .btn.danger { background: none; border-color: var(--bb-accent2); color: var(--bb-accent2); }
+        .btn:disabled { opacity: .55; cursor: default; }
+        .btn.full { width: 100%; }
+        .kv { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--bb-border); font-size: 13px; }
+        .kv:last-child { border-bottom: none; }
+        .kv .k { color: var(--bb-muted); }
+        .kv .v { font-weight: 600; }
+        .sec { font-size: 13px; font-weight: 700; color: var(--bb-accent); margin: 6px 0 8px; }
+        .ach { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: var(--bb-elev); border: 1px solid var(--bb-border); border-radius: 12px; padding: 4px 10px; margin: 0 6px 6px 0; }
+        .mod { display: inline-block; font-size: 12px; background: var(--bb-elev); border: 1px solid var(--bb-border); border-radius: 12px; padding: 4px 10px; margin: 0 6px 6px 0; }
+        .mod b { color: var(--bb-accent); }
+        .empty { color: var(--bb-muted); font-size: 13px; }
+        .joined { color: var(--bb-muted); font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Профиль</h1>
+        <a href="javascript:history.back()" class="sp">← Назад</a>
+        <a href="/">На главную</a>
+    </div>
+    <div class="card" id="profile-card"><div class="empty">Загрузка...</div></div>
+    <div class="card" id="gd-box" style="display:none"></div>
+</div>
+<script>
+    var token = localStorage.getItem('web_token');
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    var LOGIN = decodeURIComponent(window.location.pathname.split('/').pop());
+    var P_ID = null;
+    function post(url, body) {
+        return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token }, body: JSON.stringify(body || {}) })
+            .then(function(r) { return r.json(); })
+            .then(function(j) { if (j.error) { alert(j.error); return; } loadProfile(); })
+            .catch(function() {});
+    }
+    document.addEventListener('click', function(e) {
+        var b = e.target && e.target.closest ? e.target.closest('[data-soc]') : null;
+        if (!b) return;
+        e.preventDefault();
+        var action = b.getAttribute('data-soc');
+        if (action === 'request') { post('/api/friends/request', { friend_id: P_ID }); return; }
+        if (action === 'remove') { post('/api/friends/remove', { friend_id: P_ID }); return; }
+        resolveAndPost(action);
+    });
+    function resolveAndPost(action) {
+        fetch('/api/friends', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var all = (d.incoming || []).concat(d.outgoing || []);
+                for (var i = 0; i < all.length; i++) {
+                    if (all[i].login === LOGIN) { post('/api/friends/' + action, { request_id: all[i].req_id }); return; }
+                }
+            })
+            .catch(function() {});
+    }
+    function render(d) {
+        var p = d.profile;
+        P_ID = p.id;
+        var hdrs = [];
+        if (p.is_self) {
+            hdrs.push('<a class="btn full" style="margin-top:6px" href="/account">Это ваш профиль — открыть личный кабинет</a>');
+        } else if (p.relation === 'friend') {
+            hdrs.push('<div style="display:flex;gap:8px;margin-top:6px"><button class="btn full" disabled>✓ В друзьях</button><button class="btn danger" data-soc="remove">Убрать</button></div>');
+        } else if (p.relation === 'pending_outgoing') {
+            hdrs.push('<button class="btn ghost full" style="margin-top:6px" data-soc="cancel">Заявка отправлена — отменить</button>');
+        } else if (p.relation === 'pending_incoming') {
+            hdrs.push('<div style="display:flex;gap:8px;margin-top:6px"><button class="btn full" data-soc="accept">Принять заявку</button><button class="btn danger" data-soc="decline">Отклонить</button></div>');
+        } else if (token) {
+            hdrs.push('<button class="btn full" style="margin-top:6px" data-soc="request">Добавить в друзья</button>');
+        } else {
+            hdrs.push('<div class="joined" style="margin-top:6px"><a href="/login" style="color:var(--bb-link)">Войдите</a>, чтобы добавлять в друзья</div>');
+        }
+        var mods = '';
+        var umods = p.modules || {};
+        for (var m in umods) { if (umods.hasOwnProperty(m)) mods += '<span class="mod">' + esc(m) + ': <b>' + umods[m] + '</b></span>'; }
+        if (!mods) mods = '<span class="empty">—</span>';
+        var ach = '';
+        (p.achievements || []).forEach(function(a) { ach += '<span class="ach">' + (a.icon || '🏅') + ' ' + esc(a.name || a.code || '') + '</span>'; });
+        if (!ach) ach = '<span class="empty">—</span>';
+        var st = p.streak || {};
+        var card = document.getElementById('profile-card');
+        card.innerHTML = '<div class="profile-top">' +
+            '<div class="avatar">' + esc(((p.display_name || p.login || 'П')).charAt(0).toUpperCase()) + '</div>' +
+            '<div class="who"><h2>' + esc(p.display_name || p.login || '') + '</h2>' +
+            '<div class="login">@' + esc(p.login || '') + '</div>' +
+            (p.gd_nickname ? '<div class="gd">🟢 Geometry Dash: ' + esc(p.gd_nickname) + '</div>' : '') +
+            '</div></div>' +
+            '<div class="kv"><span class="k">💎 Монеты</span><span class="v">' + (p.coins || 0) + '</span></div>' +
+            '<div class="kv"><span class="k">🔥 Серия дней</span><span class="v">' + (st.current || 0) + ' (рекорд ' + (st.longest || 0) + ')</span></div>' +
+            '<div class="kv"><span class="k">📅 Активных дней</span><span class="v">' + (p.active_days || 0) + '</span></div>' +
+            '<div class="kv"><span class="k">⚡ Действий всего</span><span class="v">' + (p.total_actions || 0) + '</span></div>' +
+            '<div class="sec">📚 Активные модули</div><div>' + mods + '</div>' +
+            '<div class="sec">🏆 Достижения</div><div>' + ach + '</div>' +
+            hdrs.join('');
+        if (p.gd_nickname) { renderGd(p.gd_nickname); }
+    }
+    function renderGd(nick) {
+        var box = document.getElementById('gd-box');
+        if (!box) return;
+        fetch('/api/gd/user/' + encodeURIComponent(nick))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) return;
+                var rows = [['⭐ Звёзды', d.stars], ['👹 Демоны', d.demons], ['💎 Алмазы', d.diamonds], ['🪙 Монеты', d.coins], ['💠 User coins', d.user_coins]];
+                var html = '<div class="sec">🟢 Geometry Dash · <span style="color:var(--bb-muted);font-weight:400">' + esc(nick) + '</span></div>';
+                rows.forEach(function(r) { html += '<div class="kv"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span></div>'; });
+                if (d.creator_points) html += '<div class="kv"><span class="k">📝 Creator points</span><span class="v">' + d.creator_points + '</span></div>';
+                if (d.rank) html += '<div class="kv"><span class="k">🏅 Ранг</span><span class="v">#' + d.rank + '</span></div>';
+                box.innerHTML = html;
+                box.style.display = 'block';
+            })
+            .catch(function() {});
+    }
+    function loadProfile() {
+        var h = {};
+        if (token) { h['X-Auth-Token'] = token; }
+        fetch('/api/u/' + encodeURIComponent(LOGIN), { headers: h })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) {
+                    document.getElementById('profile-card').innerHTML = '<div class="empty">' + esc(d.error) + '</div>';
+                    document.title = d.error + ' — LTHub';
+                    return;
+                }
+                document.title = (d.profile.display_name || d.profile.login) + ' — LTHub';
+                render(d);
+            })
+            .catch(function() { document.getElementById('profile-card').innerHTML = '<div class="empty">Не удалось загрузить профиль</div>'; });
+    }
+    loadProfile();
 </script>
 </body>
 </html>"""
@@ -10619,6 +11071,418 @@ def api_auth_logout():
     except Exception as exc:
         log_error("AUTH", "error", f"logout error: {exc}")
     return jsonify({"success": True})
+
+
+# ===== Social: profiles & friends =====
+
+def _social_relation(conn, viewer_id, target_id):
+    """Relation of viewer to target user: friend | outgoing | incoming | none."""
+    if viewer_id and target_id == viewer_id:
+        return "self"
+    if not viewer_id:
+        return "none"
+    try:
+        if conn.execute(
+            text("SELECT 1 FROM web_friends WHERE user_id = :me AND friend_id = :t"),
+            {"me": viewer_id, "t": target_id},
+        ).mappings().first():
+            return "friend"
+        if conn.execute(
+            text("SELECT 1 FROM friend_requests WHERE from_user = :me AND to_user = :t"),
+            {"me": viewer_id, "t": target_id},
+        ).mappings().first():
+            return "outgoing"
+        if conn.execute(
+            text("SELECT 1 FROM friend_requests WHERE from_user = :t AND to_user = :me"),
+            {"me": viewer_id, "t": target_id},
+        ).mappings().first():
+            return "incoming"
+    except Exception:
+        return "none"
+    return "none"
+
+
+@app.route("/api/u/<login>")
+def api_user_profile(login: str):
+    """Public profile payload for /u/<login>."""
+    login = (login or "").strip()
+    if not login:
+        return jsonify({"error": "Пользователь не найден"}), 404
+    viewer = _get_session_user(_auth_token_from_request())
+    viewer_id = viewer["id"] if viewer else None
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT id, login, display_name, gd_nickname, created_at "
+                     "FROM web_users WHERE LOWER(login) = LOWER(:l)"),
+                {"l": login},
+            ).mappings().first()
+            if not row:
+                return jsonify({"error": "Пользователь не найден"}), 404
+            uid = row["id"]
+            relation = _social_relation(conn, viewer_id, uid)
+            streak_row = _get_streak_row(conn, uid)
+            day_rows = conn.execute(
+                text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :u ORDER BY day"),
+                {"u": uid},
+            ).mappings().all()
+            mod_rows = conn.execute(
+                text("SELECT module, SUM(actions) AS total, COUNT(DISTINCT day) AS days "
+                     "FROM web_activity_log WHERE user_id = :u GROUP BY module"),
+                {"u": uid},
+            ).mappings().all()
+            ach_rows = conn.execute(
+                text("SELECT code FROM web_achievements WHERE user_id = :u ORDER BY unlocked_at"),
+                {"u": uid},
+            ).mappings().all()
+        coins_row = get_user_coins(_web_user_id("u" + str(uid)))
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"profile load error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+    modules = []
+    for r in mod_rows:
+        meta = _STATS_MODULES.get(r["module"], {})
+        modules.append({
+            "key": r["module"],
+            "label": meta.get("label", r["module"]),
+            "emoji": meta.get("emoji", ""),
+            "color": meta.get("color", "#94a3b8"),
+            "url": meta.get("url", "/"),
+            "actions": int(r["total"] or 0),
+            "days": int(r["days"] or 0),
+        })
+    modules.sort(key=lambda m: -m["actions"])
+
+    achievements = []
+    for r in ach_rows:
+        meta = ACHIEVEMENTS.get(r["code"])
+        if meta:
+            achievements.append({"code": r["code"], "icon": meta["icon"], "name": meta["name"]})
+
+    return jsonify({
+        "ok": True,
+        "profile": {
+            "id": uid,
+            "login": row["login"],
+            "display_name": row["display_name"] or row["login"],
+            "gd_nickname": row["gd_nickname"],
+            "created_at": row["created_at"].isoformat() if isinstance(row["created_at"], datetime) else str(row["created_at"]),
+            "coins": int((coins_row or {}).get("balance", 0)),
+            "streak": {
+                "current": streak_row["current_streak"] if streak_row else 0,
+                "longest": streak_row["longest_streak"] if streak_row else 0,
+                "total_days": streak_row["total_active_days"] if streak_row else 0,
+            },
+            "active_days": len(day_rows),
+            "total_actions": sum(m["actions"] for m in modules),
+            "modules": modules,
+            "achievements": achievements,
+            "is_self": viewer_id == uid,
+            "relation": relation,
+        },
+    })
+
+
+@app.route("/api/users/search")
+def api_users_search():
+    """Search web users by login / display name."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"error": "Минимум 2 символа для поиска"}), 400
+    if len(q) > 60:
+        q = q[:60]
+    viewer = _get_session_user(_auth_token_from_request())
+    viewer_id = viewer["id"] if viewer else None
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, login, display_name
+                    FROM web_users
+                    WHERE id != :vid AND (
+                        LOWER(login) LIKE LOWER(:q)
+                        OR LOWER(COALESCE(display_name, '')) LIKE LOWER(:q)
+                    )
+                    ORDER BY LOWER(login) LIMIT 20
+                """),
+                {"vid": viewer_id or 0, "q": "%" + q + "%"},
+            ).mappings().all()
+            users = []
+            for r in rows:
+                users.append({
+                    "id": r["id"],
+                    "login": r["login"],
+                    "display_name": r["display_name"] or r["login"],
+                    "relation": _social_relation(conn, viewer_id, r["id"]),
+                })
+        return jsonify({"ok": True, "users": users})
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"search error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/friends", methods=["GET"])
+def api_friends():
+    """Friends + incoming/outgoing requests for the current user."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            friends = conn.execute(
+                text("""
+                    SELECT u.id, u.login, u.display_name
+                    FROM web_friends f JOIN web_users u ON u.id = f.friend_id
+                    WHERE f.user_id = :uid ORDER BY LOWER(u.login)
+                """),
+                {"uid": uid},
+            ).mappings().all()
+            incoming = conn.execute(
+                text("""
+                    SELECT r.id AS req_id, u.id, u.login, u.display_name, r.created_at
+                    FROM friend_requests r JOIN web_users u ON u.id = r.from_user
+                    WHERE r.to_user = :uid ORDER BY r.created_at DESC
+                """),
+                {"uid": uid},
+            ).mappings().all()
+            outgoing = conn.execute(
+                text("""
+                    SELECT r.id AS req_id, u.id, u.login, u.display_name, r.created_at
+                    FROM friend_requests r JOIN web_users u ON u.id = r.to_user
+                    WHERE r.from_user = :uid ORDER BY r.created_at DESC
+                """),
+                {"uid": uid},
+            ).mappings().all()
+
+        def _card(r):
+            card = {"id": r["id"], "login": r["login"], "display_name": r["display_name"] or r["login"]}
+            if r.keys() and "req_id" in r.keys():
+                card["req_id"] = r["req_id"]
+            return card
+
+        return jsonify({
+            "ok": True,
+            "friends": [_card(r) for r in friends],
+            "incoming": [_card(r) for r in incoming],
+            "outgoing": [_card(r) for r in outgoing],
+        })
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"friends list error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/friends/request", methods=["POST"])
+def api_friends_request():
+    """Send a friend request to another user."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    if _check_db_rate(f"frq:{uid}", max_requests=20, window=3600):
+        return jsonify({"error": "Слишком много заявок за час, подождите"}), 429
+    data = request.get_json(silent=True) or {}
+    try:
+        fid = int(data.get("friend_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Неверный ID пользователя"}), 400
+    if fid <= 0:
+        return jsonify({"error": "Неверный ID пользователя"}), 400
+    if fid == uid:
+        return jsonify({"error": "Нельзя добавить самого себя"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            t = conn.execute(
+                text("SELECT id FROM web_users WHERE id = :fid"),
+                {"fid": fid},
+            ).mappings().first()
+            if not t:
+                return jsonify({"error": "Пользователь не найден"}), 404
+            if conn.execute(
+                text("SELECT 1 FROM web_friends WHERE user_id = :me AND friend_id = :f"),
+                {"me": uid, "f": fid},
+            ).mappings().first():
+                return jsonify({"error": "Вы уже друзья"}), 409
+            if conn.execute(
+                text("SELECT 1 FROM friend_requests "
+                     "WHERE (from_user = :me AND to_user = :f) OR (from_user = :f AND to_user = :me)"),
+                {"me": uid, "f": fid},
+            ).mappings().first():
+                return jsonify({"error": "Заявка уже отправлена"}), 409
+            conn.execute(
+                text("INSERT INTO friend_requests (from_user, to_user) VALUES (:me, :f)"),
+                {"me": uid, "f": fid},
+            )
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"friend request error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/friends/accept", methods=["POST"])
+def api_friends_accept():
+    """Accept an incoming friend request."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        rid = int(data.get("request_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Неверный запрос"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            r = conn.execute(
+                text("SELECT from_user, to_user FROM friend_requests WHERE id = :rid"),
+                {"rid": rid},
+            ).mappings().first()
+            if not r or r["to_user"] != uid:
+                return jsonify({"error": "Заявка не найдена"}), 403
+            conn.execute(text("DELETE FROM friend_requests WHERE id = :rid"), {"rid": rid})
+            conn.execute(
+                text("INSERT INTO web_friends (user_id, friend_id) VALUES (:a, :b), (:b, :a) "
+                     "ON CONFLICT DO NOTHING"),
+                {"a": r["from_user"], "b": r["to_user"]},
+            )
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"friend accept error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/friends/decline", methods=["POST"])
+def api_friends_decline():
+    """Decline an incoming friend request."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        rid = int(data.get("request_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Неверный запрос"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            res = conn.execute(
+                text("DELETE FROM friend_requests WHERE id = :rid AND to_user = :uid"),
+                {"rid": rid, "uid": uid},
+            )
+            if res.rowcount == 0:
+                return jsonify({"error": "Заявка не найдена"}), 403
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"friend decline error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/friends/cancel", methods=["POST"])
+def api_friends_cancel():
+    """Cancel an outgoing friend request."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        rid = int(data.get("request_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Неверный запрос"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            res = conn.execute(
+                text("DELETE FROM friend_requests WHERE id = :rid AND from_user = :uid"),
+                {"rid": rid, "uid": uid},
+            )
+            if res.rowcount == 0:
+                return jsonify({"error": "Заявка не найдена"}), 403
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"friend cancel error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/friends/remove", methods=["POST"])
+def api_friends_remove():
+    """Remove a friend (both directions)."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        fid = int(data.get("friend_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Неверный ID"}), 400
+    try:
+        engine = get_db_engine()
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM web_friends WHERE (user_id = :a AND friend_id = :b) "
+                     "OR (user_id = :b AND friend_id = :a)"),
+                {"a": uid, "b": fid},
+            )
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"friend remove error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/friends/weekly", methods=["GET"])
+def api_friends_weekly():
+    """Weekly top among me and my friends by accumulated actions (last 7 days)."""
+    uid = _require_web_user()
+    if not uid:
+        return jsonify({"error": "auth required"}), 401
+    try:
+        cutoff = (datetime.utcnow() - timedelta(days=6)).strftime("%Y-%m-%d")
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            friend_ids = [uid] + [
+                r["friend_id"]
+                for r in conn.execute(
+                    text("SELECT friend_id FROM web_friends WHERE user_id = :uid"),
+                    {"uid": uid},
+                ).mappings().all()
+            ]
+            ids = sorted(set(friend_ids))
+            totals = {}
+            names = {}
+            if ids:
+                ph = ",".join(f":u{i}" for i in range(len(ids)))
+                params = {f"u{i}": v for i, v in enumerate(ids)}
+                params["cut"] = cutoff
+                for r in conn.execute(
+                    text(f"SELECT user_id, SUM(actions) AS total FROM web_activity_log "
+                         f"WHERE day >= :cut AND user_id IN ({ph}) GROUP BY user_id"),
+                    params,
+                ).mappings().all():
+                    totals[int(r["user_id"])] = int(r["total"] or 0)
+                name_params = {f"n{i}": v for i, v in enumerate(ids)}
+                for r in conn.execute(
+                    text(f"SELECT id, login, display_name FROM web_users WHERE id IN ({ph.replace(':u', ':n')})"),
+                    name_params,
+                ).mappings().all():
+                    names[int(r["id"])] = {
+                        "login": r["login"],
+                        "display_name": r["display_name"] or r["login"],
+                    }
+        items = [
+            {
+                "id": tid,
+                "login": names.get(tid, {}).get("login", ""),
+                "display_name": names.get(tid, {}).get("display_name", ""),
+                "actions": totals.get(tid, 0),
+                "me": tid == uid,
+            }
+            for tid in ids
+        ]
+        items.sort(key=lambda it: (-it["actions"], it["login"] or ""))
+        return jsonify({"ok": True, "weekly": items, "cutoff": cutoff})
+    except Exception as exc:
+        log_error("SOCIAL", "error", f"weekly error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
 
 
 # ===== Admin Panel (WEB-07) =====
