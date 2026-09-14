@@ -13,6 +13,16 @@
   - Тесты: +2 e2e (ddl-таблицы `levels`/`level_completions`/`player_stats`), 6/6 зелёные; ruff; `node --check` gd.js/gdlevel.js. Прод: link-submit `submission_id=24`, `javascript:`→400.
   - 🟡 **[BACKLOG, pre-existing]** `/api/gd/leaderboard` висит в проде на уровнях со сложностью `Unknown` (внешний gdbrowser без таймаута) — добавить timeout/кэш в `get_gd_difficulty_name`, проверить скорость ответа. Telegram-викторам `media_file_id` = Tg file_id (на вебе не открывается) — pre-existing.
 
+### ✅ Выполнено (в этой сессии, 2026-09-14, 2-я часть): 🏆 GD демонлист — нормализованная сложность, очки, топ игроков
+- ✅ [TASK] **Нормализованная сложность по реальному GDL + очки + топ игроков + карточка игрока + «⚡ Первый виктор» + фикс leaderboard** (код внесён, не задеплоен):
+  - **Нормализация сложности:** `GD_DIFFICULTY_TIERS` (18 тиров easy→top_10 с weight/color/label); `_gd_norm_difficulty(value, position)` для маппинга произвольного текста; для `Unknown`/пусто — авто-тир по позиции (`top_X`). `get_gd_difficulty_name` с кэшем (TTL 1ч, timeout 5с), возвращает tier-key. Везде где пишется difficulty — нормализация; leaderboards/UI показывают цветные бейджи с label. Admin select из 18 тиров. Known issue FIXED: leaderboard больше не блокируется внешним API.
+  - **Очки:** `player_stats.points`/`demons_count`, formula `round(1000/position)`. `_gd_sync_player_stats(conn, uid)` пересчитывает из level_completions. Вызывается при approve/PUT/DELETE позиции/уровня.
+  - **Топ игроков:** `GET /api/gd/players` + `/gd/players` (ранг/ник/очки/демоны/хардест→карточка). Ссылки викторов → `/gd/player/<nick>`. Ссылка «🏆 Топ игроков» на `/gd`, `/gd/level/<id>`, хабе.
+  - **Карточка игрока:** `/gd/player/<nick>` + `/api/gd/player/<nick>` (резолв web gd_nickname→tg username→s.username), очки/демоны/хардест, пройденные уровни с цветными бейджами + дата, внешние данные gdbrowser (stars/demons/creator), «профиль →».
+  - **⚡ Первый виктор:** `get_gd_level_completions` → `is_first` по MIN(submitted_at); жёлтый бейдж на странице уровня.
+  - Тесты: +3 e2e (`test_gd_normalized_difficulty`, `test_gd_players_page_and_api`, `test_gd_first_completion_badge`); DDL +points/demons_count. 9/9 зелёные (gd×6 + social×3); ruff + `node --check` (gd/gdlevel/gdplayers/gdplayer) чисто.
+  - 🟢 **[BACKLOG] Known issue FIXED:** leaderboard больше не блокируется (энричмент только если позиция+тир оба неизвестны). Прод smoke pending.
+
 ### ✅ Выполнено (в этой сессии, 2026-09-13): 👥 Система профилей и друзей
 - ✅ [TASK] **«добавь систему профилей и друзей»** (коммит `dbbacc5`, задеплоено, прод smoke прошёл):
   - Backend: `friend_requests` + `web_friends` (две строки на пару), `_ensure_social_tables`; роуты `/api/u/<login>`, `/api/users/search`, `/api/friends` (list/request/accept/decline/cancel/remove), `/api/friends/weekly`. Rate-limit заявок `frq:{uid}` 20/час; 403 на чужие заявки; 409 на дубли/self 400. Публичный профиль без email/telegram/hash.

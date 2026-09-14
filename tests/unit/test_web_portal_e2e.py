@@ -164,7 +164,9 @@ def _make_engine():
         total_approved INTEGER DEFAULT 0,
         total_rejected INTEGER DEFAULT 0,
         hardest_level_id INTEGER,
-        last_submission TIMESTAMP
+        last_submission TIMESTAMP,
+        points INTEGER DEFAULT 0,
+        demons_count INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS canon_works (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -516,6 +518,143 @@ def test_gd_level_completions_page_and_api(mock_engine):
     assert "Прохождения уровня" in rp.get_data(as_text=True)
     gd_body = c.get("/gd").get_data(as_text=True)
     assert 'href="/gd/level/' in gd_body  # leaderboard level names link to the level page
+
+
+@patch("api.index.get_db_engine")
+def test_gd_normalized_difficulty(mock_engine):
+    """Difficulty is normalized into the Global Demonlist ladder, auto-derived from position."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+
+    # Explicit tiers and legacy text maps to canonical keys.
+    assert index_api._gd_norm_difficulty("Easy") == "easy"
+    assert index_api._gd_norm_difficulty("Hard Demon") == "hard_demon"
+    assert index_api._gd_norm_difficulty("extreme demon") == "extreme_demon"
+    assert index_api._gd_norm_difficulty("Top 150") == "top_150"
+    assert index_api._gd_norm_difficulty("insane_demon", 9) == "insane_demon"  # explicit wins
+
+    # Unknown -> list placement tier derived from position.
+    assert index_api._gd_norm_difficulty("Unknown", 1) == "top_10"
+    assert index_api._gd_norm_difficulty("Unknown", 55) == "top_100"
+    assert index_api._gd_norm_difficulty("Unknown", 200) == "top_200"
+    assert index_api._gd_norm_difficulty("Unknown", 9999) == "top_1000"
+
+    # Level created with Unknown difficulty gets the canonical tier stored.
+    level_id = index_api.add_gd_level("Silent Clubstep", 3, "Unknown")
+    assert level_id is not None
+    resp = c.get(f"/api/gd/level/{level_id}/completions")
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["level"]["difficulty_key"] == "top_10"
+    assert d["level"]["difficulty"] == "Top 10"
+
+    # Fallback path: unreachable gdbrowser returns "Unknown" (and never hangs).
+    with patch("api.index.requests.get", side_effect=Exception("offline")):
+        assert index_api.get_gd_difficulty_name("Some Live Level") == "Unknown"
+
+
+@patch("api.index.get_db_engine")
+def test_gd_players_page_and_api(mock_engine):
+    """Top players API/page + player card resolve local points, demons and completions."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO web_users (id, login, password_hash, display_name, gd_nickname) VALUES (1, 'alice', 'x', 'Alice', 'Riot')"
+        ))
+        conn.execute(text(
+            "INSERT INTO users (id, telegram_id, first_name, username) VALUES (1, 777, 'Боб', 'bob_tg')"
+        ))
+    tartarus = index_api.add_gd_level("Tartarus", 1, "Extreme Demon")
+    bloodbath = index_api.add_gd_level("Bloodbath", 2, "Unknown")
+    assert tartarus is not None and bloodbath is not None
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO player_stats (user_id, points, demons_count, hardest_level_id) VALUES (1, 1000, 2, :t)"
+        ), {"t": tartarus})
+        conn.execute(text(
+            "INSERT INTO player_stats (user_id, points, demons_count, hardest_level_id) VALUES (777, 500, 1, :t)"
+        ), {"t": tartarus})
+        conn.execute(text("INSERT INTO level_completions (user_id, level_id) VALUES (1, :t)"), {"t": tartarus})
+        conn.execute(text("INSERT INTO level_completions (user_id, level_id) VALUES (1, :b)"), {"b": bloodbath})
+        conn.execute(text("INSERT INTO level_completions (user_id, level_id) VALUES (777, :t)"), {"t": tartarus})
+
+    resp = c.get("/api/gd/players")
+    assert resp.status_code == 200
+    players = resp.get_json()
+    assert len(players) == 2
+    top = players[0]
+    assert top["rank"] == 1 and top["player_name"] == "Riot"
+    assert top["points"] == 1000 and top["demons_count"] == 2 and top["web_login"] == "alice"
+    assert "Tartarus" in top["hardest"]
+    assert players[1]["player_name"] == "Боб" and players[1]["points"] == 500
+
+    # Players page.
+    rp = c.get("/gd/players")
+    assert rp.status_code == 200
+    assert "Топ игроков" in rp.get_data(as_text=True)
+
+    # Player card resolves web user by GD nick.
+    prof = c.get("/api/gd/player/Riot").get_json()
+    assert prof["found"] is True
+    assert prof["player_name"] == "Riot"
+    assert prof["points"] == 1000
+    assert prof["demons_count"] == 2
+    assert prof["completions_count"] == 2
+    assert prof["web_login"] == "alice"
+    assert "Tartarus" in prof["hardest"]
+    diff_keys = {co["difficulty_key"] for co in prof["completions"]}
+    assert "extreme_demon" in diff_keys
+
+    # Unknown nick (no local record) -> found:False.
+    nf = c.get("/api/gd/player/NoSuchPlayer123").get_json()
+    assert nf["found"] is False
+
+    # Player page renders.
+    pbody = c.get("/gd/player/Riot").get_data(as_text=True)
+    assert "Карточка игрока" in pbody
+
+
+@patch("api.index.get_db_engine")
+def test_gd_first_completion_badge(mock_engine):
+    """The earliest approved completion on a level is flagged as the first victor."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO web_users (id, login, password_hash, display_name, gd_nickname) VALUES (1, 'alice', 'x', 'Alice', 'Riot')"
+        ))
+        conn.execute(text(
+            "INSERT INTO users (id, telegram_id, first_name, username) VALUES (1, 777, 'Боб', 'bob_tg')"
+        ))
+    level_id = index_api.add_gd_level("Tartarus", 1, "Extreme Demon")
+    assert level_id is not None
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO submissions (id, user_id, username, level_name, status, submitted_at) "
+            "VALUES (1, 1, 'Riot', 'Tartarus', 'approved', '2026-01-01 10:00:00')"
+        ))
+        conn.execute(text(
+            "INSERT INTO submissions (id, user_id, username, level_name, status, submitted_at) "
+            "VALUES (2, 777, 'TgBeast', 'Tartarus', 'approved', '2026-01-02 10:00:00')"
+        ))
+
+    resp = c.get(f"/api/gd/level/{level_id}/completions")
+    assert resp.status_code == 200
+    d = resp.get_json()
+    by_name = {u["player_name"]: u for u in d["completions"]}
+    assert "Riot" in by_name and "Боб" in by_name
+    assert by_name["Riot"]["is_first"] is True
+    assert by_name["Боб"]["is_first"] is False
 
 
 def test_reading_trainer_has_mom05_features():

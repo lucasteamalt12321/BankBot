@@ -226,6 +226,15 @@ _Баги добавляются по ходу тестирования оста
   - Прод: link-submit → `submission_id=24`, `javascript:` → 400, `/gd/level/1` 200, `/api/gd/level/1/completions` → виктор «LucasTeam».
   - 🟡 **Known issue (pre-existing, не трогал):** `/api/gd/leaderboard` висит в проде, если у уровня сохранённая сложность `Unknown` — `get_gd_difficulty_name` идёт во внешний gdbrowser API без таймаута. В бэклог (добавить timeout/кэш). Для telegram-викторов `media_file_id` — Tg file_id, на странице рендерится как относительная ссылка (не открывается) — pre-existing.
 
+### 2026-09-14 (Session: 🏆 GD демонлист — нормализованная сложность, очки, топ игроков)
+- **[TASK]** Нормализованная сложность по реальному Global Demonlist (не pointercrate) + очки + топ игроков + карточка игрока + «⚡ Первый виктор» + фикс зависания лидерборда.
+  - **Нормализация сложности:** константа `GD_DIFFICULTY_TIERS` (18 тиров: easy/…/top_10) с weight/color/label; `_gd_norm_difficulty(value, position)` маппит произвольный текст → канонический ключ, для `Unknown`/пусто возвращает tier по позиции (`top_X` в стиле реального GDL). Везде где пишется difficulty (`add_gd_level`, approve, admin PUT) проходит через нормализацию; `get_gd_leaderboard` теперь отдаёт `difficulty_key`+`difficulty` label+цвет; энричмент из gdbrowser внешний **только** когда ни позиция, ни тир неизвестны (cache TTL 1ч, timeout 5с) — прод-ханг ликвидирован. Admin inline-edit → `<select>` из 18 тиров; бейджи сложности цветные на лидерборде/уровне/топе.
+  - **Очки + топ игроков:** `player_stats.points`/`demons_count` (ALTER IF NOT EXISTS), `points = round(1000/position)`. `_gd_sync_player_stats(conn, uid)` пересчитывает очки/демонов/хардест из level_completions; вызывается при approve (вместо только hardest), при смене позиции/удалении уровня. `GET /api/gd/players` + страница `/gd/players` (ранг/ник/очки/демоны/хардест → профиль). Ссылки имен викторов в лидерборде ведут на `/gd/player/<nick>`. Ссылка «🏆 Топ игроков» на `/gd`, `/gd/level/<id>` и в хабе (обновлена карточка).
+  - **Карточка игрока `/gd/player/<nick>`:** резолв ника (web gd_nickname → tg username → submissions username); очки, демоны, хардест, список пройденных (позиция + цветной бейдж тира + дата), внешние GD-данные (stars/demons/creator_points) через gdbrowser с таймаутом; ссылка «профиль →» `/u/<login>`.
+  - **⚡ Первый виктор:** в `get_gd_level_completions` вычисляется `MIN(submitted_at)` и ставится флаг `is_first`; на странице уровня — жёлтый бейдж «⚡ Первый виктор» у самого раннего виктора.
+  - Тесты: +3 в `test_web_portal_e2e.py` (`test_gd_normalized_difficulty`, `test_gd_players_page_and_api`, `test_gd_first_completion_badge`); DDL `player_stats` дополнен columns points/demons_count. 9/6 зелёных (gd×6 + social×3); ruff + `node --check` (gd/gdlevel/gdplayers/gdplayer) — всё чисто. Vercel deploy OK.
+  - 🟢 **Known issue FIXED:** `/api/gd/leaderboard` больше не блокируется (энричмент только когда позиция неизвестна). Прод-дым: `/gd/players` 200, `/api/gd/players` → data OK.
+
 ### 2026-09-12 (Session: 🔍 аудит других модулей на такие же auth-баги)
 - Полный субагент-аудит всех страниц: остальных CLASS A (API-вызовы без токена) и CLASS B (race с ACCOUNT_ID/USER_ID) НЕ найдено — gd/account/canon/irregular_verbs/code/daily_prayer/family/admin закрыты.
 - **[Fix]** `/exam`: 4 запроса (`/api/exam/ai-batch`, `/api/exam/check` x2, `/api/exam/ai-record`) не слали `X-Auth-Token` → слабые темы не подбирались, прогресс/достижения не записывались (страница при этом писала «Вы вошли — прогресс сохранится»).
@@ -1781,7 +1790,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
-9b0b74d (2026-09-14; feat(gd): прохождения уровня — страница /gd/level/<id> + GET /api/gd/level/<id>/completions (дедуп, meta, player_name), имя уровня в лидерборде → ссылка, сабмит «Файл/Ссылка» media_type=link (urlparse http/https, ≤2048, файл ИЛИ ссылка → 400, 16МБ → 413), gdMediaHtml helper в модерации; +2 e2e-теста; 6/6 зелёные; задеплоено, прод smoke OK; 🟡 leaderboard висит на Unknown-сложности — pre-existing)
+TBD (2026-09-14; feat(gd): нормализованная сложность (18-тировый GDL-ладдер), очки по позиции, топ игроков, карточка игрока, «⚡ Первый виктор», фикс зависания leaderboard; +3 e2e-теста; 9/9 зелёные; ruff + node --check чисто)
 8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
 e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
 caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
