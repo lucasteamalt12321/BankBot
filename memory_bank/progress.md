@@ -216,6 +216,19 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-14 (Session: 🎮 GD — персона-атрибуция по нику из заявки + админ «+» в профиле игрока)
+- **[TASK] «LucasTeam это Лука, nikiktosik не помню, shadowraven привяжи к тестовому» — атрибуция прохождений по нику из заявки (`submissions.username`), а не по аккаунту (коммит `7f5e2a5`, задеплоено).**
+  - ДБ на проде защищена (env vars типа `sensitive` не расшифровать через API/CLI) → временный debug-эндпоинт `/api/gd/_dbg` (заголовок `X-Dbg: c7a2e1f4b8d39a05`) дал ground truth, затем ЭНДПОИНТ УДАЛЁН.
+  - Ground truth: `levels`: id1 Grey Trap pos3, id6 Acid factory pos5, id7 Ultra paracosm pos4, id4 Supersonic pos1, id5 True values of live pos2. `level_completions`: (2091908459→1), (1597272920→4,5), (17→6), (8→6,7). Прод-approved `submissions` (ник из заявки): GreyTrap→`LucasTeam`(2091908459), Supersonic→`LucasTeam`(1597272920), TVOL→`ShadowRaven`(1597272920), Acid→`nikiktos`(17) и `LucasTeam12321`(8), Ultra→`LucasTeam12321`(8); stray approved id17 `Supresonic`/web_1597272920 без completion.
+  - **Модель:** персона = ник из заявки; один аккаунт может иметь несколько персон (1597272920 = LucasTeam за Supersonic + ShadowRaven за TVOL). `gd_aliases` УДАЛЕНА (DROP в `_ensure_gd_tables`), добавлен `level_completions.player_name` + backfill `_gd_backfill_completion_names` (submission.username, иначе account name).
+  - Переписаны: `get_gd_level_completions` (s.username→player_name, `is_first` по нему), STRING_AGG completers в лидерборде, `get_gd_players` (группировка по player_name), `get_gd_player_profile` (персона→аккаунт; заново добавлены `_gd_resolve_player_uid` без submissions-шага и `_gd_player_completions`), `approve_gd_submission_db` (пишет player_name). Удалены `_gd_alias_for/_gd_alias_members/_gd_player_name/_gd_group_player_completions`.
+  - Тесты: DDL без gd_aliases + player_name; `test_gd_alias_merge` заменён на `test_gd_persona_attribution`; обновлены `test_gd_players_page_and_api`/`test_gd_level_completions_page_and_api`/`test_gd_first_completion_badge`. 7/7 gd + 3 social зелёные, ruff clean. Прод-дым: топ = LucasTeam 1333 (демоны 2: Insane Demon+H̶ard Demon) / ShadowRaven 500 (демоны 0: TVOL=Insane не демон) / LucasTeam12321 450 (Easy Demon+Hard=1) / nikiktos 200 (Hard=0) — счёт демонов верен под явные сложности уровней; `is_first` у Supersonic/TVOL/GreyTrap → LucasTeam/ShadowRaven/LucasTeam.
+- **[TASK] «Кнопка + в профиле игрока: выбрать уровень как пройденный/удалить, при добавлении — медиа/ссылка» (админ-панель).**
+  - **Backend:** `POST /api/gd/admin/player/<nick>/completions` (только `_web_admin_session`): form `level_id` + `media_url` (http/https) или файл `media` (≤16 МБ, фото/video, data-URI, запрет svg/html) через `_gd_admin_build_media`; резолв uid через `_gd_admin_player_uid` (персона→аккаунт); прямая вставка approved `submissions` + `level_completions` (player_name=nick, ON CONFLICT DO NOTHING) + инкремент total_approved + `_gd_sync_player_stats` (портируется на sqlite — без `approve_gd_submission_db`/NOW()). Дубль → 400, без медиа → 400, нет прав → 403.
+  - **Backend:** `DELETE /api/gd/admin/player/<nick>/completions?level_id=` — удаляет `level_completions` + approved submission по (uid, level), пересчёт total_approved, `_gd_sync_player_stats`.
+  - **UI `/gd/player/<nick>`:** при `IS_ADMIN` (из `/api/gd/me`) — кнопка «＋ Добавить уровень» → панель: `<select>` уровней из `/api/gd/leaderboard?limit=200`, поле ссылки, `<input type=file>`; кнопка «Добавить» (FormData POST) и «Отмена»; у каждого completion кнопка «✕» (confirm → DELETE → loadPlayer). Boot: `IS_ADMIN` резолвится до `loadPlayer()`.
+  - Тесты: +1 `test_gd_admin_completion_add_remove` (403 non-admin, 400 без медиа, add+дубль 400+roster, delete→0). 8/8 gd+social зелёные, ruff clean. Ru: коммит + деплой, прод-дым.
+
 ### 2026-09-14 (Session: 🎮 GD — прохождения уровня + внешние ссылки медиа)
 - **[TASK]** Запрос пользователя: «Усовершенствовать систему прохождений в ГД — при нажатии на уровень список прохождений; при клике на виктора ссылка на профиль и медиа; в заявке можно выбрать файл / внешнюю ссылку; большие файлы не принимаются» (коммит `9b0b74d`, задеплоено).
   - **Новая страница** `/gd/level/<int:id>` + `GET /api/gd/level/<int:id>/completions`: approved-прохождения уровня (дедуп по игроку, последнее медиа), meta уровня (позиция/сложность, live-сложность только как fallback). Виктор: `player_name` по COALESCE-приоритету лидерборда (gd_nickname→display_name→tg_first_name→tg_username→s.username), для web-игроков «профиль →» `/u/<login>`, медиа-ссылка + inline-превью прямых image/video-URL и `data:`-URL, бирка «🔗 внешняя ссылка».
@@ -2403,7 +2416,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-  c7af898 (2026-08-29; feat(music): цепочка трансформов + автообновление анализа).
+  5b1b4da (2026-09-14; fix(gd): attribute completions by submission nick + admin add/remove in player card).
 ## last_checked_commit
   3ab85b1 (2026-08-29; feat(gd): рекорды привязаны к аккаунту, анонимы заблокированы, GD-ник из профиля).
 ## last_checked_commit
