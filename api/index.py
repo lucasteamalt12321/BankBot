@@ -7590,7 +7590,7 @@ def gd_player_page(nick: str):
             })
             .catch(function() { document.getElementById('gd-ext').style.display = 'none'; });
     }
-    fetch('/api/gd/me')
+    fetch('/api/gd/me', { headers: { 'X-Auth-Token': (localStorage.getItem('web_token') || '') } })
         .then(function(r) { return r.json(); })
         .then(function(m) { IS_ADMIN = !!(m && m.is_admin); })
         .catch(function() { IS_ADMIN = false; })
