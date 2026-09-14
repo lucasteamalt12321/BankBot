@@ -6526,10 +6526,16 @@ def gd_page():
                             + '<div style="color:var(--gh-text);font-size:15px;margin:6px 0">🎮 ' + _gdEsc(s.level_name) + '</div>'
                             + '<div class="hint" style="margin-top:0">📅 ' + _gdEsc(s.submitted_at || '—') + ' · ' + _gdEsc(s.media_type || 'без медиа') + '</div>'
                             + '<div class="hint" style="margin-top:0">'
-                            + ((s.media_file_id && /^data:image\\/(png|jpeg|gif|webp);base64,/.test(s.media_file_id))
-                                ? '<a href="' + _gdEsc(s.media_file_id) + '" target="_blank" rel="noopener noreferrer">🎬 Смотреть медиа</a>'
+                            + (s.media_file_id
+                                ? '<a href="' + _gdEsc(s.media_file_id) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>'
                                 : '')
                             + '</div>'
+                            + (s.media_file_id && /^data:image\\/(png|jpeg|gif|webp);base64,/.test(s.media_file_id)
+                                ? '<img src="' + _gdEsc(s.media_file_id) + '" alt="Скриншот прохождения" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block">'
+                                : '')
+                            + (s.media_file_id && /^data:video\\/(mp4|webm|mov|mkv|x-matroska);base64,/.test(s.media_file_id)
+                                ? '<video controls preload="metadata" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block" src="' + _gdEsc(s.media_file_id) + '"></video>'
+                                : '')
                             + '<div class="mod-btns">'
                             + '<button class="btn btn-approve" onclick="approveSub(' + s.id + ')">✅ Подтвердить</button>'
                             + '<button class="btn btn-reject" onclick="rejectSub(' + s.id + ')">❌ Отклонить</button>'
