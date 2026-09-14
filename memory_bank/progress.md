@@ -234,6 +234,7 @@ _Баги добавляются по ходу тестирования оста
   - **⚡ Первый виктор:** в `get_gd_level_completions` вычисляется `MIN(submitted_at)` и ставится флаг `is_first`; на странице уровня — жёлтый бейдж «⚡ Первый виктор» у самого раннего виктора.
   - Тесты: +3 в `test_web_portal_e2e.py` (`test_gd_normalized_difficulty`, `test_gd_players_page_and_api`, `test_gd_first_completion_badge`); DDL `player_stats` дополнен columns points/demons_count. 9/6 зелёных (gd×6 + social×3); ruff + `node --check` (gd/gdlevel/gdplayers/gdplayer) — всё чисто. Vercel deploy OK.
   - 🟢 **Known issue FIXED:** `/api/gd/leaderboard` больше не блокируется (энричмент только когда позиция неизвестна). Прод-дым: `/gd/players` 200, `/api/gd/players` → data OK.
+  - **[FIX `57e6e84`]** `_gd_ensure_points_backfill` — ленивый пересчёт `player_stats` для строк, созданных до появления колонок points/demons_count (вызывается в `get_gd_players`/`get_gd_player_profile`; прод-данные → топ игроков наполнился, leaderboard 0.84s). Прод-коллизия имён «LucasTeam» (2 tg-аккаунта с одинаковым display name) — резолве спешится на `users.username`, data-нюанс, не баг.
 
 ### 2026-09-12 (Session: 🔍 аудит других модулей на такие же auth-баги)
 - Полный субагент-аудит всех страниц: остальных CLASS A (API-вызовы без токена) и CLASS B (race с ACCOUNT_ID/USER_ID) НЕ найдено — gd/account/canon/irregular_verbs/code/daily_prayer/family/admin закрыты.
@@ -1790,7 +1791,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
-bc24f69 (2026-09-14; feat(gd): нормализованная сложность (18-тировый GDL-ладдер), очки по позиции, топ игроков, карточка игрока, «⚡ Первый виктор», фикс зависания leaderboard; +3 e2e-теста; 9/9 зелёные; ruff + node --check чисто)
+57e6e84 (2026-09-14; feat(gd) bc24f69 — мини-демонлист: нормализованная сложность (18-тировый GDL-ладдер), очки по позиции, топ игроков, карточка игрока, «⚡ Первый виктор», фикс зависания leaderboard; +3 e2e-теста; 9/9 зелёные; ruff + node --check чисто; задеплоено, прод smoke OK; fix 57e6e84 — lazy backfill player_stats для pre-deploy строк)
 8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
 e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
 caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
