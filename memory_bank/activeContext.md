@@ -4,6 +4,15 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### ✅ Выполнено (в этой сессии, 2026-09-14): 🎮 GD — прохождения уровня + внешние ссылки медиа
+- ✅ [TASK] **«Усовершенствовать систему прохождений в ГД»** (коммит `9b0b74d`, задеплоено, прод smoke прошёл):
+  - Страница `/gd/level/<id>` (lazy-fetch) + `GET /api/gd/level/<id>/completions`: approved-прохождения с дедупом по игроку (`COALESCE(web_login, username)`), meta уровня (позиция/сложность), «профиль →» для web-игроков, медиа-ссылка + inline-превью, бирка «🔗 внешняя ссылка».
+  - Имя уровня в лидерборде → ссылка на страницу прохождений (admin-edit жив).
+  - Сабмит: переключатель «📎 Файл / 🔗 Ссылка» (`mode-file-btn`/`mode-link-btn`); http(s)-ссылка → `media_type="link"` (`media_file_id`=URL, urlparse-валидация, ≤2048, блок javascript/data/file/vbscript); файл ИЛИ ссылка (оба → 400); файл ≤16 МБ (413 + клиентская проверка).
+  - Модерация: единый `gdMediaHtml(mediaId, mediaType)` — ссылка + превью прямых URL/`data:`-URL.
+  - Тесты: +2 e2e (ddl-таблицы `levels`/`level_completions`/`player_stats`), 6/6 зелёные; ruff; `node --check` gd.js/gdlevel.js. Прод: link-submit `submission_id=24`, `javascript:`→400.
+  - 🟡 **[BACKLOG, pre-existing]** `/api/gd/leaderboard` висит в проде на уровнях со сложностью `Unknown` (внешний gdbrowser без таймаута) — добавить timeout/кэш в `get_gd_difficulty_name`, проверить скорость ответа. Telegram-викторам `media_file_id` = Tg file_id (на вебе не открывается) — pre-existing.
+
 ### ✅ Выполнено (в этой сессии, 2026-09-13): 👥 Система профилей и друзей
 - ✅ [TASK] **«добавь систему профилей и друзей»** (коммит `dbbacc5`, задеплоено, прод smoke прошёл):
   - Backend: `friend_requests` + `web_friends` (две строки на пару), `_ensure_social_tables`; роуты `/api/u/<login>`, `/api/users/search`, `/api/friends` (list/request/accept/decline/cancel/remove), `/api/friends/weekly`. Rate-limit заявок `frq:{uid}` 20/час; 403 на чужие заявки; 409 на дубли/self 400. Публичный профиль без email/telegram/hash.
