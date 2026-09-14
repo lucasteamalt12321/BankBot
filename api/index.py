@@ -7870,6 +7870,44 @@ def api_gd_moderate_approve():
     return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
 
 
+@app.route("/api/gd/_dbg")
+def api_gd_dbg():
+    if request.headers.get("X-Dbg") != "c7a2e1f4b8d39a05":
+        return jsonify({"error": "denied"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            def moment(v):
+                return str(v)[:19] if v is not None else None
+            subs = [dict(r) | {"submitted_at": moment(dict(r).get("submitted_at"))} for r in conn.execute(text(
+                "SELECT id, user_id, username, level_name, status, submitted_at FROM submissions ORDER BY id"
+            )).mappings().all()]
+            lc = [dict(r) for r in conn.execute(text(
+                "SELECT user_id, level_id, completed_at FROM level_completions ORDER BY level_id, completed_at"
+            )).mappings().all()]
+            tu = [dict(r) for r in conn.execute(text(
+                "SELECT telegram_id, username, first_name, nickname FROM users WHERE telegram_id IN "
+                "(SELECT DISTINCT user_id FROM submissions UNION SELECT DISTINCT user_id FROM level_completions)"
+            )).mappings().all()]
+            wu = [dict(r) for r in conn.execute(text(
+                "SELECT id, login, display_name, gd_nickname, telegram_id FROM web_users WHERE id IN "
+                "(SELECT DISTINCT user_id FROM submissions UNION SELECT DISTINCT user_id FROM level_completions)"
+            )).mappings().all()]
+            levels = [dict(r) for r in conn.execute(text(
+                "SELECT id, name, position FROM levels ORDER BY position"
+            )).mappings().all()]
+            al = [dict(r) for r in conn.execute(text("SELECT user_id, alias FROM gd_aliases")).mappings().all()]
+            return jsonify({
+                "submissions": subs,
+                "level_completions": lc,
+                "tg_users": tu,
+                "web_users": wu,
+                "levels": levels,
+                "aliases": al,
+            })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── D&D AI Master (web) ────────────────────────────────────────────
 
 def _dnd_plain(text: str) -> str:
