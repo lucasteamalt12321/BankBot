@@ -25,6 +25,15 @@
   - 🟢 **[BACKLOG] Known issue FIXED:** leaderboard больше не блокируется (энричмент только если позиция+тир оба неизвестны). Прод smoke pending. → закрыт, проверено.
   - ⚠️ Прод-нюанс данных: два tg-аккаунта с отображаемым именем «LucasTeam» — ники-ссылки ведут на резолв по `users.username`; при желании добавить учёт `first_name` в `_gd_resolve_player_uid` (коллизия имён останется).
 
+### ✅ Выполнено (в этой сессии, 2026-09-14, 3-я часть): 🔗 gd_aliases — объединение аккаунтов в одного игрока
+- ✅ [TASK] **«оба lucasteam — это я. shadowraven нет в топе»** — пользователь подтвердил «объедини 2»:
+  - Таблица **`gd_aliases(user_id, alias)`**; бутстрап в `_ensure_gd_tables` (idempotent): `1597272920` и `2091908459` → `ShadowRaven`. Web-аккаунт `lucasteam` (uid 8) — отдельная запись (НЕ объединял).
+  - Топ `/api/gd/players` + `/gd/players`: группировка по алиасу (сумма очков/демонов, hardest = min-позиция), LIMIT после группировки.
+  - Карточка `/gd/player/<nick>`: алиас → объединённые члены (суммарные статы, union прохождений через `_gd_group_player_completions`).
+  - Викторы на странице уровня + completers в лидерборде — дедуп/имя через алиас (alias-подзапрос).
+  - Тест `test_gd_alias_merge`; 10/10 зелёные; ruff/py_compile чисто. Задеплоено; прод: «ShadowRaven» rank1 с суммой очков (1500+333) — готово для проверки пользователем.
+  - ⚠️ Чтобы дальше управлять объединением без правки кода — позже можно добавить админ-эндпоинт/UI для `gd_aliases`.
+
 ### ✅ Выполнено (в этой сессии, 2026-09-13): 👥 Система профилей и друзей
 - ✅ [TASK] **«добавь систему профилей и друзей»** (коммит `dbbacc5`, задеплоено, прод smoke прошёл):
   - Backend: `friend_requests` + `web_friends` (две строки на пару), `_ensure_social_tables`; роуты `/api/u/<login>`, `/api/users/search`, `/api/friends` (list/request/accept/decline/cancel/remove), `/api/friends/weekly`. Rate-limit заявок `frq:{uid}` 20/час; 403 на чужие заявки; 409 на дубли/self 400. Публичный профиль без email/telegram/hash.
