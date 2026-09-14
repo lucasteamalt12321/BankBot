@@ -505,9 +505,13 @@ def _ensure_gd_tables(engine):
                     total_approved INTEGER DEFAULT 0,
                     total_rejected INTEGER DEFAULT 0,
                     hardest_level_id INTEGER,
-                    last_submission TIMESTAMP
+                    last_submission TIMESTAMP,
+                    points INTEGER DEFAULT 0,
+                    demons_count INTEGER DEFAULT 0
                 )
             """))
+            conn.execute(text("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS demons_count INTEGER DEFAULT 0"))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS level_completions (
                     id SERIAL PRIMARY KEY,
@@ -3940,23 +3944,175 @@ def get_gddl_recommendation(level_name: str) -> int | None:
         return None
 
 
-def get_gd_difficulty_name(level_name: str) -> str:
-    """Get human-readable difficulty for a level from gdbrowser."""
+# ============================================================================
+# Geometry Dash — Normalized difficulty tiers (Global Demonlist style ladder)
+# ============================================================================
+
+# Ladder mirrors the real Global Demonlist: game ratings (easy..insane),
+# demon tiers (Easy Demon..Extreme Demon) and list placement cut-offs
+# (Top 1000..Top 10). Index order = hardness. weight = base score.
+GD_DIFFICULTY_TIERS = [
+    ("easy",          "Easy",          5),
+    ("normal",        "Normal",       10),
+    ("hard",          "Hard",         20),
+    ("harder",        "Harder",       30),
+    ("insane",        "Insane",       40),
+    ("easy_demon",    "Easy Demon",   50),
+    ("medium_demon",  "Medium Demon", 60),
+    ("hard_demon",    "Hard Demon",   70),
+    ("insane_demon",  "Insane Demon", 80),
+    ("extreme_demon", "Extreme Demon", 90),
+    ("top_1000",      "Top 1000",     100),
+    ("top_500",       "Top 500",      110),
+    ("top_200",       "Top 200",      120),
+    ("top_150",       "Top 150",      130),
+    ("top_100",       "Top 100",      140),
+    ("top_50",        "Top 50",       150),
+    ("top_25",        "Top 25",       160),
+    ("top_10",        "Top 10",       170),
+]
+GD_DIFFICULTY_KEYS = {k for k, _l, _w in GD_DIFFICULTY_TIERS}
+GD_DIFFICULTY_LABELS = {k: lbl for k, lbl, _w in GD_DIFFICULTY_TIERS}
+GD_DIFFICULTY_WEIGHTS = {k: w for k, _l, w in GD_DIFFICULTY_TIERS}
+GD_DIFFICULTY_COLORS = {
+    "easy": "#00d26a", "normal": "#4ade80", "hard": "#fbbf24", "harder": "#fb923c", "insane": "#f43f5e",
+    "easy_demon": "#a855f7", "medium_demon": "#9333ea", "hard_demon": "#8b5cf6", "insane_demon": "#7c3aed", "extreme_demon": "#4c1d95",
+    "top_1000": "#64748b", "top_500": "#94a3b8", "top_200": "#cbd5e1", "top_150": "#e2e8f0",
+    "top_100": "#fbbf24", "top_50": "#fb923c", "top_25": "#f43f5e", "top_10": "#ec4899",
+}
+# Auto-derive list-placement tier from a level position (real Demonlist style).
+def _gd_tier_from_position(position) -> str:
     try:
-        resp = requests.get(f"https://gdbrowser.com/api/search/{level_name}", timeout=10)
-        if resp.status_code != 200:
-            return "Unknown"
-        results = resp.json()
-        if not results or not isinstance(results, list):
-            return "Unknown"
-        data = results[0]
-        diff = data.get("difficulty")
-        if diff:
-            return str(diff)
-        return data.get("difficultyName", "Unknown")
+        p = int(position or 0)
+    except (TypeError, ValueError):
+        return "extreme_demon"
+    if p <= 0:
+        return "extreme_demon"
+    for key, _l, _w in reversed(GD_DIFFICULTY_TIERS):
+        if not key.startswith("top_"):
+            continue
+        cutoff = int(key.split("_")[1])
+        if p <= cutoff:
+            return key
+    return "top_1000"
+
+
+_GD_DIFF_RAW_MAP = {
+    "easy": "easy", "normal": "normal", "hard": "hard", "harder": "harder", "insane": "insane",
+    "easydemon": "easy_demon", "mediumdemon": "medium_demon", "harddemon": "hard_demon",
+    "insanedemon": "insane_demon", "extremedemon": "extreme_demon", "demon": "extreme_demon",
+    "extreme": "extreme_demon",
+    "top1000": "top_1000", "top500": "top_500", "top200": "top_200", "top150": "top_150",
+    "top100": "top_100", "top50": "top_50", "top25": "top_25", "top10": "top_10",
+}
+
+
+def _gd_norm_difficulty(value=None, position=0) -> str:
+    """Return a canonical difficulty tier key for a level.
+
+    Accepts tier keys ("hard_demon"), human labels ("Hard Demon", "Top 100")
+    or arbitrary legacy text; unknown/empty values are derived from the
+    level position into a list-placement tier (Top X).
+    """
+    import re
+    raw = (value or "").strip().lower()
+    if raw in GD_DIFFICULTY_KEYS:
+        return raw
+    if not raw or raw in ("unknown", "-", "none", "na"):
+        return _gd_tier_from_position(position)
+    probe = re.sub(r"[^a-z0-9]", "", raw)
+    mapped = _GD_DIFF_RAW_MAP.get(probe)
+    if mapped:
+        return mapped
+    # guess by substring: e.g. "Extreme demon (insane)" -> nearest demon tier
+    if "demon" in raw:
+        order = [0] + [i for i, (k, _l, _w) in enumerate(GD_DIFFICULTY_TIERS) if "demon" in k]
+        for i in order:
+            key, _l, _w = GD_DIFFICULTY_TIERS[i]
+            if key in probe:
+                return key
+        if "extreme" in raw:
+            return "extreme_demon"
+        if "moderate" in raw:
+            return "medium_demon"
+        return "hard_demon"
+    return _gd_tier_from_position(position)
+
+
+def _gd_difficulty_label(value=None) -> str:
+    """Human-readable label for a stored/value difficulty (key or legacy text)."""
+    if value is None:
+        return "Unknown"
+    key = _gd_norm_difficulty(value)
+    return GD_DIFFICULTY_LABELS.get(key, str(value))
+
+
+def gd_difficulty_options() -> list[dict]:
+    """Ordered tier options (for admin selects / constants API)."""
+    return [
+        {"key": k, "label": lbl, "weight": w, "color": GD_DIFFICULTY_COLORS[k]}
+        for k, lbl, w in GD_DIFFICULTY_TIERS
+    ]
+
+
+# Cache (in-process) of gdbrowser difficulty lookups: name -> tier key, TTL 1h.
+_GD_DIFF_CACHE: dict[str, tuple[float, str | None]] = {}
+_GD_DIFF_CACHE_TTL = 3600.0
+
+
+def get_gd_difficulty_name(level_name: str) -> str:
+    """Resolve a level's difficulty via gdbrowser, cached and bounded.
+
+    Returns a canonical GD difficulty tier key (e.g. "hard_demon"); falls
+    back to "Unknown" on any error. Never blocks for more than 5 seconds
+    per level and skips the network call for already-known values.
+    """
+    import time
+    key = _gd_norm_name(level_name)
+    if not key:
+        return "Unknown"
+    hit = _GD_DIFF_CACHE.get(key)
+    if hit and (time.time() - hit[0]) < _GD_DIFF_CACHE_TTL:
+        return hit[1] or "Unknown"
+    result: str | None = None
+    try:
+        resp = requests.get(f"https://gdbrowser.com/api/search/{key}", timeout=5)
+        if resp.status_code == 200:
+            data = (resp.json() or [])[0] if isinstance(resp.json(), list) else None
+            if data:
+                # numeric game rating maps to demon/regular tiers
+                diff_num = data.get("difficulty")
+                name = data.get("difficultyName") or ""
+                if diff_num is not None and isinstance(diff_num, (int, float)):
+                    d = int(diff_num)
+                    if d >= 36:
+                        name = name or "Extreme Demon"
+                    elif d >= 30:
+                        name = name or "Insane Demon"
+                    elif d >= 25:
+                        name = name or "Hard Demon"
+                    elif d >= 21:
+                        name = name or "Medium Demon"
+                    elif d >= 16:
+                        name = name or "Easy Demon"
+                    elif d >= 13:
+                        name = name or "Insane"
+                    elif d >= 10:
+                        name = name or "Harder"
+                    elif d >= 7:
+                        name = name or "Hard"
+                    elif d >= 4:
+                        name = name or "Normal"
+                    elif d >= 1:
+                        name = name or "Easy"
+                if name:
+                    tier = _gd_norm_difficulty(name)
+                    if tier not in ("unknown",):
+                        result = tier
     except Exception as exc:
         print(f"Error getting difficulty for {level_name}: {exc}")
-        return "Unknown"
+    _GD_DIFF_CACHE[key] = (time.time(), result)
+    return result or "Unknown"
 
 
 # ============================================================================
@@ -4048,7 +4204,13 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
                     groups.setdefault(key, []).append(d)
             merged = [_gd_merge_rows(items) for items in groups.values()]
             merged.sort(key=lambda x: int(x.get("position") or 0))
-            return merged[:limit]
+            out = []
+            for lv in merged[:limit]:
+                key = _gd_norm_difficulty(lv.get("difficulty"), lv.get("position"))
+                lv["difficulty_key"] = key
+                lv["difficulty"] = GD_DIFFICULTY_LABELS.get(key, lv.get("difficulty") or "Unknown")
+                out.append(lv)
+            return out
     except Exception as exc:
         print(f"get_gd_leaderboard error: {exc}")
         return []
@@ -4130,31 +4292,94 @@ def get_gd_user_completions_count(user_id: int) -> int:
         return 0
 
 
-def _update_gd_hardest_level(conn, user_id: int) -> None:
-    """Recompute and persist hardest level (MIN position) for a user."""
+def _gd_level_points(position) -> int:
+    """Points a completion of a level at :position yields (position-based)."""
     try:
-        row = conn.execute(
+        p = int(position or 0)
+    except (TypeError, ValueError):
+        p = 0
+    if p <= 0:
+        return 1
+    return max(1, round(1000 / p))
+
+
+def _gd_is_demon_tier(tier_key: str) -> bool:
+    """True for demon tiers and list-placement tiers (weight >= 50)."""
+    return GD_DIFFICULTY_WEIGHTS.get(str(tier_key or ""), 0) >= 50
+
+
+def _gd_sync_player_stats(conn, user_id: int) -> None:
+    """Recompute points / demons_count / hardest_level_id for a user from level_completions."""
+    try:
+        rows = conn.execute(
+            text("""
+                SELECT l.position, l.difficulty FROM level_completions lc
+                JOIN levels l ON l.id = lc.level_id
+                WHERE lc.user_id = :uid
+            """),
+            {"uid": user_id},
+        ).mappings().all()
+        points = 0
+        demons = 0
+        for r in rows:
+            points += _gd_level_points(r["position"])
+            if _gd_is_demon_tier(_gd_norm_difficulty(r["difficulty"], r["position"])):
+                demons += 1
+        hr = conn.execute(
             text("""
                 SELECT lc.level_id FROM level_completions lc
                 JOIN levels l ON l.id = lc.level_id
                 WHERE lc.user_id = :uid
-                ORDER BY l.position ASC, lc.completed_at DESC
+                ORDER BY l.position ASC, lc.completed_at DESC, lc.id DESC
                 LIMIT 1
             """),
             {"uid": user_id},
         ).mappings().first()
-        if not row:
-            return
-        conn.execute(
-            text("""
-                INSERT INTO player_stats (user_id, hardest_level_id)
-                VALUES (:uid, :lid)
-                ON CONFLICT (user_id) DO UPDATE SET hardest_level_id = :lid
-            """),
-            {"uid": user_id, "lid": row["level_id"]},
-        )
+        hardest_id = int(hr["level_id"]) if hr else None
+        if hardest_id:
+            conn.execute(
+                text("""
+                    INSERT INTO player_stats (user_id, points, demons_count, hardest_level_id)
+                    VALUES (:uid, :pts, :dem, :hid)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        points = :pts,
+                        demons_count = :dem,
+                        hardest_level_id = :hid
+                """),
+                {"uid": user_id, "pts": points, "dem": demons, "hid": hardest_id},
+            )
+        else:
+            conn.execute(
+                text("""
+                    INSERT INTO player_stats (user_id, points, demons_count, hardest_level_id)
+                    VALUES (:uid, :pts, :dem, NULL)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        points = :pts,
+                        demons_count = :dem,
+                        hardest_level_id = NULL
+                """),
+                {"uid": user_id, "pts": points, "dem": demons},
+            )
     except Exception as exc:
-        print(f"_update_gd_hardest_level error: {exc}")
+        print(f"_gd_sync_player_stats error: {exc}")
+
+
+def _gd_recalc_level_players(conn, level_id: int) -> None:
+    """Recompute stats for every player who has a completion on the level."""
+    try:
+        users = conn.execute(
+            text("SELECT DISTINCT user_id AS uid FROM level_completions WHERE level_id = :lid"),
+            {"lid": level_id},
+        ).mappings().all()
+        for u in users:
+            _gd_sync_player_stats(conn, int(u["uid"]))
+    except Exception as exc:
+        print(f"_gd_recalc_level_players error: {exc}")
+
+
+def _update_gd_hardest_level(conn, user_id: int) -> None:
+    """See _gd_sync_player_stats (kept as alias for callers)."""
+    _gd_sync_player_stats(conn, user_id)
 
 
 def get_gd_hardest_level_name(user_id: int) -> str:
@@ -4275,7 +4500,7 @@ def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
                         """),
                         {"uid": sub["user_id"], "lid": level["id"]},
                     )
-                    _update_gd_hardest_level(conn, sub["user_id"])
+                    _gd_sync_player_stats(conn, sub["user_id"])
             conn.commit()
             return True
     except Exception as exc:
@@ -4315,6 +4540,15 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
                 """),
                 {"lid": level_id},
             ).mappings().all()
+            min_row = conn.execute(
+                text("""
+                    SELECT MIN(s.submitted_at) AS first_at FROM submissions s
+                    JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+                    WHERE lv.id = :lid AND s.status = 'approved'
+                """),
+                {"lid": level_id},
+            ).mappings().first()
+            first_at = str(min_row["first_at"])[:19] if min_row and min_row.get("first_at") else None
             result = []
             seen = set()
             for row in rows:
@@ -4331,10 +4565,141 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
                 if d.get("submitted_at"):
                     d["submitted_at"] = str(d["submitted_at"])[:19]
                 result.append(d)
+            for d in result:
+                d["is_first"] = bool(d.get("submitted_at")) and first_at is not None and d["submitted_at"] == first_at
             return result
     except Exception as exc:
         print(f"get_gd_level_completions error: {exc}")
         return []
+
+
+def get_gd_players(limit: int = 20) -> list[dict]:
+    """Global player leaderboard by points (position-based score)."""
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT ps.user_id, ps.points, ps.demons_count, ps.total_approved,
+                           COALESCE(NULLIF(wu.gd_nickname, ''), wu.display_name,
+                                    NULLIF(tu.first_name, ''), tu.username, wu.login, 'Игрок') AS player_name,
+                           wu.login AS web_login,
+                           (SELECT l.name FROM levels l WHERE l.id = ps.hardest_level_id) AS hardest_name,
+                           (SELECT l.position FROM levels l WHERE l.id = ps.hardest_level_id) AS hardest_pos
+                    FROM player_stats ps
+                    LEFT JOIN web_users wu ON wu.id = ps.user_id
+                    LEFT JOIN users tu ON tu.telegram_id = ps.user_id
+                    WHERE ps.points > 0
+                    ORDER BY ps.points DESC, ps.demons_count DESC, ps.total_approved DESC
+                    LIMIT :lim
+                """),
+                {"lim": limit},
+            ).mappings().all()
+            out = []
+            for i, r in enumerate(rows, 1):
+                d = dict(r)
+                d["rank"] = i
+                d["points"] = int(d.get("points") or 0)
+                d["demons_count"] = int(d.get("demons_count") or 0)
+                d["hardest"] = f"{d['hardest_name']} (поз. {d['hardest_pos']})" if d.get("hardest_name") else "Нет"
+                d.pop("hardest_name", None)
+                d.pop("hardest_pos", None)
+                out.append(d)
+            return out
+    except Exception as exc:
+        print(f"get_gd_players error: {exc}")
+        return []
+
+
+def _gd_resolve_player_uid(conn, nick: str) -> tuple[int | None, dict]:
+    """Resolve a nick to (user_id, source{hints}) like web/tg panels."""
+    n = (nick or "").strip()
+    if not n:
+        return None, {}
+    row = conn.execute(
+        text("SELECT id, login, display_name, gd_nickname FROM web_users WHERE LOWER(gd_nickname) = LOWER(:n)"),
+        {"n": n},
+    ).mappings().first()
+    if row:
+        return int(row["id"]), {"web": True, "login": row["login"], "display_name": row["display_name"], "gd_nickname": row["gd_nickname"]}
+    row = conn.execute(
+        text("SELECT telegram_id, username, first_name FROM users WHERE LOWER(username) = LOWER(:n)"),
+        {"n": n},
+    ).mappings().first()
+    if row:
+        return int(row["telegram_id"]), {"tg_username": row["username"], "tg_first_name": row["first_name"]}
+    if len(n) >= 3:
+        row = conn.execute(
+            text("SELECT user_id, username FROM submissions WHERE LOWER(username) = LOWER(:n) AND status='approved' ORDER BY id DESC LIMIT 1"),
+            {"n": n},
+        ).mappings().first()
+        if row:
+            return int(row["user_id"]), {"username": row["username"]}
+    return None, {}
+
+
+def _gd_player_completions(conn, user_id: int) -> list[dict]:
+    rows = conn.execute(
+        text("""
+            SELECT l.id, l.name, l.position, l.difficulty, MAX(lc.completed_at) AS completed_at
+            FROM level_completions lc
+            JOIN levels l ON l.id = lc.level_id
+            WHERE lc.user_id = :uid
+            GROUP BY l.id
+            ORDER BY l.position ASC
+        """),
+        {"uid": user_id},
+    ).mappings().all()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["difficulty_key"] = _gd_norm_difficulty(d.get("difficulty"), d.get("position"))
+        d["difficulty"] = GD_DIFFICULTY_LABELS.get(d["difficulty_key"], "Unknown")
+        if d.get("completed_at"):
+            d["completed_at"] = str(d["completed_at"])[:19]
+        out.append(d)
+    return out
+
+
+def get_gd_player_profile(nick: str) -> dict | None:
+    """Local profile for a player card: stats, completions, web link."""
+    try:
+        with get_db_engine().connect() as conn:
+            uid, src = _gd_resolve_player_uid(conn, nick)
+            if uid is None:
+                return {"nick": nick, "found": False}
+            stats = conn.execute(
+                text("SELECT * FROM player_stats WHERE user_id = :uid"),
+                {"uid": uid},
+            ).mappings().first()
+            stats = dict(stats) if stats else {}
+            hardest = "Нет"
+            if stats.get("hardest_level_id"):
+                hr = conn.execute(
+                    text("SELECT name, position FROM levels WHERE id = :lid"),
+                    {"lid": int(stats["hardest_level_id"])},
+                ).mappings().first()
+                if hr:
+                    hardest = f"{hr['name']} (поз. {hr['position']})"
+            completions = _gd_player_completions(conn, uid)
+            return {
+                "nick": nick,
+                "found": True,
+                "web_login": src.get("login"),
+                "player_name": src.get("gd_nickname") or src.get("display_name")
+                    or src.get("tg_first_name") or src.get("username") or nick,
+                "points": int(stats.get("points") or 0),
+                "demons_count": int(stats.get("demons_count") or 0),
+                "completions_count": len(completions),
+                "hardest": hardest,
+                "completions": completions,
+            }
+    except Exception as exc:
+        print(f"get_gd_player_profile error: {exc}")
+        return None
+
+
+# Empty difficulty — single canonical value for "unknown" (kept as constant for API).
+_GD_DIFF_UNKNOWN = "Unknown"
 
 
 def _gd_shift_positions(conn, position: int, exclude_id: int | None = None) -> None:
@@ -4376,6 +4741,7 @@ def _gd_compact_positions(conn) -> None:
 
 def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int | None:
     try:
+        diff = _gd_norm_difficulty(difficulty, position)
         with get_db_engine().connect() as conn:
             existing = conn.execute(
                 text("SELECT id, position FROM levels WHERE LOWER(TRIM(name)) = :key"),
@@ -4385,19 +4751,23 @@ def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int |
                 _gd_shift_positions(conn, position, exclude_id=existing["id"])
                 conn.execute(
                     text("UPDATE levels SET position=:pos, difficulty=:diff WHERE id=:lid"),
-                    {"lid": existing["id"], "pos": position, "diff": difficulty},
+                    {"lid": existing["id"], "pos": position, "diff": diff},
                 )
                 _gd_compact_positions(conn)
+                _gd_recalc_level_players(conn, int(existing["id"]))
                 conn.commit()
                 return int(existing["id"])
             _gd_shift_positions(conn, position)
             result = conn.execute(
                 text("INSERT INTO levels (name, position, difficulty) VALUES (:nm, :pos, :diff) RETURNING id"),
-                {"nm": name, "pos": position, "diff": difficulty},
+                {"nm": name, "pos": position, "diff": diff},
             ).mappings().first()
+            new_id = int(result["id"]) if result else None
             _gd_compact_positions(conn)
+            if new_id:
+                _gd_recalc_level_players(conn, new_id)
             conn.commit()
-            return int(result["id"]) if result else None
+            return new_id
     except Exception as exc:
         print(f"add_gd_level error: {exc}")
         return None
@@ -5514,7 +5884,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                 <div class="card-icon">🎮</div>
                 <div class="card-content">
                     <h2>Geometry Dash</h2>
-                    <p>Профили, топ уровней, статистика прохождений</p>
+                    <p>Демонлист: топ уровней, рекорды, топ игроков</p>
                 </div>
             </a>
             <a class="card" data-oge="1" href="/emperors">
@@ -6199,6 +6569,7 @@ def gd_page():
     <div class="container">
         <div class="header">
             <h1>🎮 Geometry Dash</h1>
+            <a href="/gd/players">🏆 Топ игроков</a>
             <a href="/">← На главную</a>
         </div>
         <div class="tabs">
@@ -6334,6 +6705,21 @@ def gd_page():
         }
 
         function loadLeaderboard() {
+            var DIFF_COLORS = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+            function linkCompleters(cs) {
+                if (!cs) return '';
+                var parts = String(cs).split(', ');
+                var html = '';
+                for (var i = 0; i < parts.length; i++) {
+                    if (i) html += ', ';
+                    html += '<a href="/gd/player/' + encodeURIComponent(parts[i]) + '" style="color:var(--gh-muted);text-decoration:underline">' + _gdEsc(parts[i]) + '</a>';
+                }
+                return html;
+            }
+            function diffBadge(l) {
+                var c = DIFF_COLORS[l.difficulty_key] || '#94a3b8';
+                return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14">' + _gdEsc(l.difficulty || '—') + '</span>';
+            }
             var out = document.getElementById('lb-result');
             var xhr = new XMLHttpRequest();
             xhr.open('GET', '/api/gd/leaderboard');
@@ -6345,11 +6731,11 @@ def gd_page():
                     LB_LEVELS = r;
                     var html = '<table id="gd-table"><thead><tr><th>Поз.</th><th>Уровень</th><th>Сложность</th><th>Прохождения</th>' + (IS_ADMIN ? '<th>Действия</th>' : '') + '</tr></thead><tbody>';
                     r.forEach(function(l) {
-                        var who = (l.completers && l.completers !== '{}') ? '<div class="completers">👤 ' + _gdEsc(l.completers) + '</div>' : '';
+                        var who = (l.completers && l.completers !== '{}') ? '<div class="completers">👤 ' + linkCompleters(l.completers) + '</div>' : '';
                         var actions = IS_ADMIN
                             ? '<button class="btn btn-mini" id="act-edit-' + l.id + '" onclick="editLevel(' + l.id + ')">✏️</button> <button class="btn btn-mini btn-danger" onclick="deleteLevel(' + l.id + ', this)">🗑️</button>'
                             : '';
-                        html += '<tr data-id="' + l.id + '"><td class="pos" data-field="position">' + (l.position || '—') + '</td><td data-field="name"><a href="/gd/level/' + l.id + '" style="color:var(--gh-accent);text-decoration:underline">' + _gdEsc(l.name || '—') + '</a></td><td data-field="difficulty">' + _gdEsc(l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td>' + (IS_ADMIN ? '<td>' + actions + '</td>' : '') + '</tr>';
+                        html += '<tr data-id="' + l.id + '"><td class="pos" data-field="position">' + (l.position || '—') + '</td><td data-field="name"><a href="/gd/level/' + l.id + '" style="color:var(--gh-accent);text-decoration:underline">' + _gdEsc(l.name || '—') + '</a></td><td data-field="difficulty">' + diffBadge(l) + '</td><td>' + (l.completions || 0) + who + '</td>' + (IS_ADMIN ? '<td>' + actions + '</td>' : '') + '</tr>';
                     });
                     html += '</tbody></table>';
                     out.innerHTML = html;
@@ -6366,6 +6752,7 @@ def gd_page():
             var lvl = null;
             for (var i = 0; i < LB_LEVELS.length; i++) { if (LB_LEVELS[i].id === id) { lvl = LB_LEVELS[i]; break; } }
             if (!lvl) return;
+            var DIFF_TIERS = [["easy","Easy"],["normal","Normal"],["hard","Hard"],["harder","Harder"],["insane","Insane"],["easy_demon","Easy Demon"],["medium_demon","Medium Demon"],["hard_demon","Hard Demon"],["insane_demon","Insane Demon"],["extreme_demon","Extreme Demon"],["top_1000","Top 1000"],["top_500","Top 500"],["top_200","Top 200"],["top_150","Top 150"],["top_100","Top 100"],["top_50","Top 50"],["top_25","Top 25"],["top_10","Top 10"]];
             var cells = tr.querySelectorAll('td[data-field]');
             var fields = { position: 'position', name: 'name', difficulty: 'difficulty' };
             var inputs = {};
@@ -6373,12 +6760,26 @@ def gd_page():
                 var f = cell.getAttribute('data-field');
                 if (!f || !fields[f]) return;
                 var cur = (lvl[f] != null) ? lvl[f] : '';
-                var input = document.createElement('input');
-                input.className = 'edit-inline';
-                input.value = cur;
-                inputs[f] = input;
+                var el;
+                if (f === 'difficulty') {
+                    el = document.createElement('select');
+                    el.className = 'edit-inline';
+                    var sel = lvl.difficulty_key || null;
+                    for (var i2 = 0; i2 < DIFF_TIERS.length; i2++) {
+                        var o = document.createElement('option');
+                        o.value = DIFF_TIERS[i2][0];
+                        o.textContent = DIFF_TIERS[i2][1];
+                        if (sel && sel === DIFF_TIERS[i2][0]) o.selected = true;
+                        el.appendChild(o);
+                    }
+                } else {
+                    el = document.createElement('input');
+                    el.className = 'edit-inline';
+                    el.value = cur;
+                }
+                inputs[f] = el;
                 cell.innerHTML = '';
-                cell.appendChild(input);
+                cell.appendChild(el);
             });
             var act = tr.querySelector('td:last-child');
             if (act) {
@@ -6392,8 +6793,8 @@ def gd_page():
             var tr = document.querySelector('#gd-table tbody tr[data-id="' + id + '"]');
             if (!tr) return;
             var inputs = {};
-            tr.querySelectorAll('td[data-field] input').forEach(function(input) {
-                inputs[input.closest('td').getAttribute('data-field')] = input.value.trim();
+            tr.querySelectorAll('td[data-field] input, td[data-field] select').forEach(function(el) {
+                inputs[el.closest('td').getAttribute('data-field')] = el.value.trim();
             });
             var pos = parseInt(inputs.position, 10);
             if (!pos || pos < 1) { alert('Позиция должна быть положительным числом'); return; }
@@ -6474,6 +6875,8 @@ def gd_page():
                     if (r.error) { out.innerHTML = '<p class="error">' + _gdEsc(r.error) + '</p>'; return; }
                     var subs = r.submissions || {};
                     var html = '<div class="stat-grid">'
+                        + '<div class="stat-card"><div class="value">' + r.points + '</div><div class="label">🏆 Очки</div></div>'
+                        + '<div class="stat-card"><div class="value">' + r.demons_count + '</div><div class="label">👹 Демонов</div></div>'
                         + '<div class="stat-card"><div class="value">' + r.completions + '</div><div class="label">Прохождений</div></div>'
                         + '<div class="stat-card"><div class="value">' + r.total_approved + '</div><div class="label">Одобрено</div></div>'
                         + '<div class="stat-card"><div class="value">' + r.total_rejected + '</div><div class="label">Отклонено</div></div>'
@@ -6755,6 +7158,7 @@ def gd_level_page(level_id: int):
 <div class="container">
     <div class="header">
         <h1>🎮 Прохождения</h1>
+        <a href="/gd/players">Топ игроков</a>
         <a href="/gd">← К лидерборду</a>
         <a href="/">На главную</a>
     </div>
@@ -6781,6 +7185,11 @@ def gd_level_page(level_id: int):
         else if (isVid) html += '<video controls preload="metadata" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block" src="' + esc(mediaId) + '"></video>';
         return html;
     }
+    function gdDiffBadge(key, label) {
+        var colors = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+        var c = colors[key] || '#94a3b8';
+        return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14;vertical-align:middle">' + esc(label || '—') + '</span>';
+    }
     function loadLevel() {
         var lc = document.getElementById('level-card');
         var out = document.getElementById('cp-result');
@@ -6791,14 +7200,15 @@ def gd_level_page(level_id: int):
                 if (d.error) { lc.innerHTML = '<p class="error">' + esc(d.error) + '</p>'; out.innerHTML = ''; return; }
                 var lv = d.level || {};
                 lc.innerHTML = '<div style="font-size:18px;font-weight:700;color:var(--gh-accent)">🎮 ' + esc(lv.name || '—') + '</div>'
-                    + '<div class="hint" style="margin-top:6px">Позиция: ' + esc(lv.position || '—') + ' · Сложность: ' + esc(lv.difficulty || '—') + '</div>';
+                    + '<div class="hint" style="margin-top:6px">Позиция: ' + esc(lv.position || '—') + ' · Сложность: ' + gdDiffBadge(lv.difficulty_key, lv.difficulty) + '</div>';
                 var cs = d.completions || [];
                 if (!cs.length) { out.innerHTML = '<p class="hint">Прохождений пока нет.</p>'; return; }
                 var html = '';
                 cs.forEach(function(c) {
-                    var prof = c.web_login ? ' · <a href="/u/' + encodeURIComponent(c.web_login) + '">профиль →</a>' : '';
+                    var prof = c.web_login ? ' · <a href="/u/' + encodeURIComponent(c.web_login) + '">профиль →</a>' : ' · <a href="/gd/player/' + encodeURIComponent(c.player_name || '') + '">рекорды →</a>';
+                    var first = c.is_first ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#fbbf24;color:#0b0e14">⚡ Первый виктор</span>' : '';
                     html += '<div class="sub-card">'
-                        + '<div class="cp-name">👑 ' + esc(c.player_name || 'Игрок') + prof + '</div>'
+                        + '<div class="cp-name">👑 ' + esc(c.player_name || 'Игрок') + prof + first + '</div>'
                         + (c.username && c.username !== c.player_name ? '<div class="hint" style="margin-top:2px">GD: ' + esc(c.username) + '</div>' : '')
                         + (c.submitted_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.submitted_at) + '</div>' : '')
                         + gdMediaHtml(c.media_file_id, c.media_type)
@@ -6813,6 +7223,181 @@ def gd_level_page(level_id: int):
 </body>
 </html>"""
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/gd/players")
+def gd_players_page():
+    html = r"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Топ игроков — LTHub GD</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--gh-bg); min-height: 100vh; color: var(--gh-text); padding: 20px; }
+        .container { max-width: 720px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: var(--gh-accent); }
+        .header a { color: var(--gh-muted); text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: var(--gh-accent); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--gh-border); font-size: 14px; }
+        th { color: var(--gh-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .rank { font-weight: 700; color: #f0883e; }
+        .hint { color: var(--gh-muted); font-size: 14px; margin-top: 12px; }
+        .error { color: var(--gh-red); margin-top: 12px; }
+        .pname a { color: var(--gh-accent); font-weight: 600; text-decoration: none; }
+        .pname a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🏆 Топ игроков</h1>
+        <a href="/gd">← К уровням</a>
+        <a href="/">На главную</a>
+    </div>
+    <div id="pl-result"><p class="hint">Загрузка...</p></div>
+</div>
+<script>
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    fetch('/api/gd/players')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            var out = document.getElementById('pl-result');
+            if (d.error) { out.innerHTML = '<p class="error">' + esc(d.error) + '</p>'; return; }
+            if (!d.length) { out.innerHTML = '<p class="hint">Рекордов пока нет — стань первым!</p>'; return; }
+            var html = '<table><thead><tr><th>#</th><th>Игрок</th><th>Очки</th><th>Демонов</th><th>Хардест</th></tr></thead><tbody>';
+            d.forEach(function(p) {
+                var href = p.web_login ? '/u/' + encodeURIComponent(p.web_login) : '/gd/player/' + encodeURIComponent(p.player_name);
+                html += '<tr><td class="rank">' + p.rank + '</td><td class="pname"><a href="' + href + '">' + esc(p.player_name) + '</a></td>'
+                    + '<td>' + p.points + '</td><td>' + p.demons_count + '</td><td>' + esc(p.hardest) + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            out.innerHTML = html;
+        })
+        .catch(function() { document.getElementById('pl-result').innerHTML = '<p class="error">Ошибка загрузки.</p>'; });
+</script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/gd/player/<nick>")
+def gd_player_page(nick: str):
+    html = r"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Игрок — LTHub GD</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--gh-bg); min-height: 100vh; color: var(--gh-text); padding: 20px; }
+        .container { max-width: 720px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: var(--gh-accent); }
+        .header a { color: var(--gh-muted); text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: var(--gh-accent); }
+        .card { background: var(--gh-panel); border: 1px solid var(--gh-border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        .hint { color: var(--gh-muted); font-size: 14px; margin-top: 12px; }
+        .error { color: var(--gh-red); margin-top: 12px; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; }
+        .stat-card { background: var(--gh-bg); border: 1px solid var(--gh-border); border-radius: 10px; padding: 14px; text-align: center; }
+        .stat-card .value { font-size: 24px; font-weight: 700; color: var(--gh-accent); }
+        .stat-card .label { font-size: 12px; color: var(--gh-muted); margin-top: 4px; }
+        .sub-card { background: var(--gh-bg); border: 1px solid var(--gh-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+        .lv-name { font-size: 15px; font-weight: 700; color: var(--gh-text); }
+        .lv-name a { color: var(--gh-accent); text-decoration: none; }
+        .lv-name a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>👤 Карточка игрока</h1>
+        <a href="/gd/players">Топ игроков</a>
+        <a href="/gd">← К уровням</a>
+        <a href="/">На главную</a>
+    </div>
+    <div class="card" id="pl-card"><p class="hint">Загрузка...</p></div>
+    <div class="card" id="gd-ext"><p class="hint">Загрузка внешних данных...</p></div>
+</div>
+<script>
+    var NICK = decodeURIComponent((window.location.pathname.split('/').pop() || ''));
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function gdDiffBadge(key, label) {
+        var colors = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+        var c = colors[key] || '#94a3b8';
+        return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14;vertical-align:middle">' + esc(label || '—') + '</span>';
+    }
+    function loadPlayer() {
+        var card = document.getElementById('pl-card');
+        if (!NICK) { card.innerHTML = '<p class="error">Некорректный ник игрока.</p>'; return; }
+        fetch('/api/gd/player/' + encodeURIComponent(NICK))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) { card.innerHTML = '<p class="error">' + esc(d.error) + '</p>'; return; }
+                if (!d.found) { card.innerHTML = '<p class="error">Игрок не найден в локальных рекордах. Возможно, у него ещё нет одобренных прохождений.</p>'; return; }
+                var prof = d.web_login ? ' · <a href="/u/' + encodeURIComponent(d.web_login) + '">профиль →</a>' : '';
+                card.innerHTML = '<div style="font-size:18px;font-weight:700;color:var(--gh-accent)">👤 ' + esc(d.player_name) + prof + '</div>'
+                    + '<div class="stat-grid">'
+                    + '<div class="stat-card"><div class="value">' + d.points + '</div><div class="label">🏆 Очки</div></div>'
+                    + '<div class="stat-card"><div class="value">' + d.demons_count + '</div><div class="label">👹 Демонов</div></div>'
+                    + '<div class="stat-card"><div class="value">' + d.completions_count + '</div><div class="label">✅ Уровней</div></div>'
+                    + '</div>'
+                    + '<p class="hint" style="margin-top:16px">🔥 Сложнейший: <strong style="color:var(--gh-text)">' + esc(d.hardest) + '</strong></p>';
+                var out = document.getElementById('lv-list');
+                if (!d.completions.length) return;
+                var html = '';
+                d.completions.forEach(function(c) {
+                    html += '<div class="sub-card"><div class="lv-name"><a href="/gd/level/' + c.id + '">#' + c.position + ' · ' + esc(c.name) + '</a> ' + gdDiffBadge(c.difficulty_key, c.difficulty) + '</div>'
+                        + (c.completed_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.completed_at) + '</div>' : '')
+                        + '</div>';
+                });
+                out.innerHTML = html;
+            })
+            .catch(function() { card.innerHTML = '<p class="error">Ошибка загрузки.</p>'; });
+        fetch('/api/gd/user/' + encodeURIComponent(NICK))
+            .then(function(r) { return r.json(); })
+            .then(function(g) {
+                var ext = document.getElementById('gd-ext');
+                if (!g || g.error) { ext.style.display = 'none'; return; }
+                var items = [['⭐', 'Звёзды', g.stars], ['👹', 'Демоны', g.demons], ['🏆', 'Creator Points', g.creator_points], ['💎', 'Алмазы', g.diamonds]];
+                if (g.rank) items.push(['🌍', 'Ранг GD', '#' + g.rank]);
+                var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-weight:700;color:var(--gh-accent)">🌐 Внешние данные Geometry Dash</span><span class="hint" style="margin:0">(' + esc(g.username) + ')</span></div><div class="stat-grid" style="margin-top:8px">';
+                items.forEach(function(s){ html += '<div class="stat-card"><div class="value">' + s[2] + '</div><div class="label">' + s[1] + '</div></div>'; });
+                html += '</div>';
+                ext.innerHTML = html;
+            })
+            .catch(function() { document.getElementById('gd-ext').style.display = 'none'; });
+    }
+    loadPlayer();
+</script>
+<div class="card" id="lv-result">
+    <div style="font-weight:700;font-size:16px;margin-bottom:12px;color:var(--gh-accent)">Пройденные уровни</div>
+    <div id="lv-list"><p class="hint">Загрузка...</p></div>
+</div>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/gd/player/<nick>")
+def api_gd_player_profile(nick: str):
+    profile = get_gd_player_profile(nick)
+    if profile is None:
+        return jsonify({"error": "Ошибка при загрузке профиля игрока"}), 500
+    return jsonify(profile)
+
+
+@app.route("/api/gd/players")
+def api_gd_players():
+    limit = request.args.get("limit", default=20, type=int)
+    if limit < 1 or limit > 200:
+        limit = 20
+    return jsonify(get_gd_players(limit))
 
 
 @app.route("/api/gd/user/<nick>")
@@ -6836,17 +7421,23 @@ def api_gd_user(nick: str):
 def api_gd_leaderboard():
     limit = request.args.get("limit", default=20, type=int)
     levels = get_gd_leaderboard(limit)
-    from concurrent.futures import ThreadPoolExecutor
-    try:
-        with ThreadPoolExecutor(max_workers=5) as pool:
-            diffs = list(pool.map(lambda lv: get_gd_difficulty_name(lv.get("name") or ""), levels))
-        for lv, d in zip(levels, diffs):
-            cur = (lv.get("difficulty") or "").strip()
-            if not cur or cur in ("Unknown", "-"):
-                if d and d != "Unknown":
-                    lv["difficulty"] = d
-    except Exception as exc:
-        print(f"GD leaderboard difficulty enrich error: {exc}")
+    # External difficulty enrichment is only needed for levels we cannot place
+    # locally (no position => no tier). Bounded by cache + 5s timeout per level.
+    needs = [lv for lv in levels if (lv.get("difficulty_key") in (None, "unknown")
+                                     and not (lv.get("position") or 0))]
+    if needs:
+        from concurrent.futures import ThreadPoolExecutor
+        try:
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                diffs = list(pool.map(lambda lv: get_gd_difficulty_name(lv.get("name") or ""), needs))
+            want = {id(lv): d for lv, d in zip(needs, diffs)}
+            for lv in levels:
+                if id(lv) in want and want[id(lv)] not in (None, "Unknown", "unknown"):
+                    key = want[id(lv)]
+                    lv["difficulty_key"] = key
+                    lv["difficulty"] = GD_DIFFICULTY_LABELS.get(key, lv.get("difficulty"))
+        except Exception as exc:
+            print(f"GD leaderboard difficulty enrich error: {exc}")
     return jsonify(levels)
 
 
@@ -6856,17 +7447,15 @@ def api_gd_level_completions(level_id: int):
     if not lvl:
         return jsonify({"error": "Уровень не найден"}), 404
     completions = get_gd_level_completions(level_id)
-    difficulty = str(lvl.get("difficulty") or "").strip()
-    if not difficulty or difficulty in ("Unknown", "-"):
-        d = get_gd_difficulty_name(lvl.get("name") or "")
-        if d and d != "Unknown":
-            difficulty = d
+    diff_key = _gd_norm_difficulty(lvl.get("difficulty"), lvl.get("position"))
     return jsonify({
         "level": {
             "id": lvl["id"],
             "name": lvl.get("name"),
             "position": lvl.get("position"),
-            "difficulty": difficulty or "Unknown",
+            "difficulty": GD_DIFFICULTY_LABELS.get(diff_key, "Unknown"),
+            "difficulty_key": diff_key,
+            "color": GD_DIFFICULTY_COLORS.get(diff_key),
         },
         "completions": completions,
     })
@@ -6884,10 +7473,16 @@ def api_gd_admin_level_delete(level_id: int):
             ).mappings().first()
             if not lvl:
                 return jsonify({"error": "Уровень не найден"}), 404
+            affected = conn.execute(
+                text("SELECT DISTINCT user_id AS uid FROM level_completions WHERE level_id = :lid"),
+                {"lid": level_id},
+            ).mappings().all()
             conn.execute(text("DELETE FROM level_completions WHERE level_id = :lid"), {"lid": level_id})
             conn.execute(text("UPDATE player_stats SET hardest_level_id = NULL WHERE hardest_level_id = :lid"), {"lid": level_id})
             conn.execute(text("DELETE FROM levels WHERE id = :lid"), {"lid": level_id})
             _gd_compact_positions(conn)
+            for u in affected:
+                _gd_sync_player_stats(conn, int(u["uid"]))
             conn.commit()
             return jsonify({"ok": True})
     except Exception as exc:
@@ -6911,6 +7506,8 @@ def api_gd_admin_level_update(level_id: int):
         return jsonify({"error": "Название не может быть пустым"}), 400
     if position < 1:
         return jsonify({"error": "Позиция должна быть положительным числом"}), 400
+    if difficulty:
+        difficulty = _gd_norm_difficulty(difficulty, position)
     try:
         with get_db_engine().connect() as conn:
             lvl = conn.execute(
@@ -6940,6 +7537,7 @@ def api_gd_admin_level_update(level_id: int):
                     {"nm": name, "old": old_name},
                 )
             _gd_compact_positions(conn)
+            _gd_recalc_level_players(conn, level_id)
             conn.commit()
             return jsonify({"ok": True, "id": level_id})
     except Exception as exc:
@@ -6962,6 +7560,8 @@ def api_gd_my_stats():
         "hardest_level": get_gd_hardest_level_name(uid),
         "completions": get_gd_user_completions_count(uid),
         "submissions": get_gd_submission_counts(uid),
+        "points": int(stats.get("points") or 0),
+        "demons_count": int(stats.get("demons_count") or 0),
     })
 
 
@@ -7154,8 +7754,9 @@ def api_gd_moderate_approve():
     if not row:
         return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
     level_name = row["level_name"]
-    difficulty = get_gd_difficulty_name(level_name)
-    level_id = add_gd_level(level_name, position, difficulty)
+    # Difficulty is auto-derived from the position tier (Top X); the admin can
+    # fine-tune it from the fixed difficulty dropdown without any external call.
+    level_id = add_gd_level(level_name, position, "Unknown")
     if not level_id:
         return jsonify({"error": f"Ошибка при добавлении уровня {level_name} в топ"}), 500
     if approve_gd_submission_db(sub_id, admin_id):
