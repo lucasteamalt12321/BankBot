@@ -7482,6 +7482,61 @@ def gd_player_page(nick: str):
         var c = colors[key] || '#94a3b8';
         return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14;vertical-align:middle">' + esc(label || '—') + '</span>';
     }
+    var IS_ADMIN = false;
+    function toggleComplPanel() {
+        var p = document.getElementById('adm-panel');
+        if (!p) return;
+        var show = p.style.display === 'none';
+        p.style.display = show ? 'block' : 'none';
+        if (show) loadLevelsInto(document.getElementById('adm-lv'));
+        var m = document.getElementById('adm-msg');
+        if (m) m.textContent = '';
+    }
+    function loadLevelsInto(dd) {
+        if (!dd) return;
+        fetch('/api/gd/leaderboard?limit=200')
+            .then(function(r) { return r.json(); })
+            .then(function(ls) {
+                if (!ls || !ls.length) { dd.innerHTML = '<option value="">Уровней пока нет</option>'; return; }
+                var html = '<option value="">— выберите уровень —</option>';
+                ls.forEach(function(l) { html += '<option value="' + l.id + '">#' + l.position + ' · ' + esc(l.name) + '</option>'; });
+                dd.innerHTML = html;
+            })
+            .catch(function() { dd.innerHTML = '<option value="">Ошибка загрузки</option>'; });
+    }
+    function admMsg(t) { var m = document.getElementById('adm-msg'); if (m) m.innerHTML = t; }
+    function admAddCompl() {
+        var lv = document.getElementById('adm-lv');
+        if (!lv || !lv.value) { admMsg('<span class="error">Выберите уровень</span>'); return; }
+        var url = document.getElementById('adm-media-url').value.trim();
+        var file = document.getElementById('adm-media-file').files[0];
+        if (!url && !file) { admMsg('<span class="error">Укажите медиа: ссылку или файл</span>'); return; }
+        var fd = new FormData();
+        fd.append('level_id', lv.value);
+        if (url) fd.append('media_url', url);
+        if (file) fd.append('media', file);
+        var btn = document.querySelector('button[onclick="admAddCompl()"]');
+        if (btn) btn.disabled = true;
+        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/completions', { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (btn) btn.disabled = false;
+                if (res.error) { admMsg('<span class="error">' + esc(res.error) + '</span>'); return; }
+                admMsg('<span style="color:#4ade80">✓ Уровень добавлен</span>');
+                loadPlayer();
+            })
+            .catch(function() { if (btn) btn.disabled = false; admMsg('<span class="error">Ошибка сети</span>'); });
+    }
+    function admDelCompl(lid) {
+        if (!confirm('Убрать этот уровень из пройденных?')) return;
+        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/completions?level_id=' + lid, { method: 'DELETE' })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.error) { alert(res.error); return; }
+                loadPlayer();
+            })
+            .catch(function() { alert('Ошибка сети'); });
+    }
     function loadPlayer() {
         var card = document.getElementById('pl-card');
         if (!NICK) { card.innerHTML = '<p class="error">Некорректный ник игрока.</p>'; return; }
@@ -7497,12 +7552,24 @@ def gd_player_page(nick: str):
                     + '<div class="stat-card"><div class="value">' + d.demons_count + '</div><div class="label">👹 Демонов</div></div>'
                     + '<div class="stat-card"><div class="value">' + d.completions_count + '</div><div class="label">✅ Уровней</div></div>'
                     + '</div>'
-                    + '<p class="hint" style="margin-top:16px">🔥 Сложнейший: <strong style="color:var(--gh-text)">' + esc(d.hardest) + '</strong></p>';
+                    + '<p class="hint" style="margin-top:16px">🔥 Сложнейший: <strong style="color:var(--gh-text)">' + esc(d.hardest) + '</strong></p>'
+                    + (IS_ADMIN ? '<div style="margin-top:14px"><button onclick="toggleComplPanel()" style="background:var(--gh-accent);border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;color:#0b0e14">＋ Добавить уровень</button>'
+                       + '<div id="adm-panel" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--gh-border);border-radius:10px;background:var(--gh-bg)">'
+                       + '<div class="hint" style="margin:0 0 8px">Отметить уровень как пройденный</div>'
+                       + '<select id="adm-lv" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--gh-border);background:var(--gh-bg);color:var(--gh-text)"><option value="">— выбор —</option></select>'
+                       + '<input type="text" id="adm-media-url" placeholder="Ссылка на медиа (видео/фото)" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid var(--gh-border);background:var(--gh-bg);color:var(--gh-text)">'
+                       + '<input type="file" id="adm-media-file" accept="video/*,image/*" style="width:100%;margin-top:8px">'
+                       + '<div style="margin-top:8px;display:flex;gap:8px">'
+                       + '<button onclick="admAddCompl()" style="background:var(--gh-accent);border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer;color:#0b0e14">Добавить</button>'
+                       + '<button onclick="toggleComplPanel();" style="background:transparent;border:1px solid var(--gh-border);border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--gh-text)">Отмена</button>'
+                       + '</div><div id="adm-msg" class="hint"></div></div></div>' : '');
                 var out = document.getElementById('lv-list');
                 if (!d.completions.length) return;
                 var html = '';
                 d.completions.forEach(function(c) {
-                    html += '<div class="sub-card"><div class="lv-name"><a href="/gd/level/' + c.id + '">#' + c.position + ' · ' + esc(c.name) + '</a> ' + gdDiffBadge(c.difficulty_key, c.difficulty) + '</div>'
+                    html += '<div class="sub-card"><div class="lv-name"><a href="/gd/level/' + c.id + '">#' + c.position + ' · ' + esc(c.name) + '</a> ' + gdDiffBadge(c.difficulty_key, c.difficulty)
+                        + (IS_ADMIN ? ' <button onclick="admDelCompl(' + c.id + ')" title="Убрать из пройденных" style="margin-left:6px;background:transparent;border:1px solid var(--gh-border);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--gh-red);font-weight:700">✕</button>' : '')
+                        + '</div>'
                         + (c.completed_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.completed_at) + '</div>' : '')
                         + '</div>';
                 });
@@ -7523,7 +7590,11 @@ def gd_player_page(nick: str):
             })
             .catch(function() { document.getElementById('gd-ext').style.display = 'none'; });
     }
-    loadPlayer();
+    fetch('/api/gd/me')
+        .then(function(r) { return r.json(); })
+        .then(function(m) { IS_ADMIN = !!(m && m.is_admin); })
+        .catch(function() { IS_ADMIN = false; })
+        .then(function() { loadPlayer(); });
 </script>
 <div class="card" id="lv-result">
     <div style="font-weight:700;font-size:16px;margin-bottom:12px;color:var(--gh-accent)">Пройденные уровни</div>
@@ -7912,6 +7983,182 @@ def api_gd_moderate_approve():
     if approve_gd_submission_db(sub_id, admin_id):
         return jsonify({"ok": True, "level_id": level_id})
     return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
+
+
+def _gd_admin_build_media() -> tuple[str | None, str | None, str | None]:
+    """From the admin request build (media_ref, media_type, error)."""
+    media_file = request.files.get("media")
+    media_url = (request.form.get("media_url") or "").strip()
+    if media_file and media_file.filename:
+        if media_url:
+            return None, None, "Укажите только один источник медиа: файл ИЛИ ссылку"
+        media_data = media_file.read()
+        if not media_data:
+            return None, None, "Файл пуст"
+        if len(media_data) > 16 * 1024 * 1024:
+            return None, None, "Файл слишком большой (макс. 16 МБ)"
+        filename = (media_file.filename or "").lower()
+        media_mime = (media_file.mimetype or "").lower()
+        if filename.endswith(".svg") or media_mime in ("image/svg+xml", "text/html", "application/html"):
+            return None, None, "Недопустимый тип файла (разрешены только фото/видео)"
+        is_video = media_mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".mkv"))
+        is_photo = media_mime in ("image/png", "image/jpeg", "image/gif", "image/webp") or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+        if is_video:
+            media_type = "video"
+            if not media_mime.startswith("video/"):
+                ext = next((e for e in (".mp4", ".mov", ".webm", ".mkv") if filename.endswith(e)), ".mp4")
+                media_mime = "video/" + ext[1:]
+        elif is_photo:
+            media_type = "photo"
+            if media_mime not in ("image/png", "image/jpeg", "image/gif", "image/webp"):
+                ext = next((e for e in (".png", ".jpg", ".jpeg", ".gif", ".webp") if filename.endswith(e)), ".png")
+                media_mime = "image/" + ext[1:]
+        else:
+            return None, None, "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)"
+        import base64 as _b64
+        media_ref = f"data:{media_mime};base64,{_b64.b64encode(media_data).decode('ascii')}"
+        return media_ref, media_type, None
+    if media_url:
+        if len(media_url) > 2048:
+            return None, None, "Ссылка слишком длинная (макс. 2048 символов)"
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(media_url)
+        except Exception:
+            parsed = None
+        if not parsed or parsed.scheme not in ("http", "https") or not getattr(parsed, "netloc", ""):
+            return None, None, "Ссылка должна начинаться с http:// или https://"
+        low = media_url.lower()
+        if any(bad in low for bad in ("javascript:", "data:", "file:", "vbscript:")):
+            return None, None, "Недопустимая ссылка"
+        return media_url, "link", None
+    return None, None, None
+
+
+def _gd_admin_player_uid(conn, nick: str) -> int | None:
+    """Resolve a player-card nick to a user_id (persona first, then account)."""
+    persona = _gd_persona_lookup(conn, nick)
+    if persona:
+        return persona["uid"]
+    uid, _ = _gd_resolve_player_uid(conn, nick)
+    return uid if uid is not None else None
+
+
+@app.route("/api/gd/admin/player/<nick>/completions", methods=["POST"])
+def api_gd_admin_add_completion(nick: str):
+    """Admin: mark a level as completed for a player (media required)."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
+    admin = _web_admin_session()
+    try:
+        level_id = int(request.form.get("level_id") or 0)
+    except (TypeError, ValueError):
+        level_id = 0
+    if level_id < 1:
+        return jsonify({"error": "Укажите уровень"}), 400
+    media_ref, media_type, media_err = _gd_admin_build_media()
+    if media_err:
+        return jsonify({"error": media_err}), 400
+    if not media_ref:
+        return jsonify({"error": "Укажите медиа: ссылку на видео/фото или файл"}), 400
+    try:
+        with get_db_engine().begin() as conn:
+            uid = _gd_admin_player_uid(conn, nick)
+            lv = conn.execute(
+                text("SELECT id, name FROM levels WHERE id = :lid"), {"lid": level_id},
+            ).mappings().first()
+            if uid is not None:
+                dup = conn.execute(
+                    text("SELECT 1 FROM level_completions WHERE user_id = :u AND level_id = :l"),
+                    {"u": uid, "l": level_id},
+                ).mappings().first()
+            else:
+                dup = None
+            if uid is None:
+                return jsonify({"error": "Игрок не найден (нет привязанного аккаунта)"}), 404
+            if not lv:
+                return jsonify({"error": "Уровень не найден"}), 404
+            if dup:
+                return jsonify({"error": "Этот уровень уже отмечен как пройденный у игрока"}), 400
+            pname = nick or _gd_account_name(conn, uid)
+            conn.execute(
+                text("""
+                    INSERT INTO submissions (user_id, username, level_name, media_file_id, media_type, status, reviewed_at, reviewed_by)
+                    VALUES (:u, :n, :ln, :mf, :mt, 'approved', CURRENT_TIMESTAMP, :r)
+                """),
+                {"u": uid, "n": pname, "ln": lv["name"], "mf": media_ref, "mt": media_type, "r": admin.get("id") or 0},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO level_completions (user_id, level_id, player_name)
+                    VALUES (:u, :l, :pn)
+                    ON CONFLICT (user_id, level_id) DO NOTHING
+                """),
+                {"u": uid, "l": level_id, "pn": pname},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO player_stats (user_id, total_approved) VALUES (:u, 1)
+                    ON CONFLICT (user_id) DO UPDATE SET total_approved = player_stats.total_approved + 1
+                """),
+                {"u": uid},
+            )
+            _gd_sync_player_stats(conn, uid)
+    except Exception as exc:
+        print(f"admin add completion error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    profile = get_gd_player_profile(nick)
+    return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
+
+
+@app.route("/api/gd/admin/player/<nick>/completions", methods=["DELETE"])
+def api_gd_admin_remove_completion(nick: str):
+    """Admin: remove a level from a player's completed list."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
+    try:
+        level_id = int(request.args.get("level_id") or request.form.get("level_id") or 0)
+    except (TypeError, ValueError):
+        level_id = 0
+    if level_id < 1:
+        return jsonify({"error": "Укажите уровень"}), 400
+    try:
+        with get_db_engine().begin() as conn:
+            uid = _gd_admin_player_uid(conn, nick)
+            lv = conn.execute(
+                text("SELECT name FROM levels WHERE id = :lid"), {"lid": level_id},
+            ).mappings().first()
+            if uid is None:
+                return jsonify({"error": "Игрок не найден (нет привязанного аккаунта)"}), 404
+            if not lv:
+                return jsonify({"error": "Уровень не найден"}), 404
+            del_compl = conn.execute(
+                text("DELETE FROM level_completions WHERE user_id = :u AND level_id = :l"),
+                {"u": uid, "l": level_id},
+            )
+            del_subs = conn.execute(
+                text("DELETE FROM submissions WHERE user_id = :u AND status = 'approved' AND LOWER(TRIM(level_name)) = LOWER(TRIM(:nm))"),
+                {"u": uid, "nm": lv["name"]},
+            )
+            total = conn.execute(
+                text("SELECT COUNT(*) AS c FROM submissions WHERE user_id = :u AND status = 'approved'"),
+                {"u": uid},
+            ).mappings().first()
+            conn.execute(
+                text("""
+                    INSERT INTO player_stats (user_id, total_approved) VALUES (:u, :c)
+                    ON CONFLICT (user_id) DO UPDATE SET total_approved = :c
+                """),
+                {"u": uid, "c": int(total["c"] or 0)},
+            )
+            _gd_sync_player_stats(conn, uid)
+        if del_compl.rowcount == 0 and del_subs.rowcount == 0:
+            return jsonify({"error": "У игрока этого уровня не было в пройденных"}), 404
+    except Exception as exc:
+        print(f"admin remove completion error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    profile = get_gd_player_profile(nick)
+    return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
 
 
 # ── D&D AI Master (web) ────────────────────────────────────────────

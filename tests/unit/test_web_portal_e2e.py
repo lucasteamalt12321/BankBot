@@ -676,6 +676,76 @@ def test_gd_persona_attribution(mock_engine):
 
 
 @patch("api.index.get_db_engine")
+def test_gd_admin_completion_add_remove(mock_engine):
+    """Admin marks a level as completed (with media) and can remove it again."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    client = app.test_client()
+
+    reg = client.post("/api/auth/register", json={
+        "login": "boss", "password": "secret123", "email": "boss@test.local",
+    })
+    reg_data = reg.get_json()
+    _promote_admin(reg_data["user_id"])
+    headers = _auth_headers(reg_data["token"])
+
+    preg = client.post("/api/auth/register", json={
+        "login": "luke", "password": "secret123", "email": "luke@test.local",
+    })
+    player_id = preg.get_json()["user_id"]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE web_users SET gd_nickname = 'LucasTeam' WHERE id = :i"), {"i": player_id})
+
+    level_id = index_api.add_gd_level("Supersonic", 1, "Unknown")
+    assert level_id is not None
+
+    # Non-admin cannot add.
+    r = client.post("/api/gd/admin/player/LucasTeam/completions",
+                    data={"level_id": level_id, "media_url": "https://youtu.be/x"})
+    assert r.status_code == 403
+
+    # Media is required.
+    r = client.post("/api/gd/admin/player/LucasTeam/completions",
+                    data={"level_id": level_id}, headers=headers)
+    assert r.status_code == 400
+
+    # Admin adds with a media link.
+    r = client.post("/api/gd/admin/player/LucasTeam/completions",
+                    data={"level_id": level_id, "media_url": "https://youtu.be/12345"},
+                    headers=headers)
+    assert r.status_code == 200
+    prof = r.get_json()["profile"]
+    assert prof["found"] is True and prof["player_name"] == "LucasTeam"
+    assert prof["completions_count"] == 1 and prof["points"] == 1000
+
+    sub = engine.connect().execute(text(
+        "SELECT status, username, media_type, level_name FROM submissions ORDER BY id DESC LIMIT 1"
+    )).mappings().first()
+    assert sub["status"] == "approved" and sub["username"] == "LucasTeam"
+    assert sub["media_type"] == "link" and sub["level_name"] == "Supersonic"
+
+    # A level already completed is not added twice.
+    r = client.post("/api/gd/admin/player/LucasTeam/completions",
+                    data={"level_id": level_id, "media_url": "https://youtu.be/12345"},
+                    headers=headers)
+    assert r.status_code == 400
+
+    # Player now appears in the roster as its own persona.
+    players = client.get("/api/gd/players").get_json()
+    by_nick = {p["player_name"]: p for p in players}
+    assert by_nick["LucasTeam"]["points"] == 1000 and by_nick["LucasTeam"]["demons_count"] == 1
+
+    # Admin removes the level from the completed list.
+    r = client.delete(f"/api/gd/admin/player/LucasTeam/completions?level_id={level_id}", headers=headers)
+    assert r.status_code == 200
+    prof = r.get_json()["profile"]
+    assert prof["found"] is True and prof["completions_count"] == 0 and prof["points"] == 0
+    players_after = client.get("/api/gd/players").get_json()
+    assert all(p["player_name"] != "LucasTeam" for p in players_after)
+
+
+@patch("api.index.get_db_engine")
 def test_gd_first_completion_badge(mock_engine):
     """The earliest approved completion on a level is flagged as the first victor."""
     from api import index as index_api
