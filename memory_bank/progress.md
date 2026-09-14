@@ -216,6 +216,16 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-14 (Session: 🎮 GD — прохождения уровня + внешние ссылки медиа)
+- **[TASK]** Запрос пользователя: «Усовершенствовать систему прохождений в ГД — при нажатии на уровень список прохождений; при клике на виктора ссылка на профиль и медиа; в заявке можно выбрать файл / внешнюю ссылку; большие файлы не принимаются» (коммит `9b0b74d`, задеплоено).
+  - **Новая страница** `/gd/level/<int:id>` + `GET /api/gd/level/<int:id>/completions`: approved-прохождения уровня (дедуп по игроку, последнее медиа), meta уровня (позиция/сложность, live-сложность только как fallback). Виктор: `player_name` по COALESCE-приоритету лидерборда (gd_nickname→display_name→tg_first_name→tg_username→s.username), для web-игроков «профиль →» `/u/<login>`, медиа-ссылка + inline-превью прямых image/video-URL и `data:`-URL, бирка «🔗 внешняя ссылка».
+  - **Лидерборд:** имя уровня стало ссылкой на страницу прохождений (admin-edit не сломан — cell content подменяется input'ом).
+  - **Сабмит:** переключатель «📎 Файл / 🔗 Ссылка» (кнопки `mode-file-btn`/`mode-link-btn`); внешняя http(s)-ссылка → `media_type="link"`, хранится в `media_file_id` (лимит 2048 симв., блок `javascript:`/`data:`/`file:`/`vbscript:` через `urlparse`); файл ИЛИ ссылка, оба → 400 «один источник медиа»; файл ≤16 МБ (413 + клиентская проверка, текст «макс. 16 МБ»).
+  - **Модерация:** общий helper `gdMediaHtml(mediaId, mediaType)` — ссылка + превью (заменил старый блок; `subscribe`-ссылка теперь для любого `media_file_id`, включая `media_type="link"`).
+  - Тесты: +2 в `test_web_portal_e2e.py` (`test_gd_web_submit_external_link_and_limits`, `test_gd_level_completions_page_and_api`; в DDL добавлены `levels`/`level_completions`/`player_stats`). 6/6 зелёные (gd×3 + social×3); ruff clean; `node --check` gd.js + gdlevel.js OK; pre-existing SyntaxWarnings (5906/15253/17239) не трогал.
+  - Прод: link-submit → `submission_id=24`, `javascript:` → 400, `/gd/level/1` 200, `/api/gd/level/1/completions` → виктор «LucasTeam».
+  - 🟡 **Known issue (pre-existing, не трогал):** `/api/gd/leaderboard` висит в проде, если у уровня сохранённая сложность `Unknown` — `get_gd_difficulty_name` идёт во внешний gdbrowser API без таймаута. В бэклог (добавить timeout/кэш). Для telegram-викторов `media_file_id` — Tg file_id, на странице рендерится как относительная ссылка (не открывается) — pre-existing.
+
 ### 2026-09-12 (Session: 🔍 аудит других модулей на такие же auth-баги)
 - Полный субагент-аудит всех страниц: остальных CLASS A (API-вызовы без токена) и CLASS B (race с ACCOUNT_ID/USER_ID) НЕ найдено — gd/account/canon/irregular_verbs/code/daily_prayer/family/admin закрыты.
 - **[Fix]** `/exam`: 4 запроса (`/api/exam/ai-batch`, `/api/exam/check` x2, `/api/exam/ai-record`) не слали `X-Auth-Token` → слабые темы не подбирались, прогресс/достижения не записывались (страница при этом писала «Вы вошли — прогресс сохранится»).
@@ -1771,7 +1781,7 @@ _Баги добавляются по ходу тестирования оста
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
 ## last_checked_commit
-dbbacc5 (2026-09-13; feat(social): профили и друзья — /api/u/<login>, /api/users/search, /api/friends (list/request/accept/decline/cancel/remove), /api/friends/weekly, friend_requests+web_friends; страницы /friends и /u/<login> + GD-блок, блок «Друзья» в /account, бейдж в user-bar; test_social.py 3 теста; задеплоено, прод smoke OK)
+9b0b74d (2026-09-14; feat(gd): прохождения уровня — страница /gd/level/<id> + GET /api/gd/level/<id>/completions (дедуп, meta, player_name), имя уровня в лидерборде → ссылка, сабмит «Файл/Ссылка» media_type=link (urlparse http/https, ≤2048, файл ИЛИ ссылка → 400, 16МБ → 413), gdMediaHtml helper в модерации; +2 e2e-теста; 6/6 зелёные; задеплоено, прод smoke OK; 🟡 leaderboard висит на Unknown-сложности — pre-existing)
 8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
 e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
 caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
