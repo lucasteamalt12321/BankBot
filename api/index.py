@@ -7885,7 +7885,7 @@ def api_gd_dbg():
                 "SELECT user_id, level_id, completed_at FROM level_completions ORDER BY level_id, completed_at"
             )).mappings().all()]
             tu = [dict(r) for r in conn.execute(text(
-                "SELECT telegram_id, username, first_name, nickname FROM users WHERE telegram_id IN "
+                "SELECT telegram_id, username, first_name FROM users WHERE telegram_id IN "
                 "(SELECT DISTINCT user_id FROM submissions UNION SELECT DISTINCT user_id FROM level_completions)"
             )).mappings().all()]
             wu = [dict(r) for r in conn.execute(text(
