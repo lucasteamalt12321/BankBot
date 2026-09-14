@@ -512,25 +512,24 @@ def _ensure_gd_tables(engine):
             """))
             conn.execute(text("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0"))
             conn.execute(text("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS demons_count INTEGER DEFAULT 0"))
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS gd_aliases (
-                    user_id BIGINT PRIMARY KEY,
-                    alias TEXT NOT NULL
-                )
-            """))
-            conn.execute(text(
-                "INSERT INTO gd_aliases (user_id, alias) VALUES (:u1, 'ShadowRaven'), (:u2, 'ShadowRaven') "
-                "ON CONFLICT (user_id) DO NOTHING"
-            ), {"u1": 1597272920, "u2": 2091908459})
+            # Legacy account-merge mechanism removed: GD players are attributed by the GD nick
+            # taken from the approved submission (submissions.username), not by account binding.
+            conn.execute(text("DROP TABLE IF EXISTS gd_aliases"))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS level_completions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     level_id INTEGER NOT NULL REFERENCES levels(id),
                     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    player_name TEXT,
                     UNIQUE(user_id, level_id)
                 )
             """))
+            conn.execute(text("ALTER TABLE level_completions ADD COLUMN IF NOT EXISTS player_name TEXT"))
+            try:
+                _gd_backfill_completion_names(conn)
+            except Exception as exc:
+                log_error("GD", "error", f"completion name backfill error: {exc}")
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS game_states (
                     user_id BIGINT NOT NULL,
@@ -4196,8 +4195,8 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
                     LEFT JOIN (
                         SELECT lv.id AS level_id,
                                STRING_AGG(DISTINCT COALESCE(
-                                   (SELECT ga.alias FROM gd_aliases ga WHERE ga.user_id = wu.id OR ga.user_id = tu.telegram_id LIMIT 1),
-                                   NULLIF(wu.gd_nickname, ''), wu.display_name, NULLIF(tu.first_name, ''), tu.username, s.username, '?'), ', ') AS completers
+                                   NULLIF(s.username, ''),
+                                   NULLIF(wu.gd_nickname, ''), wu.display_name, NULLIF(tu.first_name, ''), tu.username, '?'), ', ') AS completers
                         FROM submissions s
                         JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
                         LEFT JOIN web_users wu ON wu.id = s.user_id
@@ -4504,13 +4503,14 @@ def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
                     {"key": _gd_norm_name(sub["level_name"])},
                 ).mappings().first()
                 if level:
+                    pname = (sub.get("username") or "").strip() or _gd_account_name(conn, int(sub["user_id"]))
                     conn.execute(
                         text("""
-                            INSERT INTO level_completions (user_id, level_id)
-                            VALUES (:uid, :lid)
+                            INSERT INTO level_completions (user_id, level_id, player_name)
+                            VALUES (:uid, :lid, :pn)
                             ON CONFLICT (user_id, level_id) DO NOTHING
                         """),
-                        {"uid": sub["user_id"], "lid": level["id"]},
+                        {"uid": sub["user_id"], "lid": level["id"], "pn": pname or "Игрок"},
                     )
                     _gd_sync_player_stats(conn, sub["user_id"])
             conn.commit()
@@ -4541,7 +4541,6 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
             rows = conn.execute(
                 text("""
                     SELECT s.username, s.media_file_id, s.media_type, s.submitted_at, s.user_id AS uid,
-                           (SELECT ga.alias FROM gd_aliases ga WHERE ga.user_id = s.user_id) AS alias_col,
                            wu.login AS web_login, wu.display_name, wu.gd_nickname,
                            tu.username AS tg_username, tu.first_name AS tg_first_name
                     FROM submissions s
@@ -4567,22 +4566,19 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
             for row in rows:
                 d = dict(row)
                 key = (
-                    d.get("alias_col")
-                    or d.get("web_login")
-                    or d.get("username")
-                    or (d.get("tg_first_name") or d.get("tg_username") or "")
+                    d.get("username")
+                    or d.get("gd_nickname") or d.get("display_name")
+                    or d.get("tg_first_name") or d.get("tg_username")
                     or f"uid:{d.get('uid')}"
                 )
                 if not key or key in seen:
                     continue
                 seen.add(key)
                 d["player_name"] = (
-                    d.get("alias_col")
+                    d.get("username")
                     or d.get("gd_nickname") or d.get("display_name")
-                    or d.get("tg_first_name") or d.get("tg_username")
-                    or d.get("username") or "Игрок"
+                    or d.get("tg_first_name") or d.get("tg_username") or "Игрок"
                 )
-                d.pop("alias_col", None)
                 d.pop("uid", None)
                 if d.get("submitted_at"):
                     d["submitted_at"] = str(d["submitted_at"])[:19]
@@ -4593,6 +4589,115 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
     except Exception as exc:
         print(f"get_gd_level_completions error: {exc}")
         return []
+
+
+def _gd_account_name(conn, uid: int) -> str:
+    """Display name of an account, used as fallback when a submission has no GD nick."""
+    try:
+        w = conn.execute(
+            text("SELECT login, display_name, gd_nickname FROM web_users WHERE id = :u"),
+            {"u": uid},
+        ).mappings().first()
+        if w:
+            return (w["gd_nickname"] or w["display_name"] or w["login"] or "").strip()
+        t = conn.execute(
+            text("SELECT username, first_name FROM users WHERE telegram_id = :u"),
+            {"u": uid},
+        ).mappings().first()
+        if t:
+            return (t["first_name"] or t["username"] or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _gd_backfill_completion_names(conn) -> None:
+    """Attach each completion to the GD nick from its (earliest) approved submission.
+
+    This is the single source of truth for who "finished" a level: the nick the
+    player submitted under, not the account that owns it. Rows without a matching
+    submission fall back to the account display name.
+    """
+    missing = conn.execute(text(
+        "SELECT user_id, level_id FROM level_completions "
+        "WHERE player_name IS NULL OR TRIM(player_name) = ''"
+    )).mappings().all()
+    if not missing:
+        return
+    attr = conn.execute(text("""
+        SELECT s2.user_id, s2.username, lv.id AS level_id
+        FROM submissions s2
+        JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s2.level_name))
+        WHERE s2.status = 'approved'
+          AND s2.id = (
+              SELECT s3.id FROM submissions s3
+              JOIN levels lv3 ON LOWER(TRIM(lv3.name)) = LOWER(TRIM(s3.level_name))
+              WHERE s3.user_id = s2.user_id AND lv3.id = lv.id AND s3.status = 'approved'
+              ORDER BY s3.submitted_at ASC NULLS LAST, s3.id ASC
+              LIMIT 1
+          )
+    """)).mappings().all()
+    per: dict = {}
+    for a in attr:
+        per[(int(a["user_id"]), int(a["level_id"]))] = (a["username"] or "").strip()
+    for r in missing:
+        uid, lid = int(r["user_id"]), int(r["level_id"])
+        name = per.get((uid, lid)) or _gd_account_name(conn, uid)
+        conn.execute(
+            text("UPDATE level_completions SET player_name = :nm WHERE user_id = :u AND level_id = :l"),
+            {"nm": name or "Игрок", "u": uid, "l": lid},
+        )
+
+
+def _gd_persona_lookup(conn, nick: str) -> dict | None:
+    """Resolve a GD nick to the persona's completions (deduped per account and level).
+
+    Returns completions owned by any account whose approved submissions used this
+    GD nick, or None when no approved submission has it.
+    """
+    n = (nick or "").strip()
+    if not n:
+        return None
+    rows = conn.execute(text("""
+        SELECT s.user_id, lv.id AS level_id, MIN(s.submitted_at) AS first_at
+        FROM submissions s
+        JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+        WHERE s.status = 'approved' AND LOWER(TRIM(s.username)) = LOWER(:n)
+        GROUP BY s.user_id, lv.id
+    """), {"n": n}).mappings().all()
+    if not rows:
+        return None
+    uid = int(rows[0]["user_id"])
+    compl = []
+    for r in rows:
+        lv = conn.execute(
+            text("SELECT id, name, position, difficulty FROM levels WHERE id = :lid"),
+            {"lid": int(r["level_id"])},
+        ).mappings().first()
+        if not lv:
+            continue
+        d = dict(lv)
+        d["completed_at"] = str(r["first_at"])[:19] if r.get("first_at") else None
+        d["difficulty_key"] = _gd_norm_difficulty(d.get("difficulty"), d.get("position"))
+        d["difficulty"] = GD_DIFFICULTY_LABELS.get(d["difficulty_key"], "Unknown")
+        compl.append(d)
+    compl.sort(key=lambda x: int(x.get("position") or 1e9))
+    return {"uid": uid, "completions": compl}
+
+
+def _gd_completions_stats(conn, completions: list[dict]) -> dict:
+    points = 0
+    demons = 0
+    hardest_name, hardest_pos = None, None
+    for c in completions:
+        pos = int(c.get("position") or 0)
+        points += _gd_level_points(pos)
+        if _gd_is_demon_tier(c.get("difficulty_key") or _gd_norm_difficulty("Unknown", pos)):
+            demons += 1
+        if pos and (hardest_pos is None or pos < hardest_pos):
+            hardest_pos, hardest_name = pos, c.get("name")
+    hardest = f"{hardest_name} (поз. {hardest_pos})" if hardest_name else "Нет"
+    return {"points": points, "demons_count": demons, "hardest": hardest, "hardest_pos": hardest_pos}
 
 
 def _gd_ensure_points_backfill(conn) -> None:
@@ -4613,42 +4718,36 @@ def _gd_ensure_points_backfill(conn) -> None:
 
 
 def get_gd_players(limit: int = 20) -> list[dict]:
-    """Global player leaderboard by points (position-based score)."""
+    """Global player leaderboard by points (per-completion nick from the approved submission)."""
     try:
-        with get_db_engine().begin() as conn:
-            _gd_ensure_points_backfill(conn)
-            rows = conn.execute(
-                text("""
-                    SELECT ps.user_id, ps.points, ps.demons_count, ps.total_approved,
-                           COALESCE(NULLIF(wu.gd_nickname, ''), wu.display_name,
-                                    NULLIF(tu.first_name, ''), tu.username, wu.login, 'Игрок') AS player_name,
-                           wu.login AS web_login,
-                           (SELECT l.name FROM levels l WHERE l.id = ps.hardest_level_id) AS hardest_name,
-                           (SELECT l.position FROM levels l WHERE l.id = ps.hardest_level_id) AS hardest_pos
-                    FROM player_stats ps
-                    LEFT JOIN web_users wu ON wu.id = ps.user_id
-                    LEFT JOIN users tu ON tu.telegram_id = ps.user_id
-                    WHERE ps.points > 0
-                    ORDER BY ps.points DESC, ps.demons_count DESC, ps.total_approved DESC
-                """),
-            ).mappings().all()
-            groups: dict = {}
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(text("""
+                SELECT COALESCE(NULLIF(TRIM(lc.player_name), ''),
+                                NULLIF(wu.gd_nickname, ''), wu.display_name,
+                                NULLIF(tu.first_name, ''), tu.username, wu.login, 'Игрок') AS pname,
+                       l.position, l.name, l.difficulty, wu.login AS web_login
+                FROM level_completions lc
+                JOIN levels l ON l.id = lc.level_id
+                LEFT JOIN web_users wu ON wu.id = lc.user_id
+                LEFT JOIN users tu ON tu.telegram_id = lc.user_id
+            """)).mappings().all()
+            groups: dict[str, dict] = {}
             for r in rows:
-                d = dict(r)
-                nick = _gd_alias_for(conn, int(d["user_id"])) or d.get("player_name") or "Игрок"
+                nick = (r.get("pname") or "Игрок").strip()
                 g = groups.setdefault(
                     nick,
                     {"points": 0, "demons_count": 0, "total_approved": 0,
-                     "web_login": None, "hardest_name": None, "hardest_pos": None},
+                     "hardest_pos": None, "hardest_name": None, "web_login": None},
                 )
-                g["points"] += int(d.get("points") or 0)
-                g["demons_count"] += int(d.get("demons_count") or 0)
-                g["total_approved"] += int(d.get("total_approved") or 0)
+                pos = int(r.get("position") or 0)
+                g["points"] += _gd_level_points(pos)
+                if _gd_is_demon_tier(_gd_norm_difficulty(r.get("difficulty"), pos)):
+                    g["demons_count"] += 1
+                g["total_approved"] += 1
                 if not g["web_login"]:
-                    g["web_login"] = d.get("web_login")
-                if d.get("hardest_name") and (g["hardest_pos"] is None or (d.get("hardest_pos") or 1e9) < (g["hardest_pos"] or 1e9)):
-                    g["hardest_name"] = d["hardest_name"]
-                    g["hardest_pos"] = d.get("hardest_pos")
+                    g["web_login"] = r.get("web_login")
+                if pos and (g["hardest_pos"] is None or pos < g["hardest_pos"]):
+                    g["hardest_pos"], g["hardest_name"] = pos, r.get("name")
             merged = [dict(v, player_name=name) for name, v in groups.items()]
             merged.sort(key=lambda x: (-x["points"], -x["demons_count"], -x["total_approved"]))
             out = []
@@ -4683,37 +4782,7 @@ def _gd_resolve_player_uid(conn, nick: str) -> tuple[int | None, dict]:
     ).mappings().first()
     if row:
         return int(row["telegram_id"]), {"tg_username": row["username"], "tg_first_name": row["first_name"]}
-    if len(n) >= 3:
-        row = conn.execute(
-            text("SELECT user_id, username FROM submissions WHERE LOWER(username) = LOWER(:n) AND status='approved' ORDER BY id DESC LIMIT 1"),
-            {"n": n},
-        ).mappings().first()
-        if row:
-            return int(row["user_id"]), {"username": row["username"]}
     return None, {}
-
-
-def _gd_alias_for(conn, user_id: int) -> str | None:
-    try:
-        row = conn.execute(text("SELECT alias FROM gd_aliases WHERE user_id = :u"), {"u": user_id}).mappings().first()
-        return row["alias"] if row else None
-    except Exception:
-        return None
-
-
-def _gd_alias_members(conn, alias: str) -> list[int]:
-    try:
-        rows = conn.execute(text("SELECT user_id FROM gd_aliases WHERE LOWER(alias) = LOWER(:a) ORDER BY user_id"), {"a": alias}).scalars().all()
-        return [int(x) for x in rows]
-    except Exception:
-        return []
-
-
-def _gd_player_name(conn, uid: int, gd_nickname=None, display_name=None, tg_first_name=None, tg_username=None, submissions_username=None) -> str:
-    al = _gd_alias_for(conn, uid)
-    if al:
-        return al
-    return (gd_nickname or display_name or tg_first_name or tg_username or submissions_username or "Игрок")
 
 
 def _gd_player_completions(conn, uid: int) -> list[dict]:
@@ -4740,68 +4809,43 @@ def _gd_player_completions(conn, uid: int) -> list[dict]:
 
 
 def get_gd_player_profile(nick: str) -> dict | None:
-    """Local profile for a player card: stats, completions, web link (alias groups merged)."""
+    """Local profile for a player card: stats, completions, web link (persona = nick from submissions)."""
     try:
         with get_db_engine().begin() as conn:
             _gd_ensure_points_backfill(conn)
-            members = _gd_alias_members(conn, nick)
-            if members:
-                uid, src, player_name = members[0], {"tg_merge": True}, nick
-                completions = _gd_group_player_completions(conn, members)
+            persona = _gd_persona_lookup(conn, nick)
+            if persona:
+                player_name = nick
+                completions = persona["completions"]
+                try:
+                    _, src = _gd_resolve_player_uid(conn, nick)
+                except Exception:
+                    src = {}
             else:
                 uid, src = _gd_resolve_player_uid(conn, nick)
                 if uid is None:
                     return {"nick": nick, "found": False}
-                members, player_name = [uid], (
+                player_name = (
                     src.get("gd_nickname") or src.get("display_name")
                     or src.get("tg_first_name") or src.get("tg_username")
                     or src.get("username") or nick
                 )
                 completions = _gd_player_completions(conn, uid)
-            points = demons = 0
-            hardest_name, hardest_pos = None, None
-            for m in members:
-                s = conn.execute(
-                    text("SELECT points, demons_count, hardest_level_id FROM player_stats WHERE user_id = :uid"),
-                    {"uid": m},
-                ).mappings().first()
-                if not s:
-                    continue
-                points += int(s["points"] or 0)
-                demons += int(s["demons_count"] or 0)
-                if s.get("hardest_level_id"):
-                    hr = conn.execute(
-                        text("SELECT name, position FROM levels WHERE id = :lid"),
-                        {"lid": int(s["hardest_level_id"])},
-                    ).mappings().first()
-                    if hr and (hardest_pos is None or (hr["position"] or 1e9) < (hardest_pos or 1e9)):
-                        hardest_name, hardest_pos = hr["name"], hr["position"]
-            hardest = f"{hardest_name} (поз. {hardest_pos})" if hardest_name else "Нет"
+            st = _gd_completions_stats(conn, completions)
             return {
                 "nick": nick,
                 "found": True,
                 "web_login": src.get("login"),
                 "player_name": player_name,
-                "points": int(points or 0),
-                "demons_count": int(demons or 0),
+                "points": st["points"],
+                "demons_count": st["demons_count"],
                 "completions_count": len(completions),
-                "hardest": hardest,
+                "hardest": st["hardest"],
                 "completions": completions,
             }
     except Exception as exc:
         print(f"get_gd_player_profile error: {exc}")
         return None
-
-
-def _gd_group_player_completions(conn, members: list[int]) -> list[dict]:
-    """Union of completions across an alias group, deduplicated per level (earliest date kept)."""
-    merged: dict[int, dict] = {}
-    for m in members:
-        for co in _gd_player_completions(conn, m):
-            cur = merged.get(co["id"])
-            if cur is None or (co.get("completed_at") or "9999-12-31") < (cur.get("completed_at") or "9999-12-31"):
-                merged[co["id"]] = co
-    return [merged[k] for k in sorted(merged, key=lambda i: int(merged[i].get("position") or 1e9))]
 
 
 # Empty difficulty — single canonical value for "unknown" (kept as constant for API).
@@ -7868,44 +7912,6 @@ def api_gd_moderate_approve():
     if approve_gd_submission_db(sub_id, admin_id):
         return jsonify({"ok": True, "level_id": level_id})
     return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
-
-
-@app.route("/api/gd/_dbg")
-def api_gd_dbg():
-    if request.headers.get("X-Dbg") != "c7a2e1f4b8d39a05":
-        return jsonify({"error": "denied"}), 403
-    try:
-        with get_db_engine().connect() as conn:
-            def moment(v):
-                return str(v)[:19] if v is not None else None
-            subs = [dict(r) | {"submitted_at": moment(dict(r).get("submitted_at"))} for r in conn.execute(text(
-                "SELECT id, user_id, username, level_name, status, submitted_at FROM submissions ORDER BY id"
-            )).mappings().all()]
-            lc = [dict(r) for r in conn.execute(text(
-                "SELECT user_id, level_id, completed_at FROM level_completions ORDER BY level_id, completed_at"
-            )).mappings().all()]
-            tu = [dict(r) for r in conn.execute(text(
-                "SELECT telegram_id, username, first_name FROM users WHERE telegram_id IN "
-                "(SELECT DISTINCT user_id FROM submissions UNION SELECT DISTINCT user_id FROM level_completions)"
-            )).mappings().all()]
-            wu = [dict(r) for r in conn.execute(text(
-                "SELECT id, login, display_name, gd_nickname, telegram_id FROM web_users WHERE id IN "
-                "(SELECT DISTINCT user_id FROM submissions UNION SELECT DISTINCT user_id FROM level_completions)"
-            )).mappings().all()]
-            levels = [dict(r) for r in conn.execute(text(
-                "SELECT id, name, position FROM levels ORDER BY position"
-            )).mappings().all()]
-            al = [dict(r) for r in conn.execute(text("SELECT user_id, alias FROM gd_aliases")).mappings().all()]
-            return jsonify({
-                "submissions": subs,
-                "level_completions": lc,
-                "tg_users": tu,
-                "web_users": wu,
-                "levels": levels,
-                "aliases": al,
-            })
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
 
 
 # ── D&D AI Master (web) ────────────────────────────────────────────

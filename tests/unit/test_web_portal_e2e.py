@@ -157,6 +157,7 @@ def _make_engine():
         user_id BIGINT NOT NULL,
         level_id INTEGER NOT NULL,
         completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        player_name TEXT,
         UNIQUE(user_id, level_id)
     );
     CREATE TABLE IF NOT EXISTS player_stats (
@@ -167,10 +168,6 @@ def _make_engine():
         last_submission TIMESTAMP,
         points INTEGER DEFAULT 0,
         demons_count INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS gd_aliases (
-        user_id BIGINT PRIMARY KEY,
-        alias TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS canon_works (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -506,12 +503,12 @@ def test_gd_level_completions_page_and_api(mock_engine):
     assert d["level"]["difficulty"] == "Insane Demon"
     assert len(d["completions"]) == 2
     names = {u["player_name"] for u in d["completions"]}
-    assert names == {"Riot", "Боб"}
+    assert names == {"Riot", "TgBeast"}
     web = [u for u in d["completions"] if u["web_login"] == "alice"]
     assert web and web[0]["player_name"] == "Riot"
     assert web[0]["media_type"] == "link" and web[0]["media_file_id"] == "https://youtu.be/abc"
     tg = [u for u in d["completions"] if not u["web_login"]]
-    assert tg and tg[0]["player_name"] == "Боб" and tg[0]["media_type"] == "photo"
+    assert tg and tg[0]["player_name"] == "TgBeast" and tg[0]["media_type"] == "photo"
 
     # Unknown level -> 404.
     assert c.get("/api/gd/level/999/completions").status_code == 404
@@ -594,9 +591,9 @@ def test_gd_players_page_and_api(mock_engine):
     assert len(players) == 2
     top = players[0]
     assert top["rank"] == 1 and top["player_name"] == "Riot"
-    assert top["points"] == 1000 and top["demons_count"] == 2 and top["web_login"] == "alice"
+    assert top["points"] == 1500 and top["demons_count"] == 2 and top["web_login"] == "alice"
     assert "Tartarus" in top["hardest"]
-    assert players[1]["player_name"] == "Боб" and players[1]["points"] == 500
+    assert players[1]["player_name"] == "Боб" and players[1]["points"] == 1000
 
     # Players page.
     rp = c.get("/gd/players")
@@ -607,7 +604,7 @@ def test_gd_players_page_and_api(mock_engine):
     prof = c.get("/api/gd/player/Riot").get_json()
     assert prof["found"] is True
     assert prof["player_name"] == "Riot"
-    assert prof["points"] == 1000
+    assert prof["points"] == 1500
     assert prof["demons_count"] == 2
     assert prof["completions_count"] == 2
     assert prof["web_login"] == "alice"
@@ -625,59 +622,57 @@ def test_gd_players_page_and_api(mock_engine):
 
 
 @patch("api.index.get_db_engine")
-def test_gd_alias_merge(mock_engine):
-    """Two Telegram accounts bound by gd_aliases become one player in the leaderboard/card."""
+def test_gd_persona_attribution(mock_engine):
+    """Completions are attributed by the GD nick from the approved submission (per-completion, not per-account)."""
     from api import index as index_api
     mock_engine.return_value = _make_engine()
     engine = mock_engine.return_value
     c = app.test_client()
 
     with engine.begin() as conn:
-        for uid, first_name, username in ((111, "LucasTeam", "ShadowRaven"), (222, "LucasTeam", "LucasTeam2")):
+        for uid, first_name, username in ((111, "LucasTeam", "luke_tg"), (222, "TestRaven", "test_tg")):
             conn.execute(text(
                 "INSERT INTO users (id, telegram_id, first_name, username) VALUES (:i, :i, :f, :u)"
             ), {"i": uid, "f": first_name, "u": username})
-            conn.execute(text("INSERT INTO gd_aliases (user_id, alias) VALUES (:i, 'ShadowRaven')"), {"i": uid})
-    tartarus = index_api.add_gd_level("Tartarus", 1, "Extreme Demon")
-    bloodbath = index_api.add_gd_level("Bloodbath", 2, "Unknown")
-    assert tartarus is not None and bloodbath is not None
+    supersonic = index_api.add_gd_level("Supersonic", 1, "Unknown")
+    tvol = index_api.add_gd_level("True values of live", 2, "Unknown")
+    assert supersonic is not None and tvol is not None
 
+    # The same account finished both levels, but submitted under different GD nicks.
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO player_stats (user_id, points, demons_count, hardest_level_id) VALUES (111, 1000, 1, :t)"
-        ), {"t": tartarus})
-        conn.execute(text(
-            "INSERT INTO player_stats (user_id, points, demons_count, hardest_level_id) VALUES (222, 500, 1, :b)"
-        ), {"b": bloodbath})
-        conn.execute(text("INSERT INTO level_completions (user_id, level_id) VALUES (111, :t)"), {"t": tartarus})
-        conn.execute(text("INSERT INTO level_completions (user_id, level_id) VALUES (222, :b)"), {"b": bloodbath})
-        conn.execute(text(
-            "INSERT INTO submissions (id, user_id, username, level_name, status) VALUES (1, 111, 'ShadowRaven', 'Tartarus', 'approved')"
+            "INSERT INTO submissions (id, user_id, username, level_name, status, submitted_at) "
+            "VALUES (1, 111, 'LucasTeam', 'Supersonic', 'approved', '2026-08-16 18:08:10')"
         ))
         conn.execute(text(
-            "INSERT INTO submissions (id, user_id, username, level_name, status) VALUES (2, 222, 'LucasTeam2', 'Bloodbath', 'approved')"
+            "INSERT INTO submissions (id, user_id, username, level_name, status, submitted_at) "
+            "VALUES (2, 111, 'ShadowRaven', 'True values of live', 'approved', '2026-08-27 07:37:10')"
         ))
+        conn.execute(text(
+            "INSERT INTO level_completions (user_id, level_id, player_name) VALUES (111, :s, 'LucasTeam')"
+        ), {"s": supersonic})
+        conn.execute(text(
+            "INSERT INTO level_completions (user_id, level_id, player_name) VALUES (111, :t, 'ShadowRaven')"
+        ), {"t": tvol})
 
-    # Leaderboard collapses both accounts into one merged player with summed points.
+    # No account merging: each completion counts under its submission nick.
     players = c.get("/api/gd/players").get_json()
-    merged = [p for p in players if p["player_name"] == "ShadowRaven"]
-    assert len(merged) == 1
-    top = merged[0]
-    assert top["points"] == 1500 and top["demons_count"] == 2
-    assert "Tartarus" in top["hardest"]
-    assert top["rank"] == 1
+    by_nick = {p["player_name"]: p for p in players}
+    assert by_nick["LucasTeam"]["points"] == 1000
+    assert by_nick["ShadowRaven"]["points"] == 500
+    assert by_nick["ShadowRaven"]["demons_count"] == 1
+    assert by_nick["ShadowRaven"]["hardest"] == "True values of live (поз. 2)"
 
-    # Player card groups both accounts' completions.
+    # Player card resolves the nick to only its own completion.
     prof = c.get("/api/gd/player/ShadowRaven").get_json()
     assert prof["found"] is True and prof["player_name"] == "ShadowRaven"
-    assert prof["points"] == 1500 and prof["completions_count"] == 2
-    names = {co["name"] for co in prof["completions"]}
-    assert names == {"Tartarus", "Bloodbath"}
+    assert prof["points"] == 500 and prof["completions_count"] == 1
+    assert [co["name"] for co in prof["completions"]] == ["True values of live"]
 
-    # Level completions list shows the merged victor name once.
-    d = c.get(f"/api/gd/level/{bloodbath}/completions").get_json()
+    # Level completions list shows the victor's submission nick.
+    d = c.get(f"/api/gd/level/{supersonic}/completions").get_json()
     completers = [u["player_name"] for u in d["completions"]]
-    assert completers == ["ShadowRaven"]
+    assert completers == ["LucasTeam"]
 
 
 @patch("api.index.get_db_engine")
@@ -712,9 +707,9 @@ def test_gd_first_completion_badge(mock_engine):
     assert resp.status_code == 200
     d = resp.get_json()
     by_name = {u["player_name"]: u for u in d["completions"]}
-    assert "Riot" in by_name and "Боб" in by_name
+    assert "Riot" in by_name and "TgBeast" in by_name
     assert by_name["Riot"]["is_first"] is True
-    assert by_name["Боб"]["is_first"] is False
+    assert by_name["TgBeast"]["is_first"] is False
 
 
 def test_reading_trainer_has_mom05_features():
