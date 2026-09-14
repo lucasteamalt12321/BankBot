@@ -4297,6 +4297,46 @@ def reject_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
         return False
 
 
+def get_gd_level_completions(level_id: int) -> list[dict]:
+    """Approved completions for a level, deduplicated per player (latest media first)."""
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT s.username, s.media_file_id, s.media_type, s.submitted_at,
+                           wu.login AS web_login, wu.display_name, wu.gd_nickname,
+                           tu.username AS tg_username, tu.first_name AS tg_first_name
+                    FROM submissions s
+                    JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+                    LEFT JOIN web_users wu ON wu.id = s.user_id
+                    LEFT JOIN users tu ON tu.telegram_id = s.user_id
+                    WHERE lv.id = :lid AND s.status = 'approved'
+                    ORDER BY s.submitted_at IS NULL, s.submitted_at DESC, s.id DESC
+                """),
+                {"lid": level_id},
+            ).mappings().all()
+            result = []
+            seen = set()
+            for row in rows:
+                d = dict(row)
+                key = d.get("web_login") or d.get("username") or (d.get("tg_first_name") or d.get("tg_username") or "")
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                d["player_name"] = (
+                    d.get("gd_nickname") or d.get("display_name")
+                    or d.get("tg_first_name") or d.get("tg_username")
+                    or d.get("username") or "Игрок"
+                )
+                if d.get("submitted_at"):
+                    d["submitted_at"] = str(d["submitted_at"])[:19]
+                result.append(d)
+            return result
+    except Exception as exc:
+        print(f"get_gd_level_completions error: {exc}")
+        return []
+
+
 def _gd_shift_positions(conn, position: int, exclude_id: int | None = None) -> None:
     """Shift all levels with position >= :pos down by 1 to free a slot.
 
@@ -6196,9 +6236,16 @@ def gd_page():
                 <div class="input-row">
                     <input type="text" id="sub-level" placeholder="Название уровня (например: Tartarus)" onkeydown="if(event.key==='Enter')submitRecord()">
                 </div>
-                <div class="input-row">
-                    <label class="file-label" for="sub-media">📎 Видео или фото с прохождением</label>
+                <div class="input-row" style="margin-bottom:6px">
+                    <button type="button" class="tab" id="mode-file-btn" style="flex:none" onclick="setMediaMode('file')">📎 Файл</button>
+                    <button type="button" class="tab" id="mode-link-btn" style="flex:none" onclick="setMediaMode('link')">🔗 Ссылка</button>
+                </div>
+                <div class="input-row" id="media-file-row">
+                    <label class="file-label" for="sub-media">📎 Видео или фото с прохождением (макс. 16 МБ)</label>
                     <input type="file" id="sub-media" accept="video/*,image/*,.mp4,.mov,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif">
+                </div>
+                <div class="input-row" id="media-link-row" style="display:none">
+                    <input type="url" id="sub-link" placeholder="🔗 Ссылка на видео (https://...)" onkeydown="if(event.key==='Enter')submitRecord()">
                 </div>
                 <button class="btn" id="sub-btn" onclick="submitRecord()">📨 Отправить рекорд</button>
                 <div id="sub-result"></div>
@@ -6302,7 +6349,7 @@ def gd_page():
                         var actions = IS_ADMIN
                             ? '<button class="btn btn-mini" id="act-edit-' + l.id + '" onclick="editLevel(' + l.id + ')">✏️</button> <button class="btn btn-mini btn-danger" onclick="deleteLevel(' + l.id + ', this)">🗑️</button>'
                             : '';
-                        html += '<tr data-id="' + l.id + '"><td class="pos" data-field="position">' + (l.position || '—') + '</td><td data-field="name">' + _gdEsc(l.name || '—') + '</td><td data-field="difficulty">' + _gdEsc(l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td>' + (IS_ADMIN ? '<td>' + actions + '</td>' : '') + '</tr>';
+                        html += '<tr data-id="' + l.id + '"><td class="pos" data-field="position">' + (l.position || '—') + '</td><td data-field="name"><a href="/gd/level/' + l.id + '" style="color:var(--gh-accent);text-decoration:underline">' + _gdEsc(l.name || '—') + '</a></td><td data-field="difficulty">' + _gdEsc(l.difficulty || '—') + '</td><td>' + (l.completions || 0) + who + '</td>' + (IS_ADMIN ? '<td>' + actions + '</td>' : '') + '</tr>';
                     });
                     html += '</tbody></table>';
                     out.innerHTML = html;
@@ -6447,7 +6494,15 @@ def gd_page():
             var mediaFile = mediaInput && mediaInput.files && mediaInput.files.length ? mediaInput.files[0] : null;
             var out = document.getElementById('sub-result');
             if (!level) { out.innerHTML = '<p class="error">Укажите название уровня</p>'; return; }
-            if (!mediaFile) { out.innerHTML = '<p class="error">Прикрепите видео или фото с прохождением</p>'; return; }
+            var linkInput = document.getElementById('sub-link');
+            var mode = mediaMode || 'file';
+            var mediaUrl = linkInput ? linkInput.value.trim() : '';
+            if (mode === 'link') {
+                if (!/^https?:\\/\\//i.test(mediaUrl)) { out.innerHTML = '<p class="error">Введите ссылку (http:// или https://)</p>'; return; }
+            } else {
+                if (!mediaFile) { out.innerHTML = '<p class="error">Прикрепите видео или фото с прохождением</p>'; return; }
+                if (mediaFile.size > 16 * 1024 * 1024) { out.innerHTML = '<p class="error">Файл слишком большой (макс. 16 МБ)</p>'; return; }
+            }
             var token = localStorage.getItem('web_token');
             if (!token) { out.innerHTML = '<p class="error">Чтобы отправить рекорд, нужно <a href="/account">войти в аккаунт</a>.</p>'; return; }
             var btn = document.getElementById('sub-btn');
@@ -6458,7 +6513,8 @@ def gd_page():
                 fd.append('level_name', level);
                 fd.append('gd_nickname', gdNick || '');
                 fd.append('token', token);
-                fd.append('media', mediaFile, mediaFile.name);
+                if (mediaMode === 'link') { fd.append('media_url', mediaUrl); }
+                else { fd.append('media', mediaFile, mediaFile.name); }
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/gd/submit');
                 xhr.timeout = 30000;
@@ -6471,6 +6527,8 @@ def gd_page():
                         hubTrack('gd', 1);
                         document.getElementById('sub-level').value = '';
                         if (mediaInput) { mediaInput.value = ''; updateMediaLabel(); }
+                        if (linkInput) { linkInput.value = ''; }
+                        setMediaMode('file');
                     } catch(e) { out.innerHTML = '<p class="error">Ошибка отправки.</p>'; }
                 };
                 xhr.onerror = function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
@@ -6491,6 +6549,19 @@ def gd_page():
                 .catch(function() { btn.disabled = false; out.innerHTML = '<p class="error">Ошибка сети.</p>'; });
         }
 
+        function setMediaMode(mode) {
+            mediaMode = mode;
+            var fr = document.getElementById('media-file-row');
+            var lr = document.getElementById('media-link-row');
+            var fb = document.getElementById('mode-file-btn');
+            var lb = document.getElementById('mode-link-btn');
+            if (!fr || !lr) return;
+            fr.style.display = (mode === 'link') ? 'none' : 'flex';
+            lr.style.display = (mode === 'link') ? 'flex' : 'none';
+            if (fb) fb.classList.toggle('active', mode === 'file');
+            if (lb) lb.classList.toggle('active', mode === 'link');
+        }
+        var mediaMode = 'file';
         function updateMediaLabel() {
             var input = document.getElementById('sub-media');
             var label = document.querySelector('.file-label');
@@ -6499,11 +6570,26 @@ def gd_page():
                 label.textContent = '📎 ' + input.files[0].name;
                 label.classList.add('has-file');
             } else {
-                label.textContent = '📎 Видео или фото с прохождением';
+                label.textContent = '📎 Видео или фото с прохождением (макс. 16 МБ)';
                 label.classList.remove('has-file');
             }
         }
         document.getElementById('sub-media').addEventListener('change', updateMediaLabel);
+
+        function gdMediaHtml(mediaId, mediaType) {
+            if (!mediaId) return '';
+            var low = mediaId.toLowerCase();
+            var isData = low.indexOf('data:') === 0;
+            var isImg = isData ? /^data:image\\//.test(low) : /\\.(png|jpe?g|gif|webp)([?#]|$)/.test(low);
+            var isVid = isData ? /^data:video\\//.test(low) : /\\.(mp4|webm|mov|mkv)([?#]|$)/.test(low);
+            var html = '<div class="hint" style="margin-top:0">'
+                + '<a href="' + _gdEsc(mediaId) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>'
+                + (mediaType === 'link' ? ' · 🔗 внешняя ссылка' : '')
+                + '</div>';
+            if (isImg) html += '<img src="' + _gdEsc(mediaId) + '" alt="Скриншот прохождения" loading="lazy" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block">';
+            else if (isVid) html += '<video controls preload="metadata" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block" src="' + _gdEsc(mediaId) + '"></video>';
+            return html;
+        }
 
         function renderModeration(page) {
             var out = document.getElementById('mod-result');
@@ -6526,16 +6612,8 @@ def gd_page():
                             + '<div style="color:var(--gh-text);font-size:15px;margin:6px 0">🎮 ' + _gdEsc(s.level_name) + '</div>'
                             + '<div class="hint" style="margin-top:0">📅 ' + _gdEsc(s.submitted_at || '—') + ' · ' + _gdEsc(s.media_type || 'без медиа') + '</div>'
                             + '<div class="hint" style="margin-top:0">'
-                            + (s.media_file_id
-                                ? '<a href="' + _gdEsc(s.media_file_id) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>'
-                                : '')
+                            + gdMediaHtml(s.media_file_id, s.media_type)
                             + '</div>'
-                            + (s.media_file_id && /^data:image\\/(png|jpeg|gif|webp);base64,/.test(s.media_file_id)
-                                ? '<img src="' + _gdEsc(s.media_file_id) + '" alt="Скриншот прохождения" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block">'
-                                : '')
-                            + (s.media_file_id && /^data:video\\/(mp4|webm|mov|mkv|x-matroska);base64,/.test(s.media_file_id)
-                                ? '<video controls preload="metadata" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block" src="' + _gdEsc(s.media_file_id) + '"></video>'
-                                : '')
                             + '<div class="mod-btns">'
                             + '<button class="btn btn-approve" onclick="approveSub(' + s.id + ')">✅ Подтвердить</button>'
                             + '<button class="btn btn-reject" onclick="rejectSub(' + s.id + ')">❌ Отклонить</button>'
@@ -6649,6 +6727,94 @@ def gd_page():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+@app.route("/gd/level/<int:level_id>")
+def gd_level_page(level_id: int):
+    html = r"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Прохождения уровня — LTHub</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--gh-bg); min-height: 100vh; color: var(--gh-text); padding: 20px; }
+        .container { max-width: 720px; width: 100%; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header h1 { font-size: 24px; color: var(--gh-accent); }
+        .header a { color: var(--gh-muted); text-decoration: none; font-size: 14px; margin-left: auto; }
+        .header a:hover { color: var(--gh-accent); }
+        .card { background: var(--gh-panel); border: 1px solid var(--gh-border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        .hint { color: var(--gh-muted); font-size: 14px; margin-top: 12px; }
+        .error { color: var(--gh-red); margin-top: 12px; }
+        .sub-card { background: var(--gh-bg); border: 1px solid var(--gh-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+        .cp-name { font-size: 15px; font-weight: 700; color: var(--gh-text); }
+        .cp-name a { color: var(--gh-accent); font-weight: 600; text-decoration: underline; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🎮 Прохождения</h1>
+        <a href="/gd">← К лидерборду</a>
+        <a href="/">На главную</a>
+    </div>
+    <div class="card" id="level-card"><p class="hint">Загрузка...</p></div>
+    <div class="card">
+        <div style="font-weight:700;font-size:16px;margin-bottom:12px;color:var(--gh-accent)">Прохождения уровня</div>
+        <div id="cp-result"><p class="hint">Загрузка...</p></div>
+    </div>
+</div>
+<script>
+    var LEV_ID = parseInt((window.location.pathname.split('/').pop() || ''), 10);
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function gdMediaHtml(mediaId, mediaType) {
+        if (!mediaId) return '';
+        var low = mediaId.toLowerCase();
+        var isData = low.indexOf('data:') === 0;
+        var isImg = isData ? low.indexOf('data:image/') === 0 : /\.(png|jpe?g|gif|webp)([?#]|$)/.test(low);
+        var isVid = isData ? low.indexOf('data:video/') === 0 : /\.(mp4|webm|mov|mkv)([?#]|$)/.test(low);
+        var html = '<div class="hint" style="margin-top:6px;margin-bottom:0">'
+            + '<a href="' + esc(mediaId) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>'
+            + (mediaType === 'link' ? ' · 🔗 внешняя ссылка' : '')
+            + '</div>';
+        if (isImg) html += '<img src="' + esc(mediaId) + '" alt="Медиа прохождения" loading="lazy" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block">';
+        else if (isVid) html += '<video controls preload="metadata" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block" src="' + esc(mediaId) + '"></video>';
+        return html;
+    }
+    function loadLevel() {
+        var lc = document.getElementById('level-card');
+        var out = document.getElementById('cp-result');
+        if (!LEV_ID) { lc.innerHTML = '<p class="error">Некорректный идентификатор уровня.</p>'; out.innerHTML = ''; return; }
+        fetch('/api/gd/level/' + LEV_ID + '/completions')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) { lc.innerHTML = '<p class="error">' + esc(d.error) + '</p>'; out.innerHTML = ''; return; }
+                var lv = d.level || {};
+                lc.innerHTML = '<div style="font-size:18px;font-weight:700;color:var(--gh-accent)">🎮 ' + esc(lv.name || '—') + '</div>'
+                    + '<div class="hint" style="margin-top:6px">Позиция: ' + esc(lv.position || '—') + ' · Сложность: ' + esc(lv.difficulty || '—') + '</div>';
+                var cs = d.completions || [];
+                if (!cs.length) { out.innerHTML = '<p class="hint">Прохождений пока нет.</p>'; return; }
+                var html = '';
+                cs.forEach(function(c) {
+                    var prof = c.web_login ? ' · <a href="/u/' + encodeURIComponent(c.web_login) + '">профиль →</a>' : '';
+                    html += '<div class="sub-card">'
+                        + '<div class="cp-name">👑 ' + esc(c.player_name || 'Игрок') + prof + '</div>'
+                        + (c.username && c.username !== c.player_name ? '<div class="hint" style="margin-top:2px">GD: ' + esc(c.username) + '</div>' : '')
+                        + (c.submitted_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.submitted_at) + '</div>' : '')
+                        + gdMediaHtml(c.media_file_id, c.media_type)
+                        + '</div>';
+                });
+                out.innerHTML = html;
+            })
+            .catch(function() { lc.innerHTML = '<p class="error">Ошибка загрузки.</p>'; });
+    }
+    loadLevel();
+</script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 @app.route("/api/gd/user/<nick>")
 def api_gd_user(nick: str):
     data = fetch_gd_user(nick)
@@ -6682,6 +6848,28 @@ def api_gd_leaderboard():
     except Exception as exc:
         print(f"GD leaderboard difficulty enrich error: {exc}")
     return jsonify(levels)
+
+
+@app.route("/api/gd/level/<int:level_id>/completions")
+def api_gd_level_completions(level_id: int):
+    lvl = get_gd_level(level_id)
+    if not lvl:
+        return jsonify({"error": "Уровень не найден"}), 404
+    completions = get_gd_level_completions(level_id)
+    difficulty = str(lvl.get("difficulty") or "").strip()
+    if not difficulty or difficulty in ("Unknown", "-"):
+        d = get_gd_difficulty_name(lvl.get("name") or "")
+        if d and d != "Unknown":
+            difficulty = d
+    return jsonify({
+        "level": {
+            "id": lvl["id"],
+            "name": lvl.get("name"),
+            "position": lvl.get("position"),
+            "difficulty": difficulty or "Unknown",
+        },
+        "completions": completions,
+    })
 
 
 @app.route("/api/gd/admin/level/<int:level_id>", methods=["DELETE"])
@@ -6844,36 +7032,56 @@ def api_gd_submit():
     # В лидерборде показываем именно GD-ник из аккаунта.
     username = gd_nick
 
-    # Медиа (видео/фото с прохождением) — обязательно, как в Telegram-флоу.
+    # Медиа (видео/фото или внешняя ссылка с прохождением) — обязательно, как в Telegram-флоу.
     media_file = request.files.get("media")
-    if not (media_file and media_file.filename):
-        return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
-    media_data = media_file.read()
-    if not media_data:
-        return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
-    if len(media_data) > 16 * 1024 * 1024:
-        return jsonify({"error": "Файл слишком большой (макс. 16 МБ)"}), 413
-    filename = (media_file.filename or "").lower()
-    media_mime = (media_file.mimetype or "").lower()
-    # Строгий allowlist медиа-типов: отсекаем text/html и SVG (XSS-векторы через data:-URL).
-    if filename.endswith(".svg") or media_mime in ("image/svg+xml", "text/html", "application/html"):
-        return jsonify({"error": "Недопустимый тип файла (разрешены только видео/фото)"}), 400
-    is_video = media_mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".mkv"))
-    is_photo = media_mime in ("image/png", "image/jpeg", "image/gif", "image/webp") or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
-    if is_video:
-        media_type = "video"
-        if not media_mime.startswith("video/"):
-            ext = next((e for e in (".mp4", ".mov", ".webm", ".mkv") if filename.endswith(e)), ".mp4")
-            media_mime = "video/" + ext[1:]
-    elif is_photo:
-        media_type = "photo"
-        if media_mime not in ("image/png", "image/jpeg", "image/gif", "image/webp"):
-            ext = next((e for e in (".png", ".jpg", ".jpeg", ".gif", ".webp") if filename.endswith(e)), ".png")
-            media_mime = "image/" + ext[1:]
+    media_url = (request.form.get("media_url") or "").strip()
+    if media_file and media_file.filename:
+        if media_url:
+            return jsonify({"error": "Укажите только один источник медиа: файл ИЛИ внешнюю ссылку"}), 400
+        media_data = media_file.read()
+        if not media_data:
+            return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
+        if len(media_data) > 16 * 1024 * 1024:
+            return jsonify({"error": "Файл слишком большой (макс. 16 МБ)"}), 413
+        filename = (media_file.filename or "").lower()
+        media_mime = (media_file.mimetype or "").lower()
+        # Строгий allowlist медиа-типов: отсекаем text/html и SVG (XSS-векторы через data:-URL).
+        if filename.endswith(".svg") or media_mime in ("image/svg+xml", "text/html", "application/html"):
+            return jsonify({"error": "Недопустимый тип файла (разрешены только видео/фото)"}), 400
+        is_video = media_mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".mkv"))
+        is_photo = media_mime in ("image/png", "image/jpeg", "image/gif", "image/webp") or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+        if is_video:
+            media_type = "video"
+            if not media_mime.startswith("video/"):
+                ext = next((e for e in (".mp4", ".mov", ".webm", ".mkv") if filename.endswith(e)), ".mp4")
+                media_mime = "video/" + ext[1:]
+        elif is_photo:
+            media_type = "photo"
+            if media_mime not in ("image/png", "image/jpeg", "image/gif", "image/webp"):
+                ext = next((e for e in (".png", ".jpg", ".jpeg", ".gif", ".webp") if filename.endswith(e)), ".png")
+                media_mime = "image/" + ext[1:]
+        else:
+            return jsonify({"error": "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)"}), 400
+        # Храним файл как data-URL (веб не имеет Telegram file_id); тип ограничен allowlist выше.
+        media_ref = f"data:{media_mime};base64,{base64.b64encode(media_data).decode('ascii')}"
+    elif media_url:
+        # Внешняя ссылка: только http/https; ложится в media_file_id как есть (href экранируется на рендере).
+        if len(media_url) > 2048:
+            return jsonify({"error": "Ссылка слишком длинная (макс. 2048 символов)"}), 400
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(media_url)
+        except Exception:
+            parsed = None
+        if not parsed or parsed.scheme not in ("http", "https") or not getattr(parsed, "netloc", ""):
+            return jsonify({"error": "Ссылка должна начинаться с http:// или https://"}), 400
+        low = media_url.lower()
+        if any(bad in low for bad in ("javascript:", "data:", "file:", "vbscript:")):
+            return jsonify({"error": "Недопустимая ссылка"}), 400
+        media_ref = media_url
+        media_type = "link"
     else:
-        return jsonify({"error": "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)"}), 400
-    # Храним файл как data-URL (веб не имеет Telegram file_id); тип ограничен allowlist выше.
-    media_ref = f"data:{media_mime};base64,{base64.b64encode(media_data).decode('ascii')}"
+        return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
 
     sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending")
     if not sub_id:

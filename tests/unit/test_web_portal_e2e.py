@@ -146,6 +146,26 @@ def _make_engine():
         reviewed_at TIMESTAMP,
         reviewed_by BIGINT
     );
+    CREATE TABLE IF NOT EXISTS levels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        difficulty TEXT DEFAULT 'Unknown'
+    );
+    CREATE TABLE IF NOT EXISTS level_completions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id BIGINT NOT NULL,
+        level_id INTEGER NOT NULL,
+        completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, level_id)
+    );
+    CREATE TABLE IF NOT EXISTS player_stats (
+        user_id BIGINT PRIMARY KEY,
+        total_approved INTEGER DEFAULT 0,
+        total_rejected INTEGER DEFAULT 0,
+        hardest_level_id INTEGER,
+        last_submission TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS canon_works (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title VARCHAR(200) NOT NULL,
@@ -376,6 +396,126 @@ def test_gd_web_submit_requires_account_and_media(mock_engine):
     # Web page exposes the upload field.
     body = c.get("/gd").get_data(as_text=True)
     assert 'id="sub-media"' in body
+
+
+@patch("api.index.get_db_engine")
+def test_gd_web_submit_external_link_and_limits(mock_engine):
+    """GD web submission accepts an external link instead of a file, with size/url limits."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO web_users (id, login, password_hash, gd_nickname) VALUES (1, 'gdlink', 'x', 'Riot')"))
+    token = index_api._create_session(1)
+
+    # Valid external link -> stored as-is with media_type=link.
+    resp = c.post("/api/gd/submit", data={
+        "level_name": "Tartarus",
+        "media_url": "https://youtu.be/abc123?t=5",
+        "token": token,
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 200
+    sid = resp.get_json()["submission_id"]
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT media_file_id, media_type, status FROM submissions WHERE id = :sid"
+        ), {"sid": sid}).mappings().first()
+    assert row["media_file_id"] == "https://youtu.be/abc123?t=5"
+    assert row["media_type"] == "link"
+    assert row["status"] == "pending"
+
+    # Non-http(s) scheme -> 400.
+    for bad_url in ("javascript:alert(1)", "data:text/html,<script>x</script>", "ftp://x/y", "//host/path"):
+        resp = c.post("/api/gd/submit", data={
+            "level_name": "Tartarus",
+            "media_url": bad_url,
+            "token": token,
+        }, content_type="multipart/form-data")
+        assert resp.status_code == 400, bad_url
+
+    # File AND link together -> 400.
+    resp = c.post("/api/gd/submit", data={
+        "level_name": "Tartarus",
+        "media_url": "https://youtu.be/abc",
+        "media": (io.BytesIO(b"\x00\x01fake"), "run.mp4"),
+        "token": token,
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 400
+    assert "один источник медиа" in resp.get_json()["error"]
+
+    # File larger than 16MB -> 413.
+    big = io.BytesIO(b"\x00" * (16 * 1024 * 1024 + 1))
+    resp = c.post("/api/gd/submit", data={
+        "level_name": "Tartarus",
+        "media": (big, "run.mp4"),
+        "token": token,
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 413
+    assert "16 МБ" in resp.get_json()["error"]
+
+    # Page exposes both the file field and the link field.
+    body = c.get("/gd").get_data(as_text=True)
+    assert 'id="sub-media"' in body
+    assert 'id="sub-link"' in body
+
+
+@patch("api.index.get_db_engine")
+def test_gd_level_completions_page_and_api(mock_engine):
+    """Level page + API list approved completions with profile and media links."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        conn.execute(text("\n".join([
+            "INSERT INTO web_users (id, login, password_hash, display_name, gd_nickname) VALUES (1, 'alice', 'x', 'Alice', 'Riot')",
+        ])))
+        conn.execute(text(
+            "INSERT INTO users (id, telegram_id, first_name, username) VALUES (1, 777, 'Боб', 'bob_tg')"
+        ))
+    level_id = index_api.add_gd_level("Tartarus", 1, "Insane Demon")
+    assert level_id is not None
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO submissions (id, user_id, username, level_name, media_file_id, media_type, status) "
+            "VALUES (1, 1, 'Riot', 'Tartarus', 'https://youtu.be/abc', 'link', 'approved')"
+        ))
+        conn.execute(text(
+            "INSERT INTO submissions (id, user_id, username, level_name, media_file_id, media_type, status) "
+            "VALUES (2, 777, 'TgBeast', 'Tartarus', 'data:image/png;base64,AAAA', 'photo', 'approved')"
+        ))
+        conn.execute(text(
+            "INSERT INTO submissions (id, user_id, username, level_name, media_file_id, media_type, status) "
+            "VALUES (3, 1, 'Riot', 'Tartarus', 'data:video/mp4;base64,BBBB', 'video', 'pending')"
+        ))
+
+    # API: only approved, deduped per player, profile link for web user, tg user without profile.
+    resp = c.get(f"/api/gd/level/{level_id}/completions")
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["level"]["name"] == "Tartarus"
+    assert d["level"]["difficulty"] == "Insane Demon"
+    assert len(d["completions"]) == 2
+    names = {u["player_name"] for u in d["completions"]}
+    assert names == {"Riot", "Боб"}
+    web = [u for u in d["completions"] if u["web_login"] == "alice"]
+    assert web and web[0]["player_name"] == "Riot"
+    assert web[0]["media_type"] == "link" and web[0]["media_file_id"] == "https://youtu.be/abc"
+    tg = [u for u in d["completions"] if not u["web_login"]]
+    assert tg and tg[0]["player_name"] == "Боб" and tg[0]["media_type"] == "photo"
+
+    # Unknown level -> 404.
+    assert c.get("/api/gd/level/999/completions").status_code == 404
+
+    # Page renders; leaderboard links each level name to its page.
+    rp = c.get(f"/gd/level/{level_id}")
+    assert rp.status_code == 200
+    assert "Прохождения уровня" in rp.get_data(as_text=True)
+    gd_body = c.get("/gd").get_data(as_text=True)
+    assert 'href="/gd/level/' in gd_body  # leaderboard level names link to the level page
 
 
 def test_reading_trainer_has_mom05_features():
