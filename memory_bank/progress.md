@@ -2416,7 +2416,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-  5b1b4da (2026-09-14; fix(gd): attribute completions by submission nick + admin add/remove in player card).
+  666b129 (2026-09-14; feat(gd): admin + button in player card).
 ## last_checked_commit
   3ab85b1 (2026-08-29; feat(gd): рекорды привязаны к аккаунту, анонимы заблокированы, GD-ник из профиля).
 ## last_checked_commit
