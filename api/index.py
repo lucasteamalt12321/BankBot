@@ -4573,10 +4573,28 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
         return []
 
 
+def _gd_ensure_points_backfill(conn) -> None:
+    """Backfill player_stats.points/demons_count for users created before the column existed."""
+    try:
+        stale = conn.execute(
+            text("""
+                SELECT DISTINCT lc.user_id
+                FROM level_completions lc
+                LEFT JOIN player_stats ps ON ps.user_id = lc.user_id AND ps.points IS NOT NULL AND ps.points > 0
+                WHERE ps.user_id IS NULL
+            """)
+        ).scalars().all()
+        for uid in stale:
+            _gd_sync_player_stats(conn, int(uid))
+    except Exception as exc:
+        print(f"_gd_ensure_points_backfill error: {exc}")
+
+
 def get_gd_players(limit: int = 20) -> list[dict]:
     """Global player leaderboard by points (position-based score)."""
     try:
-        with get_db_engine().connect() as conn:
+        with get_db_engine().begin() as conn:
+            _gd_ensure_points_backfill(conn)
             rows = conn.execute(
                 text("""
                     SELECT ps.user_id, ps.points, ps.demons_count, ps.total_approved,
@@ -4663,10 +4681,11 @@ def _gd_player_completions(conn, user_id: int) -> list[dict]:
 def get_gd_player_profile(nick: str) -> dict | None:
     """Local profile for a player card: stats, completions, web link."""
     try:
-        with get_db_engine().connect() as conn:
+        with get_db_engine().begin() as conn:
             uid, src = _gd_resolve_player_uid(conn, nick)
             if uid is None:
                 return {"nick": nick, "found": False}
+            _gd_ensure_points_backfill(conn)
             stats = conn.execute(
                 text("SELECT * FROM player_stats WHERE user_id = :uid"),
                 {"uid": uid},
