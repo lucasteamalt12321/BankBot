@@ -21,7 +21,9 @@
   - **Карточка игрока:** `/gd/player/<nick>` + `/api/gd/player/<nick>` (резолв web gd_nickname→tg username→s.username), очки/демоны/хардест, пройденные уровни с цветными бейджами + дата, внешние данные gdbrowser (stars/demons/creator), «профиль →».
   - **⚡ Первый виктор:** `get_gd_level_completions` → `is_first` по MIN(submitted_at); жёлтый бейдж на странице уровня.
   - Тесты: +3 e2e (`test_gd_normalized_difficulty`, `test_gd_players_page_and_api`, `test_gd_first_completion_badge`); DDL +points/demons_count. 9/9 зелёные (gd×6 + social×3); ruff + `node --check` (gd/gdlevel/gdplayers/gdplayer) чисто.
-  - 🟢 **[BACKLOG] Known issue FIXED:** leaderboard больше не блокируется (энричмент только если позиция+тир оба неизвестны). Прод smoke pending.
+  - Задеплоено (bc24f69 + fix 57e6e84 lazy-backfill старых player_stats). Прод smoke: `/gd`+`/gd/players`+`/gd/player/LucasTeam`+`/api/gd/player/LucasTeam` 200, `/api/gd/players` → 4 игрока с очками (рейтинг filled), `/api/gd/leaderboard` 0.84s — ханг ушёл, `/api/gd/level/1/completions` → виктор с `is_first: true`, бейдж/ссылки в шаблонах страниц есть.
+  - 🟢 **[BACKLOG] Known issue FIXED:** leaderboard больше не блокируется (энричмент только если позиция+тир оба неизвестны). Прод smoke pending. → закрыт, проверено.
+  - ⚠️ Прод-нюанс данных: два tg-аккаунта с отображаемым именем «LucasTeam» — ники-ссылки ведут на резолв по `users.username`; при желании добавить учёт `first_name` в `_gd_resolve_player_uid` (коллизия имён останется).
 
 ### ✅ Выполнено (в этой сессии, 2026-09-13): 👥 Система профилей и друзей
 - ✅ [TASK] **«добавь систему профилей и друзей»** (коммит `dbbacc5`, задеплоено, прод smoke прошёл):
