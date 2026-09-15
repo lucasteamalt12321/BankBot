@@ -525,7 +525,7 @@ def test_gd_level_completions_page_and_api(mock_engine):
 
 @patch("api.index.get_db_engine")
 def test_gd_normalized_difficulty(mock_engine):
-    """Difficulty is normalized into the Global Demonlist ladder, auto-derived from position."""
+    """Difficulty is normalized into the demon ladder; "Top X" tiers were removed."""
     from api import index as index_api
     mock_engine.return_value = _make_engine()
     c = app.test_client()
@@ -534,23 +534,28 @@ def test_gd_normalized_difficulty(mock_engine):
     assert index_api._gd_norm_difficulty("Easy") == "easy"
     assert index_api._gd_norm_difficulty("Hard Demon") == "hard_demon"
     assert index_api._gd_norm_difficulty("extreme demon") == "extreme_demon"
-    assert index_api._gd_norm_difficulty("Top 150") == "top_150"
     assert index_api._gd_norm_difficulty("insane_demon", 9) == "insane_demon"  # explicit wins
 
-    # Unknown -> list placement tier derived from position.
-    assert index_api._gd_norm_difficulty("Unknown", 1) == "top_10"
-    assert index_api._gd_norm_difficulty("Unknown", 55) == "top_100"
-    assert index_api._gd_norm_difficulty("Unknown", 200) == "top_200"
-    assert index_api._gd_norm_difficulty("Unknown", 9999) == "top_1000"
+    # The retired "Top X" ladder is gone: legacy values/unknown resolve to "unknown".
+    assert index_api._gd_norm_difficulty("Top 150") == "unknown"
+    assert index_api._gd_norm_difficulty("Unknown", 1) == "unknown"
+    assert index_api._gd_norm_difficulty("Unknown", 55) == "unknown"
+    assert index_api._gd_norm_difficulty("Unknown", 200) == "unknown"
+    assert index_api._gd_norm_difficulty("Unknown", 9999) == "unknown"
 
-    # Level created with Unknown difficulty gets the canonical tier stored.
+    # Level created with Unknown difficulty stays unknown (no auto-derived Top X).
     level_id = index_api.add_gd_level("Silent Clubstep", 3, "Unknown")
     assert level_id is not None
     resp = c.get(f"/api/gd/level/{level_id}/completions")
     assert resp.status_code == 200
     d = resp.get_json()
-    assert d["level"]["difficulty_key"] == "top_10"
-    assert d["level"]["difficulty"] == "Top 10"
+    assert d["level"]["difficulty_key"] == "unknown"
+    assert d["level"]["difficulty"] == "Unknown"
+
+    # Admin tier options no longer expose any "Top X" entries.
+    opts = [o["key"] for o in index_api.gd_difficulty_options()]
+    assert all(not k.startswith("top_") for k in opts)
+    assert "extreme_demon" in opts
 
     # Fallback path: unreachable gdbrowser returns "Unknown" (and never hangs).
     with patch("api.index.requests.get", side_effect=Exception("offline")):
@@ -593,7 +598,7 @@ def test_gd_players_page_and_api(mock_engine):
     assert len(players) == 2
     top = players[0]
     assert top["rank"] == 1 and top["player_name"] == "Riot"
-    assert top["points"] == 1500 and top["demons_count"] == 2 and top["web_login"] == "alice"
+    assert top["points"] == 1500 and top["demons_count"] == 1 and top["web_login"] == "alice"
     assert "Tartarus" in top["hardest"]
     assert players[1]["player_name"] == "Боб" and players[1]["points"] == 1000
 
@@ -612,7 +617,7 @@ def test_gd_players_page_and_api(mock_engine):
     assert prof["found"] is True
     assert prof["player_name"] == "Riot"
     assert prof["points"] == 1500
-    assert prof["demons_count"] == 2
+    assert prof["demons_count"] == 1
     assert prof["completions_count"] == 2
     assert prof["web_login"] == "alice"
     assert "Tartarus" in prof["hardest"]
@@ -667,7 +672,7 @@ def test_gd_persona_attribution(mock_engine):
     by_nick = {p["player_name"]: p for p in players}
     assert by_nick["LucasTeam"]["points"] == 1000
     assert by_nick["ShadowRaven"]["points"] == 500
-    assert by_nick["ShadowRaven"]["demons_count"] == 1
+    assert by_nick["ShadowRaven"]["demons_count"] == 0
     assert by_nick["ShadowRaven"]["hardest"] == "True values of live (поз. 2)"
 
     # Player card resolves the nick to only its own completion.
@@ -741,7 +746,7 @@ def test_gd_admin_completion_add_remove(mock_engine):
     # Player now appears in the roster as its own persona.
     players = client.get("/api/gd/players").get_json()
     by_nick = {p["player_name"]: p for p in players}
-    assert by_nick["LucasTeam"]["points"] == 1000 and by_nick["LucasTeam"]["demons_count"] == 1
+    assert by_nick["LucasTeam"]["points"] == 1000 and by_nick["LucasTeam"]["demons_count"] == 0
 
     # Admin removes the level from the completed list.
     r = client.delete(f"/api/gd/admin/player/LucasTeam/completions?level_id={level_id}", headers=headers)

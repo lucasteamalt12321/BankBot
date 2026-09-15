@@ -3963,9 +3963,8 @@ def get_gddl_recommendation(level_name: str) -> int | None:
 # Geometry Dash — Normalized difficulty tiers (Global Demonlist style ladder)
 # ============================================================================
 
-# Ladder mirrors the real Global Demonlist: game ratings (easy..insane),
-# demon tiers (Easy Demon..Extreme Demon) and list placement cut-offs
-# (Top 1000..Top 10). Index order = hardness. weight = base score.
+# Ladder mirrors the real Global Demonlist: game ratings (easy..insane) and
+# demon tiers (Easy Demon..Extreme Demon). Index order = hardness. weight = base score.
 GD_DIFFICULTY_TIERS = [
     ("easy",          "Easy",          5),
     ("normal",        "Normal",       10),
@@ -3977,14 +3976,6 @@ GD_DIFFICULTY_TIERS = [
     ("hard_demon",    "Hard Demon",   70),
     ("insane_demon",  "Insane Demon", 80),
     ("extreme_demon", "Extreme Demon", 90),
-    ("top_1000",      "Top 1000",     100),
-    ("top_500",       "Top 500",      110),
-    ("top_200",       "Top 200",      120),
-    ("top_150",       "Top 150",      130),
-    ("top_100",       "Top 100",      140),
-    ("top_50",        "Top 50",       150),
-    ("top_25",        "Top 25",       160),
-    ("top_10",        "Top 10",       170),
 ]
 GD_DIFFICULTY_KEYS = {k for k, _l, _w in GD_DIFFICULTY_TIERS}
 GD_DIFFICULTY_LABELS = {k: lbl for k, lbl, _w in GD_DIFFICULTY_TIERS}
@@ -3992,24 +3983,12 @@ GD_DIFFICULTY_WEIGHTS = {k: w for k, _l, w in GD_DIFFICULTY_TIERS}
 GD_DIFFICULTY_COLORS = {
     "easy": "#00d26a", "normal": "#4ade80", "hard": "#fbbf24", "harder": "#fb923c", "insane": "#f43f5e",
     "easy_demon": "#a855f7", "medium_demon": "#9333ea", "hard_demon": "#8b5cf6", "insane_demon": "#7c3aed", "extreme_demon": "#4c1d95",
-    "top_1000": "#64748b", "top_500": "#94a3b8", "top_200": "#cbd5e1", "top_150": "#e2e8f0",
-    "top_100": "#fbbf24", "top_50": "#fb923c", "top_25": "#f43f5e", "top_10": "#ec4899",
+    "unknown": "#94a3b8",
 }
-# Auto-derive list-placement tier from a level position (real Demonlist style).
+# No longer auto-derives a list-placement tier from a level position: with the
+# "Top X" ladder removed, an unknown difficulty simply stays "unknown".
 def _gd_tier_from_position(position) -> str:
-    try:
-        p = int(position or 0)
-    except (TypeError, ValueError):
-        return "extreme_demon"
-    if p <= 0:
-        return "extreme_demon"
-    for key, _l, _w in reversed(GD_DIFFICULTY_TIERS):
-        if not key.startswith("top_"):
-            continue
-        cutoff = int(key.split("_")[1])
-        if p <= cutoff:
-            return key
-    return "top_1000"
+    return "unknown"
 
 
 _GD_DIFF_RAW_MAP = {
@@ -4017,17 +3996,15 @@ _GD_DIFF_RAW_MAP = {
     "easydemon": "easy_demon", "mediumdemon": "medium_demon", "harddemon": "hard_demon",
     "insanedemon": "insane_demon", "extremedemon": "extreme_demon", "demon": "extreme_demon",
     "extreme": "extreme_demon",
-    "top1000": "top_1000", "top500": "top_500", "top200": "top_200", "top150": "top_150",
-    "top100": "top_100", "top50": "top_50", "top25": "top_25", "top10": "top_10",
 }
 
 
 def _gd_norm_difficulty(value=None, position=0) -> str:
     """Return a canonical difficulty tier key for a level.
 
-    Accepts tier keys ("hard_demon"), human labels ("Hard Demon", "Top 100")
-    or arbitrary legacy text; unknown/empty values are derived from the
-    level position into a list-placement tier (Top X).
+    Accepts tier keys ("hard_demon") or human labels ("Hard Demon"), or
+    arbitrary legacy text; unknown/empty values resolve to "unknown" (the
+    "Top X" ladder is no longer auto-derived from a level position).
     """
     import re
     raw = (value or "").strip().lower()
@@ -4037,8 +4014,11 @@ def _gd_norm_difficulty(value=None, position=0) -> str:
         return _gd_tier_from_position(position)
     probe = re.sub(r"[^a-z0-9]", "", raw)
     mapped = _GD_DIFF_RAW_MAP.get(probe)
-    if mapped:
+    if mapped and mapped in GD_DIFFICULTY_KEYS:
         return mapped
+    # legacy "Top X"-style stored values (from the retired ladder) -> unknown
+    if re.fullmatch(r"top\d+", probe):
+        return "unknown"
     # guess by substring: e.g. "Extreme demon (insane)" -> nearest demon tier
     if "demon" in raw:
         order = [0] + [i for i, (k, _l, _w) in enumerate(GD_DIFFICULTY_TIERS) if "demon" in k]
@@ -6840,9 +6820,11 @@ var IS_ADMIN = false;
                 .then(function(p) {
                     if (p && !p.error) {
                         ACCOUNT_ID = p.id;
+                        var was = IS_ADMIN;
                         IS_ADMIN = !!p.is_admin;
                         USER_ID = 'u' + p.id;
                         localStorage.setItem('gd_user_id', USER_ID);
+                        if (IS_ADMIN && !was && LB_LEVELS.length) loadLeaderboard();
                     }
                 })
                 .catch(function() {});
@@ -6901,7 +6883,7 @@ var IS_ADMIN = false;
         }
 
         function loadLeaderboard() {
-            var DIFF_COLORS = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+            var DIFF_COLORS = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","unknown":"#94a3b8"};
             function linkCompleters(cs) {
                 if (!cs) return '';
                 var parts = String(cs).split(', ');
@@ -6948,7 +6930,7 @@ var IS_ADMIN = false;
             var lvl = null;
             for (var i = 0; i < LB_LEVELS.length; i++) { if (LB_LEVELS[i].id === id) { lvl = LB_LEVELS[i]; break; } }
             if (!lvl) return;
-            var DIFF_TIERS = [["easy","Easy"],["normal","Normal"],["hard","Hard"],["harder","Harder"],["insane","Insane"],["easy_demon","Easy Demon"],["medium_demon","Medium Demon"],["hard_demon","Hard Demon"],["insane_demon","Insane Demon"],["extreme_demon","Extreme Demon"],["top_1000","Top 1000"],["top_500","Top 500"],["top_200","Top 200"],["top_150","Top 150"],["top_100","Top 100"],["top_50","Top 50"],["top_25","Top 25"],["top_10","Top 10"]];
+            var DIFF_TIERS = [["easy","Easy"],["normal","Normal"],["hard","Hard"],["harder","Harder"],["insane","Insane"],["easy_demon","Easy Demon"],["medium_demon","Medium Demon"],["hard_demon","Hard Demon"],["insane_demon","Insane Demon"],["extreme_demon","Extreme Demon"],["unknown","Unknown"]];
             var cells = tr.querySelectorAll('td[data-field]');
             var fields = { position: 'position', name: 'name', difficulty: 'difficulty' };
             var inputs = {};
@@ -7070,7 +7052,7 @@ var IS_ADMIN = false;
                 out.innerHTML = '<p class="hint">Укажите ваш GD-ник в <a href="/account">аккаунте</a> или при отправке рекорда — тогда здесь появится карточка игрока.</p>';
                 return;
             }
-            var DIFF_COLORS = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+            var DIFF_COLORS = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","unknown":"#94a3b8"};
             function badge(key, label) {
                 var c = DIFF_COLORS[key] || '#94a3b8';
                 return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14">' + esc(label || '—') + '</span>';
@@ -7401,7 +7383,7 @@ def gd_level_page(level_id: int):
         return html;
     }
     function gdDiffBadge(key, label) {
-        var colors = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+        var colors = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","unknown":"#94a3b8"};
         var c = colors[key] || '#94a3b8';
         return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14;vertical-align:middle">' + esc(label || '—') + '</span>';
     }
@@ -7544,7 +7526,7 @@ def gd_player_page(nick: str):
     var NICK = decodeURIComponent((window.location.pathname.split('/').pop() || ''));
     function esc(s) { return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
     function gdDiffBadge(key, label) {
-        var colors = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+        var colors = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","unknown":"#94a3b8"};
         var c = colors[key] || '#94a3b8';
         return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14;vertical-align:middle">' + esc(label || '—') + '</span>';
     }
