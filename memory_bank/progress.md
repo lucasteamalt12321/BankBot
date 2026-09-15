@@ -2426,7 +2426,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-  030420d (2026-09-14; feat(gd): rename persona + fix admin 403, server-rendered admin flag).
+  f50bb56 (2026-09-14; feat(gd): top -> player card + GDL widget + fix admin 403, server-rendered admin flag).
 ## last_checked_commit
   3ab85b1 (2026-08-29; feat(gd): рекорды привязаны к аккаунту, анонимы заблокированы, GD-ник из профиля).
 ## last_checked_commit
