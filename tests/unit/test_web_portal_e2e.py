@@ -520,6 +520,7 @@ def test_gd_level_completions_page_and_api(mock_engine):
     assert "Прохождения уровня" in rp.get_data(as_text=True)
     gd_body = c.get("/gd").get_data(as_text=True)
     assert 'href="/gd/level/' in gd_body  # leaderboard level names link to the level page
+    assert "Моя карточка" in gd_body and "Открыть полную карточку" in gd_body
 
 
 @patch("api.index.get_db_engine")

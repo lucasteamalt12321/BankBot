@@ -6771,7 +6771,7 @@ def gd_page():
         <div class="tabs">
             <button class="tab active" id="tab-user" onclick="showTab('user')">Поиск игрока</button>
             <button class="tab" id="tab-leaderboard" onclick="showTab('leaderboard')">Топ уровней</button>
-            <button class="tab" id="tab-mystats" onclick="showTab('mystats')">Моя статистика</button>
+            <button class="tab" id="tab-mystats" onclick="showTab('mystats')">🃏 Моя карточка</button>
             <button class="tab" id="tab-submit" onclick="showTab('submit')">Отправить рекорд</button>
             <button class="tab" id="tab-moderate" onclick="showTab('moderate')">Модерация</button>
         </div>
@@ -7041,7 +7041,7 @@ var IS_ADMIN = false;
 
         function loadMyStats() {
             var out = document.getElementById('mystats-result');
-            var loginHint = '<p class="hint">Войдите в аккаунт, чтобы видеть свою статистику. <a href="/account">Войти</a></p>';
+            var loginHint = '<p class="hint">Войдите в аккаунт, чтобы увидеть свою карточку игрока. <a href="/account">Войти</a></p>';
             if (!ACCOUNT_ID) {
                 var tok = localStorage.getItem('web_token');
                 if (!tok) { out.innerHTML = loginHint; return; }
@@ -7054,37 +7054,56 @@ var IS_ADMIN = false;
                         IS_ADMIN = !!p.is_admin;
                         USER_ID = 'u' + p.id;
                         localStorage.setItem('gd_user_id', USER_ID);
-                        renderMyStats(out);
+                        renderMyStats(out, p.gd_nickname || '');
                     })
                     .catch(function() { out.innerHTML = loginHint; });
                 return;
             }
-            renderMyStats(out);
+            fetch('/api/auth/me', { headers: { 'X-Auth-Token': localStorage.getItem('web_token') } })
+                .then(function(r) { return r.json(); })
+                .then(function(p) { renderMyStats(out, (p && p.gd_nickname) || ''); })
+                .catch(function() { renderMyStats(out, ''); });
         }
 
-        function renderMyStats(out) {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/api/gd/my_stats?user_id=' + encodeURIComponent(ACCOUNT_ID));
-            xhr.onload = function() {
-                try {
-                    var r = JSON.parse(xhr.responseText);
-                    if (r.error) { out.innerHTML = '<p class="error">' + _gdEsc(r.error) + '</p>'; return; }
-                    var subs = r.submissions || {};
-                    var html = '<div class="stat-grid">'
-                        + '<div class="stat-card"><div class="value">' + r.points + '</div><div class="label">🏆 Очки</div></div>'
-                        + '<div class="stat-card"><div class="value">' + r.demons_count + '</div><div class="label">👹 Демонов</div></div>'
-                        + '<div class="stat-card"><div class="value">' + r.completions + '</div><div class="label">Прохождений</div></div>'
-                        + '<div class="stat-card"><div class="value">' + r.total_approved + '</div><div class="label">Одобрено</div></div>'
-                        + '<div class="stat-card"><div class="value">' + r.total_rejected + '</div><div class="label">Отклонено</div></div>'
-                        + '<div class="stat-card"><div class="value">' + (subs.total || 0) + '</div><div class="label">Заявок</div></div>'
-                        + '<div class="stat-card"><div class="value">' + (subs.pending || 0) + '</div><div class="label">На проверке</div></div>'
-                        + '</div>'
-                        + '<p class="hint" style="margin-top:16px">🔥 Сложнейший уровень: <strong style="color:var(--gh-text)">' + _gdEsc(r.hardest_level) + '</strong></p>';
-                    out.innerHTML = html;
-                } catch(e) { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; }
-            };
-            xhr.onerror = function() { out.innerHTML = '<p class="error">Ошибка сети.</p>'; };
-            xhr.send();
+        function renderMyStats(out, gdNick) {
+            if (!gdNick) {
+                out.innerHTML = '<p class="hint">Укажите ваш GD-ник в <a href="/account">аккаунте</a> или при отправке рекорда — тогда здесь появится карточка игрока.</p>';
+                return;
+            }
+            var DIFF_COLORS = {"easy":"#00d26a","normal":"#4ade80","hard":"#fbbf24","harder":"#fb923c","insane":"#f43f5e","easy_demon":"#a855f7","medium_demon":"#9333ea","hard_demon":"#8b5cf6","insane_demon":"#7c3aed","extreme_demon":"#4c1d95","top_1000":"#64748b","top_500":"#94a3b8","top_200":"#cbd5e1","top_150":"#e2e8f0","top_100":"#fbbf24","top_50":"#fb923c","top_25":"#f43f5e","top_10":"#ec4899"};
+            function badge(key, label) {
+                var c = DIFF_COLORS[key] || '#94a3b8';
+                return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14">' + esc(label || '—') + '</span>';
+            }
+            out.innerHTML = '<p class="hint">Загрузка карточки...</p>';
+            fetch('/api/gd/player/' + encodeURIComponent(gdNick))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d && d.found) {
+                        var prof = d.web_login ? ' · <a href="/u/' + encodeURIComponent(d.web_login) + '">профиль →</a>' : '';
+                        var html = '<div style="font-size:18px;font-weight:700;color:var(--gh-accent)">👤 ' + esc(d.player_name) + prof + '</div>'
+                            + '<div class="stat-grid">'
+                            + '<div class="stat-card"><div class="value">' + d.points + '</div><div class="label">🏆 Очки</div></div>'
+                            + '<div class="stat-card"><div class="value">' + d.demons_count + '</div><div class="label">👹 Демонов</div></div>'
+                            + '<div class="stat-card"><div class="value">' + d.completions_count + '</div><div class="label">✅ Уровней</div></div>'
+                            + '</div>'
+                            + (d.hardest ? '<p class="hint" style="margin-top:16px">🔥 Сложнейший: <strong style="color:var(--gh-text)">' + esc(d.hardest) + '</strong></p>' : '');
+                        if (d.completions && d.completions.length) {
+                            var list = '';
+                            d.completions.forEach(function(c) {
+                                list += '<div class="sub-card"><div style="font-size:15px;font-weight:700"><a href="/gd/level/' + c.id + '" style="color:var(--gh-accent);text-decoration:none">#' + c.position + ' · ' + esc(c.name) + '</a> ' + badge(c.difficulty_key, c.difficulty) + '</div>'
+                                    + (c.completed_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.completed_at) + '</div>' : '')
+                                    + '</div>';
+                            });
+                            html += '<div style="margin-top:16px"><b style="color:var(--gh-text)">Пройденные уровни</b>' + list + '</div>';
+                        }
+                        html += '<p class="hint" style="margin-top:12px"><a href="/gd/player/' + encodeURIComponent(gdNick) + '" style="color:var(--gh-accent)">Открыть полную карточку →</a></p>';
+                        out.innerHTML = html;
+                    } else {
+                        out.innerHTML = '<p class="hint">Локальных прохождений ещё нет. <a href="/gd/player/' + encodeURIComponent(gdNick) + '">Карточка игрока →</a></p>';
+                    }
+                })
+                .catch(function() { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; });
         }
 
         function submitRecord() {
