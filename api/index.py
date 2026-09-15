@@ -530,6 +530,12 @@ def _ensure_gd_tables(engine):
                 _gd_backfill_completion_names(conn)
             except Exception as exc:
                 log_error("GD", "error", f"completion name backfill error: {exc}")
+            # User-data migration (idempotent): Лука's GD persona is "LucasTeam12321",
+            # not "LucasTeam" — merge the old nick into the canonical one.
+            try:
+                _gd_rename_persona(conn, "LucasTeam", "LucasTeam12321")
+            except Exception as exc:
+                log_error("GD", "error", f"persona rename migration error: {exc}")
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS game_states (
                     user_id BIGINT NOT NULL,
@@ -4649,6 +4655,46 @@ def _gd_backfill_completion_names(conn) -> None:
         )
 
 
+def _gd_rename_persona(conn, old_nick: str, new_nick: str) -> bool:
+    """Rename a GD persona (the nick taken from approved submissions).
+
+    Updates ``submissions.username`` and ``level_completions.player_name`` so all
+    accounts that used the old nick are attributed to the new one, then resyncs
+    the affected accounts' stats. Idempotent; returns False when nothing changed.
+    """
+    old = (old_nick or "").strip()
+    new = (new_nick or "").strip()
+    if not old or not new or old.lower() == new.lower():
+        return False
+    sub = conn.execute(
+        text("""
+            UPDATE submissions SET username = :new
+            WHERE status = 'approved' AND LOWER(TRIM(username)) = LOWER(TRIM(:old))
+        """),
+        {"new": new, "old": old},
+    )
+    lc = conn.execute(
+        text("UPDATE level_completions SET player_name = :new WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(:old))"),
+        {"new": new, "old": old},
+    )
+    if not sub.rowcount and not lc.rowcount:
+        return False
+    uids = {
+        int(r[0]) for r in conn.execute(text(
+            "SELECT DISTINCT user_id FROM submissions "
+            "WHERE status = 'approved' AND LOWER(TRIM(username)) = LOWER(TRIM(:new))"
+        ), {"new": new}).fetchall()
+    }
+    uids |= {
+        int(r[0]) for r in conn.execute(text(
+            "SELECT DISTINCT user_id FROM level_completions WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(:new))"
+        ), {"new": new}).fetchall()
+    }
+    for uid in uids:
+        _gd_sync_player_stats(conn, uid)
+    return True
+
+
 def _gd_persona_lookup(conn, nick: str) -> dict | None:
     """Resolve a GD nick to the persona's completions (deduped per account and level).
 
@@ -6783,7 +6829,7 @@ def gd_page():
         var USER_ID = localStorage.getItem('gd_user_id');
         if (!USER_ID) { USER_ID = 'web_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('gd_user_id', USER_ID); }
         var urlParams = new URLSearchParams(window.location.search);
-        var IS_ADMIN = false;
+var IS_ADMIN = false;
         var ACCOUNT_ID = null;
         var LB_LEVELS = [];
         (function() {
@@ -7482,7 +7528,8 @@ def gd_player_page(nick: str):
         var c = colors[key] || '#94a3b8';
         return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:' + c + ';color:#0b0e14;vertical-align:middle">' + esc(label || '—') + '</span>';
     }
-    var IS_ADMIN = false;
+    var IS_ADMIN = __ADMIN_FLAG__;
+    function admAuthHdr() { return { 'X-Auth-Token': (localStorage.getItem('web_token') || '') }; }
     function toggleComplPanel() {
         var p = document.getElementById('adm-panel');
         if (!p) return;
@@ -7517,7 +7564,7 @@ def gd_player_page(nick: str):
         if (file) fd.append('media', file);
         var btn = document.querySelector('button[onclick="admAddCompl()"]');
         if (btn) btn.disabled = true;
-        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/completions', { method: 'POST', body: fd })
+        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/completions', { method: 'POST', headers: admAuthHdr(), body: fd })
             .then(function(r) { return r.json(); })
             .then(function(res) {
                 if (btn) btn.disabled = false;
@@ -7529,10 +7576,29 @@ def gd_player_page(nick: str):
     }
     function admDelCompl(lid) {
         if (!confirm('Убрать этот уровень из пройденных?')) return;
-        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/completions?level_id=' + lid, { method: 'DELETE' })
+        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/completions?level_id=' + lid, { method: 'DELETE', headers: admAuthHdr() })
             .then(function(r) { return r.json(); })
             .then(function(res) {
                 if (res.error) { alert(res.error); return; }
+                loadPlayer();
+            })
+            .catch(function() { alert('Ошибка сети'); });
+    }
+    function admRenameNick() {
+        var n = prompt('Новый GD-ник игрока (объединит все его прохождения под этим ником):', NICK);
+        if (!n) return;
+        n = n.trim();
+        if (!n || n === NICK) return;
+        var fd = new FormData();
+        fd.append('new_nick', n);
+        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/nick', { method: 'PUT', headers: admAuthHdr(), body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.error) { alert(res.error); return; }
+                if (window.location.pathname !== '/gd/player/' + encodeURIComponent(n)) {
+                    window.location.href = '/gd/player/' + encodeURIComponent(n);
+                    return;
+                }
                 loadPlayer();
             })
             .catch(function() { alert('Ошибка сети'); });
@@ -7553,7 +7619,8 @@ def gd_player_page(nick: str):
                     + '<div class="stat-card"><div class="value">' + d.completions_count + '</div><div class="label">✅ Уровней</div></div>'
                     + '</div>'
                     + '<p class="hint" style="margin-top:16px">🔥 Сложнейший: <strong style="color:var(--gh-text)">' + esc(d.hardest) + '</strong></p>'
-                    + (IS_ADMIN ? '<div style="margin-top:14px"><button onclick="toggleComplPanel()" style="background:var(--gh-accent);border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;color:#0b0e14">＋ Добавить уровень</button>'
+                    + (IS_ADMIN ? '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button onclick="toggleComplPanel()" style="background:var(--gh-accent);border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;color:#0b0e14">＋ Добавить уровень</button>'
+                       + '<button onclick="admRenameNick()" title="Переименовать GD-ник" style="background:transparent;border:1px solid var(--gh-border);border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;color:var(--gh-text)">✏️ Сменить ник</button></div>'
                        + '<div id="adm-panel" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--gh-border);border-radius:10px;background:var(--gh-bg)">'
                        + '<div class="hint" style="margin:0 0 8px">Отметить уровень как пройденный</div>'
                        + '<select id="adm-lv" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--gh-border);background:var(--gh-bg);color:var(--gh-text)"><option value="">— выбор —</option></select>'
@@ -7590,10 +7657,10 @@ def gd_player_page(nick: str):
             })
             .catch(function() { document.getElementById('gd-ext').style.display = 'none'; });
     }
-    fetch('/api/gd/me', { headers: { 'X-Auth-Token': (localStorage.getItem('web_token') || '') } })
+    fetch('/api/gd/me', { headers: admAuthHdr() })
         .then(function(r) { return r.json(); })
-        .then(function(m) { IS_ADMIN = !!(m && m.is_admin); })
-        .catch(function() { IS_ADMIN = false; })
+        .then(function(m) { if (m && m.is_admin) IS_ADMIN = true; })
+        .catch(function() {})
         .then(function() { loadPlayer(); });
 </script>
 <div class="card" id="lv-result">
@@ -7602,6 +7669,8 @@ def gd_player_page(nick: str):
 </div>
 </body>
 </html>"""
+    admin_flag = "true" if _web_admin_session() else "false"
+    html = html.replace("__ADMIN_FLAG__", admin_flag)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
@@ -8158,6 +8227,26 @@ def api_gd_admin_remove_completion(nick: str):
         print(f"admin remove completion error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     profile = get_gd_player_profile(nick)
+    return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
+
+
+@app.route("/api/gd/admin/player/<nick>/nick", methods=["PUT", "POST"])
+def api_gd_admin_rename_player(nick: str):
+    """Admin: rename a GD persona (merges it with the target nick if it exists)."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
+    new_nick = (request.form.get("new_nick") or request.args.get("new_nick") or "").strip()
+    if not new_nick or len(new_nick) > 64:
+        return jsonify({"error": "Укажите корректный новый ник"}), 400
+    try:
+        with get_db_engine().begin() as conn:
+            renamed = _gd_rename_persona(conn, nick, new_nick)
+    except Exception as exc:
+        print(f"admin rename persona error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    if not renamed:
+        return jsonify({"error": "Персона не найдена"}), 404
+    profile = get_gd_player_profile(new_nick)
     return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
 
 

@@ -7,7 +7,12 @@
 ### ✅ Выполнено (в этой сессии, 2026-09-14, 4-я часть): 🎮 GD — атрибуция по нику из заявки + админ «+» в профиле
 - ✅ [TASK] **«LucasTeam это Лука, nikiktosik не помню, shadowraven привяжи к тестовому»** — **памятка**: LucasTeam = Лука; ShadowRaven = «тестовый» аккаунт (только TVOL); nikiktos = Acid factory (какой TG — пользователь не помнит). Атрибуция прохождений `submissions.username` (подробно в `progress.md` Changelog, коммит `7f5e2a5`, задеплоено, прод-дым: топ = LucasTeam 1333 / ShadowRaven 500 / LucasTeam12321 450 / nikiktos 200, is_first верен).
 - ✅ [TASK] **«Кнопка + в профиле игрока: выбрать уровень как пройденный/удалить, при добавлении — медиа/ссылка»** — админ-панель на `/gd/player/<nick>`: кнопка «＋ Добавить уровень» → выпадающий список уровней (leaderboard) + поле «Ссылка на медиа» + `file`-инпут → POST `/api/gd/admin/player/<nick>/completions`; «✕» у каждого completion → DELETE (confirm). Детали/тест `test_gd_admin_completion_add_remove` в `progress.md` Changelog.
-- ⚠️ **Модель аккаунтов после восстановления данных:** один виртуальный аккаунт (1597272920) = две персоны (LucasTeam за Supersonic + ShadowRaven за TVOL); gd_aliases удалены.
+- ✅ [TASK] **«LucasTeam — на самом деле LucasTeam12321» + «хочу менять ник вручную — пишет нет прав администратора»**:
+  - **Памятка:** GD-ник Луки = **LucasTeam12321** (персона 'LucasTeam' переименована и слита: Supersonic + Grey Trap + Ultra + Acid; ожидаемый топ после деплоя: LucasTeam12321 1783 / ShadowRaven 500 / nikiktos 200).
+  - **Фикс 403:** все админ-fetch'и слали запросы БЕЗ `X-Auth-Token` → добавлен `admAuthHdr()` (токен из `localStorage.web_token`) в add/delete/rename.
+  - **Переименование:** `_gd_rename_persona` + **PUT `/api/gd/admin/player/<nick>/nick`** (`new_nick`) + кнопка «✏️ Сменить ник» в карточке; авто-миграция `LucasTeam→LucasTeam12321` в `_ensure_gd_tables` (idempotent).
+  - **Кнопки только у админа:** флаг `IS_ADMIN` рендерится СЕРВЕРНО (замена `__ADMIN_FLAG__` в `gd_player_page`), клиент лишь апгрейдит через `/api/gd/me` — не-админы не получают админ-кнопки даже в исходнике HTML.
+- ⚠️ **Модель аккаунтов после восстановления данных:** один виртуальный аккаунт (1597272920) = две персоны (LucasTeam12321 за Supersonic + ShadowRaven за TVOL); gd_aliases удалены.
 
 ### ✅ Выполнено (в этой сессии, 2026-09-14): 🎮 GD — прохождения уровня + внешние ссылки медиа
 - ✅ [TASK] **«Усовершенствовать систему прохождений в ГД»** (коммит `9b0b74d`, задеплоено, прод smoke прошёл):
