@@ -7553,6 +7553,27 @@ def gd_player_page(nick: str):
             .catch(function() { dd.innerHTML = '<option value="">Ошибка загрузки</option>'; });
     }
     function admMsg(t) { var m = document.getElementById('adm-msg'); if (m) m.innerHTML = t; }
+    function admReplaceMedia() {
+        var lv = document.getElementById('adm-lv');
+        if (!lv || !lv.value) { admMsg('<span class="error">Выберите уровень</span>'); return; }
+        var url = document.getElementById('adm-media-url').value.trim();
+        var file = document.getElementById('adm-media-file').files[0];
+        if (!url && !file) { admMsg('<span class="error">Укажите медиа: ссылку или файл</span>'); return; }
+        var fd = new FormData();
+        if (url) fd.append('media_url', url);
+        if (file) fd.append('media', file);
+        var btn = document.querySelector('button[onclick="admReplaceMedia()"]');
+        if (btn) btn.disabled = true;
+        fetch('/api/gd/admin/player/' + encodeURIComponent(NICK) + '/level/' + lv.value + '/media', { method: 'POST', headers: admAuthHdr(), body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (btn) btn.disabled = false;
+                if (res.error) { admMsg('<span class="error">' + esc(res.error) + '</span>'); return; }
+                admMsg('<span style="color:#4ade80">✓ Медиа обновлено</span>');
+                loadPlayer();
+            })
+            .catch(function() { if (btn) btn.disabled = false; admMsg('<span class="error">Ошибка сети</span>'); });
+    }
     function admAddCompl() {
         var lv = document.getElementById('adm-lv');
         if (!lv || !lv.value) { admMsg('<span class="error">Выберите уровень</span>'); return; }
@@ -7629,6 +7650,7 @@ def gd_player_page(nick: str):
                        + '<input type="file" id="adm-media-file" accept="video/*,image/*" style="width:100%;margin-top:8px">'
                        + '<div style="margin-top:8px;display:flex;gap:8px">'
                        + '<button onclick="admAddCompl()" style="background:var(--gh-accent);border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer;color:#0b0e14">Добавить</button>'
+                       + '<button onclick="admReplaceMedia()" title="Перезаписать медиа выбранного прохождения" style="background:transparent;border:1px solid var(--gh-border);border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--gh-text)">🖼 Заменить медиа</button>'
                        + '<button onclick="toggleComplPanel();" style="background:transparent;border:1px solid var(--gh-border);border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--gh-text)">Отмена</button>'
                        + '</div><div id="adm-msg" class="hint"></div></div></div>' : '');
                 var out = document.getElementById('lv-list');
@@ -8179,6 +8201,45 @@ def api_gd_admin_add_completion(nick: str):
         return jsonify({"error": "Ошибка сервера"}), 500
     profile = get_gd_player_profile(nick)
     return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
+
+
+@app.route("/api/gd/admin/player/<nick>/level/<int:level_id>/media", methods=["POST"])
+def api_gd_admin_set_completion_media(nick: str, level_id: int):
+    """Admin: (re)attach media to a player's existing completion of a level."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
+    media_ref, media_type, media_err = _gd_admin_build_media()
+    if media_err:
+        return jsonify({"error": media_err}), 400
+    if not media_ref:
+        return jsonify({"error": "Укажите медиа: ссылку на видео/фото или файл"}), 400
+    try:
+        with get_db_engine().begin() as conn:
+            lv = conn.execute(
+                text("SELECT id, name FROM levels WHERE id = :lid"), {"lid": level_id},
+            ).mappings().first()
+            if not lv:
+                return jsonify({"error": "Уровень не найден"}), 404
+            sub = conn.execute(
+                text("""
+                    SELECT s.id FROM submissions s
+                    WHERE s.status = 'approved'
+                      AND LOWER(TRIM(s.level_name)) = LOWER(TRIM(:nm))
+                      AND LOWER(s.username) = LOWER(:nick)
+                    ORDER BY s.id DESC LIMIT 1
+                """),
+                {"nm": lv["name"], "nick": nick},
+            ).mappings().first()
+            if not sub:
+                return jsonify({"error": "Approved-прохождение игрока на этом уровне не найдено"}), 404
+            conn.execute(
+                text("UPDATE submissions SET media_file_id = :mf, media_type = :mt WHERE id = :sid"),
+                {"mf": media_ref, "mt": media_type, "sid": sub["id"]},
+            )
+    except Exception as exc:
+        print(f"admin set completion media error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    return jsonify({"ok": True, "media_type": media_type})
 
 
 @app.route("/api/gd/admin/player/<nick>/completions", methods=["DELETE"])

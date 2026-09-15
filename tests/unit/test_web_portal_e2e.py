@@ -820,6 +820,62 @@ def test_gd_admin_rename_persona(mock_engine):
 
 
 @patch("api.index.get_db_engine")
+def test_gd_admin_set_completion_media(mock_engine):
+    """Admin can (re)attach media to an existing completion without re-adding it."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    client = app.test_client()
+    _AI_RATE_LIMITS.clear()
+
+    reg = client.post("/api/auth/register", json={"login": "boss", "password": "secret123", "email": "boss@test.local"})
+    reg_data = reg.get_json()
+    _promote_admin(reg_data["user_id"])
+    headers = _auth_headers(reg_data["token"])
+
+    lvl = index_api.add_gd_level("Acid Factory", 5, "Unknown")
+
+    # Player with an existing completion (approved submission without media).
+    reg2 = client.post("/api/auth/register", json={"login": "nikiktos", "password": "secret123", "email": "nikiktos@test.local"})
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE web_users SET gd_nickname = 'Nikiktos' WHERE id = :i"),
+                     {"i": reg2.get_json()["user_id"]})
+    r = client.post("/api/gd/admin/player/nikiktos/completions",
+                    data={"level_id": lvl, "media_url": "https://example.com/r1.mp4"},
+                    headers=headers)
+    assert r.status_code == 200
+    assert r.get_json()["profile"]["completions_count"] == 1
+
+    # Non-admin cannot change media.
+    r = client.post(f"/api/gd/admin/player/nikiktos/level/{lvl}/media",
+                    data={"media_url": "https://example.com/new.mp4"})
+    assert r.status_code == 403
+
+    # Media is required.
+    r = client.post(f"/api/gd/admin/player/nikiktos/level/{lvl}/media", data={}, headers=headers)
+    assert r.status_code == 400
+
+    # Unknown level.
+    r = client.post("/api/gd/admin/player/nikiktos/level/999/media",
+                    data={"media_url": "https://example.com/x.mp4"}, headers=headers)
+    assert r.status_code == 404
+
+    # Admin replaces media with a photo link.
+    r = client.post(f"/api/gd/admin/player/nikiktos/level/{lvl}/media",
+                    data={"media_url": "https://example.com/ss.jpg"}, headers=headers)
+    assert r.status_code == 200
+    assert r.get_json()["media_type"] == "link"
+
+    comps = client.get(f"/api/gd/level/{lvl}/completions").get_json()["completions"]
+    row = next(x for x in comps if x["username"] == "nikiktos")
+    assert row["media_file_id"] == "https://example.com/ss.jpg" and row["media_type"] == "link"
+
+    # Level page embeds the media renderer.
+    body = client.get(f"/gd/level/{lvl}").get_data(as_text=True)
+    assert "gdMediaHtml" in body
+
+
+@patch("api.index.get_db_engine")
 def test_gd_first_completion_badge(mock_engine):
     """The earliest approved completion on a level is flagged as the first victor."""
     from api import index as index_api
