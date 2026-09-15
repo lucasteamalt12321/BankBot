@@ -228,6 +228,12 @@ _Баги добавляются по ходу тестирования оста
   - **Backend:** `DELETE /api/gd/admin/player/<nick>/completions?level_id=` — удаляет `level_completions` + approved submission по (uid, level), пересчёт total_approved, `_gd_sync_player_stats`.
   - **UI `/gd/player/<nick>`:** при `IS_ADMIN` (из `/api/gd/me`) — кнопка «＋ Добавить уровень» → панель: `<select>` уровней из `/api/gd/leaderboard?limit=200`, поле ссылки, `<input type=file>`; кнопка «Добавить» (FormData POST) и «Отмена»; у каждого completion кнопка «✕» (confirm → DELETE → loadPlayer). Boot: `IS_ADMIN` резолвится до `loadPlayer()`.
   - Тесты: +1 `test_gd_admin_completion_add_remove` (403 non-admin, 400 без медиа, add+дубль 400+roster, delete→0). 8/8 gd+social зелёные, ruff clean. Ru: коммит + деплой, прод-дым.
+- **[TASK] «то, что ты написал LucasTeam, на самом деле LucasTeam12321» + «хочу менять ник вручную, но пишет "нет прав администратора"» — переименование персоны + фикс 403 + скрытие кнопок у не-админов.**
+  - **Фикс 403:** админ-fetch'и панели (`admAddCompl`/`admDelCompl`/новый `admRenameNick`) не слали `X-Auth-Token` → серверный `_web_admin_session()` = None → 403. Добавлен helper `admAuthHdr()` (токен из `localStorage.web_token`), вставлен во все админ-запросы.
+  - **Переименование персоны:** `_gd_rename_persona(conn, old, new)` — меняет `submissions.username`(approved) и `level_completions.player_name` + ресинк статов (idempotent); эндпоинт **PUT/POST `/api/gd/admin/player/<nick>/nick`** (`new_nick`); UI-кнопка «✏️ Сменить ник» в карточке игрока (prompt → PUT → редирект). Тест `test_gd_admin_rename_persona` (403 не-админу, rename сливает персоны, флаги страницы).
+  - **Миграция данных (idempotent, в `_ensure_gd_tables`):** `LucasTeam` → `LucasTeam12321` (персона Луки — Supersonic/GreyTrap сливается с его же web-аккаунтом 8: Ultra/Acid). После деплоя топ: LucasTeam12321 1783 (демоны 3: Insane Demon+Hard Demon+Easy Demon, Acid=Hard не демон) / ShadowRaven 500 / nikiktos 200.
+  - **Кнопки только у админа:** признак рендерится серверно — `admin_flag = "true" if _web_admin_session() else "false"` заменяет `__ADMIN_FLAG__` в шаблоне `/gd/player/<nick>` → не-админы не получают даже админ-JS-ветки в исходнике; клиент только апгрейдит (никогда не даунгрейдит) через `/api/gd/me`. ВАЖНО: первая правка «`var IS_ADMIN = __ADMIN_FLAG__;`» по ошибке заменила строку на странице `/gd` (лидерборд) — восстановлено; `node --check` на отрендеренных скриптах `/gd` и `/gd/player/<nick>` (anon+admin) — OK.
+  - Тесты: 9/9 gd+social зелёные; ruff + py_compile чисто; коммит + деплой + прод-дым (топ слияный).
 
 ### 2026-09-14 (Session: 🎮 GD — прохождения уровня + внешние ссылки медиа)
 - **[TASK]** Запрос пользователя: «Усовершенствовать систему прохождений в ГД — при нажатии на уровень список прохождений; при клике на виктора ссылка на профиль и медиа; в заявке можно выбрать файл / внешнюю ссылку; большие файлы не принимаются» (коммит `9b0b74d`, задеплоено).
@@ -2416,7 +2422,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-  666b129 (2026-09-14; feat(gd): admin + button in player card).
+  9d4a11f (2026-09-14; feat(gd): rename persona + fix admin 403, server-rendered admin flag).
 ## last_checked_commit
   3ab85b1 (2026-08-29; feat(gd): рекорды привязаны к аккаунту, анонимы заблокированы, GD-ник из профиля).
 ## last_checked_commit

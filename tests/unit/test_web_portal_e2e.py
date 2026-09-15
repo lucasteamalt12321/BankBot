@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.pool import StaticPool
 
 from api.index import (
+    _AI_RATE_LIMITS,
     _TRIVIA_SESSIONS,
     app,
 )
@@ -743,6 +744,74 @@ def test_gd_admin_completion_add_remove(mock_engine):
     assert prof["found"] is True and prof["completions_count"] == 0 and prof["points"] == 0
     players_after = client.get("/api/gd/players").get_json()
     assert all(p["player_name"] != "LucasTeam" for p in players_after)
+
+
+@patch("api.index.get_db_engine")
+def test_gd_admin_rename_persona(mock_engine):
+    """Admin renames a GD persona (merges), non-admins can't, page hides admin JS for them."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    client = app.test_client()
+    _AI_RATE_LIMITS.clear()
+
+    reg = client.post("/api/auth/register", json={
+        "login": "boss", "password": "secret123", "email": "boss@test.local",
+    })
+    reg_data = reg.get_json()
+    _promote_admin(reg_data["user_id"])
+    headers = _auth_headers(reg_data["token"])
+
+    def _mk_player(login, gd_nick):
+        r = client.post("/api/auth/register", json={
+            "login": login, "password": "secret123", "email": f"{login}@test.local",
+        })
+        uid = r.get_json()["user_id"]
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE web_users SET gd_nickname = :g WHERE id = :i"), {"g": gd_nick, "i": uid})
+
+    _mk_player("luke", "LucasTeam")
+    _mk_player("luke2", "LucasTeam12321")
+
+    sup = index_api.add_gd_level("Supersonic", 1, "Unknown")
+    grey = index_api.add_gd_level("Grey Trap", 3, "Unknown")
+    assert sup is not None and grey is not None
+
+    def _add(nick, lid):
+        return client.post("/api/gd/admin/player/" + nick + "/completions",
+                           data={"level_id": lid, "media_url": f"https://youtu.be/{lid}"},
+                           headers=headers)
+
+    assert _add("LucasTeam", sup).status_code == 200
+    assert _add("LucasTeam12321", grey).status_code == 200
+
+    # Non-admin cannot rename.
+    reg = client.post("/api/auth/register", json={"login": "bob", "password": "secret123", "email": "bob@test.local"})
+    bob_token = reg.get_json()["token"]
+    r = client.put("/api/gd/admin/player/LucasTeam/nick", data={"new_nick": "X"}, headers=_auth_headers(bob_token))
+    assert r.status_code == 403
+
+    # Anonymous page has no admin flag; admin page gets it server-side.
+    anon_page = client.get("/gd/player/LucasTeam").get_data(as_text=True)
+    assert "var IS_ADMIN = false;" in anon_page
+    adm_page = client.get("/gd/player/LucasTeam", headers=headers).get_data(as_text=True)
+    assert "var IS_ADMIN = true;" in adm_page
+
+    # Rename merges the persona into the target nick.
+    r = client.put("/api/gd/admin/player/LucasTeam/nick", data={"new_nick": "LucasTeam12321"}, headers=headers)
+    assert r.status_code == 200
+    prof = r.get_json()["profile"]
+    assert prof["found"] is True and prof["player_name"] == "LucasTeam12321"
+    assert prof["completions_count"] == 2 and prof["points"] == 1500
+
+    players = client.get("/api/gd/players").get_json()
+    by_nick = {p["player_name"]: p for p in players}
+    assert by_nick["LucasTeam12321"]["points"] == 1500
+    assert all(p["player_name"] != "LucasTeam" for p in players)
+
+    # Old nick still resolves via the account fallback (the web user owns those completions).
+    old = client.get("/api/gd/player/LucasTeam").get_json()
+    assert old["found"] is True
 
 
 @patch("api.index.get_db_engine")
