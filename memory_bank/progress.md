@@ -1826,6 +1826,15 @@ _Баги добавляются по ходу тестирования оста
 - Создан `core/physics/` (`formulas.py`): FORMULAS 57 формул по 9 темам (кинематика, динамика, давление, плотность, работа/энергия, тепло, электричество, оптика, колебания), TASKS 28 задач, GENERATORS 6 клиентских. Страница `/physics` клонирована с математики (скрипт-клон шаблона, GEN-блок переписан под физику): вкладки Формулы/Задачи/Генератор/Экзамен; module='physics', ключи `formula::`/`task::`/`gen::`. Хаб-карточка + data-oge="1", `OGE_MODULES["physics"].total`=85.
 - Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
 
+### Changelog 2026-09-15 — feat(gd): убрана «Top X» лестница сложностей; фикс гонки кнопок редактирования (commit `309d3c5`)
+
+- **Удалены тиры `top_1000`..`top_10`** из `GD_DIFFICULTY_TIERS`, `GD_DIFFICULTY_COLORS`, `_GD_DIFF_RAW_MAP`, клиентских `DIFF_COLORS`/`DIFF_TIERS` на `/gd`, `/gd/player`, `/gd/players`, `/u/<login>`. Позиция уровня больше НЕ авто-деривирует лист-тир: `_gd_tier_from_position()` всегда возвращает `"unknown"`.
+- **Legacy-значения** «Top N»/`top_*` из БД (напр. уровни, добавленные при существовавшей лестнице) нормализуются в `unknown` (`re.fullmatch(r"top\d+", probe)`), бейдж показывается серым (#94a3b8, «Unknown»). Демоны считаются только для явных демон-тиров (вес ≥ 50); unknown больше не засчитывается в `demons_count`.
+- **Фикс /gd кнопок редактирования:** boot `/api/auth/me` теперь при апгрейде `IS_ADMIN` пере-рисует лидерборд (`if (IS_ADMIN && !was && LB_LEVELS.length) loadLeaderboard()`), устраняя гонку, когда таблица рендерилась до ответа /me и кнопки ✏️/🗑️ не появлялись.
+- **Тесты:** ожидания в `test_gd_players_page_and_api`/`test_gd_persona_attribution`/`test_gd_admin_completion_add_remove` обновлены под новую семантику (unknown ≠ демон); `test_gd_normalized_difficulty` проверяет `unknown`-фолбэк и отсутствие top_* в `gd_difficulty_options()`. 10/10 зелёные, ruff clean, `node --check` 3 страниц OK.
+- Прод-смоук: лидерборд показывает реальные сложности (Electroman = Insane, Cant Let Go/Acid factory = Hard), «Top 10» бейджей на /gd больше нет.
+
+
 ## last_checked_commit
 96ed0ca (2026-09-14; feat(gd) bc24f69 + fix 57e6e84 + feat(gd) 96ed0ca — нормализованная сложность, очки, топ игроков, карточка игрока, «⚡ Первый виктор», фикс leaderboard; объединение 2 TG-аккаунтов через gd_aliases → «ShadowRaven» (суммарные очки/прохождения); 10/10 зелёные; ruff + py_compile чисто; задеплоено, prod smoke OK)
 8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
@@ -2750,4 +2759,4 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Правки по ходу:** `created_at` в профиле — `isoformat()` с fallback на `str()` (SQLite в тестах отдаёт строку). Тесты `test_social.py` (3 зелёных), e2e DDL дополнен social/activity-таблицами, ruff clean, `node --check` со всех 4 страниц OK. Прод smoke: register→search→request→accept→weekly→remove→409 dup — всё OK.
 
 ## last_checked_commit
-  8ab128b (2026-09-05; fix: DB-backed rate limiting + dual connection pool unification (DB-3)).
+  309d3c5 (2026-09-15; feat(gd): remove Top X difficulty ladder; fix /gd leaderboard edit-button race).
