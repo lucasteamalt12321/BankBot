@@ -600,6 +600,11 @@ def test_gd_players_page_and_api(mock_engine):
     rp = c.get("/gd/players")
     assert rp.status_code == 200
     assert "Топ игроков" in rp.get_data(as_text=True)
+    assert "/gd/player/" in rp.get_data(as_text=True)
+
+    # Profile page embeds the GD player-card widget.
+    up = c.get("/u/alice").get_data(as_text=True)
+    assert "Карточка игрока GDL" in up and "/gd/player/" in up
 
     # Player card resolves web user by GD nick.
     prof = c.get("/api/gd/player/Riot").get_json()

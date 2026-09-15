@@ -7466,8 +7466,9 @@ def gd_players_page():
             if (!d.length) { out.innerHTML = '<p class="hint">Рекордов пока нет — стань первым!</p>'; return; }
             var html = '<table><thead><tr><th>#</th><th>Игрок</th><th>Очки</th><th>Демонов</th><th>Хардест</th></tr></thead><tbody>';
             d.forEach(function(p) {
-                var href = p.web_login ? '/u/' + encodeURIComponent(p.web_login) : '/gd/player/' + encodeURIComponent(p.player_name);
-                html += '<tr><td class="rank">' + p.rank + '</td><td class="pname"><a href="' + href + '">' + esc(p.player_name) + '</a></td>'
+                var href = '/gd/player/' + encodeURIComponent(p.player_name);
+                var prof = p.web_login ? ' <a href="/u/' + encodeURIComponent(p.web_login) + '" style="font-size:12px;color:var(--gh-muted);text-decoration:none">профиль →</a>' : '';
+                html += '<tr><td class="rank">' + p.rank + '</td><td class="pname"><a href="' + href + '">' + esc(p.player_name) + '</a>' + prof + '</td>'
                     + '<td>' + p.points + '</td><td>' + p.demons_count + '</td><td>' + esc(p.hardest) + '</td></tr>';
             });
             html += '</tbody></table>';
@@ -12013,16 +12014,35 @@ def user_profile_page(login: str):
     function renderGd(nick) {
         var box = document.getElementById('gd-box');
         if (!box) return;
-        fetch('/api/gd/user/' + encodeURIComponent(nick))
+        var parts = '';
+        fetch('/api/gd/player/' + encodeURIComponent(nick))
             .then(function(r) { return r.json(); })
             .then(function(d) {
-                if (d.error) return;
-                var rows = [['⭐ Звёзды', d.stars], ['👹 Демоны', d.demons], ['💎 Алмазы', d.diamonds], ['🪙 Монеты', d.coins], ['💠 User coins', d.user_coins]];
-                var html = '<div class="sec">🟢 Geometry Dash · <span style="color:var(--bb-muted);font-weight:400">' + esc(nick) + '</span></div>';
-                rows.forEach(function(r) { html += '<div class="kv"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span></div>'; });
-                if (d.creator_points) html += '<div class="kv"><span class="k">📝 Creator points</span><span class="v">' + d.creator_points + '</span></div>';
-                if (d.rank) html += '<div class="kv"><span class="k">🏅 Ранг</span><span class="v">#' + d.rank + '</span></div>';
-                box.innerHTML = html;
+                if (d && d.found) {
+                    parts += '<div class="sec">🎮 Карточка игрока GDL · <a href="/gd/player/' + encodeURIComponent(nick) + '" style="color:var(--bb-link)">' + esc(d.player_name) + '</a></div>';
+                    if (d.hardest) parts += '<div class="kv"><span class="k">🔥 Сложнейший</span><span class="v">' + esc(d.hardest) + '</span></div>';
+                    parts += '<div class="kv"><span class="k">🏆 Очки</span><span class="v">' + d.points + '</span></div>'
+                        + '<div class="kv"><span class="k">👹 Демонов</span><span class="v">' + d.demons_count + '</span></div>'
+                        + '<div class="kv"><span class="k">✅ Уровней</span><span class="v">' + d.completions_count + '</span></div>';
+                    var list = '';
+                    (d.completions || []).forEach(function(c) { list += '<div class="kv"><span class="k">#' + c.position + ' · ' + esc(c.name) + '</span><span class="v" style="font-size:12px">' + esc(c.difficulty) + '</span></div>'; });
+                    if (list) parts += '<div class="sec">🎯 Пройденные уровни</div>' + list;
+                    parts += '<div class="kv"><span class="k"><a href="/gd/player/' + encodeURIComponent(nick) + '" style="color:var(--bb-link)">Открыть карточку →</a></span></div>';
+                } else {
+                    parts += '<div class="sec">🎮 Карточка игрока GDL</div><div class="kv"><span class="k">Локальных прохождений пока нет</span></div>';
+                }
+                return fetch('/api/gd/user/' + encodeURIComponent(nick));
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d && !d.error) {
+                    var rows = [['⭐ Звёзды', d.stars], ['👹 Демоны', d.demons], ['💎 Алмазы', d.diamonds], ['🪙 Монеты', d.coins], ['💠 User coins', d.user_coins]];
+                    parts += '<div class="sec">🟢 Внешние данные GD · <span style="color:var(--bb-muted);font-weight:400">' + esc(nick) + '</span></div>';
+                    rows.forEach(function(r) { parts += '<div class="kv"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span></div>'; });
+                    if (d.creator_points) parts += '<div class="kv"><span class="k">📝 Creator points</span><span class="v">' + d.creator_points + '</span></div>';
+                    if (d.rank) parts += '<div class="kv"><span class="k">🏅 Ранг</span><span class="v">#' + d.rank + '</span></div>';
+                }
+                box.innerHTML = parts;
                 box.style.display = 'block';
             })
             .catch(function() {});
