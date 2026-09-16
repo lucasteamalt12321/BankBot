@@ -4,6 +4,10 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### ✅ Выполнено (2026-09-15): 🎮 GD — case-insensitive merge персон в топе (коммит `c574b1d`, задеплоено)
+- **[TASK] «nikiktos почемуто в топе в 2 экземплярах. оставь того, кто с большой буквы»:** причина — `get_gd_players` группировал персоны по точному регистру (`nikiktos` ≠ `Nikiktos`). Группировка переведена на `casefold()`; каноническое отображение через `_gd_persona_display_name()`: приоритет — вариант с заглавной первой буквой (=> «Nikiktos»), затем совпадение с `web_users.gd_nickname`, затем первый порядок. `get_gd_level_completions` дедупликация тоже casefold.
+- Прод-смоук: топ = LucasTeam12321 2129 / ShadowRaven 500 / Nikiktos 325 (2 проходжения: Maethrillian + Acid factory) / EnidBlaiton 143 / Ololo112 111 — дубликата нет.
+
 ### ✅ Выполнено (2026-09-15): 🎮 GD — убрана «Top X» лестница сложностей + фикс кнопок редактирования на /gd (коммит `309d3c5`, задеплоено)
 - **[TASK] «убери сложности со словом топ»:** из `GD_DIFFICULTY_TIERS`/`_COLORS`/`_RAW_MAP` и клиентских `DIFF_COLORS`/`DIFF_TIERS` удалены тиры `top_1000`..`top_10`. `_gd_tier_from_position()` всегда → `"unknown"`; legacy `"Top N"`/`top_*` в БД и авто-деривация по позиции убраны; unknown-бейдж серый (#94a3b8). Демоны считаются ТОЛЬКО для явных демон-тиров (unknown больше не демон → `demons_count` мог уменьшиться у уровней добавленных с Unknown). `/gd` page: `var IS_ADMIN` boot-fetch теперь пере-рисует лидерборд при апгрейде (`if (IS_ADMIN && !was && LB_LEVELS.length) loadLeaderboard()`) — фикс гонки, из-за которой пропадали кнопки ✏️/🗑️ если таблица рендерилась раньше `/api/auth/me`. Прод-смоук: топ = 1 Supersonic InsaneDemon / 2 TVoL Insane / 3 GreyTrap HardDemon / 4 Ultra EasyDemon / 5 Kororinpa EasyDemon / 6 Electroman Insane / 7 AcidFactory Hard / 8 CantLetGo Hard — «Top 10» больше нет; тесты 10/10, ruff clean, node --check OK.
 

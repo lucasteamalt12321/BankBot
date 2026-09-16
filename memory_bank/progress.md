@@ -1835,8 +1835,16 @@ _Баги добавляются по ходу тестирования оста
 - Прод-смоук: лидерборд показывает реальные сложности (Electroman = Insane, Cant Let Go/Acid factory = Hard), «Top 10» бейджей на /gd больше нет.
 
 
+### Changelog 2026-09-15 — fix(gd): case-insensitive persona grouping in leaderboard (commit `c574b1d`)
+
+- **Персоны «Nikiktos» и «nikiktos» объединены в топе** (`get_gd_players`) — группировка по `casefold()` вместо точного регистра; каноническое имя: первая буква заглавная (т.е. `Nikiktos`), затем по `web_users.gd_nickname`, затем первый вариант.
+- **Дедупликация прохождений** на странице уровня (`get_gd_level_completions`) также case-insensitive — один игрок не дублируется из-за разного регистра.
+- **Хелпер `_gd_persona_display_name(cands)`** — выбирает лучший регистр среди вариантов, приоритет: заглавная буква → совпадение с `gd_nickname` аккаунта → первый вариант.
+- **Тест `test_gd_players_casefold_merge`** — два level_completions с разным регистром → одна персона `Nikiktos` в топе, level completions не дублируются.
+- Прод: `Nikiktos` 325 очков (Maethrillian + Acid factory), 2 прохождения — единственная запись.
+
 ## last_checked_commit
-96ed0ca (2026-09-14; feat(gd) bc24f69 + fix 57e6e84 + feat(gd) 96ed0ca — нормализованная сложность, очки, топ игроков, карточка игрока, «⚡ Первый виктор», фикс leaderboard; объединение 2 TG-аккаунтов через gd_aliases → «ShadowRaven» (суммарные очки/прохождения); 10/10 зелёные; ruff + py_compile чисто; задеплоено, prod smoke OK)
+c574b1d (2026-09-15; fix(gd): case-insensitive persona grouping in leaderboard — prefer capital spelling; duplicate "nikiktos"/"Nikiktos" collapsed into one "Nikiktos"; 11/11 green; ruff clean; prod smoke OK)
 8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
 e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
 caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
