@@ -4557,9 +4557,12 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
                     or d.get("tg_first_name") or d.get("tg_username")
                     or f"uid:{d.get('uid')}"
                 )
-                if not key or key in seen:
+                if not key:
                     continue
-                seen.add(key)
+                fp = key.casefold()
+                if fp in seen:
+                    continue
+                seen.add(fp)
                 d["player_name"] = (
                     d.get("username")
                     or d.get("gd_nickname") or d.get("display_name")
@@ -4743,6 +4746,24 @@ def _gd_ensure_points_backfill(conn) -> None:
         print(f"_gd_ensure_points_backfill error: {exc}")
 
 
+def _gd_persona_display_name(cands: list[tuple[str, str]]) -> str:
+    """Pick the display spelling for a persona among its case variants.
+
+    Prefers the first variant with a leading capital letter (so "Nikiktos" wins
+    over "nikiktos"), then the variant that matches the account's GD nick, then
+    the first seen variant.
+    """
+    if not cands:
+        return "Игрок"
+    for nick, _ in cands:
+        if nick and nick[0].isupper():
+            return nick
+    for nick, web_gd in cands:
+        if web_gd and nick == web_gd:
+            return nick
+    return cands[0][0] or "Игрок"
+
+
 def get_gd_players(limit: int = 20) -> list[dict]:
     """Global player leaderboard by points (per-completion nick from the approved submission)."""
     try:
@@ -4751,7 +4772,8 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                 SELECT COALESCE(NULLIF(TRIM(lc.player_name), ''),
                                 NULLIF(wu.gd_nickname, ''), wu.display_name,
                                 NULLIF(tu.first_name, ''), tu.username, wu.login, 'Игрок') AS pname,
-                       l.position, l.name, l.difficulty, wu.login AS web_login
+                       l.position, l.name, l.difficulty, wu.login AS web_login,
+                       wu.gd_nickname AS web_gd_nick
                 FROM level_completions lc
                 JOIN levels l ON l.id = lc.level_id
                 LEFT JOIN web_users wu ON wu.id = lc.user_id
@@ -4760,11 +4782,14 @@ def get_gd_players(limit: int = 20) -> list[dict]:
             groups: dict[str, dict] = {}
             for r in rows:
                 nick = (r.get("pname") or "Игрок").strip()
+                key = nick.casefold()
                 g = groups.setdefault(
-                    nick,
+                    key,
                     {"points": 0, "demons_count": 0, "total_approved": 0,
-                     "hardest_pos": None, "hardest_name": None, "web_login": None},
+                     "hardest_pos": None, "hardest_name": None, "web_login": None,
+                     "_cands": []},
                 )
+                g["_cands"].append((nick, (r.get("web_gd_nick") or "").strip()))
                 pos = int(r.get("position") or 0)
                 g["points"] += _gd_level_points(pos)
                 if _gd_is_demon_tier(_gd_norm_difficulty(r.get("difficulty"), pos)):
@@ -4774,7 +4799,7 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                     g["web_login"] = r.get("web_login")
                 if pos and (g["hardest_pos"] is None or pos < g["hardest_pos"]):
                     g["hardest_pos"], g["hardest_name"] = pos, r.get("name")
-            merged = [dict(v, player_name=name) for name, v in groups.items()]
+            merged = [dict(v, player_name=_gd_persona_display_name(v.pop("_cands"))) for v in groups.values()]
             merged.sort(key=lambda x: (-x["points"], -x["demons_count"], -x["total_approved"]))
             out = []
             for i, g in enumerate(merged[:limit], 1):
