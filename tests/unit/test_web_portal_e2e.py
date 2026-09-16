@@ -688,6 +688,48 @@ def test_gd_persona_attribution(mock_engine):
 
 
 @patch("api.index.get_db_engine")
+def test_gd_players_casefold_merge(mock_engine):
+    """Same persona in different cases is a single top entry, spelled with a capital letter."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO web_users (id, login, password_hash, display_name, gd_nickname) "
+            "VALUES (1, 'nikiktos', 'x', 'ник', 'nikiktos')"
+        ))
+    pos5 = index_api.add_gd_level("Maethrillian", 5, "Unknown")
+    pos8 = index_api.add_gd_level("Acid factory", 8, "Unknown")
+    assert pos5 is not None and pos8 is not None
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO level_completions (user_id, level_id, player_name) VALUES (1, :a, 'Nikiktos')"
+        ), {"a": pos5})
+        conn.execute(text(
+            "INSERT INTO level_completions (user_id, level_id, player_name) VALUES (1, :b, 'nikiktos')"
+        ), {"b": pos8})
+        conn.execute(text(
+            "INSERT INTO submissions (id, user_id, username, level_name, status, submitted_at) "
+            "VALUES (1, 1, 'nikiktos', 'Acid factory', 'approved', '2026-09-01 10:00:00')"
+        ))
+
+    players = c.get("/api/gd/players").get_json()
+    names = [p["player_name"] for p in players]
+    assert names == ["Nikiktos"]
+    top = players[0]
+    assert top["points"] == 1500 and top["total_approved"] == 2
+    assert top["demons_count"] == 0
+
+    # Level completions list dedupes the same persona across case variants.
+    d = c.get(f"/api/gd/level/{pos8}/completions").get_json()
+    completers = [u["player_name"] for u in d["completions"]]
+    assert completers == ["nikiktos"]
+
+
+@patch("api.index.get_db_engine")
 def test_gd_admin_completion_add_remove(mock_engine):
     """Admin marks a level as completed (with media) and can remove it again."""
     from api import index as index_api
