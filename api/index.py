@@ -1317,11 +1317,21 @@ def _ensure_code_tables(engine):
                     content TEXT,
                     ai_summary TEXT,
                     ai_line_comments TEXT,
+                    ai_chunks_done INTEGER NOT NULL DEFAULT 0,
+                    ai_chunks_total INTEGER NOT NULL DEFAULT 1,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     UNIQUE(project_id, file_path)
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_files_project ON code_files(project_id)"))
+            try:
+                conn.execute(text("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_done INTEGER NOT NULL DEFAULT 0"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_total INTEGER NOT NULL DEFAULT 1"))
+            except Exception:
+                pass
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS code_user_comments (
                     id SERIAL PRIMARY KEY,
@@ -27831,12 +27841,19 @@ _CODE_SKIP_EXT = {
     ".godot", ".godot_local", ".import", ".fbx", ".obj", ".dae", ".glb", ".gltf",
 }
 
-_CODE_MAX_FILES = 20          # max files analyzed by AI
-_CODE_MAX_ANALYZE_LINES = 500 # lines sent to AI per file
-_CODE_MAX_STORE_LINES = 5000  # lines stored in DB per file
-_CODE_MAX_STORE_BYTES = 400_000
+_CODE_MAX_FILES = 35          # max files AI-analyzed per run
+_CODE_MAX_ANALYZE_LINES = 500 # lines sent to AI per file (single-shot fallback)
+_CODE_CHUNK_LINES = 450       # lines per AI chunk for large files
+_CODE_CHUNKS_PER_RUN = 20     # AI chunk budget per analyze/reanalyze call
+_CODE_MAX_STORE_LINES = 60_000  # lines stored in DB per file (covers 29k-line index.py)
+_CODE_MAX_STORE_BYTES = 3_000_000
 _CODE_MAX_PROJECTS = 10
-_CODE_ANALYZE_RATE_LIMIT = 5  # analyses per hour per user
+_CODE_ANALYZE_RATE_LIMIT = 10 # analyses per hour per user
+_CODE_SKIP_DIRS = {".git", "node_modules", ".godot", "lib", "__pycache__", ".venv", "venv",
+                   "dist", "build", "coverage", "htmlcov", ".pytest_cache", ".mypy_cache",
+                   "chat_export", "video_files"}
+_CODE_SKIP_FILE_NAMES = {"package-lock.json", "yarn.lock", "poetry.lock", "Pipfile.lock",
+                         "pnpm-lock.yaml", "composer.lock"}
 
 # Инструменты для ИИ при анализе кода
 _CODE_TOOLS = {
@@ -28167,11 +28184,13 @@ def _code_collect_files(repo_dir: str) -> list[dict]:
     """Walk a cloned repo and collect code files (path, lang_key, lines, size, content)."""
     collected: list[dict] = []
     for root, dirs, files in os.walk(repo_dir):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in (".git", "node_modules", ".godot", "lib")]
+        dirs[:] = [d for d in dirs if d not in _CODE_SKIP_DIRS and not d.startswith(".")]
         for fname in files:
             fpath = os.path.join(root, fname)
             rel = os.path.relpath(fpath, repo_dir).replace("\\", "/")
-            if rel.startswith(".git/"):
+            if rel.startswith(".git/") or rel.startswith("data/"):
+                continue
+            if fname in _CODE_SKIP_FILE_NAMES or fname.endswith((".min.js", ".min.css", ".map")):
                 continue
             if not _code_is_code_file(fname):
                 continue
@@ -28190,9 +28209,31 @@ def _code_collect_files(repo_dir: str) -> list[dict]:
                 "line_count": len(lines),
                 "content": content,
             })
-    # Sort: prioritize by line count descending for AI budget, but keep dirs stable
-    collected.sort(key=lambda f: -f["line_count"])
+    # Sort: main files first (importance), keeping line count as tie-break.
+    collected.sort(key=lambda f: (-_code_file_importance(f), -f["line_count"]))
     return collected
+
+
+def _code_file_importance(f: dict) -> int:
+    """Heuristic importance of a file for the AI budget (higher = analyzed first)."""
+    path = f.get("path") or ""
+    slashed = path.replace("\\", "/")
+    base = os.path.basename(slashed)
+    score = 0
+    top_level_dir = slashed.split("/", 1)[0].lower()
+    if top_level_dir in ("api", "bot", "core", "src", "app", "database", "scripts"):
+        score += 40
+    elif top_level_dir in ("tests", "test", "spec", "misc", "assets", "static"):
+        score -= 30
+    if base in ("index.py", "app.py", "main.py", "run.py", "wsgi.py", "bot.py", "__init__.py",
+                "requirements.txt", "Dockerfile", "README.md"):
+        score += 30
+    if f.get("lang_key") == ".py":
+        score += 10
+    elif f.get("lang_key") in (".js", ".ts", ".go", ".rs"):
+        score += 5
+    score += min(f.get("line_count") or 0, 600) // 60
+    return score
 
 
 def _code_detect_primary_language(files: list[dict]) -> str | None:
@@ -28298,30 +28339,86 @@ def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
     return summary, cleaned
 
 
-_CODE_AI_BATCH_SIZE = 5  # files per AI analysis call
+_CODE_AI_BATCH_SIZE = 5  # files/chunks per AI analysis call
 
 
-def _code_analyze_batch(files: list[dict]) -> dict[str, tuple[str, dict]]:
-    """Analyze a list of files in small batches. Returns path -> (summary, line_comments)."""
+def _code_split_chunks(file_info: dict) -> list[tuple[int, list[str]]]:
+    """Split a file's content into (start_line, lines) chunks for AI analysis.
+
+    Small files return a single chunk. Large files are split into ~_CODE_CHUNK_LINES
+    slices so that all functions across the whole file can be commented, not only
+    the first _CODE_MAX_ANALYZE_LINES lines.
+    """
+    lines = file_info.get("content", "").splitlines()
+    if len(lines) <= _CODE_MAX_ANALYZE_LINES:
+        return [(0, lines)]
+    step = _CODE_CHUNK_LINES
+    chunks = []
+    for i in range(0, len(lines), step):
+        chunks.append((i, lines[i:i + step]))
+    return chunks
+
+
+def _code_chunks_total(line_count: int) -> int:
+    """Number of AI chunks a file needs for full coverage (>=1)."""
+    if line_count <= _CODE_MAX_ANALYZE_LINES:
+        return 1
+    return -(-line_count // _CODE_CHUNK_LINES)  # ceil
+
+
+def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[dict[str, tuple[str, dict]], dict[str, int]]:
+    """Analyze files in small batches (chunked for large files).
+
+    Returns (results, covered):
+    - results: path -> (summary, line_comments) merged across chunks analyzed now.
+    - covered: path -> chunk index up to which this call advanced (for resume bookkeeping).
+    """
+    resume = resume or {}
     results: dict[str, tuple[str, dict]] = {}
-    for i in range(0, len(files), _CODE_AI_BATCH_SIZE):
-        batch = files[i : i + _CODE_AI_BATCH_SIZE]
+    covered: dict[str, int] = {}
+    units: list[dict] = []  # (path, chunk_idx, start_line, lines)
+    for f in files:
+        chunks = _code_split_chunks(f)
+        done = max(0, int(resume.get(f["path"], 0) or 0))
+        for idx in range(done, len(chunks)):
+            if len(units) >= _CODE_CHUNKS_PER_RUN:
+                break
+            start, lines = chunks[idx]
+            units.append({
+                "path": f["path"],
+                "chunk_idx": idx,
+                "total_chunks": len(chunks),
+                "start_line": start,
+                "lines": lines,
+                "lang_key": f.get("lang_key") or "",
+            })
+        if len(units) >= _CODE_CHUNKS_PER_RUN:
+            break
+
+    for i in range(0, len(units), _CODE_AI_BATCH_SIZE):
+        batch = units[i:i + _CODE_AI_BATCH_SIZE]
+        for u in batch:
+            covered[u["path"]] = max(covered.get(u["path"], 0), u["chunk_idx"] + 1)
         sections = []
-        for f in batch:
-            lang_key = f.get("lang_key") or ""
-            lang_name = _CODE_LANGUAGES.get(lang_key, {}).get("name", lang_key or "code")
-            content = f["content"]
-            lines = content.splitlines()
-            if len(lines) > _CODE_MAX_ANALYZE_LINES:
-                content = "\n".join(lines[: _CODE_MAX_ANALYZE_LINES]) + "\n# …(обрезано)"
-            sections.append(f"### FILE: {f['path']}\nФайл: {f['path']}, язык: {lang_name}\n```\n{content}\n```")
+        for u in batch:
+            lang_name = _CODE_LANGUAGES.get(u["lang_key"], {}).get("name", u["lang_key"] or "code")
+            start = u["start_line"]
+            body = "\n".join(u["lines"])
+            if u["total_chunks"] > 1:
+                header = (f"Файл: {u['path']} (фрагмент {u['chunk_idx'] + 1}/{u['total_chunks']}, "
+                          f"строки {start + 1}–{start + len(u['lines'])})")
+            else:
+                header = f"Файл: {u['path']}"
+            sections.append(f"### FILE: {header}\nЯзык: {lang_name}\n```\n{body}\n```")
         prompt = (
-            "Ты — опытный разработчик. Проанализируй каждый из этих файлов кода и верни ТОЛЬКО JSON "
+            "Ты — опытный разработчик. Проанализируй каждый фрагмент и верни ТОЛЬКО JSON "
             "без markdown-разметки и пояснений:\n"
             '{"files": {"<путь>": {"summary": "краткое описание файла (1-2 предложения на русском)", '
             '"line_comments": {"<номер_строки>": "комментарий"}}}}\n'
-            "- summary для каждого файла; line_comments — только к КЛЮЧЕВЫМ местам (макс. 5 на файл).\n"
-            "- Возвращай все файлы из запроса, не пропускай ни один.\n\n"
+            "- summary указывай ТОЛЬКО для фрагмента, начинающегося со строки 1 (первые строки файла).\n"
+            "- line_comments — только КЛЮЧЕВЫЕ места (макс. 5 на фрагмент): функции, классы, сложные участки.\n"
+            "- НОМЕРА СТРОК указывай РЕАЛЬНЫЕ (относительно всего файла), а не фрагмента.\n"
+            "- Возвращай все фрагменты из запроса, не пропускай ни один.\n\n"
             + "\n".join(sections)
         )
         ai_text = _code_ai_call(prompt, max_tokens=4000)
@@ -28332,35 +28429,44 @@ def _code_analyze_batch(files: list[dict]) -> dict[str, tuple[str, dict]]:
             if not isinstance(entries, dict):
                 entries = {}
         missing = []
-        for f in batch:
-            entry = entries.get(f["path"])
+        for u in batch:
+            entry = entries.get(u["path"])
+            if not isinstance(entry, dict):
+                entry = entries.get(u["path"] + f"::{u['chunk_idx'] + 1}")
+            if not isinstance(entry, dict):
+                missing.append(u)
+                continue
             summary = ""
             line_comments = {}
-            if isinstance(entry, dict):
+            if u["start_line"] == 0:
                 summary = str(entry.get("summary", "") or "").strip()
-                lc = entry.get("line_comments")
-                if not isinstance(lc, dict):
-                    lc = {}
-                lines = f["content"].splitlines()
+            lc = entry.get("line_comments")
+            if isinstance(lc, dict):
+                file_lines = u["start_line"] + len(u["lines"])
                 for k, v in list(lc.items())[:5]:
                     try:
                         line_no = int(k)
                     except (TypeError, ValueError):
                         continue
-                    if 1 <= line_no <= len(lines) and isinstance(v, str) and v.strip():
+                    if u["start_line"] + 1 <= line_no <= file_lines and isinstance(v, str) and v.strip():
                         line_comments[str(line_no)] = v.strip()[:300]
-            if summary:
-                results[f["path"]] = (summary, line_comments)
-            else:
-                missing.append(f)
-        for f in missing:
-            try:
-                s, lc = _code_analyze_file_ai(f)
-                results[f["path"]] = (s, lc)
-            except Exception:
-                s, lc = _code_heuristic_summary(f)
-                results[f["path"]] = (s, lc)
-    return results
+            merged_summary, merged_lc = results.get(u["path"], ("", {}))
+            if summary and not merged_summary:
+                merged_summary = summary
+            merged_lc.update(line_comments)
+            results[u["path"]] = (merged_summary, merged_lc)
+        for u in missing:
+            s, lc = _code_heuristic_summary({
+                "content": "\n".join(u["lines"]),
+                "lang_key": u["lang_key"],
+                "path": u["path"],
+            })
+            merged_summary, merged_lc = results.get(u["path"], ("", {}))
+            merged_lc.update(lc)
+            if u["start_line"] == 0 and not merged_summary:
+                merged_summary = s
+            results[u["path"]] = (merged_summary, merged_lc)
+    return results, covered
 
 
 def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True) -> dict:
@@ -28373,29 +28479,48 @@ def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True)
             ), {"id": project_id})
         return {"analyzed_count": 0, "trivial_files_skipped": 0, "primary_language": None, "file_count": 0}
 
+    # Resume state: already-covered chunk counts per file (path -> chunk index).
+    done_map: dict[str, int] = {}
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT file_path, ai_chunks_done FROM code_files WHERE project_id = :pid AND file_type = 'file'"
+            ), {"pid": project_id}).mappings().all()
+        done_map = {r["file_path"]: int(r["ai_chunks_done"] or 0) for r in rows}
+    except Exception:
+        pass
+
     analyze_pool = files[: _CODE_MAX_FILES]
     batch_results = {}
+    covered = {}
     if run_ai:
-        batch_results = _code_analyze_batch(analyze_pool)
+        batch_results, covered = _code_analyze_batch(analyze_pool, resume=done_map)
 
     analyzed_count = 0
     dir_summaries: dict[str, list[str]] = {}
-    for f in analyze_pool:
+    for f in files:
         summary, line_comments = batch_results.get(f["path"], ("", {}))
         if not summary:
             summary, line_comments = _code_heuristic_summary(f)
-        analyzed_count += 1
+        if f["path"] in batch_results:
+            analyzed_count += 1
         parts = f["path"].split("/")
         for i in range(len(parts) - 1):
             dpath = "/".join(parts[: i + 1])
             dir_summaries.setdefault(dpath, []).append(summary)
+        chunks_total = _code_chunks_total(f["line_count"])
+        chunks_done = 0
+        if f["path"] in covered and run_ai:
+            chunks_done = min(chunks_total, covered.get(f["path"], 0))
         try:
             with engine.begin() as conn:
                 conn.execute(text(
                     "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
-                    "line_count, content, ai_summary, ai_line_comments) "
-                    "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, :comments) "
-                    "ON CONFLICT (project_id, file_path) DO NOTHING"
+                    "line_count, content, ai_summary, ai_line_comments, ai_chunks_done, ai_chunks_total) "
+                    "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, :comments, :done, :total) "
+                    "ON CONFLICT (project_id, file_path) DO UPDATE SET "
+                    "ai_summary = EXCLUDED.ai_summary, ai_line_comments = EXCLUDED.ai_line_comments, "
+                    "ai_chunks_done = EXCLUDED.ai_chunks_done, ai_chunks_total = EXCLUDED.ai_chunks_total"
                 ), {
                     "pid": project_id,
                     "path": f["path"],
@@ -28405,6 +28530,8 @@ def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True)
                     "content": "\n".join(f["content"].splitlines()[:_CODE_MAX_STORE_LINES]),
                     "summary": summary,
                     "comments": json.dumps(line_comments, ensure_ascii=False),
+                    "done": chunks_done,
+                    "total": chunks_total,
                 })
         except Exception as exc:
             log_error("CODE", "error", f"file store error: {exc}")
@@ -28417,7 +28544,7 @@ def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True)
                     "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
                     "line_count, content, ai_summary) "
                     "VALUES (:pid, :path, 'dir', :parent, NULL, 0, NULL, :summary) "
-                    "ON CONFLICT (project_id, file_path) DO NOTHING"
+                    "ON CONFLICT (project_id, file_path) DO UPDATE SET ai_summary = EXCLUDED.ai_summary"
                 ), {
                     "pid": project_id,
                     "path": dpath,
@@ -28435,7 +28562,7 @@ def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True)
 
     return {
         "analyzed_count": analyzed_count,
-        "trivial_files_skipped": max(0, len(files) - _CODE_MAX_FILES),
+        "trivial_files_skipped": max(0, len(files) - len(analyze_pool)),
         "primary_language": primary_lang,
         "file_count": len(files),
     }
@@ -28593,7 +28720,8 @@ def api_code_project(project_id):
     try:
         with engine.connect() as conn:
             rows = conn.execute(text(
-                "SELECT file_path, file_type, language, line_count, ai_summary, ai_line_comments "
+                "SELECT file_path, file_type, language, line_count, ai_summary, ai_line_comments, "
+                "ai_chunks_done, ai_chunks_total "
                 "FROM code_files WHERE project_id = :pid ORDER BY file_path"
             ), {"pid": project_id}).mappings().fetchall()
             crows = conn.execute(text(
@@ -28610,6 +28738,8 @@ def api_code_project(project_id):
                 "ai_summary": r["ai_summary"],
                 "ai_line_comments": json.loads(r["ai_line_comments"]) if r["ai_line_comments"] else {},
                 "comment_count": comment_counts.get(str(r["file_path"]), 0),
+                "ai_chunks_done": int(r["ai_chunks_done"] or 0),
+                "ai_chunks_total": max(1, int(r["ai_chunks_total"] or 1)),
             })
         return jsonify({
             "ok": True,
@@ -28639,7 +28769,8 @@ def api_code_file(project_id):
     try:
         with engine.connect() as conn:
             row = conn.execute(text(
-                "SELECT file_path, file_type, language, line_count, content, ai_summary, ai_line_comments "
+                "SELECT file_path, file_type, language, line_count, content, ai_summary, ai_line_comments, "
+                "ai_chunks_done, ai_chunks_total "
                 "FROM code_files WHERE project_id = :pid AND file_path = :path"
             ), {"pid": project_id, "path": file_path}).mappings().first()
             if not row:
@@ -28656,6 +28787,8 @@ def api_code_file(project_id):
             "content": row["content"],
             "ai_summary": row["ai_summary"],
             "ai_line_comments": json.loads(row["ai_line_comments"]) if row["ai_line_comments"] else {},
+            "ai_chunks_done": int(row["ai_chunks_done"] or 0),
+            "ai_chunks_total": max(1, int(row["ai_chunks_total"] or 1)),
             "user_comments": [dict(c) for c in comments],
         })
     except Exception as exc:
@@ -28761,8 +28894,8 @@ def api_code_reanalyze(project_id):
     try:
         with engine.connect() as conn:
             rows = conn.execute(text(
-                "SELECT file_path, language, line_count, content FROM code_files "
-                "WHERE project_id = :pid AND file_type = 'file' ORDER BY id"
+                "SELECT file_path, language, line_count, content, ai_chunks_done FROM code_files "
+                "WHERE project_id = :pid AND file_type = 'file'"
             ), {"pid": project_id}).mappings().all()
         files = [{
             "path": r["file_path"],
@@ -28770,24 +28903,42 @@ def api_code_reanalyze(project_id):
             "line_count": int(r["line_count"] or 0),
             "content": r["content"] or "",
         } for r in rows]
+        files.sort(key=lambda f: (-_code_file_importance(f), f["path"]))
     except Exception as exc:
         log_error("CODE", "error", f"reanalyze load error: {exc}")
         return jsonify({"ok": False, "error": "Не удалось загрузить файлы"}), 500
 
+    done_map = {f["path"]: int((f.get("ai_chunks_done") or 0)) for f in files}
+
     analyze_pool = files[: _CODE_MAX_FILES]
     batch_results = {}
+    covered = {}
     if analyze_pool:
-        batch_results = _code_analyze_batch(analyze_pool)
+        batch_results, covered = _code_analyze_batch(analyze_pool, resume=done_map)
     updated = 0
     for f in analyze_pool:
-        summary, line_comments = batch_results.get(f["path"], ("", {}))
-        if not summary:
-            summary, line_comments = _code_heuristic_summary(f)
+        new_summary, new_comments = batch_results.get(f["path"], ("", {}))
+        if f["path"] not in batch_results:
+            continue
+        chunks_total = _code_chunks_total(f["line_count"])
+        chunks_done = min(chunks_total, covered.get(f["path"], 0))
         try:
             with engine.begin() as conn:
+                row = conn.execute(text(
+                    "SELECT ai_summary, ai_line_comments FROM code_files "
+                    "WHERE project_id = :pid AND file_path = :path"
+                ), {"pid": project_id, "path": f["path"]}).mappings().first()
+                old_summary = (row["ai_summary"] or "") if row else ""
+                old_comments = json.loads(row["ai_line_comments"]) if row and row["ai_line_comments"] else {}
+                merged_summary = new_summary or old_summary
+                merged_comments = dict(old_comments)
+                merged_comments.update(new_comments)
                 conn.execute(text(
-                    "UPDATE code_files SET ai_summary = :s, ai_line_comments = :c WHERE project_id = :pid AND file_path = :path"
-                ), {"s": summary, "c": json.dumps(line_comments, ensure_ascii=False), "pid": project_id, "path": f["path"]})
+                    "UPDATE code_files SET ai_summary = :s, ai_line_comments = :c, "
+                    "ai_chunks_done = :done, ai_chunks_total = :total "
+                    "WHERE project_id = :pid AND file_path = :path"
+                ), {"s": merged_summary, "c": json.dumps(merged_comments, ensure_ascii=False),
+                    "done": chunks_done, "total": chunks_total, "pid": project_id, "path": f["path"]})
             updated += 1
         except Exception as exc:
             log_error("CODE", "error", f"reanalyze update error: {exc}")
@@ -29145,7 +29296,7 @@ async function analyzeProject() {{
         var d = await r.json();
         prog.done();
         if (!d.ok) {{ prog.fail(); showErr(d.error || 'Ошибка'); return; }}
-        setMsg('Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count);
+        setMsg('Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '. Нажмите «🤖 Разобрать» ещё раз, чтобы продолжить анализ больших файлов.');
         await loadProject(CURRENT_PROJECT.id, false);
         prog.hide();
     }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
@@ -29311,12 +29462,17 @@ function treeHTML(node, depth) {{
         var lt = k.node ? langMeta(k.node.language) : null;
         var icon = k.type == 'dir' ? '📁' : (lt && lt.icon ? lt.icon : '📄');
         var badge = k.node && k.node.comment_count > 0 ? '<span class="badge">💬' + k.node.comment_count + '</span>' : '';
+        var prog = '';
+        if (k.node && k.node.ai_chunks_done != null && k.node.ai_chunks_total > 0 && k.node.ai_chunks_total > 1) {{
+            var pct = Math.round(k.node.ai_chunks_done * 100 / k.node.ai_chunks_total);
+            prog = '<span class="pill" title="Обработано фрагментов: ' + k.node.ai_chunks_done + '/' + k.node.ai_chunks_total + '">🔍 ' + pct + '%</span>';
+        }}
         var sel = SELECTED_PATH == k.path ? ' selected' : '';
         out += '<div class="tree-node' + sel + '" style="padding-left:' + (10 + pad) + 'px" onclick="openNode(\\'' + k.path.replace(/'/g, "\\\\'") + '\\')">'
             +  '<span class="caret">' + (k.type == 'dir' ? '▸' : '') + '</span>'
             +  '<span class="icon">' + icon + '</span>'
             +  '<span class="name">' + esc(k.name) + '</span>'
-            +  badge
+            +  badge + prog
             +  '</div>';
         if (k.type == 'dir') out += treeHTML(k, depth + 1);
     }});
@@ -29354,8 +29510,12 @@ function renderFile(d) {{
     var lines = (d.content || '').split('\\n');
     var head = '<div class="file-head"><h2>' + (lMeta.icon ? lMeta.icon + ' ' : '') + esc(d.path) + '</h2>'
              + '<span class="tag">' + esc(lMeta.name) + '</span>'
-             + '<span class="pill">' + lines.length + ' строк</span>'
-             + '<button class="btn ghost" onclick="openAddComment()">➕ Комментарий</button></div>';
+             + '<span class="pill">' + lines.length + ' строк</span>';
+    if (d.ai_chunks_done != null && d.ai_chunks_total > 0 && d.ai_chunks_total > 1) {{
+        var pct = Math.round(d.ai_chunks_done * 100 / d.ai_chunks_total);
+        head += '<span class="pill" title="Обработано фрагментов: ' + d.ai_chunks_done + '/' + d.ai_chunks_total + '">🔍 Анализ: ' + pct + '%</span>';
+    }}
+    head += '<button class="btn ghost" onclick="openAddComment()">➕ Комментарий</button></div>';
     var summary = d.ai_summary ? '<div class="summary-note">🤖 <b>AI:</b> ' + esc(d.ai_summary) + '</div>' : '';
     var rows = '';
     lines.forEach(function(text, i) {{

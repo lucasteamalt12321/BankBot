@@ -6,10 +6,18 @@ import tempfile
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.pool import StaticPool
 
-from api.index import app
+from api.index import app, _AI_RATE_LIMITS
+
+
+@pytest.fixture(autouse=True)
+def _reset_ai_rate():
+    _AI_RATE_LIMITS.clear()
+    yield
+    _AI_RATE_LIMITS.clear()
 
 
 def _make_engine():
@@ -70,6 +78,8 @@ def _make_engine():
         content TEXT,
         ai_summary TEXT,
         ai_line_comments TEXT,
+        ai_chunks_done INTEGER NOT NULL DEFAULT 0,
+        ai_chunks_total INTEGER NOT NULL DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(project_id, file_path)
     );
@@ -324,6 +334,90 @@ def test_degraded_ai_fallback(mock_clone, tmp_path):
         r = client.get(f"/api/code/project/{data['project_id']}/file?path=player/player.gd",
                        headers=_auth_headers(token))
         assert "GDScript" in r.get_json()["ai_summary"]
+
+
+def test_artifacts_skipped_and_all_files_stored():
+    """Chat exports, lock files and min assets are skipped; every code file is stored."""
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine), \
+         patch("api.index._code_clone_repo") as mock_clone, \
+         patch("api.index._code_ai_call") as mock_ai:
+        def _fake_clone(url, dest, timeout=30):
+            _fake_godot_repo(dest)
+            os.makedirs(os.path.join(dest, "data", "chat_export"), exist_ok=True)
+            with open(os.path.join(dest, "data", "chat_export", "room1.html"), "w", encoding="utf-8") as fh:
+                fh.write("<html>" + ("x" * 5000) + "</html>")
+            with open(os.path.join(dest, "package-lock.json"), "w", encoding="utf-8") as fh:
+                fh.write("{}")
+            with open(os.path.join(dest, "player", "player.min.js"), "w", encoding="utf-8") as fh:
+                fh.write("var a=1;")
+            with open(os.path.join(dest, "player", "extra.gd"), "w", encoding="utf-8") as fh:
+                fh.write("extends Node\n\nfunc _ready():\n    pass\n")
+            return True
+
+        mock_clone.side_effect = _fake_clone
+        mock_ai.return_value = _AI_FILE_RESPONSE
+        client = app.test_client()
+        token = _create_user(client)
+        r = client.post("/api/code/analyze", json={"repo_url": "https://github.com/x/fake"},
+                        headers=_auth_headers(token))
+        pid = r.get_json()["project_id"]
+        r = client.get(f"/api/code/project/{pid}", headers=_auth_headers(token))
+        paths = {n["path"]: n for n in r.get_json()["tree"]}
+        assert "player/extra.gd" in paths
+        assert "player/player.gd" in paths
+        assert "player/player.min.js" not in paths
+        assert "package-lock.json" not in paths
+        assert "data/chat_export/room1.html" not in paths
+
+
+def test_large_file_chunking_and_resume():
+    """Large files are chunked; re-analyze resumes from where it stopped."""
+    engine = _make_engine()
+    big_file = "\n".join(f"line {i}" for i in range(9500))
+
+    from api.index import _code_chunks_total, _code_persist_files, _CODE_CHUNKS_PER_RUN
+
+    large_resp = json.dumps({
+        "files": {
+            "player/big.gd": {"summary": "Большой файл: начало.", "line_comments": {"30": "Строка 30"}}
+        }
+    })
+
+    repo_files = [
+        {"path": "player/big.gd", "lang_key": "gd", "line_count": 9500, "content": big_file},
+        {"path": "player/player.gd", "lang_key": "gd", "line_count": 7,
+         "content": "extends CharacterBody2D\n\nvar speed = 300\n"},
+    ]
+
+    with patch("api.index.get_db_engine", return_value=engine), \
+         patch("api.index._code_ai_call", return_value=large_resp):
+        stats = _code_persist_files(1, repo_files, run_ai=True)
+    assert stats["file_count"] == 2
+    assert stats["analyzed_count"] >= 1
+
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT ai_chunks_done, ai_chunks_total FROM code_files "
+            "WHERE project_id = 1 AND file_path = 'player/big.gd'"
+        )).mappings().first()
+    done, total = int(row["ai_chunks_done"]), int(row["ai_chunks_total"])
+    assert total == _code_chunks_total(9500)
+    assert done == _CODE_CHUNKS_PER_RUN  # chunk budget consumed
+    assert done < total
+
+    # resumes from the stored progress
+    with patch("api.index.get_db_engine", return_value=engine), \
+         patch("api.index._code_ai_call", return_value=large_resp):
+        _code_persist_files(1, repo_files, run_ai=True)
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT ai_chunks_done, ai_chunks_total FROM code_files "
+            "WHERE project_id = 1 AND file_path = 'player/big.gd'"
+        )).mappings().first()
+    done2 = int(row["ai_chunks_done"])
+    assert done2 > done
+    assert done2 <= total
 
 
 @patch("api.index._code_clone_repo")
