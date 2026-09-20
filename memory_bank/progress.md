@@ -216,6 +216,19 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-20 (Session: 📄 Markdown → PDF)
+- **[TASK] «новый модуль: md to pdf. экран разделен на 2 части: с одной стороны человек вставляет гипертекст, а с другой он же но pdf. и кнопка скачать. типа markdowntopdf.com» (коммит `64b15f2`, задеплоено).**
+  - **SPA `/md2pdf`** (в `api/index.py`, по образцу `/code`, полностью клиент-сайд, без БД и серверных зависимостей — безопасно для Vercel):
+    - Разметка: topbar (← Назад / ⬇️ Скачать PDF) + toolbar («📋 Пример», «🧹 Очистить», счётчик «N строк · M слов») + workspace grid 1fr/1fr (editable textarea слева, A4-«бумага» справа); на узких экранах стекируются.
+    - Рендер: **marked** @12 + **highlight.js** (github light) с CDN (как в `/code`); `gfm:true, breaks:true`; подсветка `pre code` пост-обработкой; GFM-задачи (`- [ ]`/`- [x]`) — кастомный конверт в `<input type=checkbox disabled>` с class `task-list-item`.
+    - «PDF-страница» `.pdf-page`: белый лист, max-width 840px, `min-height:297mm`, типографика Georgia/serif, стили таблиц/цитат/кода/hr/img + тень.
+    - **Скачивание PDF (выбран вариант «браузерный print → PDF»)**: кнопка пишет отрендеренный HTML в скрытый same-origin iframe (`srcdoc` + `PRINT_CSS` с `@page{size:A4;margin:18mm 16mm}`, page-break-правила, лёгкая палитра .hljs для печати) → `contentWindow.print()`, асинхронный фолбек `window.print()`.
+    - localStorage-дraft (`md2pdf_draft`, debounce 200ms), восстановление при загрузке; кнопки Пример (демо-документ на русском) / Очистить. `esc()` для сообщений об ошибках разбора.
+    - Карточка в beta-секции хаба (рядом с 💻 Code Explainer).
+  - **🕳 Грабли:** `core/theme.py::inject_theme` middleware'м подменяет ПЕРВОЕ вхождение `</body>` в каждом HTML-ответе → если JS-строка содержит литерал `</body>` (srcdoc print-документа), в строку вставлялся `THEME_TOGGLE <script>` и ломался JS. Фикс: тег собирается конкатенацией `'<' + '/body><' + '/html>'`. (Проверка на проде/тестах: `node --check` извлечённого JS.)
+  - Тесты: `tests/unit/test_md2pdf.py` — 4 шт (200 + content-type; редактор/превью; кнопка+printFrame+downloadPdf+loadSample; marked+highlight). 4/4 зелёные; `test_code_explainer` 10/10 зелёные; ruff чист; `node --check` отрендеренного inline-JS OK.
+  - Прод-смоук: `GET /md2pdf` 200, тайтл «📄 Markdown → PDF», маркеры (mdInput/pdfPage/downloadPdf/printFrame/marked.parse) на месте; `GET /` содержит карточку `href="/md2pdf"`.
+
 ### 2026-09-17 (Session: 💻 Code Explainer — анализ больших репозиториев)
 - **[TASK] «фикси code explainer пока он не сможет грамотно просмотреть https://github.com/lucasteamalt12321/BankBot (добавить комментарии ко всем основным файлам и функциям)» (коммит `15ef1ba`, задеплоено).**
   - **Диагностика на реальном репо (885 файлов, `api/index.py` 29442 строк / 1.5MB):** 1) `_CODE_MAX_STORE_BYTES=400_000` → `api/index.py` вообще пропускался коллектором; 2) в AI шли только первые 500 строк файла (`_CODE_MAX_ANALYZE_LINES`) → функции за пределами 500 строк не комментировались; 3) в БД сохранялись только top-35 файлов (остальные не попадали в дерево); 4) `data/chat_export/*.html` (30–40k строк, ~1MB) засоряли AI-бюджет; 5) re-analyze всегда стартовал с начала (нет прогресса).
@@ -1858,6 +1871,7 @@ _Баги добавляются по ходу тестирования оста
 - Прод: `Nikiktos` 325 очков (Maethrillian + Acid factory), 2 прохождения — единственная запись.
 
 ## last_checked_commit
+64b15f2 (2026-09-20; feat(md2pdf): Markdown → PDF page — live split editor/preview, browser print-to-PDF download via hidden iframe; 4/4 tests, ruff clean, node --check OK, deployed, prod smoke OK)
 15ef1ba (2026-09-17; fix(code explainer): chunked analysis of large files, persist all files, resume progress — api/index.py 1.5MB больше не пропускается, комментарии по всем функциям через повторные «Разобрать»; 10/10 code-explainer tests, ruff clean, deployed, prod smoke OK)
 c574b1d (2026-09-15; fix(gd): case-insensitive persona grouping in leaderboard — prefer capital spelling; duplicate "nikiktos"/"Nikiktos" collapsed into one "Nikiktos"; 11/11 green; ruff clean; prod smoke OK)
 8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
