@@ -491,6 +491,8 @@ def _ensure_gd_tables(engine):
                     user_id BIGINT NOT NULL,
                     username TEXT,
                     level_name TEXT NOT NULL,
+                    difficulty TEXT,
+                    attempts INTEGER,
                     media_file_id TEXT,
                     media_type TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
@@ -499,6 +501,8 @@ def _ensure_gd_tables(engine):
                     reviewed_by BIGINT
                 )
             """))
+            conn.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS difficulty TEXT"))
+            conn.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS attempts INTEGER"))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS player_stats (
                     user_id BIGINT PRIMARY KEY,
@@ -4417,7 +4421,7 @@ def get_gd_hardest_level_name(user_id: int) -> str:
         return "Нет"
 
 
-def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str, status: str | None = None) -> int | None:
+def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str, status: str | None = None, difficulty: str | None = None, attempts: int | None = None) -> int | None:
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -4425,10 +4429,10 @@ def create_gd_submission(user_id: int, username: str, level_name: str, media_fil
                 # Full submission with media
                 result = conn.execute(
                     text("""
-                        INSERT INTO submissions (user_id, username, level_name, media_file_id, media_type, status)
-                        VALUES (:uid, :un, :ln, :mfid, :mt, 'pending') RETURNING id
+                        INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, media_file_id, media_type, status)
+                        VALUES (:uid, :un, :ln, :dif, :att, :mfid, :mt, 'pending') RETURNING id
                     """),
-                    {"uid": user_id, "un": username, "ln": level_name, "mfid": media_file_id, "mt": media_type},
+                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "mfid": media_file_id, "mt": media_type},
                 ).mappings().first()
                 conn.commit()
                 if result:
@@ -4439,10 +4443,10 @@ def create_gd_submission(user_id: int, username: str, level_name: str, media_fil
                 # Create placeholder submission (media pending by default, or explicit status)
                 result = conn.execute(
                     text("""
-                        INSERT INTO submissions (user_id, username, level_name, status)
-                        VALUES (:uid, :un, :ln, :st) RETURNING id
+                        INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, status)
+                        VALUES (:uid, :un, :ln, :dif, :att, :st) RETURNING id
                     """),
-                    {"uid": user_id, "un": username, "ln": level_name, "st": status or "pending_media"},
+                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "st": status or "pending_media"},
                 ).mappings().first()
                 conn.commit()
                 return int(result["id"]) if result else None
@@ -6818,6 +6822,22 @@ def gd_page():
                 <div class="input-row">
                     <input type="text" id="sub-level" placeholder="Название уровня (например: Tartarus)" onkeydown="if(event.key==='Enter')submitRecord()">
                 </div>
+                <div class="input-row">
+                    <select id="sub-difficulty" style="flex:1;padding:12px;border:1px solid var(--gh-border);border-radius:8px;background:var(--gh-bg);color:var(--gh-text);font-size:15px;font-family:inherit">
+                        <option value="">Сложность (необязательно)</option>
+                        <option value="easy">Easy</option>
+                        <option value="normal">Normal</option>
+                        <option value="hard">Hard</option>
+                        <option value="harder">Harder</option>
+                        <option value="insane">Insane</option>
+                        <option value="easy_demon">Easy Demon</option>
+                        <option value="medium_demon">Medium Demon</option>
+                        <option value="hard_demon">Hard Demon</option>
+                        <option value="insane_demon">Insane Demon</option>
+                        <option value="extreme_demon">Extreme Demon</option>
+                    </select>
+                    <input type="number" id="sub-attempts" min="1" placeholder="Попытки (необязательно)" onkeydown="if(event.key==='Enter')submitRecord()">
+                </div>
                 <div class="input-row" style="margin-bottom:6px">
                     <button type="button" class="tab" id="mode-file-btn" style="flex:none" onclick="setMediaMode('file')">📎 Файл</button>
                     <button type="button" class="tab" id="mode-link-btn" style="flex:none" onclick="setMediaMode('link')">🔗 Ссылка</button>
@@ -7148,6 +7168,10 @@ var IS_ADMIN = false;
                 fd.append('level_name', level);
                 fd.append('gd_nickname', gdNick || '');
                 fd.append('token', token);
+                var difSel = document.getElementById('sub-difficulty');
+                if (difSel && difSel.value) { fd.append('difficulty', difSel.value); }
+                var attInp = document.getElementById('sub-attempts');
+                if (attInp && attInp.value && parseInt(attInp.value, 10) > 0) { fd.append('attempts', attInp.value); }
                 if (mediaMode === 'link') { fd.append('media_url', mediaUrl); }
                 else { fd.append('media', mediaFile, mediaFile.name); }
                 var xhr = new XMLHttpRequest();
@@ -7245,7 +7269,10 @@ var IS_ADMIN = false;
                         html += '<div class="sub-card">'
                             + '<div style="color:var(--gh-muted);font-size:13px">Заявка #' + s.id + ' · ' + _gdEsc(s.username || s.user_id) + '</div>'
                             + '<div style="color:var(--gh-text);font-size:15px;margin:6px 0">🎮 ' + _gdEsc(s.level_name) + '</div>'
-                            + '<div class="hint" style="margin-top:0">📅 ' + _gdEsc(s.submitted_at || '—') + ' · ' + _gdEsc(s.media_type || 'без медиа') + '</div>'
+                            + '<div class="hint" style="margin-top:0">'
+                            + (s.difficulty ? '⭐ Сложность: ' + _gdEsc(s.difficulty) + ' · ' : '')
+                            + (s.attempts ? '💀 Попыток: ' + _gdEsc(String(s.attempts)) + ' · ' : '')
+                            + '📅 ' + _gdEsc(s.submitted_at || '—') + ' · ' + _gdEsc(s.media_type || 'без медиа') + '</div>'
                             + '<div class="hint" style="margin-top:0">'
                             + gdMediaHtml(s.media_file_id, s.media_type)
                             + '</div>'
@@ -7969,6 +7996,23 @@ def api_gd_submit():
     if not level_name:
         return jsonify({"error": "Укажите название уровня"}), 400
 
+    # Сложность (выпадающий список на клиенте) и число попыток (необязательно).
+    difficulty = (request.form.get("difficulty") or "").strip()
+    if difficulty:
+        difficulty = _gd_norm_difficulty(difficulty)
+        difficulty = GD_DIFFICULTY_LABELS.get(difficulty, difficulty) or None
+    else:
+        difficulty = None
+    raw_attempts = (request.form.get("attempts") or "").strip()
+    attempts = None
+    if raw_attempts:
+        try:
+            attempts = int(raw_attempts)
+        except (TypeError, ValueError):
+            attempts = None
+        if attempts is not None and attempts < 1:
+            return jsonify({"error": "Кол-во попыток должно быть положительным числом"}), 400
+
     # GD-ник берём из аккаунта; если пуст — из запроса (клиент запрашивает у игрока при первой отправке).
     gd_nick = (web_user.get("gd_nickname") or "").strip()
     submitted_nick = (request.form.get("gd_nickname") or "").strip()
@@ -8032,7 +8076,7 @@ def api_gd_submit():
     else:
         return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
 
-    sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending")
+    sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending", difficulty=difficulty, attempts=attempts)
     if not sub_id:
         return jsonify({"error": "Ошибка создания заявки"}), 500
     return jsonify({"ok": True, "submission_id": sub_id})
@@ -28945,7 +28989,13 @@ def api_code_reanalyze(project_id):
 
     with engine.begin() as conn:
         conn.execute(text("UPDATE code_projects SET status = 'ready' WHERE id = :id"), {"id": project_id})
-    return jsonify({"ok": True, "analyzed_count": updated, "file_count": len(files)})
+    with engine.connect() as conn:
+        done = conn.execute(text(
+            "SELECT COUNT(*) AS c FROM code_files WHERE project_id = :pid AND file_type = 'file' "
+            "AND ai_chunks_done >= ai_chunks_total"
+        ), {"pid": project_id}).mappings().first()
+        analyzed_total = int(done["c"]) if done else 0
+    return jsonify({"ok": True, "analyzed_count": analyzed_total, "file_count": len(files)})
 
 
 def api_code_update(project_id):
@@ -29185,6 +29235,7 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
 </div>
 <div class="projects-bar" style="border-bottom:none">
     <button class="btn" id="analyzeBtn" onclick="analyzeProject()" disabled title="Выберите загруженный проект">🤖 Разобрать</button>
+    <button class="btn ghost" id="analyzeAllBtn" onclick="analyzeAll()" disabled title="Анализировать все файлы проекта">🚀 Анализировать всё</button>
     <button class="btn ghost" id="updateBtn" onclick="updateProject()" disabled title="Подтянуть изменения (git pull)">🔄 Обновить (git pull)</button>
     <button class="btn ghost chat-open" id="chatToggleBtn" onclick="toggleChat()">💬 Чат</button>
     <span class="muted" id="currentProj" style="align-self:center"></span>
@@ -29248,6 +29299,7 @@ function startProgress(stages) {{
     }}
     tick();
     return {{
+        update: function(pct, text) {{ clearTimeout(timer); pf.style.width = pct + '%'; pt.textContent = text; }},
         done: function() {{ clearTimeout(timer); pf.style.width = '100%'; pt.textContent = '✅ Готово!'; }},
         fail: function() {{ clearTimeout(timer); pw.classList.remove('active'); }},
         hide: function() {{ setTimeout(function() {{ pw.classList.remove('active'); }}, 1500); }}
@@ -29296,7 +29348,50 @@ async function analyzeProject() {{
         var d = await r.json();
         prog.done();
         if (!d.ok) {{ prog.fail(); showErr(d.error || 'Ошибка'); return; }}
-        setMsg('Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '. Нажмите «🤖 Разобрать» ещё раз, чтобы продолжить анализ больших файлов.');
+        setMsg('Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '. Нажмите «🚀 Анализировать всё», чтобы обработать оставшиеся файлы автоматически.');
+        await loadProject(CURRENT_PROJECT.id, false);
+        prog.hide();
+    }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
+    finally {{ btn.disabled = false; btn.textContent = old; }}
+}}
+async function analyzeAll() {{
+    if (!CURRENT_PROJECT || !CURRENT_PROJECT.id) {{ showErr('Сначала загрузите проект'); return; }}
+    if (!confirm('Анализировать ВСЕ файлы проекта? Это займёт несколько серий запросов к ИИ (может занять минуты) и продолжит с места остановки. Продолжить?')) return;
+    var btn = document.getElementById('analyzeAllBtn');
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = '🚀 Анализируем всё…';
+    var prog = startProgress([
+        {{pct:20, text:'🤖 Анализируем файлы (серия 1)…', delay:3000}},
+        {{pct:45, text:'🤖 Анализируем файлы (ещё серия)…', delay:15000}},
+        {{pct:70, text:'🤖 Анализируем файлы (ещё серия)…', delay:30000}},
+        {{pct:90, text:'📝 Сохраняем результат…', delay:45000}},
+    ]);
+    setMsg('');
+    var series = 0;
+    var prevCount = -1;
+    try {{
+        while (true) {{
+            series++;
+            prog.update(20 + Math.min(60, series * 10), '🤖 Анализируем файлы (серия ' + series + ')…');
+            var r = await fetch('/api/code/project/' + CURRENT_PROJECT.id + '/analyze', {{method:'POST', headers: authH()}});
+            var d = await r.json();
+            prog.done();
+            if (!d.ok) {{ prog.fail(); showErr(d.error || 'Ошибка'); break; }}
+            if (d.analyzed_count >= d.file_count) {{
+                setMsg('✅ Готово: проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '.');
+                break;
+            }}
+            if (series >= 12) {{
+                setMsg('Сделано серий: ' + series + '. Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '. Нажмите «🚀 Анализировать всё» ещё раз, чтобы продолжить.');
+                break;
+            }}
+            if (prevCount >= 0 && d.analyzed_count <= prevCount) {{
+                prog.fail(); showErr('Прогресс не растёт (лимит ИИ?). Попробуйте позже.'); break;
+            }}
+            prevCount = d.analyzed_count;
+            setMsg('Сделано серий: ' + series + '. Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + ' — продолжаю…');
+        }}
         await loadProject(CURRENT_PROJECT.id, false);
         prog.hide();
     }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
