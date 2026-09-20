@@ -29047,67 +29047,6 @@ def api_code_analyze_route():
     return api_code_analyze()
 
 
-@app.route("/api/code/_scan", methods=["POST", "GET"])
-def api_code_scan_admin():
-    """Temp: create a Code Explainer project for the first admin user (one-shot secret)."""
-    if (request.headers.get("X-Scan-Secret") or request.args.get("secret") or "") != os.getenv("CODE_SCAN_SECRET"):
-        return jsonify({"ok": False, "error": "forbidden"}), 403
-    data = request.get_json(silent=True) or {}
-    repo_url = str(data.get("repo_url") or request.args.get("repo_url") or "").strip()
-    if not repo_url:
-        return jsonify({"ok": False, "error": "repo_url required"}), 400
-    engine = get_db_engine()
-    try:
-        with engine.connect() as conn:
-            admin = conn.execute(
-                text("SELECT id FROM web_users WHERE is_admin = TRUE ORDER BY id LIMIT 1")
-            ).mappings().first()
-            if not admin:
-                admin = conn.execute(
-                    text("""
-                        SELECT wu.id FROM web_users wu
-                        WHERE wu.telegram_id IS NOT NULL
-                        ORDER BY wu.id LIMIT 1
-                    """)
-                ).mappings().first()
-            if not admin:
-                return jsonify({"ok": False, "error": "no admin user"}), 500
-            uid = int(admin["id"])
-            cnt = conn.execute(text("SELECT COUNT(*) AS c FROM code_projects WHERE user_id = :u"), {"u": uid}).mappings().first()
-            if int(cnt["c"] or 0) >= _CODE_MAX_PROJECTS:
-                return jsonify({"ok": False, "error": "max projects reached"}), 400
-            res = conn.execute(
-                text("INSERT INTO code_projects (user_id, repo_url, repo_name, status) VALUES (:u, :url, :n, 'analyzing') RETURNING id"),
-                {"u": uid, "url": repo_url, "n": (repo_url.rstrip('/').split('/')[-1].replace('.git', '') or 'repo')},
-            )
-            project_id = int(res.scalar() or res.fetchone()[0])
-    except Exception as exc:
-        log_error("CODE", "error", f"_scan create error: {exc}")
-        return jsonify({"ok": False, "error": str(exc)}), 500
-    tmp_dir = None
-    try:
-        tmp_dir = tempfile.mkdtemp(prefix="code_")
-        repo_dir = os.path.join(tmp_dir, "repo")
-        if not _code_clone_repo(repo_url, repo_dir):
-            with engine.begin() as conn:
-                conn.execute(text("UPDATE code_projects SET status='failed' WHERE id = :id"), {"id": project_id})
-            return jsonify({"ok": False, "error": "clone failed"}), 400
-        files = _code_collect_files(repo_dir)
-        stats = _code_persist_files(project_id, files, run_ai=False)
-        return jsonify({"ok": True, "project_id": project_id, **stats})
-    except Exception as exc:
-        log_error("CODE", "error", f"_scan error: {exc}")
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("UPDATE code_projects SET status='failed', error_message=:m WHERE id=:id"), {"id": project_id, "m": str(exc)[:500]})
-        except Exception:
-            pass
-        return jsonify({"ok": False, "error": str(exc)}), 500
-    finally:
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
 @app.route("/api/code/projects")
 def api_code_projects_route():
     return api_code_projects()
@@ -29507,7 +29446,7 @@ function buildTree(nodes) {{
         var parts = n.path.split('/');
         var cur = root;
         parts.forEach(function(part, i) {{
-            var isFile = i == parts.length - 1;
+            var isFile = i == parts.length - 1 && n.type != 'dir';
             if (!cur.children[part]) cur.children[part] = {{name: part, type: isFile ? 'file' : 'dir', path: parts.slice(0, i+1).join('/'), children: {{}}, node: isFile ? n : null}};
             cur = cur.children[part];
         }});
