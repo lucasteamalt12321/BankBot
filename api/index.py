@@ -6228,6 +6228,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Объяснение кода из репозитория: дерево проекта с ИИ-комментариями</p>
                     </div>
                 </a>
+                <a class="card" href="/md2pdf">
+                    <div class="card-icon">📄</div>
+                    <div class="card-content">
+                        <h2>Markdown → PDF <span class="beta-tag">Бета</span></h2>
+                        <p>Вставьте Markdown слева — справа живое превью в виде листа PDF A4, кнопка скачать</p>
+                    </div>
+                </a>
                 <a class="card" href="/suggest">
                     <div class="card-icon">💡</div>
                     <div class="card-content">
@@ -29689,6 +29696,234 @@ loadProjects();
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+@app.route("/md2pdf")
+def md2pdf_page():
+    """GET /md2pdf — Markdown → PDF (markdowntopdf.com-style live editor/preview)."""
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>📄 Markdown → PDF</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+:root{{--bb-bg:#0f1420;--bb-panel:#171c2b;--bb-elev:#1f2638;--bb-border:#2a3346;--bb-text:#e6e9f0;--bb-text-soft:#c2c9d6;--bb-muted:#8b93a7;--bb-primary:#5b8def;--bb-accent:#7aa2ff;--bb-red:#f87171;--bb-green:#34d399;--bb-amber:#fbbf24}}
+[data-theme="light"]{{--bb-bg:#eef1f7;--bb-panel:#fff;--bb-elev:#e6e9f2;--bb-border:#cdd4e1;--bb-text:#1f2430;--bb-text-soft:#3b4250;--bb-muted:#5c6373;--bb-primary:#5b8def;--bb-accent:#4a90e8;--bb-red:#dc2626;--bb-green:#059669;--bb-amber:#b45309}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}}
+.topbar{{display:flex;align-items:center;padding:12px 16px;gap:12px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel)}}
+.topbar a{{color:var(--bb-accent);text-decoration:none;font-size:14px}}
+.topbar h1{{flex:1;text-align:center;font-size:18px;font-weight:600}}
+.toolbar{{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel);flex-wrap:wrap}}
+.spacer{{flex:1}}
+.muted{{color:var(--bb-muted);font-size:12px}}
+.small{{font-size:12px}}
+.btn{{padding:8px 14px;border:none;border-radius:8px;background:var(--bb-primary);color:#fff;font-size:13px;cursor:pointer;font-weight:600}}
+.btn:hover{{filter:brightness(1.1)}}
+.btn.ghost{{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(--bb-border)}}
+.workspace{{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px;height:calc(100vh - 132px)}}
+@media(max-width:860px){{.workspace{{grid-template-columns:1fr;height:auto}}.edit{{min-height:42vh}}.prev{{min-height:60vh}}.topbar a{{font-size:12px}}}}
+.panel{{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:hidden;display:flex;min-width:0}}
+.edit textarea{{flex:1;width:100%;padding:18px;border:none;outline:none;background:transparent;color:var(--bb-text);font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:14px;line-height:1.6;resize:none;white-space:pre;overflow:auto}}
+.prev{{overflow:auto;padding:20px;justify-content:center}}
+.pdf-page{{background:#fff;color:#1f2937;width:100%;max-width:840px;min-height:297mm;margin:0 auto;padding:22mm 26mm;box-shadow:0 6px 24px rgba(0,0,0,.45);font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.6;word-wrap:break-word;align-self:flex-start}}
+.pdf-page h1,.pdf-page h2,.pdf-page h3,.pdf-page h4{{color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:1.1em 0 .5em;line-height:1.3}}
+.pdf-page h1{{font-size:26px;border-bottom:1px solid #d1d5db;padding-bottom:.3em}}
+.pdf-page h2{{font-size:21px;border-bottom:1px solid #e5e7eb;padding-bottom:.25em}}
+.pdf-page h3{{font-size:17px}}
+.pdf-page p{{margin:.6em 0}}
+.pdf-page ul,.pdf-page ol{{margin:.6em 0;padding-left:1.6em}}
+.pdf-page li{{margin:.18em 0}}
+.pdf-page li.task-list-item{{list-style:none;margin-left:-1.3em}}
+.pdf-page blockquote{{margin:.8em 0;padding:.2em 1em;border-left:4px solid #d1d5db;color:#4b5563;background:#f9fafb}}
+.pdf-page a{{color:#1d4ed8}}
+.pdf-page hr{{border:none;border-top:1px solid #d1d5db;margin:1.2em 0}}
+.pdf-page img{{max-width:100%;border-radius:4px}}
+.pdf-page code{{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.92em;background:#f3f4f6;padding:.15em .35em;border-radius:4px}}
+.pdf-page pre{{margin:.9em 0;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;overflow:auto}}
+.pdf-page pre code{{background:transparent;padding:0;font-size:13px;line-height:1.55;white-space:pre}}
+.pdf-page table{{border-collapse:collapse;width:100%;margin:1em 0;font-size:13.5px}}
+.pdf-page th,.pdf-page td{{border:1px solid #9ca3af;padding:6px 10px;text-align:left;vertical-align:top}}
+.pdf-page th{{background:#f3f4f6;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}}
+.pdf-page del{{color:#6b7280}}
+#printFrame{{display:none}}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <a href="/">← Назад</a>
+    <h1>📄 Markdown → PDF</h1>
+    <button class="btn" id="pdfBtn" onclick="downloadPdf()">⬇️ Скачать PDF</button>
+</div>
+<div class="toolbar">
+    <button class="btn ghost" onclick="loadSample()">📋 Пример</button>
+    <button class="btn ghost" onclick="clearAll()">🧹 Очистить</button>
+    <span id="stats" class="muted"></span>
+    <span class="spacer"></span>
+    <span class="muted small">Слева — вставьте Markdown, справа — живое превью в виде листа A4</span>
+</div>
+<div class="workspace">
+    <div class="panel edit">
+        <textarea id="mdInput" spellcheck="false" aria-label="Markdown"></textarea>
+    </div>
+    <div class="panel prev">
+        <div class="pdf-page" id="pdfPage"></div>
+    </div>
+</div>
+<iframe id="printFrame" title="print-doc"></iframe>
+<script>
+var SAMPLE = [
+    '# Документ в Markdown',
+    '',
+    'Начните печатать слева — справа документ сразу превращается в «PDF-лист».',
+    '',
+    '## Возможности',
+    '',
+    '- **Жирный текст**, *курсив*, ~~зачёркнутый~~ и `инлайн-код`',
+    '- Списки и [ссылки](https://example.com)',
+    '- Таблицы, цитаты, блоки кода с подсветкой',
+    '- Задачи: `- [x] сделано`, `- [ ] в работе`',
+    '',
+    '### Блок кода',
+    '',
+    '```python',
+    'def hello(name):',
+    '    # Приветствие пользователя',
+    '    return f"Привет, {name}!"',
+    '',
+    'print(hello("мир"))',
+    '```',
+    '',
+    '### Таблица',
+    '',
+    '| Уровень | Баллы | Статус |',
+    '|---------|------:|--------|',
+    '| Бронза  | 0–99  | ✅      |',
+    '| Серебро | 100+  | ⬜      |',
+    '',
+    '> Скачайте PDF кнопкой «⬇️ Скачать PDF» — откроется диалог печати,',
+    '> выберите «Сохранить как PDF».',
+    ''
+].join('\\n');
+var DRAFT_KEY = 'md2pdf_draft';
+var ta = document.getElementById('mdInput');
+var page = document.getElementById('pdfPage');
+var statsEl = document.getElementById('stats');
+var timer = null;
+var savedHljs = window.hljs;
+var PRINT_CSS = [
+    '@page{size:A4;margin:18mm 16mm}',
+    'html,body{margin:0;padding:0;background:#fff;color:#111}',
+    'body{font-family:Georgia,"Times New Roman",serif;font-size:14px;line-height:1.6}',
+    'h1,h2,h3,h4{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111;margin:1.1em 0 .5em;line-height:1.3}',
+    'h1{font-size:24px;border-bottom:1px solid #d1d5db;padding-bottom:.3em}',
+    'h2{font-size:20px;border-bottom:1px solid #e5e7eb;padding-bottom:.25em}',
+    'h3{font-size:16px}',
+    'p{margin:.6em 0}',
+    'ul,ol{margin:.6em 0;padding-left:1.6em}',
+    'li{margin:.18em 0}',
+    'li.task-list-item{list-style:none;margin-left:-1.3em}',
+    'input[type="checkbox"]{margin-right:.45em}',
+    'blockquote{margin:.8em 0;padding:.2em 1em;border-left:4px solid #d1d5db;color:#4b5563;background:#f9fafb}',
+    'a{color:#1d4ed8;word-break:break-all}',
+    'hr{border:none;border-top:1px solid #d1d5db;margin:1.2em 0}',
+    'img{max-width:100%}',
+    'code{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.92em;background:#f3f4f6;padding:.15em .35em;border-radius:4px}',
+    'pre{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:13px;line-height:1.55;white-space:pre;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;overflow:hidden;page-break-inside:avoid}',
+    'pre code{background:transparent;padding:0}',
+    'table{border-collapse:collapse;width:100%;margin:1em 0;font-size:13px;page-break-inside:auto}',
+    'th,td{border:1px solid #9ca3af;padding:6px 10px;text-align:left;vertical-align:top}',
+    'th{background:#f3f4f6}',
+    'tr{page-break-inside:avoid}',
+    'del{color:#6b7280}',
+    '.hljs{background:transparent;color:#24292e}',
+    '.hljs-keyword,.hljs-selector-tag,.hljs-type{color:#cf222e}',
+    '.hljs-string,.hljs-attr{color:#0a3069}',
+    '.hljs-comment{color:#6e7781;font-style:italic}',
+    '.hljs-number,.hljs-literal{color:#0550ae}',
+    '.hljs-title,.hljs-section{color:#8250df}',
+    '.hljs-params{color:#24292e}',
+    '.hljs-built_in{color:#953800}',
+    '.hljs-meta{color:#1a7f37}',
+    'h2,h3,h4{page-break-after:avoid}'
+].join('\\n');
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function statsText(src){
+    var words = src.trim() ? src.trim().split(/\\s+/).length : 0;
+    return src.split('\\n').length + ' строк · ' + words + ' слов';
+}
+function render(){
+    var src = ta.value;
+    var out;
+    try { out = marked.parse(src, {gfm:true, breaks:true}); }
+    catch(e) { out = '<p style="color:#b91c1c">Ошибка разбора Markdown: ' + esc(e.message) + '</p>'; }
+    page.innerHTML = out;
+    try {
+        page.querySelectorAll('pre code').forEach(function(el){
+            if (savedHljs && savedHljs.highlightElement) { savedHljs.highlightElement(el); }
+        });
+    } catch(e) {}
+    try {
+        page.querySelectorAll('li').forEach(function(li){
+            var textNode = li.firstChild;
+            if (!textNode || textNode.nodeType !== 3) { return; }
+            var m = /^\\s*\\[([ xX])\\]\\s*/.exec(textNode.nodeValue);
+            if (!m) { return; }
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.disabled = true;
+            if (m[1].toLowerCase() === 'x') { cb.checked = true; }
+            li.insertBefore(cb, li.firstChild);
+            li.classList.add('task-list-item');
+            textNode.nodeValue = textNode.nodeValue.replace(/^\\s*\\[([ xX])\\]\\s*/, ' ');
+        });
+    } catch(e) {}
+    statsEl.textContent = statsText(src);
+    try { localStorage.setItem(DRAFT_KEY, src); } catch(e) {}
+}
+function scheduleRender(){
+    clearTimeout(timer);
+    timer = setTimeout(render, 200);
+}
+function downloadPdf(){
+    var docHtml = page.innerHTML;
+    var f = document.getElementById('printFrame');
+    var closeTags = '<' + '/body><' + '/html>';
+    f.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Документ</title><style>' + PRINT_CSS + '</style></head><body>' + docHtml + closeTags;
+    f.onload = function(){
+        setTimeout(function(){
+            try { f.contentWindow.focus(); f.contentWindow.print(); }
+            catch(e) { window.print(); }
+        }, 350);
+    };
+    setTimeout(function(){
+        try { if (f.contentWindow && typeof f.contentWindow.print === 'function') { return; } window.print(); }
+        catch(e) {}
+    }, 2500);
+}
+function loadSample(){
+    ta.value = SAMPLE;
+    render();
+}
+function clearAll(){
+    ta.value = '';
+    render();
+}
+ta.addEventListener('input', scheduleRender);
+try {
+    var draft = localStorage.getItem(DRAFT_KEY);
+    ta.value = (draft && draft.length) ? draft : SAMPLE;
+} catch(e) { ta.value = SAMPLE; }
+render();
+</script>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+app.route("/md2pdf")(md2pdf_page)
 app.route("/code")(code_page)
 
 
