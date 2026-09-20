@@ -27844,7 +27844,7 @@ _CODE_SKIP_EXT = {
 _CODE_MAX_FILES = 35          # max files AI-analyzed per run
 _CODE_MAX_ANALYZE_LINES = 500 # lines sent to AI per file (single-shot fallback)
 _CODE_CHUNK_LINES = 450       # lines per AI chunk for large files
-_CODE_CHUNKS_PER_RUN = 20     # AI chunk budget per analyze/reanalyze call
+_CODE_CHUNKS_PER_RUN = 5      # AI chunk budget per analyze/reanalyze call (fits Vercel 60s limit)
 _CODE_MAX_STORE_LINES = 60_000  # lines stored in DB per file (covers 29k-line index.py)
 _CODE_MAX_STORE_BYTES = 3_000_000
 _CODE_MAX_PROJECTS = 10
@@ -28313,8 +28313,8 @@ def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
         "без markdown-разметки и пояснений:\n"
         '{"summary": "краткое описание назначения файла (1-2 предложения на русском)", '
         '"line_comments": {"<номер_строки>": "комментарий на русском"} }\n'
-        "line_comments — объект с комментариями только к КЛЮЧЕВЫМ местам (макс. 8): "
-        "экспорты, сигналы, классы, функции, сложные участки.\n"
+        "line_comments — добавь комментарии к основным функциям, классам и т.п., "
+        "а также к сложным участкам кода.\n"
         f"Язык: {lang_name}. Особенности: {hint}. Файл: {file_info['path']}\n"
         f"```\n{content}\n```"
     )
@@ -28327,7 +28327,7 @@ def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
     if not isinstance(line_comments, dict):
         line_comments = {}
     cleaned: dict[str, str] = {}
-    for k, v in list(line_comments.items())[:8]:
+    for k, v in list(line_comments.items())[:24]:
         try:
             line_no = int(k)
         except (TypeError, ValueError):
@@ -28416,7 +28416,7 @@ def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[
             '{"files": {"<путь>": {"summary": "краткое описание файла (1-2 предложения на русском)", '
             '"line_comments": {"<номер_строки>": "комментарий"}}}}\n'
             "- summary указывай ТОЛЬКО для фрагмента, начинающегося со строки 1 (первые строки файла).\n"
-            "- line_comments — только КЛЮЧЕВЫЕ места (макс. 5 на фрагмент): функции, классы, сложные участки.\n"
+            "- line_comments — добавь комментарии к основным функциям, классам и т.п., а также к сложным участкам кода.\n"
             "- НОМЕРА СТРОК указывай РЕАЛЬНЫЕ (относительно всего файла), а не фрагмента.\n"
             "- Возвращай все фрагменты из запроса, не пропускай ни один.\n\n"
             + "\n".join(sections)
@@ -28443,7 +28443,7 @@ def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[
             lc = entry.get("line_comments")
             if isinstance(lc, dict):
                 file_lines = u["start_line"] + len(u["lines"])
-                for k, v in list(lc.items())[:5]:
+                for k, v in list(lc.items())[:24]:
                     try:
                         line_no = int(k)
                     except (TypeError, ValueError):
