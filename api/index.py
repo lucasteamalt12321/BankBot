@@ -29719,6 +29719,8 @@ body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Blin
 .btn.ghost{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(--bb-border);font-weight:600}
 .btn.ghost:hover{border-color:var(--bb-accent);color:var(--bb-accent)}
 .toolbar{display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel);flex-wrap:wrap}
+.toolbar select{padding:7px 8px;border-radius:9px;border:1px solid var(--bb-border);background:var(--bb-elev);color:var(--bb-text);font-size:13px;font-family:inherit;cursor:pointer}
+.fs-btn{padding:7px 11px;font-size:13px;line-height:1}
 .muted{color:var(--bb-muted);font-size:12px}
 .workspace{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px;height:calc(100vh - 118px);min-height:480px}
 .panel{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -29728,9 +29730,9 @@ body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Blin
 .prev .scroll{flex:1;overflow:auto;padding:18px;background:var(--bb-bg)}
 .pdf-page{background:#fff;color:#1f2937;width:100%;max-width:820px;margin:0 auto;min-height:760px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-family:Georgia,'Times New Roman',serif;font-size:14.5px;line-height:1.65;word-wrap:break-word;padding:50px 58px}
 .pdf-page h1,.pdf-page h2,.pdf-page h3,.pdf-page h4{color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:1.1em 0 .5em;line-height:1.3}
-.pdf-page h1{font-size:26px;border-bottom:1px solid #d8dee6;padding-bottom:.4em;margin-top:0}
-.pdf-page h2{font-size:21px;border-bottom:1px solid #eaedf2;padding-bottom:.3em}
-.pdf-page h3{font-size:17px}
+.pdf-page h1{font-size:1.8em;border-bottom:1px solid #d8dee6;padding-bottom:.4em;margin-top:0}
+.pdf-page h2{font-size:1.45em;border-bottom:1px solid #eaedf2;padding-bottom:.3em}
+.pdf-page h3{font-size:1.17em}
 .pdf-page p{margin:.65em 0}
 .pdf-page ul,.pdf-page ol{margin:.65em 0;padding-left:1.7em}
 .pdf-page li{margin:.2em 0}
@@ -29741,8 +29743,8 @@ body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Blin
 .pdf-page img{max-width:100%;border-radius:6px}
 .pdf-page code{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.9em;background:#eff2f6;padding:.15em .4em;border-radius:5px}
 .pdf-page pre{margin:1em 0;background:#f6f8fa;border:1px solid #e4e9ef;border-radius:8px;padding:14px 16px;overflow:auto}
-.pdf-page pre code{background:transparent;padding:0;font-size:13px;line-height:1.55;white-space:pre}
-.pdf-page table{border-collapse:collapse;width:100%;margin:1em 0;font-size:13.5px}
+.pdf-page pre code{background:transparent;padding:0;font-size:.9em;line-height:1.55;white-space:pre}
+.pdf-page table{border-collapse:collapse;width:100%;margin:1em 0;font-size:.93em}
 .pdf-page th,.pdf-page td{border:1px solid #d0d7de;padding:6px 12px;text-align:left;vertical-align:top}
 .pdf-page th{background:#f6f8fa;font-weight:600}
 .pdf-page del{color:#6b7280}
@@ -29762,6 +29764,20 @@ body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Blin
     <button class="btn ghost" onclick="loadSample()">📋 Пример</button>
     <button class="btn ghost" onclick="clearAll()">🧹 Очистить</button>
     <button class="btn ghost" id="fmtBtn" onclick="improveMd()" title="ИИ улучшит структуру и разметку Markdown">✨ Улучшить форматирование</button>
+    <span class="muted" style="margin-left:10px">Размер шрифта</span>
+    <button class="btn ghost fs-btn" onclick="stepFontSize(-1)" title="Уменьшить шрифт">A−</button>
+    <select id="fontSize" onchange="applyFontSize(this.value)" title="Размер шрифта превью и PDF">
+        <option value="11">11</option>
+        <option value="12">12</option>
+        <option value="13">13</option>
+        <option value="14">14</option>
+        <option value="14.5">14.5</option>
+        <option value="16">16</option>
+        <option value="18">18</option>
+        <option value="20">20</option>
+        <option value="24">24</option>
+    </select>
+    <button class="btn ghost fs-btn" onclick="stepFontSize(1)" title="Увеличить шрифт">A+</button>
     <span class="muted" style="margin-left:10px">Markdown — слева · живое превью PDF — справа</span>
 </div>
 <div class="workspace">
@@ -29815,14 +29831,14 @@ var page = document.getElementById('pdfPage');
 var statsEl = document.getElementById('stats');
 var timer = null;
 var savedHljs = window.hljs;
-var PRINT_CSS = [
+var PRINT_CSS_SKEL = [
     '@page{size:A4;margin:18mm 16mm}',
     'html,body{margin:0;padding:0;background:#fff;color:#111}',
-    'body{font-family:Georgia,"Times New Roman",serif;font-size:14px;line-height:1.6}',
+    'body{font-family:Georgia,"Times New Roman",serif;font-size:BODYFSpx;line-height:1.6}',
     'h1,h2,h3,h4{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111;margin:1.1em 0 .5em;line-height:1.3}',
-    'h1{font-size:24px;border-bottom:1px solid #d1d5db;padding-bottom:.3em}',
-    'h2{font-size:20px;border-bottom:1px solid #e5e7eb;padding-bottom:.25em}',
-    'h3{font-size:16px}',
+    'h1{font-size:1.8em;border-bottom:1px solid #d1d5db;padding-bottom:.3em}',
+    'h2{font-size:1.45em;border-bottom:1px solid #e5e7eb;padding-bottom:.25em}',
+    'h3{font-size:1.17em}',
     'p{margin:.6em 0}',
     'ul,ol{margin:.6em 0;padding-left:1.6em}',
     'li{margin:.18em 0}',
@@ -29832,10 +29848,10 @@ var PRINT_CSS = [
     'a{color:#1d4ed8;word-break:break-all}',
     'hr{border:none;border-top:1px solid #d1d5db;margin:1.2em 0}',
     'img{max-width:100%}',
-    'code{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.92em;background:#f3f4f6;padding:.15em .35em;border-radius:4px}',
-    'pre{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:13px;line-height:1.55;white-space:pre;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;overflow:hidden;page-break-inside:avoid}',
+    'code{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.88em;background:#f3f4f6;padding:.15em .35em;border-radius:4px}',
+    'pre{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.9em;line-height:1.55;white-space:pre;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;overflow:hidden;page-break-inside:avoid}',
     'pre code{background:transparent;padding:0}',
-    'table{border-collapse:collapse;width:100%;margin:1em 0;font-size:13px;page-break-inside:auto}',
+    'table{border-collapse:collapse;width:100%;margin:1em 0;font-size:.92em;page-break-inside:auto}',
     'th,td{border:1px solid #9ca3af;padding:6px 10px;text-align:left;vertical-align:top}',
     'th{background:#f3f4f6}',
     'tr{page-break-inside:avoid}',
@@ -29843,6 +29859,29 @@ var PRINT_CSS = [
     '.hljs{background:transparent}',
     'h2,h3,h4{page-break-after:avoid}'
 ].join('\\n');
+function printCss(){
+    return PRINT_CSS_SKEL.replace('BODYFSpx', fontSize + 'px');
+}
+var FONT_KEY = 'md2pdf_fontsize';
+var FONT_STEPS = [11, 12, 13, 14, 14.5, 16, 18, 20, 24];
+var fontSize = 14.5;
+try {
+    var savedFs = parseFloat(localStorage.getItem(FONT_KEY));
+    if (savedFs > 0) { fontSize = savedFs; }
+} catch(e) {}
+function applyFontSize(v){
+    if (v) { fontSize = parseFloat(v); }
+    var sel = document.getElementById('fontSize');
+    page.style.fontSize = fontSize + 'px';
+    if (sel) { sel.value = String(fontSize); }
+    try { localStorage.setItem(FONT_KEY, String(fontSize)); } catch(e) {}
+}
+function stepFontSize(delta){
+    var idx = FONT_STEPS.indexOf(fontSize);
+    idx = (idx === -1) ? 4 : idx;
+    var n = Math.min(FONT_STEPS.length - 1, Math.max(0, idx + delta));
+    if (FONT_STEPS[n] !== fontSize) { fontSize = FONT_STEPS[n]; applyFontSize(); }
+}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function statsText(src){
     var words = src.trim() ? src.trim().split(/\s+/).length : 0;
@@ -29886,7 +29925,7 @@ function openPrintDialog(){
     var docHtml = page.innerHTML;
     var f = document.getElementById('printFrame');
     var closeTags = '<' + '/body><' + '/html>';
-    f.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Документ</title><style>' + PRINT_CSS + '</style></head><body>' + docHtml + closeTags;
+    f.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Документ</title><style>' + printCss() + '</style></head><body>' + docHtml + closeTags;
     f.onload = function(){
         setTimeout(function(){
             try { f.contentWindow.focus(); f.contentWindow.print(); }
@@ -29941,6 +29980,7 @@ function improveMd(){
     }).then(function(){ setFmtBusy(false); });
 }
 ta.addEventListener('input', scheduleRender);
+applyFontSize();
 try {
     var draft = localStorage.getItem(DRAFT_KEY);
     ta.value = (draft && draft.length) ? draft : SAMPLE;

@@ -43,6 +43,15 @@ def test_md2pdf_has_ai_format_button():
     assert "/api/md2pdf/format" in body
 
 
+def test_md2pdf_has_font_size_control():
+    body = _get_page().get_data(as_text=True)
+    assert "Размер шрифта" in body
+    assert 'id="fontSize"' in body
+    assert "applyFontSize" in body
+    assert "stepFontSize" in body
+    assert "printCss" in body
+
+
 def test_md2pdf_format_endpoint_rejects_empty():
     client = app.test_client()
     resp = client.post("/api/md2pdf/format", json={"text": "   "})
