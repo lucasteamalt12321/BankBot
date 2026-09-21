@@ -41,6 +41,7 @@ def test_md2pdf_has_ai_format_button():
     assert "Улучшить форматирование" in body
     assert "improveMd" in body
     assert "/api/md2pdf/format" in body
+    assert "ИИ временно недоступен" in body
 
 
 def test_md2pdf_has_font_size_control():

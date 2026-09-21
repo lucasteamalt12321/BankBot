@@ -29966,17 +29966,23 @@ function improveMd(){
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({text: src})
     }).then(function(r){
-        return r.json().then(function(j){ return {ok: r.ok, body: j}; });
+        return r.text().then(function(t){
+            var j = null;
+            try { j = JSON.parse(t); } catch(e) {}
+            return {ok: r.ok, status: r.status, body: j};
+        });
     }).then(function(res){
-        if (!res.ok || !res.body || !res.body.markdown) {
-            var msg = (res.body && res.body.error) || 'Не удалось улучшить текст';
-            alert('Ошибка: ' + msg);
+        if (res.ok && res.body && res.body.markdown) {
+            ta.value = res.body.markdown;
+            render();
             return;
         }
-        ta.value = res.body.markdown;
-        render();
-    }).catch(function(e){
-        alert('Ошибка: ' + (e && e.message ? e.message : 'сеть недоступна'));
+        var msg = (res.body && res.body.error) ||
+            (res.status === 429 ? 'Слишком много запросов, подождите минуту' :
+             'ИИ временно недоступен, попробуйте позже');
+        alert('Ошибка: ' + msg);
+    }).catch(function(){
+        alert('Ошибка: сервис недоступен (проверьте сеть)');
     }).then(function(){ setFmtBusy(false); });
 }
 ta.addEventListener('input', scheduleRender);
