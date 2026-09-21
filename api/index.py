@@ -29704,72 +29704,74 @@ def md2pdf_page():
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>📄 Markdown → PDF</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
-:root{{--bb-bg:#0f1420;--bb-panel:#171c2b;--bb-elev:#1f2638;--bb-border:#2a3346;--bb-text:#e6e9f0;--bb-text-soft:#c2c9d6;--bb-muted:#8b93a7;--bb-primary:#5b8def;--bb-accent:#7aa2ff;--bb-red:#f87171;--bb-green:#34d399;--bb-amber:#fbbf24}}
-[data-theme="light"]{{--bb-bg:#eef1f7;--bb-panel:#fff;--bb-elev:#e6e9f2;--bb-border:#cdd4e1;--bb-text:#1f2430;--bb-text-soft:#3b4250;--bb-muted:#5c6373;--bb-primary:#5b8def;--bb-accent:#4a90e8;--bb-red:#dc2626;--bb-green:#059669;--bb-amber:#b45309}}
-*{{margin:0;padding:0;box-sizing:border-box}}
-body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}}
-.topbar{{display:flex;align-items:center;padding:12px 16px;gap:12px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel)}}
-.topbar a{{color:var(--bb-accent);text-decoration:none;font-size:14px}}
-.topbar h1{{flex:1;text-align:center;font-size:18px;font-weight:600}}
-.toolbar{{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel);flex-wrap:wrap}}
-.spacer{{flex:1}}
-.muted{{color:var(--bb-muted);font-size:12px}}
-.small{{font-size:12px}}
-.btn{{padding:8px 14px;border:none;border-radius:8px;background:var(--bb-primary);color:#fff;font-size:13px;cursor:pointer;font-weight:600}}
-.btn:hover{{filter:brightness(1.1)}}
-.btn.ghost{{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(--bb-border)}}
-.workspace{{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px;height:calc(100vh - 132px)}}
-@media(max-width:860px){{.workspace{{grid-template-columns:1fr;height:auto}}.edit{{min-height:42vh}}.prev{{min-height:60vh}}.topbar a{{font-size:12px}}}}
-.panel{{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:hidden;display:flex;min-width:0}}
-.edit textarea{{flex:1;width:100%;padding:18px;border:none;outline:none;background:transparent;color:var(--bb-text);font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:14px;line-height:1.6;resize:none;white-space:pre;overflow:auto}}
-.prev{{overflow:auto;padding:20px;justify-content:center}}
-.pdf-page{{background:#fff;color:#1f2937;width:100%;max-width:840px;min-height:297mm;margin:0 auto;padding:22mm 26mm;box-shadow:0 6px 24px rgba(0,0,0,.45);font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.6;word-wrap:break-word;align-self:flex-start}}
-.pdf-page h1,.pdf-page h2,.pdf-page h3,.pdf-page h4{{color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:1.1em 0 .5em;line-height:1.3}}
-.pdf-page h1{{font-size:26px;border-bottom:1px solid #d1d5db;padding-bottom:.3em}}
-.pdf-page h2{{font-size:21px;border-bottom:1px solid #e5e7eb;padding-bottom:.25em}}
-.pdf-page h3{{font-size:17px}}
-.pdf-page p{{margin:.6em 0}}
-.pdf-page ul,.pdf-page ol{{margin:.6em 0;padding-left:1.6em}}
-.pdf-page li{{margin:.18em 0}}
-.pdf-page li.task-list-item{{list-style:none;margin-left:-1.3em}}
-.pdf-page blockquote{{margin:.8em 0;padding:.2em 1em;border-left:4px solid #d1d5db;color:#4b5563;background:#f9fafb}}
-.pdf-page a{{color:#1d4ed8}}
-.pdf-page hr{{border:none;border-top:1px solid #d1d5db;margin:1.2em 0}}
-.pdf-page img{{max-width:100%;border-radius:4px}}
-.pdf-page code{{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.92em;background:#f3f4f6;padding:.15em .35em;border-radius:4px}}
-.pdf-page pre{{margin:.9em 0;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;overflow:auto}}
-.pdf-page pre code{{background:transparent;padding:0;font-size:13px;line-height:1.55;white-space:pre}}
-.pdf-page table{{border-collapse:collapse;width:100%;margin:1em 0;font-size:13.5px}}
-.pdf-page th,.pdf-page td{{border:1px solid #9ca3af;padding:6px 10px;text-align:left;vertical-align:top}}
-.pdf-page th{{background:#f3f4f6;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}}
-.pdf-page del{{color:#6b7280}}
-#printFrame{{display:none}}
+:root{--bb-bg:#0f1420;--bb-panel:#171c2b;--bb-elev:#1f2638;--bb-border:#2a3346;--bb-text:#e6e9f0;--bb-muted:#8b93a7;--bb-accent:#7aa2ff;--bb-green:#34d399}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;font-size:14px}
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel)}
+.topbar .brand{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:700;color:var(--bb-text);text-decoration:none}
+.topbar .brand small{color:var(--bb-muted);font-weight:400;font-size:12px}
+.topbar .spacer{flex:1}
+.btn{padding:9px 16px;border:none;border-radius:9px;background:var(--bb-green);color:#07100c;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn:hover{filter:brightness(1.1)}
+.btn.ghost{background:var(--bb-elev);color:var(--bb-text);border:1px solid var(--bb-border);font-weight:600}
+.btn.ghost:hover{border-color:var(--bb-accent);color:var(--bb-accent)}
+.toolbar{display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel);flex-wrap:wrap}
+.muted{color:var(--bb-muted);font-size:12px}
+.workspace{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px;height:calc(100vh - 118px);min-height:480px}
+.panel{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0;min-height:0}
+.pane-head{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bb-border);font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--bb-muted);flex:none}
+.pane-head .hint{text-transform:none;font-weight:400;letter-spacing:0}
+.edit textarea{flex:1;width:100%;padding:16px;border:none;outline:none;background:#0b0e15;color:#dbe2ef;font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:13.5px;line-height:1.65;resize:none;white-space:pre;overflow:auto}
+.prev .scroll{flex:1;overflow:auto;padding:18px;background:radial-gradient(1200px 500px at 50% -50%,#1b2336 0%,var(--bb-bg) 60%)}
+.pdf-page{background:#fff;color:#1f2937;width:100%;max-width:820px;margin:0 auto;min-height:760px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-family:Georgia,'Times New Roman',serif;font-size:14.5px;line-height:1.65;word-wrap:break-word;padding:50px 58px}
+.pdf-page h1,.pdf-page h2,.pdf-page h3,.pdf-page h4{color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:1.1em 0 .5em;line-height:1.3}
+.pdf-page h1{font-size:26px;border-bottom:1px solid #d8dee6;padding-bottom:.4em;margin-top:0}
+.pdf-page h2{font-size:21px;border-bottom:1px solid #eaedf2;padding-bottom:.3em}
+.pdf-page h3{font-size:17px}
+.pdf-page p{margin:.65em 0}
+.pdf-page ul,.pdf-page ol{margin:.65em 0;padding-left:1.7em}
+.pdf-page li{margin:.2em 0}
+.pdf-page li.task-list-item{list-style:none;margin-left:-1.4em}
+.pdf-page blockquote{margin:.8em 0;padding:.15em 1em;border-left:4px solid #d0d7de;color:#57606a;background:#f6f8fa}
+.pdf-page a{color:#0969da}
+.pdf-page hr{border:none;border-top:1px solid #d8dee6;margin:1.4em 0}
+.pdf-page img{max-width:100%;border-radius:6px}
+.pdf-page code{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.9em;background:#eff2f6;padding:.15em .4em;border-radius:5px}
+.pdf-page pre{margin:1em 0;background:#f6f8fa;border:1px solid #e4e9ef;border-radius:8px;padding:14px 16px;overflow:auto}
+.pdf-page pre code{background:transparent;padding:0;font-size:13px;line-height:1.55;white-space:pre}
+.pdf-page table{border-collapse:collapse;width:100%;margin:1em 0;font-size:13.5px}
+.pdf-page th,.pdf-page td{border:1px solid #d0d7de;padding:6px 12px;text-align:left;vertical-align:top}
+.pdf-page th{background:#f6f8fa;font-weight:600}
+.pdf-page del{color:#6b7280}
+#printFrame{display:none}
+@media(max-width:900px){.workspace{grid-template-columns:1fr;height:auto}.edit{min-height:44vh}.prev{min-height:70vh}.topbar .brand small{display:none}}
 </style>
 </head>
 <body>
 <div class="topbar">
-    <a href="/">← Назад</a>
-    <h1>📄 Markdown → PDF</h1>
+    <a class="brand" href="/">📄 <span>Markdown → PDF</span><small>вставьте текст слева — превью обновится само</small></a>
+    <span class="spacer"></span>
+    <span id="stats" class="muted"></span>
+    <button class="btn ghost" onclick="printPage()">🖨️ Печать</button>
     <button class="btn" id="pdfBtn" onclick="downloadPdf()">⬇️ Скачать PDF</button>
 </div>
 <div class="toolbar">
     <button class="btn ghost" onclick="loadSample()">📋 Пример</button>
     <button class="btn ghost" onclick="clearAll()">🧹 Очистить</button>
-    <span id="stats" class="muted"></span>
-    <span class="spacer"></span>
-    <span class="muted small">Слева — вставьте Markdown, справа — живое превью в виде листа A4</span>
+    <span class="muted" style="margin-left:10px">Markdown — слева · живое превью PDF — справа</span>
 </div>
 <div class="workspace">
     <div class="panel edit">
-        <textarea id="mdInput" spellcheck="false" aria-label="Markdown"></textarea>
+        <div class="pane-head">Ввод<span class="hint">Markdown</span></div>
+        <textarea id="mdInput" spellcheck="false" aria-label="Markdown" placeholder="Вставьте Markdown-текст сюда…"></textarea>
     </div>
     <div class="panel prev">
-        <div class="pdf-page" id="pdfPage"></div>
+        <div class="pane-head">Превью PDF<span class="hint">обновляется в реальном времени</span></div>
+        <div class="scroll"><div class="pdf-page" id="pdfPage"></div></div>
     </div>
 </div>
 <iframe id="printFrame" title="print-doc"></iframe>
@@ -29777,7 +29779,7 @@ body{{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Bli
 var SAMPLE = [
     '# Документ в Markdown',
     '',
-    'Начните печатать слева — справа документ сразу превращается в «PDF-лист».',
+    'Вставьте текст слева — справа документ сразу превращается в «PDF-лист».',
     '',
     '## Возможности',
     '',
@@ -29803,10 +29805,10 @@ var SAMPLE = [
     '| Бронза  | 0–99  | ✅      |',
     '| Серебро | 100+  | ⬜      |',
     '',
-    '> Скачайте PDF кнопкой «⬇️ Скачать PDF» — откроется диалог печати,',
-    '> выберите «Сохранить как PDF».',
+    '> Нажмите «⬇️ Скачать PDF» или «🖨️ Печать» — откроется диалог,',
+    '> где можно сохранить документ как PDF или отправить на принтер.',
     ''
-].join('\\n');
+].join('\n');
 var DRAFT_KEY = 'md2pdf_draft';
 var ta = document.getElementById('mdInput');
 var page = document.getElementById('pdfPage');
@@ -29838,21 +29840,13 @@ var PRINT_CSS = [
     'th{background:#f3f4f6}',
     'tr{page-break-inside:avoid}',
     'del{color:#6b7280}',
-    '.hljs{background:transparent;color:#24292e}',
-    '.hljs-keyword,.hljs-selector-tag,.hljs-type{color:#cf222e}',
-    '.hljs-string,.hljs-attr{color:#0a3069}',
-    '.hljs-comment{color:#6e7781;font-style:italic}',
-    '.hljs-number,.hljs-literal{color:#0550ae}',
-    '.hljs-title,.hljs-section{color:#8250df}',
-    '.hljs-params{color:#24292e}',
-    '.hljs-built_in{color:#953800}',
-    '.hljs-meta{color:#1a7f37}',
+    '.hljs{background:transparent}',
     'h2,h3,h4{page-break-after:avoid}'
-].join('\\n');
+].join('\n');
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function statsText(src){
-    var words = src.trim() ? src.trim().split(/\\s+/).length : 0;
-    return src.split('\\n').length + ' строк · ' + words + ' слов';
+    var words = src.trim() ? src.trim().split(/\s+/).length : 0;
+    return src.split('\n').length + ' строк · ' + words + ' слов';
 }
 function render(){
     var src = ta.value;
@@ -29869,7 +29863,7 @@ function render(){
         page.querySelectorAll('li').forEach(function(li){
             var textNode = li.firstChild;
             if (!textNode || textNode.nodeType !== 3) { return; }
-            var m = /^\\s*\\[([ xX])\\]\\s*/.exec(textNode.nodeValue);
+            var m = /^\s*\[([ xX])\]\s*/.exec(textNode.nodeValue);
             if (!m) { return; }
             var cb = document.createElement('input');
             cb.type = 'checkbox';
@@ -29877,7 +29871,7 @@ function render(){
             if (m[1].toLowerCase() === 'x') { cb.checked = true; }
             li.insertBefore(cb, li.firstChild);
             li.classList.add('task-list-item');
-            textNode.nodeValue = textNode.nodeValue.replace(/^\\s*\\[([ xX])\\]\\s*/, ' ');
+            textNode.nodeValue = textNode.nodeValue.replace(/^\s*\[([ xX])\]\s*/, ' ');
         });
     } catch(e) {}
     statsEl.textContent = statsText(src);
@@ -29887,7 +29881,8 @@ function scheduleRender(){
     clearTimeout(timer);
     timer = setTimeout(render, 200);
 }
-function downloadPdf(){
+function openPrintDialog(){
+    render();
     var docHtml = page.innerHTML;
     var f = document.getElementById('printFrame');
     var closeTags = '<' + '/body><' + '/html>';
@@ -29902,6 +29897,12 @@ function downloadPdf(){
         try { if (f.contentWindow && typeof f.contentWindow.print === 'function') { return; } window.print(); }
         catch(e) {}
     }, 2500);
+}
+function downloadPdf(){
+    openPrintDialog();
+}
+function printPage(){
+    openPrintDialog();
 }
 function loadSample(){
     ta.value = SAMPLE;
