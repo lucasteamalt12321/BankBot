@@ -29708,7 +29708,6 @@ def md2pdf_page():
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
-:root{--bb-bg:#0f1420;--bb-panel:#171c2b;--bb-elev:#1f2638;--bb-border:#2a3346;--bb-text:#e6e9f0;--bb-muted:#8b93a7;--bb-accent:#7aa2ff;--bb-green:#34d399}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;font-size:14px}
 .topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--bb-border);background:var(--bb-panel)}
@@ -29725,8 +29724,8 @@ body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Blin
 .panel{background:var(--bb-panel);border:1px solid var(--bb-border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0;min-height:0}
 .pane-head{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bb-border);font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--bb-muted);flex:none}
 .pane-head .hint{text-transform:none;font-weight:400;letter-spacing:0}
-.edit textarea{flex:1;width:100%;padding:16px;border:none;outline:none;background:#0b0e15;color:#dbe2ef;font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:13.5px;line-height:1.65;resize:none;white-space:pre;overflow:auto}
-.prev .scroll{flex:1;overflow:auto;padding:18px;background:radial-gradient(1200px 500px at 50% -50%,#1b2336 0%,var(--bb-bg) 60%)}
+.edit textarea{flex:1;width:100%;padding:16px;border:none;outline:none;background:var(--bb-bg);color:var(--bb-text);font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:13.5px;line-height:1.65;resize:none;white-space:pre;overflow:auto}
+.prev .scroll{flex:1;overflow:auto;padding:18px;background:var(--bb-bg)}
 .pdf-page{background:#fff;color:#1f2937;width:100%;max-width:820px;margin:0 auto;min-height:760px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-family:Georgia,'Times New Roman',serif;font-size:14.5px;line-height:1.65;word-wrap:break-word;padding:50px 58px}
 .pdf-page h1,.pdf-page h2,.pdf-page h3,.pdf-page h4{color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:1.1em 0 .5em;line-height:1.3}
 .pdf-page h1{font-size:26px;border-bottom:1px solid #d8dee6;padding-bottom:.4em;margin-top:0}
@@ -29808,7 +29807,7 @@ var SAMPLE = [
     '> Нажмите «⬇️ Скачать PDF» или «🖨️ Печать» — откроется диалог,',
     '> где можно сохранить документ как PDF или отправить на принтер.',
     ''
-].join('\n');
+].join('\\n');
 var DRAFT_KEY = 'md2pdf_draft';
 var ta = document.getElementById('mdInput');
 var page = document.getElementById('pdfPage');
@@ -29842,11 +29841,11 @@ var PRINT_CSS = [
     'del{color:#6b7280}',
     '.hljs{background:transparent}',
     'h2,h3,h4{page-break-after:avoid}'
-].join('\n');
+].join('\\n');
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function statsText(src){
     var words = src.trim() ? src.trim().split(/\s+/).length : 0;
-    return src.split('\n').length + ' строк · ' + words + ' слов';
+    return src.split('\\n').length + ' строк · ' + words + ' слов';
 }
 function render(){
     var src = ta.value;
