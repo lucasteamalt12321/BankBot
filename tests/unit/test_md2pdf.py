@@ -34,3 +34,24 @@ def test_md2pdf_uses_marked_and_highlight():
     assert "marked" in body
     assert "highlight.js" in body
     assert "marked.parse" in body
+
+
+def test_md2pdf_has_ai_format_button():
+    body = _get_page().get_data(as_text=True)
+    assert "Улучшить форматирование" in body
+    assert "improveMd" in body
+    assert "/api/md2pdf/format" in body
+
+
+def test_md2pdf_format_endpoint_rejects_empty():
+    client = app.test_client()
+    resp = client.post("/api/md2pdf/format", json={"text": "   "})
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_md2pdf_format_endpoint_rejects_too_long():
+    client = app.test_client()
+    resp = client.post("/api/md2pdf/format", json={"text": "x" * 20001})
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
