@@ -73,6 +73,7 @@
 - Локальная разработка с автоматической проверкой линтером
 - Docker контейнеризация (`Dockerfile` на `python:3.12-slim`, `docker-compose.yml`)
 - Автоматические миграции БД
+- **Vercel (production веб/бот):** проект переименован `bank-bot` → **`lthub`** (2026-09-21, Vercel API). Канонический прод-домен: **`lthub.vercel.app`**; легаси-алиас `bank-bot-ruby.vercel.app` оставлен (на него зарегистрирован Telegram-webhook `/telegram/webhook/{secret}`). CLI-связка не пострадала (`.vercel/project.json` хранит `projectId`/`orgId`). Деплой: `vercel --prod --yes`.
 
 ## Окружение разработки
 
