@@ -216,6 +216,13 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-21 (Session: 🔤 md2pdf — изменение размера шрифта)
+- **[TASK] «добавь возможность изменить размер шрифта» (коммит `925dee5`, задеплоено).**
+  - Тулбар `/md2pdf`: кнопки **A− / A+** (`stepFontSize(delta)`) + **селект** `#fontSize` (11–24, `applyFontSize(this.value)`), размер применяется к превью (`page.style.fontSize`) и к PDF/print (`printCss()` на базе `PRINT_CSS_SKEL`), сохраняется в `localStorage` (`md2pdf_fontsize`, дефолт 14.5).
+  - Заголовки/код/таблицы превью и PRINT_CSS переведены на **em** (h1=1.8em, h2=1.45em, h3=1.17em, code=.88–.9em, table=.92–.93em) — масштабируются вместе с базовым шрифтом.
+  - Фикс бага: `applyFontSize()` сперва читал глобал вместо значения селекта → перезаписывал выбор; теперь `applyFontSize(this.value)`.
+  - Тесты: `test_md2pdf.py` +1 (`has_font_size_control`) → 8/8; code-explainer 10/10; ruff/node --check/jsdom (смена → 20px, LS=20, printCss `font-size:20px`, A− работает) OK.
+
 ### 2026-09-21 (Session: ✨ md2pdf — ИИ-улучшение форматирования)
 - **[TASK] «сделай в md2pdf функцию (добавить форматирование), где ии будет сам улучшать md» (коммит `624f3a3`, задеплоено).**
   - **Backend:** новый публичный POST `/api/md2pdf/format` (`api/index.py`, рядом с `md2pdf_page`): принимает `{text}`, лимит `_MD_FORMAT_MAX_CHARS=20000`, in-memory rate-limit `_check_ai_rate("md2pdf_fmt:<ip>", 8/60с)` (без `_check_db_rate` — локально висел на Supabase-handshake). Промпт `_MD_FORMAT_PROMPT`: улучшить структуру Markdown (заголовки, списки, таблицы, цитаты, код-блоки, `---`, **жирный**), не меняя смысл, ответ только Markdown. Вызывает `_ai_chat(..., timeout=30, max_tokens=4000, temperature=0.3)`, ответ чистит `_md_strip_fences` (снимает обёртку ```markdown). Ошибки: 400 (пусто/длинно), 429 (rate), 502 (ИИ недоступен/пусто), 500.
@@ -1891,6 +1898,7 @@ _Баги добавляются по ходу тестирования оста
 - Прод: `Nikiktos` 325 очков (Maethrillian + Acid factory), 2 прохождения — единственная запись.
 
 ## last_checked_commit
+925dee5 (2026-09-21; feat(md2pdf): размер шрифта — кнопки A−/A+, селект 11–24, em-масштабирование заголовков/кода/таблиц, printCss()/PRINT_CSS_SKEL, localStorage md2pdf_fontsize; 8/8 md2pdf + 10/10 code-explainer tests, ruff clean, node/jsdom OK, deployed)
 624f3a3 (2026-09-21; feat(md2pdf): кнопка «✨ Улучшить форматирование» + POST /api/md2pdf/format — ИИ-переформатирование Markdown; 7/7 md2pdf + 10/10 code-explainer tests, ruff clean, node --check OK, deployed)
 (infra) 2026-09-21: Vercel project renamed bank-bot → lthub; canonical prod domain lthub.vercel.app (legacy alias bank-bot-ruby.vercel.app retained for Telegram webhook); both 200. No code changes.
 0447d52 (2026-09-21; fix(md2pdf): escape newlines in inline JS — превью было пустым (SyntaxError); тема страницы через var(--bb-*), светлая/тёмная переключается; 4/4+10/10 tests, ruff clean, node --check OK, deployed)
