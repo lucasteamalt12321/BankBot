@@ -29761,6 +29761,7 @@ body{background:var(--bb-bg);color:var(--bb-text);font-family:-apple-system,Blin
 <div class="toolbar">
     <button class="btn ghost" onclick="loadSample()">📋 Пример</button>
     <button class="btn ghost" onclick="clearAll()">🧹 Очистить</button>
+    <button class="btn ghost" id="fmtBtn" onclick="improveMd()" title="ИИ улучшит структуру и разметку Markdown">✨ Улучшить форматирование</button>
     <span class="muted" style="margin-left:10px">Markdown — слева · живое превью PDF — справа</span>
 </div>
 <div class="workspace">
@@ -29911,6 +29912,34 @@ function clearAll(){
     ta.value = '';
     render();
 }
+function setFmtBusy(busy){
+    var btn = document.getElementById('fmtBtn');
+    if (!btn) { return; }
+    btn.disabled = busy;
+    btn.textContent = busy ? '✨ Обрабатываю…' : '✨ Улучшить форматирование';
+}
+function improveMd(){
+    var src = ta.value.trim();
+    if (!src) { alert('Сначала вставьте текст для форматирования'); return; }
+    setFmtBusy(true);
+    fetch('/api/md2pdf/format', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: src})
+    }).then(function(r){
+        return r.json().then(function(j){ return {ok: r.ok, body: j}; });
+    }).then(function(res){
+        if (!res.ok || !res.body || !res.body.markdown) {
+            var msg = (res.body && res.body.error) || 'Не удалось улучшить текст';
+            alert('Ошибка: ' + msg);
+            return;
+        }
+        ta.value = res.body.markdown;
+        render();
+    }).catch(function(e){
+        alert('Ошибка: ' + (e && e.message ? e.message : 'сеть недоступна'));
+    }).then(function(){ setFmtBusy(false); });
+}
 ta.addEventListener('input', scheduleRender);
 try {
     var draft = localStorage.getItem(DRAFT_KEY);
@@ -29921,6 +29950,70 @@ render();
 </body>
 </html>"""
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+_MD_FORMAT_MAX_CHARS = 20000
+_MD_FORMAT_PROMPT = (
+    "Ты — редактор Markdown. Улучши оформление текста пользователя, НЕ меняя смысл и факты.\n"
+    "Правила:\n"
+    "- расставь заголовки (#, ##, ###) по смыслу, добавь списки и подсписки;\n"
+    "- оформи ключевые термины **жирным**, важные блоки — цитатами (>);\n"
+    "- табличные данные оформи таблицей, код — блоками ```;\n"
+    "- добавь горизонтальные разделители (---) между крупными разделами, если уместно;\n"
+    "- исправь очевидные опечатки и лишние пустые строки, приведи отступы в порядок;\n"
+    "- сохрани исходный язык текста.\n"
+    "Верни ТОЛЬКО готовый Markdown, без пояснений и без обрамляющих ```markdown.\n\n"
+    "Текст:\n"
+)
+
+
+def _md_strip_fences(text: str) -> str:
+    """Strip a wrapping ```markdown ``` code fence from an AI reply."""
+    s = (text or "").strip()
+    if s.startswith("```"):
+        nl = s.find("\n")
+        if nl != -1:
+            s = s[nl + 1:]
+        if s.rstrip().endswith("```"):
+            s = s.rstrip()[:-3]
+    return s.strip()
+
+
+@app.route("/api/md2pdf/format", methods=["POST"])
+def api_md2pdf_format():
+    """Improve/format user-provided Markdown via AI (public, rate-limited)."""
+    try:
+        ip = request.remote_addr or "unknown"
+        if _check_ai_rate("md2pdf_fmt:" + ip, max_requests=8, window=60):
+            return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
+        data = request.get_json(silent=True) or {}
+        src = str(data.get("text") or "").strip()
+        if not src:
+            return jsonify({"error": "Пустой текст"}), 400
+        if len(src) > _MD_FORMAT_MAX_CHARS:
+            return (
+                jsonify({"error": f"Текст слишком большой (макс. {_MD_FORMAT_MAX_CHARS} символов)"}),
+                400,
+            )
+        resp = _ai_chat(
+            {
+                "messages": [{"role": "user", "content": _MD_FORMAT_PROMPT + src}],
+                "max_tokens": 4000,
+                "temperature": 0.3,
+            },
+            timeout=30.0,
+        )
+        if resp is None or resp.status_code != 200:
+            status = resp.status_code if resp is not None else 0
+            log_error("MD2PDF", "error", f"AI format failed, status={status}")
+            return jsonify({"error": "ИИ недоступен, попробуйте позже"}), 502
+        markdown = _md_strip_fences(_ai_reply_text(resp))
+        if not markdown:
+            return jsonify({"error": "ИИ вернул пустой ответ"}), 502
+        return jsonify({"markdown": markdown})
+    except Exception as exc:
+        log_error("MD2PDF", "error", f"format error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
 
 
 app.route("/md2pdf")(md2pdf_page)
