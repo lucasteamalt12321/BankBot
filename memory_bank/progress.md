@@ -216,6 +216,11 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-21 (Session: 🔍 Багхант md2pdf)
+- **[BUGHUNT]** Найден и исправлен UX-баг (коммит `95d7cf2`, задеплоено): `improveMd()` при не-JSON ответе (HTML-страница ошибки Vercel при таймауте ИИ/шлюза) падало в `r.json()` и показывало «Unexpected token '<'». Теперь ответ читается как текст, JSON парсится через try/catch; ошибки 429/502/HTML → понятные русские сообщения («Слишком много запросов…», «ИИ временно недоступен…», «сервис недоступен»). `<body>` финальный сет показывается при любом исходе.
+- **Проверено, багов НЕТ:** inline `font-size` на `#pdfPage` переживает `render()` (innerHTML заменяет только детей); restore размера из localStorage при загрузке; clamp A+/A− на границах (11/24); `printCss()` подставляет актуальный размер (`font-size:20px`); черновик сохраняется после ИИ-подстановки (render → localStorage). Server-side `/api/md2pdf/format` замечаний нет (лимит, rate, strip fences, log_error).
+- Тесты: `test_md2pdf.py` 8/8 (+assert на сообщение «ИИ временно недоступен»), ruff чист, node/jsdom OK.
+
 ### 2026-09-21 (Session: 🔤 md2pdf — изменение размера шрифта)
 - **[TASK] «добавь возможность изменить размер шрифта» (коммит `925dee5`, задеплоено).**
   - Тулбар `/md2pdf`: кнопки **A− / A+** (`stepFontSize(delta)`) + **селект** `#fontSize` (11–24, `applyFontSize(this.value)`), размер применяется к превью (`page.style.fontSize`) и к PDF/print (`printCss()` на базе `PRINT_CSS_SKEL`), сохраняется в `localStorage` (`md2pdf_fontsize`, дефолт 14.5).
@@ -1898,7 +1903,7 @@ _Баги добавляются по ходу тестирования оста
 - Прод: `Nikiktos` 325 очков (Maethrillian + Acid factory), 2 прохождения — единственная запись.
 
 ## last_checked_commit
-925dee5 (2026-09-21; feat(md2pdf): размер шрифта — кнопки A−/A+, селект 11–24, em-масштабирование заголовков/кода/таблиц, printCss()/PRINT_CSS_SKEL, localStorage md2pdf_fontsize; 8/8 md2pdf + 10/10 code-explainer tests, ruff clean, node/jsdom OK, deployed)
+95d7cf2 (2026-09-21; fix(md2pdf): понятные ошибки improveMd при не-JSON/таймаут ответах ИИ — багхант; 15+/8 md2pdf tests, ruff clean, deployed)
 624f3a3 (2026-09-21; feat(md2pdf): кнопка «✨ Улучшить форматирование» + POST /api/md2pdf/format — ИИ-переформатирование Markdown; 7/7 md2pdf + 10/10 code-explainer tests, ruff clean, node --check OK, deployed)
 (infra) 2026-09-21: Vercel project renamed bank-bot → lthub; canonical prod domain lthub.vercel.app (legacy alias bank-bot-ruby.vercel.app retained for Telegram webhook); both 200. No code changes.
 0447d52 (2026-09-21; fix(md2pdf): escape newlines in inline JS — превью было пустым (SyntaxError); тема страницы через var(--bb-*), светлая/тёмная переключается; 4/4+10/10 tests, ruff clean, node --check OK, deployed)
