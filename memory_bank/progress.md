@@ -216,6 +216,17 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-21 (Session: 📄 Markdown → PDF — упрощение дизайна)
+- **[TASK] «короче сделай там экран поделенным на 2 окна: в одно человек вставляет гипертекст, в другом в реальном времени показывается превью пдф. есть кнопки скачать pdf и печать» (коммит `e5210ed`, задеплоено).**
+  - Переработан `md2pdf_page` (`api/index.py`): убрана правая панель настроек (шрифты/цвета/формат страницы) и вслед за ней промежуточный markdowntopdf-style вариант; осталось чистое двухоконное разделение — `workspace` grid `1fr 1fr`: слева textarea `#mdInput`, справа живое превью `.pdf-page#pdfPage`.
+  - Кнопки: «🖨️ Печать» (`printPage()`) и «⬇️ Скачать PDF» (`downloadPdf()`) — обе через общий `openPrintDialog()` (скрытый iframe `#printFrame` + `PRINT_CSS`, `@page A4`, page-break-правила, фолбек `window.print()`).
+  - Вернул шрифт превью к Georgia/serif (был Inter), обновлён `SAMPLE` (текст про 2 панели), подпись «Markdown — слева · живое превью PDF — справа», адаптив ≤900px стекает панели.
+  - Проверки: `test_md2pdf.py` 4/4 + `test_code_explainer.py` 10/10; ruff чист; `node --check` извлечённого inline-JS — EXIT 0; обязательные маркеры (mdInput/pdfPage/pdf-page/Скачать PDF/printFrame/downloadPdf/loadSample/marked/highlight.js/marked.parse) на месте.
+  - Прод-смоук: `GET /md2pdf` 200; есть `id="mdInput"`, `id="pdfPage"`, «Скачать PDF», «Печать», `printFrame`, `printPage`.
+- **🐛 Фикс (коммит `0447d52`, задеплоено):** «не работает переключение светлая/тёмная тема» + «превью pdf всегда белый прямоугольник (пусто)».
+  - Причина пустого превью: `html = """..."""` — обычная (не raw) Python-строка, поэтому `join('\n')`/`split('\n')` в inline-JS превращались в РЕАЛЬНЫЙ перевод строки внутри JS-строковых литералов → `SyntaxError` (весь `<script>` не выполнялся). Исправлено экранированием в Python-исходнике: `'].join('\\n')'`, `"src.split('\\n')"`. Проверка: извлечение отрендеренной страницы через `app.test_client()` + `node --check` (раньше падал, теперь EXIT 0).
+  - Причина неработающей темы: страница задавала собственный `:root{--bb-bg:...}` ПОСЛЕ `inject_theme` (равная специфичность с `[data-theme="light"]`, но позже в документе) → светлые значения перекрывались. Переопределение удалено; хардкод-цвета (`.edit textarea`, `.prev .scroll`) переведены на `var(--bb-*)`.
+
 ### 2026-09-20 (Session: 📄 Markdown → PDF)
 - **[TASK] «новый модуль: md to pdf. экран разделен на 2 части: с одной стороны человек вставляет гипертекст, а с другой он же но pdf. и кнопка скачать. типа markdowntopdf.com» (коммит `64b15f2`, задеплоено).**
   - **SPA `/md2pdf`** (в `api/index.py`, по образцу `/code`, полностью клиент-сайд, без БД и серверных зависимостей — безопасно для Vercel):
@@ -1871,6 +1882,7 @@ _Баги добавляются по ходу тестирования оста
 - Прод: `Nikiktos` 325 очков (Maethrillian + Acid factory), 2 прохождения — единственная запись.
 
 ## last_checked_commit
+0447d52 (2026-09-21; fix(md2pdf): escape newlines in inline JS — превью было пустым (SyntaxError); тема страницы через var(--bb-*), светлая/тёмная переключается; 4/4+10/10 tests, ruff clean, node --check OK, deployed)
 64b15f2 (2026-09-20; feat(md2pdf): Markdown → PDF page — live split editor/preview, browser print-to-PDF download via hidden iframe; 4/4 tests, ruff clean, node --check OK, deployed, prod smoke OK)
 15ef1ba (2026-09-17; fix(code explainer): chunked analysis of large files, persist all files, resume progress — api/index.py 1.5MB больше не пропускается, комментарии по всем функциям через повторные «Разобрать»; 10/10 code-explainer tests, ruff clean, deployed, prod smoke OK)
 c574b1d (2026-09-15; fix(gd): case-insensitive persona grouping in leaderboard — prefer capital spelling; duplicate "nikiktos"/"Nikiktos" collapsed into one "Nikiktos"; 11/11 green; ruff clean; prod smoke OK)
