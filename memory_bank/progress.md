@@ -216,6 +216,9 @@ _Баги добавляются по ходу тестирования оста
 
 ## Changelog
 
+### 2026-09-21 (Session: 🌐 Vercel project rename → lthub)
+- **Инфра:** Vercel-проект `bank-bot` переименован в **`lthub`** (Vercel API `PATCH /v9/projects/bank-bot`). Прод-домен `bank-bot-ruby.vercel.app` автоматически НЕ сменился при ренейме — вручную добавлен домен **`lthub.vercel.app`** (verified) к проекту. Легаси-алиас `bank-bot-ruby.vercel.app` оставлен (Telegram-webhook `/telegram/webhook/{secret}` привязан к нему), оба URL отдают `200`. CLI-связка сохранена (`projectId` в `.vercel/project.json`). Обновлён `techContext.md` (CI/CD). Кода не касалось.
+
 ### 2026-09-21 (Session: 📄 Markdown → PDF — упрощение дизайна)
 - **[TASK] «короче сделай там экран поделенным на 2 окна: в одно человек вставляет гипертекст, в другом в реальном времени показывается превью пдф. есть кнопки скачать pdf и печать» (коммит `e5210ed`, задеплоено).**
   - Переработан `md2pdf_page` (`api/index.py`): убрана правая панель настроек (шрифты/цвета/формат страницы) и вслед за ней промежуточный markdowntopdf-style вариант; осталось чистое двухоконное разделение — `workspace` grid `1fr 1fr`: слева textarea `#mdInput`, справа живое превью `.pdf-page#pdfPage`.
@@ -1882,6 +1885,7 @@ _Баги добавляются по ходу тестирования оста
 - Прод: `Nikiktos` 325 очков (Maethrillian + Acid factory), 2 прохождения — единственная запись.
 
 ## last_checked_commit
+(infra) 2026-09-21: Vercel project renamed bank-bot → lthub; canonical prod domain lthub.vercel.app (legacy alias bank-bot-ruby.vercel.app retained for Telegram webhook); both 200. No code changes.
 0447d52 (2026-09-21; fix(md2pdf): escape newlines in inline JS — превью было пустым (SyntaxError); тема страницы через var(--bb-*), светлая/тёмная переключается; 4/4+10/10 tests, ruff clean, node --check OK, deployed)
 64b15f2 (2026-09-20; feat(md2pdf): Markdown → PDF page — live split editor/preview, browser print-to-PDF download via hidden iframe; 4/4 tests, ruff clean, node --check OK, deployed, prod smoke OK)
 15ef1ba (2026-09-17; fix(code explainer): chunked analysis of large files, persist all files, resume progress — api/index.py 1.5MB больше не пропускается, комментарии по всем функциям через повторные «Разобрать»; 10/10 code-explainer tests, ruff clean, deployed, prod smoke OK)
