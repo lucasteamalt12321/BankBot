@@ -2839,5 +2839,12 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Прод-фикс:** `code_projects.user_id` убран `NOT NULL` (DDL + idempotent `ALTER ... DROP NOT NULL`) — гостевой analyze падал 500 на проде.
 - **Тесты:** `test_md2pdf` переписан на StaticPool+patch-паттерн (9/9), новый `test_freemium_gates` (6/6: регистрация без email, 14 гейтов→401 auth_required, база открыта, инжект скрипта), регресс `test_code_explainer` (10, DDL синхронизирован: `created_via`, `user_id` nullable; stale-ожидания 401/404 приведены к дизайну — список/analyze/project-просмотр гостевых открыты), `test_achievements` (7). `tests/conftest.py` — autouse fixture no-op `send_telegram_message` при ENV=test: любой `log_error` раньше вешал прогон навсегда (Telegram-запрос без сети). **Итого 32 теста зелёные, ruff clean.**
 
+### Changelog 2026-09-22 — fix(register): портабельный DDL web_coin_log + prod deploy фиксирует регистрацию (commit `8fa39f2`)
+
+- **Прод-баг:** регистрация на проде → 500 «Ошибка сервера». Причина: `_ensure_web_coin_tables()` создавала `web_coin_log` с SQLite-синтаксисом `id INTEGER PRIMARY KEY AUTOINCREMENT` → ошибка парсинга Postgres → ensure False → register отдавал 500 (INSERT юзера при этом успевал пройти — возможны осиротевшие аккаунты). Диагностика по vercel logs: 500-ответ регистрации длился ~60s из-за Groq-fallback шторма — `log_error()` имеет ДВА сетевых пути: `notify_admin`→Telegram и `_get_ai_recommendation`→`_ai_chat`.
+- **Фикс:** каноническая Postgres-DDL `web_coin_log (id SERIAL PRIMARY KEY, user_id INTEGER, amount INTEGER NOT NULL, description VARCHAR(255), created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)` — `CURRENT_TIMESTAMP` портабелен (SQLite не парсит `DEFAULT NOW()` даже при `IF NOT EXISTS`). Временная диагностика в 500-ответе откачена.
+- **Регрессия в тестах:** `DEFAULT NOW()` ломает sqlite-движки без pre-created `web_coin_log` (test_code_explainer) — ensure кидал исключение → log_error (вешало на 60s без фикстуры) → False → register 500 → каскад 13 фейлов. После `CURRENT_TIMESTAMP` — снова 32/32 зелёных, ruff clean.
+- **Prod smoke:** `POST /api/auth/register` без email → 200 `{login, token, user_id:35}`; login → 200 (logs), authed `GET /api/study/stats` → 200. Деплой: `lthub-hin4fiiqw-lucasteamalt12321s-projects.vercel.app`.
+
 ## last_checked_commit
-  f6132eb (2026-09-22; feat(freemium): gates 401+global auth modal, chess/dnd/md2pdf/study gates, register без email + бонус 100 монет, гостевые code-проекты).
+  8fa39f2 (2026-09-22; fix(register): portable web_coin_log DDL (CURRENT_TIMESTAMP), debug revert).
