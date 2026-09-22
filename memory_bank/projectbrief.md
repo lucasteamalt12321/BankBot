@@ -503,9 +503,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | FRE-06 | Гейты за вход: md2pdf-ИИ, music overlay, study-ИИ/chat/hint/stats, exam ai-record, verbs submit, trivia answer (+1 монета) | completed | 15 |
 | FRE-07 | Регистрация: email опционально (NULL, фикс пустой строки) + бонус 100 монет (`_ensure_web_coin_tables`) + `created_via` source-метрика | completed | 10 |
 | FRE-08 | Тесты (pytest/ruff): test_md2pdf (9), test_freemium_gates (6), регресс test_code_explainer/test_achievements; conftest no-telegram фикстура | completed | 5 |
-| FRE-09 | Deploy + memory bank (Changelog, last_checked_commit) | in_progress | 5 |
+| FRE-09 | Deploy + фикс прод-регистрации (`web_coin_log` SERIAL/CURRENT_TIMESTAMP) + prod smoke + memory bank (Changelog, last_checked_commit) | completed | 5 |
 
-**Phase 9: 95/100 completed (FRE-09: деплой в работе)**
+**Phase 9: 100/100 completed** (деплой `lthub-hin4fiiqw-lucasteamalt12321s-projects.vercel.app`, регистрация без email → 200, монеты +100, commit `8fa39f2`)
 
 ---
 
