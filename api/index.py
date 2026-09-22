@@ -237,10 +237,11 @@ def _ensure_web_coin_tables(engine=None) -> bool:
             """))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS web_coin_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id VARCHAR(64) NOT NULL,
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
                     amount INTEGER NOT NULL,
-                    description VARCHAR(255)
+                    description VARCHAR(255),
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
             """))
         return True
