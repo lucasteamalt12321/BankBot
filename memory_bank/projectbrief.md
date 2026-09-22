@@ -489,6 +489,26 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+### Phase 9: Freemium-гейтинг 67/33 (FRE) (2026-09-22)
+
+**Цель:** во всех модулях два уровня возможностей: ~67% функций работает без регистрации, ~33% — за вход, чтобы мотивировать регистрацию. Стратегия: базовый функционал доступен всем; в модулях с супер-фишками (code/dnd/chess) перекос в закрытие устраняем раскрытием базы анонимам; в остальных — гейт на доп. функции сверху. Целевая таблица (утверждена): функциональные модули 88 функций = 58 свободно / 30 за вход (34%); системные (auth/social/achievements/feedback/admin) — всегда за вход (это мотиватор).
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| FRE-01 | Реестр гейтинга + целевая таблица 67/33 (58/30) в module-реестре | completed | 10 |
+| FRE-02 | Backend `_auth_user_or_401()` + единый JSON-401 `{auth_required:true}` + фронт `_FREEMIUM_AUTH_JS` (модалка логина на всех HTML-страницах) + `/register?redirect` | completed | 20 |
+| FRE-03 | Раскрыть базу code анонимам (analyze + чтение публичных гостевых проектов) + rate-limit + фикс `user_id` NULL в `code_projects` | completed | 15 |
+| FRE-04 | Раскрыть базу dnd анонимам (status/join/act/roll), гейт `stop`/`fix` | completed | 10 |
+| FRE-05 | Раскрыть базу chess анонимам (puzzle/check + монеты только за вход), гейт `link`/`stats` | completed | 10 |
+| FRE-06 | Гейты за вход: md2pdf-ИИ, music overlay, study-ИИ/chat/hint/stats, exam ai-record, verbs submit, trivia answer (+1 монета) | completed | 15 |
+| FRE-07 | Регистрация: email опционально (NULL, фикс пустой строки) + бонус 100 монет (`_ensure_web_coin_tables`) + `created_via` source-метрика | completed | 10 |
+| FRE-08 | Тесты (pytest/ruff): test_md2pdf (9), test_freemium_gates (6), регресс test_code_explainer/test_achievements; conftest no-telegram фикстура | completed | 5 |
+| FRE-09 | Deploy + memory bank (Changelog, last_checked_commit) | in_progress | 5 |
+
+**Phase 9: 95/100 completed (FRE-09: деплой в работе)**
+
+---
+
 ## Next Tasks (Post-Review Cleanup)
 
 | ID | Task | Priority | Status |

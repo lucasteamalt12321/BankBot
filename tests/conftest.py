@@ -14,6 +14,24 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _no_telegram_network(monkeypatch):
+    """В тестовом окружении нет сети: log_error→Telegram завис бы навсегда.
+
+    Патчим send_telegram_message на no-op, чтобы любые ошибочные пути
+    (log_error/notify_admin) не блокировали прогон. Явные Telegram-тесты
+    должны мокать сами.
+    """
+    try:
+        import api.index as api
+        monkeypatch.setattr(api, "send_telegram_message", lambda *a, **k: False)
+    except Exception:
+        pass
+    yield
+
 # Files to ignore during collection (incompatible with current architecture)
 collect_ignore = []
 
