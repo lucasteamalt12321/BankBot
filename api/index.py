@@ -210,6 +210,45 @@ def _web_admin_session() -> dict | None:
     return user
 
 
+def _auth_user_or_401():
+    """Resolve the current web user, or a standard auth_required 401 response.
+
+    Freemium-гейтинг 67/33: единый формат ответа для действий, доступных
+    только зарегистрированным. Фронтенд по полю ``auth_required`` показывает
+    модалку «Войдите в аккаунт» и ведёт на /login?redirect=<url>.
+    """
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return None, (jsonify({"auth_required": True, "error": "Требуется авторизация: войдите в аккаунт"}), 401)
+    return user, None
+
+
+def _ensure_web_coin_tables(engine=None) -> bool:
+    """Create user_coins + web_coin_log if missing (needed before awarding coins)."""
+    try:
+        target = engine or get_db_engine()
+        with target.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_coins (
+                    user_id VARCHAR(64) PRIMARY KEY,
+                    balance INTEGER DEFAULT 0,
+                    last_puzzle_at TIMESTAMPTZ
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS web_coin_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id VARCHAR(64) NOT NULL,
+                    amount INTEGER NOT NULL,
+                    description VARCHAR(255)
+                )
+            """))
+        return True
+    except Exception as exc:
+        log_error("COINS", "error", f"web coin tables error: {exc}")
+        return False
+
+
 def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
     """Add coins to a web user balance and log the transaction.
 
@@ -288,6 +327,103 @@ _OGE_HINT_JS = """<script>
 })();
 </script>"""
 
+# Freemium-гейт 67/33: глобальный перехват 401 {auth_required:true} → модалка входа.
+# Фоновые эндпоинты (hint-баннер, ai-record пример, синк прогресса предметов) не
+# должны открывать модалку — они деградируют молча, а не мешают анонимной базе.
+_FREEMIUM_AUTH_JS = """<script>
+(function(){
+  if (window.__ltGateInstalled) return;
+  window.__ltGateInstalled = 1;
+  if (!window.fetch) return;
+  var SUPPRESS = ['/api/study/hint', '/api/exam/ai-record', '/api/study/progress', '/api/study/plan'];
+  function isBg(url){ for (var i=0;i<SUPPRESS.length;i++){ if ((url||'').indexOf(SUPPRESS[i]) !== -1) return true; } return false; }
+  var base = window.fetch;
+  window.fetch = function(input, init) {
+    var req = (typeof input === 'string') ? input : (input && input.url) || '';
+    var p;
+    try { p = base.apply(this, arguments); } catch (e) { return Promise.reject(e); }
+    return Promise.resolve(p).then(function(resp){
+      try {
+        if (resp && resp.status === 401 && !isBg(req)) {
+          var ct = resp.headers.get('content-type') || '';
+          if (ct.indexOf('application/json') !== -1) {
+            resp.clone().json().then(function(js){
+              if (js && js.auth_required) window.showLtLogin('Эта функция доступна после входа в аккаунт');
+            }).catch(function(){});
+          }
+        }
+      } catch (e) {}
+      return resp;
+    });
+  };
+  function showLtLogin(msg) {
+    if (window.__ltLoginOn) return;
+    window.__ltLoginOn = 1;
+    var ov = document.createElement('div');
+    ov.id = 'lt-login-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(8,10,16,.72);display:flex;align-items:center;justify-content:center;padding:20px';
+    var card = document.createElement('div');
+    card.style.cssText = 'background:var(--bb-panel,#1b2130);border:1px solid var(--bb-primary,#2b3247);border-radius:16px;padding:26px;width:100%;max-width:340px;box-shadow:0 10px 40px rgba(0,0,0,.4)';
+    var title = document.createElement('div');
+    title.textContent = 'Войдите, чтобы использовать эту функцию';
+    title.style.cssText = 'font:600 18px "Segoe UI",Arial;color:var(--bb-accent,#5b8def);margin-bottom:8px';
+    var hint = document.createElement('div');
+    hint.textContent = msg || '';
+    hint.style.cssText = 'font:13px "Segoe UI",Arial;color:var(--bb-muted,#93a3bd);margin-bottom:14px';
+    var inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = 'Логин'; inp.autocomplete = 'username';
+    inp.style.cssText = 'box-sizing:border-box;width:100%;display:block;padding:11px 12px;border-radius:10px;border:1px solid var(--bb-border,#2b3247);background:var(--bb-elev,#12161f);color:var(--bb-text,#e8eef8);font:14px "Segoe UI",Arial;margin-bottom:10px';
+    var pass = document.createElement('input');
+    pass.type = 'password'; pass.placeholder = 'Пароль'; pass.autocomplete = 'current-password';
+    pass.style.cssText = inp.style.cssText;
+    var err = document.createElement('div');
+    err.style.cssText = 'font:13px "Segoe UI",Arial;color:#ff6b6b;margin:6px 0;display:none';
+    function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); window.__ltLoginOn = 0; }
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.textContent = 'Войти';
+    btn.style.cssText = 'box-sizing:border-box;width:100%;display:block;padding:12px;border:none;border-radius:10px;background:var(--bb-accent,#5b8def);color:#fff;font:600 14px "Segoe UI",Arial;cursor:pointer;margin-top:4px';
+    function submit() {
+      var l = inp.value.trim(), p = pass.value;
+      if (!l || !p) { err.textContent = 'Введите логин и пароль'; err.style.display = 'block'; return; }
+      btn.disabled = true; btn.textContent = 'Проверка...';
+      fetch('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({login:l, password:p})})
+        .then(function(r){ return r.json().catch(function(){ return {error:'Ошибка сервера'}; }); })
+        .then(function(d){
+          btn.disabled = false; btn.textContent = 'Войти';
+          if (d && d.token) {
+            try {
+              localStorage.setItem('web_user_id', 'u' + d.user_id);
+              localStorage.setItem('web_token', d.token);
+            } catch (e2) {}
+            close();
+            location.reload();
+          } else {
+            err.textContent = (d && d.error) || 'Ошибка входа';
+            err.style.display = 'block';
+          }
+        })
+        .catch(function(){ btn.disabled = false; btn.textContent = 'Войти'; err.textContent = 'Ошибка сети'; err.style.display = 'block'; });
+    }
+    btn.onclick = submit;
+    pass.addEventListener('keydown', function(e){ if (e.key === 'Enter') submit(); });
+    inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') pass.focus(); });
+    var reg = document.createElement('div');
+    reg.style.cssText = 'font:13px "Segoe UI",Arial;color:var(--bb-muted,#93a3bd);margin-top:12px;text-align:center';
+    var regUrl = '/register?redirect=' + encodeURIComponent(location.pathname + location.search);
+    reg.innerHTML = 'Нет аккаунта? <a href="' + regUrl + '" style="color:var(--bb-accent,#5b8def)">Зарегистрироваться</a>'
+      + ' <span style="color:var(--bb-muted,#93a3bd)">&middot;</span>'
+      + ' <a href="javascript:void(0)" id="lt-login-close" style="color:var(--bb-muted,#93a3bd)">Закрыть</a>';
+    var x = reg.querySelector('#lt-login-close'); if (x) x.onclick = close;
+    ov.addEventListener('click', function(e){ if (e.target === ov) close(); });
+    card.appendChild(title); card.appendChild(hint); card.appendChild(inp); card.appendChild(pass);
+    card.appendChild(err); card.appendChild(btn); card.appendChild(reg);
+    ov.appendChild(card); document.body.appendChild(ov);
+    inp.focus();
+  }
+  window.showLtLogin = showLtLogin;
+})();
+</script>"""
+
 
 @app.after_request
 def _inject_theme_into_response(response):
@@ -295,6 +431,10 @@ def _inject_theme_into_response(response):
     if "text/html" in ctype:
         try:
             body = response.get_data(as_text=True)
+            if "</body>" in body:
+                body = body.replace("</body>", _FREEMIUM_AUTH_JS + "</body>", 1)
+            elif "</html>" in body:
+                body = body.replace("</html>", _FREEMIUM_AUTH_JS + "</html>", 1)
             mod = _OGE_HINT_PAGES.get(request.path.rstrip("/") or request.path)
             if mod and "</html>" in body:
                 body = body.replace("</html>", _OGE_HINT_JS % mod + "</html>", 1)
@@ -1096,6 +1236,10 @@ CREATE TABLE IF NOT EXISTS web_users (
                 conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE"))
             except Exception:
                 pass
+            try:
+                conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS created_via VARCHAR(32)"))
+            except Exception:
+                pass
             conn.commit()
         log_error("AUTH", "info", "Tables ensured")
     except Exception as exc:
@@ -1298,7 +1442,7 @@ def _ensure_code_tables(engine):
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS code_projects (
                     id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
+                    user_id BIGINT,
                     repo_url VARCHAR(500) NOT NULL,
                     repo_name VARCHAR(300),
                     primary_language VARCHAR(50),
@@ -1309,6 +1453,10 @@ def _ensure_code_tables(engine):
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_projects_user ON code_projects(user_id)"))
+            try:
+                conn.execute(text("ALTER TABLE code_projects ALTER COLUMN user_id DROP NOT NULL"))
+            except Exception:
+                pass  # уже nullable или БД без поддержки (sqlite/тесты)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS code_files (
                     id SERIAL PRIMARY KEY,
@@ -8449,10 +8597,11 @@ def api_dnd_status():
 
 @app.route("/api/dnd/start", methods=["POST"])
 def api_dnd_start():
+    session_user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     data = request.get_json(silent=True) or {}
-    uid = _dnd_require_auth(data.get("user_id", ""))
-    if uid is None:
-        return jsonify({"error": "unauthorized"}), 401
+    uid = _web_user_id("u" + str(session_user["id"]))
     name = (data.get("name") or "").strip()[:100]
     from api.dnd_runtime import cmd_dnd_start, find_active_session, get_session_players
     reply = cmd_dnd_start(uid, uid, name)
@@ -8543,10 +8692,10 @@ def api_dnd_roll():
 
 @app.route("/api/dnd/stop", methods=["POST"])
 def api_dnd_stop():
-    data = request.get_json(silent=True) or {}
-    uid = _dnd_require_auth(data.get("user_id", ""))
-    if uid is None:
-        return jsonify({"error": "unauthorized"}), 401
+    session_user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
+    uid = _web_user_id("u" + str(session_user["id"]))
     try:
         from api.dnd_runtime import cmd_dnd_stop
         reply = cmd_dnd_stop(uid, uid)
@@ -8558,10 +8707,11 @@ def api_dnd_stop():
 
 @app.route("/api/dnd/fix", methods=["POST"])
 def api_dnd_fix():
+    session_user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     data = request.get_json(silent=True) or {}
-    uid = _dnd_require_auth(data.get("user_id", ""))
-    if uid is None:
-        return jsonify({"error": "unauthorized"}), 401
+    uid = _web_user_id("u" + str(session_user["id"]))
     text = (data.get("text") or "").strip()[:1000]
     if not text:
         return jsonify({"error": "Пустой текст исправления"}), 400
@@ -10926,11 +11076,15 @@ def chess_page():
     function loadStats() {
         panels.stats.innerHTML = '<div class="spinner">Загрузка статистики...</div>';
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/api/chess/stats?user_id=' + encodeURIComponent(USER_ID));
+        xhr.open('GET', '/api/chess/stats');
         xhr.onload = function() {
             if (xhr.status === 200) {
                 var d = JSON.parse(xhr.responseText);
                 renderStats(d);
+            } else if (xhr.status === 401) {
+                panels.stats.innerHTML = '<div class="card"><h3>Статистика — для зарегистрированных</h3>' +
+                    '<div class="msg info">Монеты, история пазлов и привязка Lichess сохраняются после входа в аккаунт.</div>' +
+                    '<div><button class="btn" onclick="window.showLtLogin && window.showLtLogin(\'Войдите, чтобы открыть статистику\')">Войти / Зарегистрироваться</button></div></div>';
             } else {
                 panels.stats.innerHTML = '<div class="msg err">Ошибка загрузки статистики.</div>';
             }
@@ -11196,12 +11350,11 @@ def chess_page():
 
 @app.route("/api/chess/stats")
 def api_chess_stats():
-    user_id_raw = request.args.get("user_id", "")
-    if not user_id_raw:
-        return jsonify({"error": "Нет user_id"}), 400
-    uid = _chess_require_auth(user_id_raw)
-    if uid is None:
-        return jsonify({"error": "unauthorized"}), 401
+    """Freemium 67/33: личная статистика (монеты/история/привязка Lichess) — за вход."""
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
+    uid = _web_user_id("u" + str(user["id"]))
     account = get_chess_account(uid)
     coins = get_user_coins(uid)
     result = {
@@ -11240,6 +11393,9 @@ def api_chess_user(nick: str):
 
 @app.route("/api/chess/link", methods=["POST"])
 def api_chess_link():
+    session_user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     data = request.get_json(silent=True) or {}
     user_id_raw = data.get("user_id", "")
     nick = (data.get("lichess_username") or "").strip()
@@ -11269,20 +11425,26 @@ def api_chess_puzzle():
     uid = _chess_require_auth(user_id_raw)
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
+    session_user = _get_session_user(_auth_token_from_request())
+    logged_uid = _web_user_id("u" + str(session_user["id"])) if session_user else None
     now_ts = time.time()
     stale = [k for k, v in _PENDING_PUZZLES.items() if now_ts - v.get("created_at", 0) > _PENDING_PUZZLE_TTL]
     for k in stale:
         _PENDING_PUZZLES.pop(k, None)
     account = get_chess_account(uid)
-    if not account:
-        return jsonify({"error": "Сначала привяжите Lichess аккаунт в разделе «Моя статистика»"}), 400
-    remaining = _puzzle_cooldown_remaining_hours(uid)
-    if remaining is not None:
-        return jsonify({
-            "error": f"Следующая задача доступна через {remaining:.1f} ч.",
-            "cooldown": True,
-            "cooldown_hours": round(remaining, 1),
-        }), 429
+    if not account and logged_uid is None:
+        if _check_db_rate("chess_puzzle:" + (request.remote_addr or ""), 20, 60) or _check_ai_rate("chess_puzzle:" + request.remote_addr):
+            return jsonify({"error": "Слишком много запросов. Подождите."}), 429
+    else:
+        if not account:
+            return jsonify({"error": "Сначала привяжите Lichess аккаунт в разделе «Моя статистика»"}), 400
+        remaining = _puzzle_cooldown_remaining_hours(uid)
+        if remaining is not None:
+            return jsonify({
+                "error": f"Следующая задача доступна через {remaining:.1f} ч.",
+                "cooldown": True,
+                "cooldown_hours": round(remaining, 1),
+            }), 429
     puzzle = _fetch_lichess_puzzle()
     if not puzzle:
         return jsonify({"error": "Не удалось загрузить задачу. Попробуйте позже."}), 502
@@ -11291,9 +11453,10 @@ def api_chess_puzzle():
         "solution": puzzle["solution"],
         "rating": puzzle["rating"],
         "themes": ", ".join(puzzle["themes"][:3]),
-        "username": account["lichess_username"],
+        "username": (account or {}).get("lichess_username", ""),
         "initial_ply": puzzle["initial_ply"],
         "web": True,
+        "logged_uid": logged_uid,
         "created_at": time.time(),
     }
     return jsonify({
@@ -11325,7 +11488,9 @@ def api_chess_puzzle_check():
         return jsonify({"error": "Некорректный ход"}), 400
     first_move = pending["solution"][0]
     correct = move == first_move
-    if correct:
+    checker = _get_session_user(_auth_token_from_request())
+    auth_uid = _web_user_id("u" + str(checker["id"])) if checker else None
+    if correct and pending.get("logged_uid") is not None and pending.get("logged_uid") == uid and auth_uid == uid:
         try:
             update_user_coins(uid, 5, datetime.utcnow())
         except Exception as exc:
@@ -11383,7 +11548,7 @@ def register_page():
             <p>Регистрация для синхронизации данных между устройствами</p>
         </div>
         <div class="form-group">
-            <label>Email <span class="req">*</span></label>
+            <label>Email <span class="opt">(необязательно, можно позже)</span></label>
             <input type="email" id="reg-email" placeholder="example@domain.com" autocomplete="email">
         </div>
         <div class="form-group">
@@ -11418,6 +11583,8 @@ def register_page():
             <br><br>
             Опциональные поля можно заполнить позже в <a class="link" href="/account">личном кабинете</a>.
             Анонимный режим по-прежнему работает без регистрации.
+            <br><br>
+            <strong>+100 монет</strong> — бонус за регистрацию.
         </div>
         <a href="/" class="back-link">← На главную</a>
     </div>
@@ -11444,7 +11611,6 @@ def register_page():
         if (nameVal.length > 100) { showToast('Имя слишком длинное (макс. 100 символов)', true); return; }
         if (gdVal.length > 50) { showToast('GD ник слишком длинный (макс. 50 символов)', true); return; }
         if (lichessVal.length > 50) { showToast('Lichess ник слишком длинный (макс. 50 символов)', true); return; }
-        if (!emailVal) { showToast('Email обязателен', true); return; }
         var payload = {
             login: login,
             password: password,
@@ -11452,7 +11618,8 @@ def register_page():
             gd_nickname: gdVal || null,
             lichess_nickname: lichessVal || null,
             telegram_id: tgVal ? tgVal : null,
-            email: emailVal || null
+            email: emailVal || null,
+            source: location.pathname + (location.search || '')
         };
         document.querySelector('.btn').disabled = true;
         fetch('/api/auth/register', {
@@ -11465,8 +11632,9 @@ def register_page():
             else {
                 localStorage.setItem('web_user_id', 'u' + r.user_id);
                 localStorage.setItem('web_token', r.token);
-                showToast('Аккаунт создан!');
-                setTimeout(function() { window.location.href = '/'; }, 800);
+                showToast('Аккаунт создан! +100 монет');
+                var urlParams = new URLSearchParams(location.search);
+                setTimeout(function() { window.location.href = urlParams.get('redirect') || '/'; }, 800);
             }
         }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
     }
@@ -12349,19 +12517,18 @@ def api_auth_register():
     data = request.get_json(silent=True) or {}
     login = (data.get("login") or "").strip().lower()
     password = data.get("password") or ""
-    email = (data.get("email") or "").strip()
+    email = ((data.get("email") or "").strip() or None)
     if not login or not password:
         return jsonify({"error": "Логин и пароль обязательны"}), 400
-    if not email:
-        return jsonify({"error": "Email обязателен"}), 400
     if len(login) < 3:
         return jsonify({"error": "Логин минимум 3 символа"}), 400
     if len(password) < 6:
         return jsonify({"error": "Пароль минимум 6 символов"}), 400
     if not re.match(r"^[a-z0-9_]+$", login):
         return jsonify({"error": "Логин: только латиница, цифры и _"}), 400
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+    if email and not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Неверный формат email"}), 400
+    source = (data.get("source") or request.args.get("source") or request.referrer or "").strip()[:32] or None
 
     display_name = (data.get("display_name") or "").strip() or login
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
@@ -12396,8 +12563,8 @@ def api_auth_register():
                     return jsonify({"error": "Email уже занят"}), 409
             result = conn.execute(
                 text("""
-                    INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, email, is_admin)
-                    VALUES (:login, :hash, :name, :gd, :tg, :lichess, :email, FALSE)
+                    INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, email, created_via, is_admin)
+                    VALUES (:login, :hash, :name, :gd, :tg, :lichess, :email, :created_via, FALSE)
                     RETURNING id
                 """),
                 {
@@ -12408,6 +12575,7 @@ def api_auth_register():
                     "tg": telegram_id,
                     "lichess": lichess_nickname,
                     "email": email,
+                    "created_via": source,
                 },
             )
             user_id = result.scalar()
@@ -12418,6 +12586,13 @@ def api_auth_register():
     except Exception as exc:
         log_error("AUTH", "error", f"register error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
+
+    try:
+        if not _ensure_web_coin_tables(engine):
+            return jsonify({"error": "Ошибка сервера"}), 500
+        _award_web_coins(user_id, 100, "Бонус за регистрацию")
+    except Exception as exc:
+        log_error("AUTH", "error", f"register bonus coins error: {exc}")
 
     token = _create_session(user_id)
     if not token:
@@ -17734,7 +17909,14 @@ def api_exam_ai_batch():
 
 @app.route("/api/exam/ai-record", methods=["POST"])
 def api_exam_ai_record():
-    """Record progress for an AI exam answer."""
+    """Record progress for an AI exam answer.
+
+    Freemium 67/33: фиксация прогресса ответов в ИИ-экзамене — за вход
+    (аноним может пройти экзамен, но результат не сохраняется).
+    """
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     data = request.get_json(silent=True) or {}
     key = str(data.get("key") or "")
     module = str(data.get("module") or "")
@@ -17742,8 +17924,6 @@ def api_exam_ai_record():
     if not key or not module:
         return jsonify({"ok": False, "error": "missing key/module"}), 400
     user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": True, "recorded": False})
     uid = _web_user_id("u" + str(user["id"]))
     try:
         with get_db_engine().begin() as conn:
@@ -18289,6 +18469,9 @@ def api_music_change_key():
 
 @app.route("/api/music/overlay", methods=["POST"])
 def api_music_overlay():
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     from core.music import overlay
     files = request.files.getlist("files")
     if len(files) < 2:
@@ -19593,11 +19776,14 @@ def api_stats():
 
 @app.route("/api/study/stats", methods=["GET"])
 def api_study_stats():
-    """Comprehensive study statistics: per-module readiness, streak, today summary, forecast."""
+    """Comprehensive study statistics: per-module readiness, streak, today summary, forecast.
+
+    Freemium 67/33: аналитика (статистика/стрейк/прогноз) — за вход.
+    """
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"modules": {}, "streak": {"current": 0, "best": 0},
-                        "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0}, "forecast": []})
     return jsonify(_oge_stats_payload(user["id"]))
 
 
@@ -19710,9 +19896,9 @@ def api_study_recommendations():
 @app.route("/api/study/ai-plan", methods=["GET"])
 def api_study_ai_plan():
     """AI-generated daily OGE plan from progress stats (cached per day per user)."""
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "auth required", "plan": ""}), 401
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     uid = _web_user_id("u" + str(user["id"]))
     today = time.strftime("%Y-%m-%d")
     force = request.args.get("force") == "1"
@@ -20152,9 +20338,9 @@ def api_study_plan_get():
 @app.route("/api/study/plan", methods=["POST"])
 def api_study_plan_regenerate():
     """Explicit regeneration (chip click / refresh button); accepts new minutes."""
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "auth required"}), 401
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     uid = _web_user_id("u" + str(user["id"]))
     data = request.get_json(silent=True) or {}
     today = time.strftime("%Y-%m-%d")
@@ -20177,7 +20363,7 @@ def api_study_today():
     """How many cards the student touched today (progress monitoring)."""
     user = _get_session_user(_auth_token_from_request())
     if not user:
-        return jsonify({"ok": False, "error": "auth required"}), 401
+        return jsonify({"ok": True, "touched": 0})
     uid = _web_user_id("u" + str(user["id"]))
     day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
     try:
@@ -20975,7 +21161,7 @@ def _chat_history(conn, uid, limit=_OGE_CHAT_CONTEXT):
 def api_study_chat_history():
     user = _get_session_user(_auth_token_from_request())
     if not user:
-        return jsonify({"ok": False, "error": "auth required"}), 401
+        return jsonify({"ok": True, "messages": []})
     uid = _web_user_id("u" + str(user["id"]))
     _oge_curator_tables_ready()
     try:
@@ -20990,9 +21176,9 @@ def api_study_chat_history():
 @app.route("/api/study/chat", methods=["POST"])
 def api_study_chat_send():
     """Curator chat: persists both sides, feeds progress + plan + history into the prompt."""
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "auth required"}), 401
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     uid = _web_user_id("u" + str(user["id"]))
     data = request.get_json(silent=True) or {}
     msg = str(data.get("message") or "").strip()
@@ -21194,16 +21380,18 @@ def api_study_chat_send():
 
 @app.route("/api/study/hint", methods=["GET"])
 def api_study_hint():
-    """Rule-based AI suggestion of topic/mode for a subject page banner."""
+    """Rule-based AI suggestion of topic/mode for a subject page banner.
+
+    Freemium 67/33: персональные подсказки (по прогрессу/слабым местам) — за вход.
+    """
     module = request.args.get("module", "")
     meta = OGE_MODULES.get(module)
     if not meta:
         return jsonify({"ok": False, "error": "unknown module"}), 400
     base = {"ok": True, "module": module}
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify(dict(base, text="Пройдите карточки первой темы — это фундамент",
-                            url=meta["url"], mode="flash"))
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     uid = _web_user_id("u" + str(user["id"]))
     now = time.time()
     subjects = {s["module"]: s for s in _oge_subjects_payload(uid, now)}
@@ -21270,6 +21458,10 @@ def api_trivia_question():
 
 @app.route("/api/trivia/answer", methods=["POST"])
 def api_trivia_answer():
+    """Freemium 67/33: показ верного ответа и зачёт монет — за вход."""
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     data = request.get_json(silent=True) or {}
     session_id = data.get("session_id") or data.get("question_id")
     answer_idx = data.get("answer_index")
@@ -21284,7 +21476,18 @@ def api_trivia_answer():
         and answer_idx == correct_index
     )
     _TRIVIA_SESSIONS.pop(session_id, None)
-    return jsonify({"correct": is_correct, "correct_text": session["options"][correct_index], "explanation": session["explanation"]})
+    coins_awarded = False
+    if is_correct:
+        try:
+            coins_awarded = _award_web_coins(user["id"], 1, "Тривия: правильный ответ")
+        except Exception as exc:
+            log_error("TRIVIA", "error", f"coin award error: {exc}")
+    return jsonify({
+        "correct": is_correct,
+        "correct_text": session["options"][correct_index],
+        "explanation": session["explanation"],
+        "coins": 1 if (is_correct and coins_awarded) else 0,
+    })
 
 
 # ── Daily Prayer ──────────────────────────────────────────────────────────
@@ -23919,6 +24122,10 @@ def api_verbs_exercise_results(ex_id):
 
 @app.route("/api/verbs/submit", methods=["POST"])
 def api_verbs_submit():
+    """Freemium 67/33: проверить задание и сохранить результат — за вход."""
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     data = request.get_json(silent=True) or {}
     ex_id = data.get("exercise_id")
     user_id_raw = data.get("user_id")
@@ -28620,14 +28827,14 @@ def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True)
 
 
 def api_code_analyze():
-    """POST /api/code/analyze — clone a repo, optionally AI-analyze it, store for the user."""
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
-    uid = int(user["id"])
+    """POST /api/code/analyze — clone a repo, optionally AI-analyze it, store for the user.
 
-    if _check_db_rate(f"code_analyze_{uid}", _CODE_ANALYZE_RATE_LIMIT, 3600) or _check_ai_rate(f"code_{uid}"):
-        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+    Freemium 67/33: анониму доступен структурный анализ (run_ai принудительно
+    False, сохраняется как public-guest проект user_id NULL с лимитом по IP);
+    полный поток с ИИ и личными проектами — только за вход.
+    """
+    user = _get_session_user(_auth_token_from_request())
+    uid = int(user["id"]) if user else None
 
     data = request.get_json(silent=True) or {}
     repo_url = str(data.get("repo_url", "")).strip()
@@ -28637,16 +28844,26 @@ def api_code_analyze():
     if not re.match(r"^https?://.+", repo_url) or len(repo_url) > 500:
         return jsonify({"ok": False, "error": "Некорректная ссылка на репозиторий"}), 400
 
+    if uid is None:
+        ip = request.remote_addr or "unknown"
+        if _check_db_rate(f"code_anon_{ip}", 3, 3600) or _check_ai_rate(f"code_anon_{ip}"):
+            return jsonify({"ok": False, "error": "Слишком много запросов без аккаунта. Войдите, чтобы продолжить"}), 429
+        run_ai = False
+    else:
+        if _check_db_rate(f"code_analyze_{uid}", _CODE_ANALYZE_RATE_LIMIT, 3600) or _check_ai_rate(f"code_{uid}"):
+            return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+
     engine = get_db_engine()
-    try:
-        with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT COUNT(*) as cnt FROM code_projects WHERE user_id = :u"
-            ), {"u": uid}).mappings().first()
-            if int(row["cnt"] or 0) >= _CODE_MAX_PROJECTS:
-                return jsonify({"ok": False, "error": f"Максимум {_CODE_MAX_PROJECTS} проектов. Удалите старые."}), 400
-    except Exception as exc:
-        log_error("CODE", "error", f"project count error: {exc}")
+    if uid is not None:
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(text(
+                    "SELECT COUNT(*) as cnt FROM code_projects WHERE user_id = :u"
+                ), {"u": uid}).mappings().first()
+                if int(row["cnt"] or 0) >= _CODE_MAX_PROJECTS:
+                    return jsonify({"ok": False, "error": f"Максимум {_CODE_MAX_PROJECTS} проектов. Удалите старые."}), 400
+        except Exception as exc:
+            log_error("CODE", "error", f"project count error: {exc}")
 
     repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")[:300] or "репозиторий"
 
@@ -28710,17 +28927,22 @@ def _code_dir_summary_table(dpath: str, child_summaries: list[str]) -> str:
 
 
 def api_code_projects():
-    """GET /api/code/projects — list current user's projects."""
+    """GET /api/code/projects — list projects: own (registered) or public guest analyses (anonymous)."""
     user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+    uid = int(user["id"]) if user else None
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
-                "created_at FROM code_projects WHERE user_id = :u ORDER BY id DESC"
-            ), {"u": int(user["id"])}).mappings().fetchall()
+            if uid is None:
+                rows = conn.execute(text(
+                    "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
+                    "created_at FROM code_projects WHERE user_id IS NULL ORDER BY id DESC LIMIT 12"
+                )).mappings().fetchall()
+            else:
+                rows = conn.execute(text(
+                    "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
+                    "created_at FROM code_projects WHERE user_id = :u ORDER BY id DESC"
+                ), {"u": uid}).mappings().fetchall()
         items = []
         for r in rows:
             items.append({
@@ -28740,7 +28962,7 @@ def api_code_projects():
 
 
 def _code_project_owned(project_id: int, user_id: int) -> dict | None:
-    """Fetch a project iff owned by user; else None. Returns dict row."""
+    """Fetch a project iff owned by user (writes); guest projects (user_id NULL) are read-only. Returns dict row."""
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
@@ -28758,12 +28980,31 @@ def _code_project_owned(project_id: int, user_id: int) -> dict | None:
         return None
 
 
+def _code_project_visible(project_id: int, user_id: int | None) -> dict | None:
+    """Fetch a project if visible for reading: owned by the user OR a public guest project (user_id NULL)."""
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT id, user_id, repo_url, repo_name, primary_language, status, file_count "
+                "FROM code_projects WHERE id = :id"
+            ), {"id": project_id}).mappings().first()
+        if not row:
+            return None
+        rows = dict(row)
+        owner = rows["user_id"]
+        if owner is not None and (user_id is None or owner != user_id):
+            return None
+        return rows
+    except Exception:
+        return None
+
+
 def api_code_project(project_id):
-    """GET /api/code/project/<id> — tree of files with AI summaries."""
+    """GET /api/code/project/<id> — tree of files with AI summaries (own or public guest project)."""
     user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
-    project = _code_project_owned(project_id, int(user["id"]))
+    uid = int(user["id"]) if user else None
+    project = _code_project_visible(project_id, uid)
     if not project:
         return jsonify({"ok": False, "error": "Проект не найден"}), 404
 
@@ -28804,11 +29045,10 @@ def api_code_project(project_id):
 
 
 def api_code_file(project_id):
-    """GET /api/code/project/<id>/file?path=... — file content + comments."""
+    """GET /api/code/project/<id>/file?path=... — file content + comments (own or public guest project)."""
     user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
-    project = _code_project_owned(project_id, int(user["id"]))
+    uid = int(user["id"]) if user else None
+    project = _code_project_visible(project_id, uid)
     if not project:
         return jsonify({"ok": False, "error": "Проект не найден"}), 404
 
@@ -30027,8 +30267,15 @@ def _md_strip_fences(text: str) -> str:
 
 @app.route("/api/md2pdf/format", methods=["POST"])
 def api_md2pdf_format():
-    """Improve/format user-provided Markdown via AI (public, rate-limited)."""
+    """Improve/format user-provided Markdown via AI.
+
+    Freemium 67/33: ИИ-форматирование — функция для зарегистрированных
+    (аноним видит стандартный 401 {auth_required}); лимит 8/60с на IP.
+    """
     try:
+        _, auth_resp = _auth_user_or_401()
+        if auth_resp:
+            return auth_resp
         ip = request.remote_addr or "unknown"
         if _check_ai_rate("md2pdf_fmt:" + ip, max_requests=8, window=60):
             return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429

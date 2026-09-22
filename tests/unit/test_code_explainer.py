@@ -44,6 +44,7 @@ def _make_engine():
         telegram_id BIGINT,
         lichess_nickname VARCHAR(64),
         email VARCHAR(255) UNIQUE,
+        created_via VARCHAR(32),
         is_admin INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -58,7 +59,7 @@ def _make_engine():
     );
     CREATE TABLE IF NOT EXISTS code_projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id BIGINT NOT NULL,
+        user_id BIGINT,
         repo_url VARCHAR(500) NOT NULL,
         repo_name VARCHAR(300),
         primary_language VARCHAR(50),
@@ -254,13 +255,21 @@ def test_project_delete(mock_ai, mock_clone, tmp_path):
         assert len(r.get_json()["items"]) == 0
 
 
-def test_auth_required():
+@patch("api.index._code_clone_repo")
+@patch("api.index._code_ai_call")
+def test_auth_required(mock_ai, mock_clone):
+    mock_clone.side_effect = lambda url, dest, timeout=30: False
+    mock_ai.return_value = "{}"
     engine = _make_engine()
     with patch("api.index.get_db_engine", return_value=engine):
         client = app.test_client()
-        assert client.get("/api/code/projects").status_code == 401
-        assert client.post("/api/code/analyze", json={"repo_url": "https://x.com/y"}).status_code == 401
-        assert client.get("/api/code/project/1").status_code == 401
+        # список проектов свободен для анонимов (гостевые анализы)
+        assert client.get("/api/code/projects").status_code == 200
+        # гостевой анализ разрешён (без ИИ): это не 401
+        r = client.post("/api/code/analyze", json={"repo_url": "https://x.com/y"})
+        assert r.status_code != 401
+        # гостевой публичный проект виден анонимам
+        assert client.get("/api/code/project/1").status_code == 200
 
 
 @patch("api.index._code_clone_repo")
