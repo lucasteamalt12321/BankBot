@@ -345,11 +345,17 @@ _FREEMIUM_AUTH_JS = """<script>
     try { p = base.apply(this, arguments); } catch (e) { return Promise.reject(e); }
     return Promise.resolve(p).then(function(resp){
       try {
-        if (resp && resp.status === 401 && !isBg(req)) {
+        if (resp && resp.status === 401 && !isBg(req)
+            && req.indexOf('/api/auth/login') === -1 && req.indexOf('/api/auth/logout') === -1) {
           var ct = resp.headers.get('content-type') || '';
           if (ct.indexOf('application/json') !== -1) {
             resp.clone().json().then(function(js){
-              if (js && js.auth_required) window.showLtLogin('Эта функция доступна после входа в аккаунт');
+              if (!js) return;
+              if (js.auth_required) {
+                window.showLtLogin('Эта функция доступна после входа в аккаунт');
+              } else if (js.error) {
+                window.ltBanner(js.error);
+              }
             }).catch(function(){});
           }
         }
@@ -422,6 +428,56 @@ _FREEMIUM_AUTH_JS = """<script>
     inp.focus();
   }
   window.showLtLogin = showLtLogin;
+  // Баннер сверху экрана вместо системного alert() для «требуется авторизация».
+  var _bannerEl = null;
+  function ltBanner(msg) {
+    msg = String(msg == null ? '' : msg);
+    if (!msg) return;
+    var root = _bannerEl;
+    var txt, btn;
+    if (!root) {
+      root = document.createElement('div');
+      _bannerEl = root;
+      root.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9990;padding:16px 20px;box-sizing:border-box;'
+        + 'display:flex;align-items:center;gap:14px;background:var(--bb-panel,#1b2130);'
+        + 'border-bottom:1px solid var(--bb-primary,#2b3247);box-shadow:0 6px 24px rgba(0,0,0,.35);'
+        + 'flex-wrap:wrap;font:14px "Segoe UI",Arial;';
+      txt = document.createElement('div');
+      txt.style.cssText = 'flex:1 1 220px;min-width:0;color:var(--bb-text,#e8eef8);line-height:1.5;';
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '\u0412\u043e\u0439\u0442\u0438';
+      btn.style.cssText = 'box-sizing:border-box;padding:10px 24px;border:none;border-radius:10px;'
+        + 'background:var(--bb-accent,#5b8def);color:#fff;font:600 15px "Segoe UI",Arial;cursor:pointer;flex:0 0 auto;';
+      btn.onclick = function(){
+        if (window.__ltLoginOn) return;
+        var m = window.showLtLogin;
+        if (m) m('Войдите, чтобы использовать эту функцию');
+      };
+      var x = document.createElement('button');
+      x.type = 'button'; x.textContent = '\u00d7';
+      x.style.cssText = 'box-sizing:border-box;padding:4px 12px;border:none;border-radius:8px;background:transparent;'
+        + 'color:var(--bb-muted,#93a3bd);font:700 22px "Segoe UI",Arial;cursor:pointer;flex:0 0 auto;';
+      var remove = function(){ if (root.parentNode) root.parentNode.removeChild(root); _bannerEl = null; };
+      x.onclick = remove;
+      root.appendChild(txt); root.appendChild(btn); root.appendChild(x);
+      document.body.appendChild(root);
+    } else {
+      root.style.display = 'flex';
+      txt = root.childNodes[0]; btn = root.childNodes[1];
+    }
+    txt.textContent = msg;
+  }
+  window.ltBanner = ltBanner;
+  var _origAlert = window.alert || function(){};
+  window.alert = function(m){
+    var s = String(m == null ? '' : m);
+    if (/авторизац|войдите|регистрац|требуется вход|нужно войти/i.test(s)) {
+      window.ltBanner(s);
+      return;
+    }
+    return _origAlert.call(window, m);
+  };
 })();
 </script>"""
 
