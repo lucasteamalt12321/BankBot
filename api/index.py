@@ -3279,77 +3279,117 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
     for name, api_key, model, url in providers:
         if not api_key:
             continue
-        # Groq: перебираем актуальные модели, если primary недоступна (404/429).
-        # Сначала пробуем последнюю рабочую модель (из call_ai_api cache).
-        models_to_try = []
-        active = _groq_active_model["name"] or ""
-        for m in ([active] if active else []) + [model] + _GROQ_MODEL_CANDIDATES:
-            if m and m not in models_to_try:
-                models_to_try.append(m)
-        for candidate in models_to_try:
-            if "gpt-oss" not in candidate:
-                continue  # остальные модели Groq выпилены (404)
-            base_body = {"model": candidate, **payload}
-            # gpt-oss — агентная модель Groq: автоматически зовёт встроенные
-            # инструменты (repo_browser.*) и падает 400 tool_use_failed либо
-            # отдаёт пустой content. Явно запрещаем tool calling пустым списком.
-            base_body.setdefault("tools", [])
-            # gpt-oss и другие reasoning-модели жгут max_tokens на «мысли» и
-            # отдают пустой content — сначала пробуем отключить reasoning.
-            body_attempts = (
-                ({"reasoning": {"enabled": False}, **base_body}, base_body)
-                if "gpt-oss" in candidate
-                else (base_body,)
-            )
-            resp = None
-            for attempt in range(3):
+        # Groq: перебираем актуальные модели (активная из cache → preferred → кандидаты),
+        # если primary недоступна (404/429). Логика применяется ТОЛЬКО к Groq.
+        if name == "Groq":
+            models_to_try = []
+            active = _groq_active_model["name"] or ""
+            for m in ([active] if active else []) + [model] + _GROQ_MODEL_CANDIDATES:
+                if m and m not in models_to_try:
+                    models_to_try.append(m)
+            for candidate in models_to_try:
+                if "gpt-oss" not in candidate:
+                    continue  # остальные модели Groq выпилены (404)
+                base_body = {"model": candidate, **payload}
+                # gpt-oss — агентная модель Groq: автоматически зовёт встроенные
+                # инструменты (repo_browser.*) и падает 400 tool_use_failed либо
+                # отдаёт пустой content. Явно запрещаем tool calling пустым списком.
+                base_body.setdefault("tools", [])
+                # gpt-oss и другие reasoning-модели жгут max_tokens на «мысли» и
+                # отдают пустой content — сначала пробуем отключить reasoning.
+                body_attempts = (
+                    ({"reasoning": {"enabled": False}, **base_body}, base_body)
+                    if "gpt-oss" in candidate
+                    else (base_body,)
+                )
                 resp = None
-                for body in body_attempts:
-                    try:
-                        resp = requests.post(
-                            url,
-                            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                            json=body,
-                            timeout=timeout,
-                        )
-                    except Exception as exc:
-                        print(f"{name} API error ({candidate}): {exc}")
-                        resp = None
+                for attempt in range(3):
+                    resp = None
+                    for body in body_attempts:
+                        try:
+                            resp = requests.post(
+                                url,
+                                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                                json=body,
+                                timeout=timeout,
+                            )
+                        except Exception as exc:
+                            print(f"{name} API error ({candidate}): {exc}")
+                            resp = None
+                            break
+                        if resp.status_code == 400 and body is not body_attempts[-1]:
+                            continue
                         break
-                    if resp.status_code == 400 and body is not body_attempts[-1]:
+                    if resp is None:
+                        break
+                    # 429 rate limit → короткая пауза и повтор той же модели
+                    if resp.status_code == 429 and attempt < 2:
+                        print(f"{name} 429 ({candidate}), retrying in {2 * (attempt + 1)}s")
+                        time.sleep(2 * (attempt + 1))
                         continue
                     break
                 if resp is None:
-                    break
-                # 429 rate limit → короткая пауза и повтор той же модели
-                if resp.status_code == 429 and attempt < 2:
-                    print(f"{name} 429 ({candidate}), retrying in {2 * (attempt + 1)}s")
-                    time.sleep(2 * (attempt + 1))
+                    continue
+                if resp.status_code == 200:
+                    _groq_active_model["name"] = candidate
+                    try:
+                        msg = resp.json()["choices"][0].get("message") or {}
+                    except Exception:
+                        msg = {}
+                    content = str(msg.get("content") or "").strip()
+                    # reasoning-модели иногда кладут ответ в reasoning_content
+                    if not content and msg.get("reasoning_content"):
+                        content = str(msg.get("reasoning_content")).strip()
+                    if not msg.get("tool_calls") and not content:
+                        print(f"{name} empty reply ({candidate}), trying next")
+                        last_resp = resp
+                        continue
+                    return resp
+                print(f"{name} API error ({candidate}) {resp.status_code}: {resp.text[:200]}")
+                last_resp = resp
+                # 404 = модель списана провайдером, 429 = rate limit — пробуем следующую.
+                if resp.status_code in (404, 429):
                     continue
                 break
-            if resp is None:
-                continue
-            if resp.status_code == 200:
-                _groq_active_model["name"] = candidate
-                try:
-                    msg = resp.json()["choices"][0].get("message") or {}
-                except Exception:
-                    msg = {}
-                content = str(msg.get("content") or "").strip()
-                # reasoning-модели иногда кладут ответ в reasoning_content
-                if not content and msg.get("reasoning_content"):
-                    content = str(msg.get("reasoning_content")).strip()
-                if not msg.get("tool_calls") and not content:
-                    print(f"{name} empty reply ({candidate}), trying next")
-                    last_resp = resp
-                    continue
-                return resp
-            print(f"{name} API error ({candidate}) {resp.status_code}: {resp.text[:200]}")
-            last_resp = resp
-            # 404 = модель списана провайдером, 429 = rate limit — пробуем следующую.
-            if resp.status_code in (404, 429):
+            continue
+        # Не-Groq провайдер (Gemini primary): одна модель, без Groq-cache/gpt-oss-фильтров.
+        # Раньше фильтр "gpt-oss" в candidates применялся ко ВСЕМ провайдерам и
+        # молча пропускал Gemini (primary никогда не вызывался).
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    url,
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": model, **payload},
+                    timeout=timeout,
+                )
+            except Exception as exc:
+                print(f"{name} API error ({model}): {exc}")
+                resp = None
+                break
+            if resp.status_code == 429 and attempt < 2:
+                print(f"{name} 429 ({model}), retrying in {2 * (attempt + 1)}s")
+                time.sleep(2 * (attempt + 1))
                 continue
             break
+        if resp is None:
+            continue
+        if resp.status_code == 200:
+            try:
+                msg = resp.json()["choices"][0].get("message") or {}
+            except Exception:
+                msg = {}
+            content = str(msg.get("content") or "").strip()
+            if not content and msg.get("reasoning_content"):
+                content = str(msg.get("reasoning_content")).strip()
+            if not msg.get("tool_calls") and not content:
+                print(f"{name} empty reply ({model}), trying next")
+                last_resp = resp
+                continue
+            return resp
+        print(f"{name} API error ({model}) {resp.status_code}: {resp.text[:200]}")
+        last_resp = resp
 
     # OpenRouter: перебор бесплатных моделей (пулы :free регулярно отдают 429)
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
