@@ -4,6 +4,24 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### 🏁 Выполнено (2026-09-25): 🔍 Багхант Family — Circle (веб+медиатор) и Budget (бот+веб) — код готов
+
+> Полный багхант family-модуля (high+med+low, пользователь выбрал «Всё, включая средне/низкое»). `api/index.py` (~1180 строк) + `family_budget.py` + `budget_commands.py` + тесты. ruff чист; `test_family_mediator.py` 9/9, `test_family_budget.py` (новый, IDOR/валидации) 13/13. **Коммит/деплой/прод-смоук — следующий шаг** (см. `progress.md` Changelog).
+
+- **Family Circle (веб + AI-медиатор, Batch A/B):**
+  - Приватность: в ИИ-историю попадают ТОЛЬКО сообщения текущего участника (`_family_room_messages(..., member_id)`); свод needs анонимный. Needs — из структурированного JSON-блока ответа ИИ (`_family_pop_json_block`), фолбэк regex по реплике пользователя; промпт медиатора дополнен.
+  - Единый вход `POST /api/family/rooms/join` (login+join): неверный пароль → 403, нет комнаты → 404, `UNIQUE(room_id, display_name)` + гонка через IntegrityError; GET комнаты без `members`.
+  - Новый `POST /api/family/chat/history` (пароль) для истории при F5; `spoke_count = COUNT(DISTINCT sender)` (`_family_recount_spoken`), `rooms.status='finished'`, `final_reports` UNIQUE(room_id) + идемпотентная генерация отчёта.
+  - Шифрование need_text/report_text (fail-open + warn-once `_family_cipher`); валидации (имя ≤100, пароль 4..72, сообщение ≤2000); rate-limits (create 10/ч, join/finish 10/мин, delete 10/ч, report 2/мин/комната, chat 4/мин).
+  - Фронт переписан: `_FAMILY_JS_UTILS` (api() таймаут 60с, saveSession, toast), `_FAMILY_INDEX_JS`/`_FAMILY_ROOM_JS`/`_FAMILY_RESULT_JS` (plain-строки, без экранирования брейсов), единые ключи `fc_*`, авто-логин по сессии, state-машина send/finish, поллинг отчёта 15с, гейт «Отчёт готов», новый парсер отчёта.
+- **Family Budget (бот + веб, Batch C):**
+  - **IDOR закрыт**: `_get_user_id()` больше НЕ доверяет голым `X-User-Id`/`?user_id=` — принимает их только с HMAC-подписью `BUDGET_API_SECRET` (заголовок `X-Budget-Sig` / query `sig`); session-token-first сохранён. Подпись выдаёт бот (URL `/budget`, self-HTTP) и `api_vk_status`/`api_vk_link` для VK mini-app; SPA получает sig через `/* BUDGET_SIG_SERVER_INJECT */` и шлёт заголовком.
+  - `api_transaction_create`: фикс бага `data.get("amount", type=int)` (→ 500) — безопасный `int()`; валидация payer_id/for_whom_ids на членство (403); лимиты description 500/category 50.
+  - `api_debt_pay`: только свои долги (или админ семьи), debtor/creditor обязательно члены, `debt_id` скаффолден по семье+должнику, безопасный `int(amount)`.
+  - `api_vk_status`/`api_vk_link`: генератор `get_db()` → живая сессия `next(get_db())`; идемпотентный парс ISO-строк expiry; возвращают `sig`. `linkvk_command`: мёртвый `get_db_engine` → ORM `LinkedVKAccount`+`get_db_session`, полноценный `datetime` (был ISO-string), уникальный place-holder `vk_user_id` ("tg"+id).
+  - Вебхук api/index.py: `/family create|join|info|leave` (+signed `budget_url`), self-HTTP (`_fetch_family_info_via_api`/`_create_transaction_via_api`) с `X-Budget-Sig`. `/test_send` под admin-gate, `/api/set_webhook` — только Vercel-домены (Host-header hijack закрыт).
+- **Тесты:** `test_family_mediator.py` 9/9 (обновлён 2-tuple→3-tuple под новый `_family_chat_dialog`, +паринг/чистка needs/валидации); новый `test_family_budget.py` 13/13 (подпись-округ, отклонение forging, 400/403 валидации транзакций и долгов, own-debt success).
+
 ### ✅ Выполнено (2026-09-24/25): 🛠 GD/EMPERORS — DuplicateColumn на проде спамил TG (коммит `b6c342f`)
 
 - **[TASK] «боте спамит в тг ошибками: GD / error Table init error: (psycopg2.errors.DuplicateColumn) column "difficulty" of relation "levels" already exists»:** причина — `_ddl()` из рефактора `b0013a8` вырезает `IF NOT EXISTS` из `ADD COLUMN` (SQLite не понимает), а `_ensure_gd_tables` остался на старой форме `ALTER ... ADD COLUMN IF NOT EXISTS` без try-обёртки → на Postgres колонка уже есть → исключение каждый холодный старт → `log_error` → TG-спам. У PARSE/code ALTER-ы были в `try/except pass` → не падали.
