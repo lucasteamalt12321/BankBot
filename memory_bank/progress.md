@@ -4,7 +4,9 @@
 
 ## last_checked_commit
 
-**`58db1f4`** — багхант Family (Circle + Budget IDOR): 22/22 тесты, ruff чист. Задеплоено на прод (`lthub.vercel.app`): pages 200, IDOR 401, create/join/chat/GET OK, DELETE 200 (фикс `.mappings()` в `61a3b2d`), smoke-комнаты очищены. **Push сделан, последующий аудит не требуется.**
+**`701f83f`** — фикс TG-спама на холодных стартах (DDL-портируемость): `_ddl(sql, engine)` теперь dialect-aware (Postgres получает SQL без изменений), новые `_ensure_ddl_column` + `text(_ddl(...), engine)` во всех 11 CREATE-блоках. Тесты `test_ddl_portability.py` 4/4, регресс 38+73 (5 pre-existing asyncio-падений не связаны). Коммит code+tests сделан. **Следующий шаг: memory-коммит, push, деплой, прод-смоук.**
+
+Событие, которое закрывает: с 17:27 по 18:49 (2026-09-25) TG-чат спамился «Table init error» при каждом холодном старте: AUTH/SOCIAL — `SyntaxError near "AUTOINCREMENT"` (SERIAL→AUTOINCREMENT-реврайт уходил в Postgres), CODE/PARSING — `InFailedSqlTransaction` (каскад: try/except-pass без rollback после DuplicateColumn от stripping `ADD COLUMN IF NOT EXISTS`). Прежние батчи: `BUG-FIX-2026-09-25` ниже.
 
 ## Beta Bugs (баги бета-тестирования, 2026-08-27+)
 
@@ -219,6 +221,16 @@ _Баги добавляются по ходу тестирования оста
 - **[SEC-BUG-6]** (low) мёртвый CORS-блок в `api/index.py` (0.0.0.0) — функционально бесполезен. Можно удалить.
 
 ## Changelog
+
+### 2026-09-25 (Session: 🔧 Фикс TG-спама — DDL-портируемость `_ddl`)
+- **[BUG] TG-чат спамился «Table init error» на каждый холодный старт** (батчи 17:27/17:30/17:31/17:39/18:40/18:49). Корень: `_ddl()` безусловно переписывал DDL под SQLite даже для Postgres — `SERIAL PRIMARY KEY`→`INTEGER PRIMARY KEY AUTOINCREMENT` (→ `SyntaxError near "AUTOINCREMENT"` в AUTH/SOCIAL), strip `ADD COLUMN IF NOT EXISTS` (→ `DuplicateColumn` в CODE/PARSING, а затем `try/except: pass` без rollback отравлял транзакцию → каскад `InFailedSqlTransaction` на `CREATE TABLE code_user_comments` / `CREATE INDEX ix_parsed_transactions_parsed_at`).
+- **Фикс (коммит `701f83f`, ещё не задеплоен):**
+  - `_ddl(sql, engine=None)` — если `dialect.name != "sqlite"` → возвращает SQL без изменений (нативный SERIAL/TIMESTAMPTZ/NOW()/`ADD COLUMN IF NOT EXISTS`). Реврайты только для SQLite.
+  - Новый `_ensure_ddl_column(conn, table, column_sql, engine)` — `_ddl_add_column` (проверка существования колонки → no-op) + `conn.rollback()` при ошибке, чтобы не отравить транзакцию. Заменены сырые `ALTER ... ADD COLUMN IF NOT EXISTS` (code_files ×2, parsed_transactions ×3) и AUTH optional-cols цикл.
+  - `engine` продет во все 11 `text(_ddl("""...""", engine)))` — family (5), AUTH (4), SOCIAL (2). **Грабли:** первый вариант правки дал `conn.execute(text(_ddl("""..."""))), engine)` — кортеж-выражение (engine=None, фикс молча не работал); правильное закрытие `""", engine)))`.
+  - Идемпотентность проверена: `_ensure_web_auth_tables`/`_ensure_social_tables`/`_ensure_family_tables` ×2 на sqlite — без ошибок (`ddl_boom3.py`). `_ensure_code_tables`/`_ensure_parsing_tables` используют нативный SERIAL-DDL — Postgres-only by-design (не входят в sqlite-тест).
+- **Тесты:** новый `tests/unit/test_ddl_portability.py` 4/4: postgres-native-без-изменений, sqlite-реврайты, idempotent ×2 (web_auth/social/family), `_ensure_ddl_column` no-op. Регресс: family_budget+family_mediator+social+code_explainer = 38 passed; emperors+parsing+web_portal+manual_parsing = 73 passed (5 падений `test_manual_parsing_handler_e2e` — pre-existing, pytest-asyncio не установлен, подтверждено на HEAD). ruff чист.
+- **Следующий шаг:** memory-коммит → push → `vercel --prod` → прод-смоук (холодные старты: /family, /login, /feedback, /api/code — в TG не должно быть новых AUTH/SOCIAL/CODE/PARSING ошибок).
 
 ### 2026-09-25 (Session: 🔍 Багхант Family — Circle веб/медиатор + Budget бот/веб)
 - **[BUGHUNT]** Полный багхант family-модуля (пользователь: «сделай всё, включая средне/низкое»). Код внесён в рабочую копию, тесты зелёные. **Коммит + деплой + прод-смоук (`.195`) — следующий шаг.**
