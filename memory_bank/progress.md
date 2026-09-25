@@ -4,7 +4,7 @@
 
 ## last_checked_commit
 
-**`388824b`** — багхант Family (Circle + Budget IDOR): 22/22 тесты, ruff чист. Деплой/прод-смоук — следующий шаг.
+**`61a3b2d`** — прод-смоук поймал 500 в `api_family_rooms_delete` (`creator` без `.mappings()` → TypeError). Исправлено, локально DELETE 200, регресс 22/22, ruff чист.
 
 ## Beta Bugs (баги бета-тестирования, 2026-08-27+)
 
