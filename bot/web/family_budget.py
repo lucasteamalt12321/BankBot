@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 import random
 import string
 from datetime import datetime, timedelta
@@ -15,13 +18,33 @@ def _generate_invite_code() -> str:
     return ''.join(random.choices(string.digits, k=6))
 
 
+def _budget_sign_user_id(user_id: str) -> str:
+    """HMAC-SHA256 signature binding a user_id claim to our secret.
+
+    Used by the Telegram bot and the VK mini-app pairing flow so that a
+    user-supplied user_id can not be forged by third parties (IDOR fix).
+    """
+    secret = os.getenv("BUDGET_API_SECRET", "")
+    if not secret:
+        return ""
+    return hmac.new(secret.encode(), str(user_id).encode(), hashlib.sha256).hexdigest()
+
+
+def _budget_verify(user_id: str, sig: str) -> bool:
+    expected = _budget_sign_user_id(user_id)
+    if not expected or not sig:
+        return False
+    return hmac.compare_digest(expected, str(sig))
+
+
 def _get_user_id() -> str:
     """Extract user_id with session-first auth.
 
     Priority:
     1. X-Auth-Token header → web session → web_users.telegram_id (spoof-proof)
-    2. X-User-Id header (legacy, used by VK mini-app)
-    3. user_id query param (legacy, kept for backward compat)
+    2. X-User-Id header or user_id query param — ONLY when accompanied by a valid
+       HMAC signature (X-Budget-Sig header or `sig` query param). Unauthenticated
+       user_id claims are rejected to prevent cross-family access.
     """
     token = request.headers.get("X-Auth-Token", "").strip()
     if token:
@@ -42,10 +65,11 @@ def _get_user_id() -> str:
                 db.close()
         except Exception:
             pass
-    uid = request.headers.get("X-User-Id", "").strip()
-    if uid:
+    uid = (request.headers.get("X-User-Id", "").strip() or request.args.get("user_id", "").strip())
+    sig = (request.headers.get("X-Budget-Sig", "").strip() or request.args.get("sig", "").strip())
+    if uid and _budget_verify(uid, sig):
         return uid
-    return request.args.get("user_id", "")
+    return ""
 
 
 def api_family_status():
@@ -251,9 +275,12 @@ def api_transaction_create():
 
     family_id = data.get("family_id")
     payer_id = data.get("payer_id", user_id)
-    amount = data.get("amount", type=int)
-    category = data.get("category", "Другое")
-    description = data.get("description", "")
+    try:
+        amount = int(data.get("amount"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "amount must be a number"}), 400
+    category = str(data.get("category", "Другое"))[:50] or "Другое"
+    description = str(data.get("description", ""))[:500]
     for_whom_ids = data.get("for_whom_ids", [])
 
     if not family_id:
@@ -267,15 +294,25 @@ def api_transaction_create():
     try:
         member = (
             db.query(FamilyMember)
-            .filter(FamilyMember.user_id == user_id, FamilyMember.family_id == family_id)
+            .filter(FamilyMember.user_id == str(user_id), FamilyMember.family_id == family_id)
             .first()
         )
         if not member:
             return jsonify({"error": "not a member"}), 403
 
+        member_user_ids = {
+            str(m.user_id)
+            for m in db.query(FamilyMember.user_id).filter(FamilyMember.family_id == family_id).all()
+        }
+        if str(payer_id) not in member_user_ids:
+            return jsonify({"error": "payer_id is not a family member"}), 403
+        bad = [str(fw) for fw in for_whom_ids if str(fw) not in member_user_ids]
+        if bad:
+            return jsonify({"error": f"for_whom_ids contains non-members: {', '.join(bad)}"}), 403
+
         txn = BudgetTransaction(
             family_id=family_id,
-            payer_id=payer_id,
+            payer_id=str(payer_id),
             amount=amount,
             category=category,
             description=description,
@@ -290,16 +327,16 @@ def api_transaction_create():
             actual_share = share + (1 if i < remainder else 0)
             detail = TransactionDetail(
                 transaction_id=txn.id,
-                for_whom_id=fw_id,
+                for_whom_id=str(fw_id),
                 share=actual_share,
             )
             db.add(detail)
 
-            if fw_id != payer_id:
+            if str(fw_id) != str(payer_id):
                 debt = Debt(
                     family_id=family_id,
-                    debtor_id=fw_id,
-                    creditor_id=payer_id,
+                    debtor_id=str(fw_id),
+                    creditor_id=str(payer_id),
                     amount_left=actual_share,
                 )
                 db.add(debt)
@@ -432,10 +469,13 @@ def api_debt_pay():
     debt_id = data.get("debt_id")
     debtor_id = data.get("debtor_id")
     creditor_id = data.get("creditor_id")
-    amount = data.get("amount", type=int)
+    try:
+        amount = int(data.get("amount"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "amount must be a number"}), 400
 
-    if not all([family_id, debtor_id, creditor_id, amount]):
-        return jsonify({"error": "family_id, debtor_id, creditor_id, amount required"}), 400
+    if not all([family_id, debtor_id, creditor_id]):
+        return jsonify({"error": "family_id, debtor_id, creditor_id required"}), 400
     if amount <= 0:
         return jsonify({"error": "amount must be positive"}), 400
 
@@ -443,11 +483,26 @@ def api_debt_pay():
     try:
         member = (
             db.query(FamilyMember)
-            .filter(FamilyMember.user_id == user_id, FamilyMember.family_id == family_id)
+            .filter(FamilyMember.user_id == str(user_id), FamilyMember.family_id == family_id)
             .first()
         )
         if not member:
             return jsonify({"error": "not a member"}), 403
+
+        member_user_ids = {
+            str(m.user_id)
+            for m in db.query(FamilyMember.user_id).filter(FamilyMember.family_id == family_id).all()
+        }
+        if str(debtor_id) not in member_user_ids:
+            return jsonify({"error": "debtor is not a family member"}), 403
+        if str(creditor_id) not in member_user_ids:
+            return jsonify({"error": "creditor is not a family member"}), 403
+
+        if str(user_id) != str(debtor_id):
+            from database.database import Family
+            fam = db.query(Family).filter(Family.id == family_id).first()
+            if not fam or str(fam.admin_id) != str(user_id):
+                return jsonify({"error": "можно погашать только свои долги"}), 403
 
         remaining = amount
 
@@ -456,7 +511,12 @@ def api_debt_pay():
         if debt_id:
             specific_debt = (
                 db.query(Debt)
-                .filter(Debt.id == debt_id, Debt.amount_left > 0)
+                .filter(
+                    Debt.id == debt_id,
+                    Debt.family_id == family_id,
+                    Debt.debtor_id == debtor_id,
+                    Debt.amount_left > 0,
+                )
                 .first()
             )
         if specific_debt:
@@ -839,6 +899,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
           var WEB_TOKEN = localStorage.getItem('web_token') || '';
           var USER_ID = '';
           // USER_ID_SERVER_INJECT
+          var BUDGET_SIG = ''; // BUDGET_SIG_SERVER_INJECT
           var STATE = { family: null, debts: [], members: [] };
           if (_dbg) { _dbg.textContent = '✅ JS работает, ID=' + USER_ID; }
 
@@ -846,6 +907,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
               var v = document.getElementById('auth-user-id').value.trim();
               if (!v) { showToast('Введите ваш ID'); return; }
               USER_ID = v;
+              BUDGET_SIG = '';
               localStorage.setItem('budget_user_id', v);
               showToast('ID сохранён. Загружаю...');
               loadDashboard();
@@ -868,6 +930,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
                   var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
                   if (WEB_TOKEN) { opts.headers['X-Auth-Token'] = WEB_TOKEN; }
                   if (USER_ID) { opts.headers['X-User-Id'] = USER_ID; }
+                  if (BUDGET_SIG) { opts.headers['X-Budget-Sig'] = BUDGET_SIG; }
                   if (body) { opts.body = JSON.stringify(body); }
                   return fetch(BASE + path, opts).then(function(res) { return res.json(); });
               }
@@ -878,6 +941,7 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
                   xhr.setRequestHeader('Content-Type', 'application/json');
                   if (WEB_TOKEN) { xhr.setRequestHeader('X-Auth-Token', WEB_TOKEN); }
                   if (USER_ID) { xhr.setRequestHeader('X-User-Id', USER_ID); }
+                  if (BUDGET_SIG) { xhr.setRequestHeader('X-Budget-Sig', BUDGET_SIG); }
                   xhr.onreadystatechange = function() {
                       if (xhr.readyState === 4) {
                           if (xhr.status >= 200 && xhr.status < 300) {
@@ -1105,8 +1169,10 @@ FAMILY_BUDGET_HTML = """<!DOCTYPE html>
 
 
 def family_budget_page():
-    """GET /family_budget — serve the SPA with user_id pre-filled from query."""
+    """GET /family_budget — serve the SPA with user_id and sig pre-filled from query."""
     uid = request.args.get("user_id", "")
+    sig = request.args.get("sig", "")
+    valid_sig = bool(uid and _budget_verify(uid, sig))
     safe_uid = uid.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
     html = FAMILY_BUDGET_HTML.replace(
         'id="auth-user-id" placeholder="Например, 123456789" value=""',
@@ -1114,10 +1180,15 @@ def family_budget_page():
     )
     # Also set USER_ID via server-rendered script variable instead of URL parse
     safe_uid_js = uid.replace("\\", "\\\\").replace("'", "\\'")
-    html = html.replace(
-        "// USER_ID_SERVER_INJECT",
-        f"USER_ID = '{safe_uid_js}' || USER_ID;",
-    )
+    if valid_sig:
+        html = html.replace(
+            "// USER_ID_SERVER_INJECT",
+            f"USER_ID = '{safe_uid_js}' || USER_ID;",
+        )
+        html = html.replace(
+            "// BUDGET_SIG_SERVER_INJECT",
+            f"BUDGET_SIG = '{sig}';",
+        )
     return Response(html, mimetype="text/html")
 
 
@@ -1132,11 +1203,15 @@ def api_vk_status():
     if not vk_user_id:
         return jsonify({"error": "vk_user_id required"}), 400
 
-    db = get_db()
+    db = next(get_db())
     try:
         link = db.query(LinkedVKAccount).filter_by(vk_user_id=vk_user_id).first()
         if link and link.tg_user_id:
-            return jsonify({"linked": True, "user_id": link.tg_user_id})
+            return jsonify({
+                "linked": True,
+                "user_id": link.tg_user_id,
+                "sig": _budget_sign_user_id(str(link.tg_user_id)),
+            })
         return jsonify({"linked": False})
     finally:
         db.close()
@@ -1153,13 +1228,19 @@ def api_vk_link():
     if not vk_user_id or not code:
         return jsonify({"error": "vk_user_id and code required"}), 400
 
-    db = get_db()
+    db = next(get_db())
     try:
         link = db.query(LinkedVKAccount).filter_by(link_code=code).first()
         if not link:
             return jsonify({"error": "Код недействителен"}), 400
 
-        if link.code_expires_at and link.code_expires_at < datetime.utcnow():
+        expires = link.code_expires_at
+        if isinstance(expires, str):
+            try:
+                expires = datetime.fromisoformat(expires)
+            except ValueError:
+                expires = None
+        if expires and expires < datetime.utcnow():
             return jsonify({"error": "Код истёк. Запросите новый в Telegram"}), 400
 
         tg_user_id = link.tg_user_id
@@ -1168,6 +1249,10 @@ def api_vk_link():
         link.code_expires_at = None
         db.commit()
 
-        return jsonify({"linked": True, "user_id": tg_user_id})
+        return jsonify({
+            "linked": True,
+            "user_id": tg_user_id,
+            "sig": _budget_sign_user_id(str(tg_user_id)),
+        })
     finally:
         db.close()
