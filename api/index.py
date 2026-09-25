@@ -759,6 +759,10 @@ def _ensure_gd_tables(engine):
     """Create GD module tables if they don't exist (preserves existing data)."""
     try:
         with engine.connect() as conn:
+            def _add(column_sql, table):
+                _stmt = _ddl_add_column(table, column_sql, engine=engine)
+                if _stmt:
+                    conn.execute(text(_stmt))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS levels (
                     id SERIAL PRIMARY KEY,
@@ -767,7 +771,7 @@ def _ensure_gd_tables(engine):
                     difficulty TEXT DEFAULT 'Unknown'
                 )
             """))
-            conn.execute(text(_ddl("ALTER TABLE levels ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT 'Unknown'")))
+            _add("difficulty TEXT DEFAULT 'Unknown'", "levels")
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS submissions (
                     id SERIAL PRIMARY KEY,
@@ -784,8 +788,8 @@ def _ensure_gd_tables(engine):
                     reviewed_by BIGINT
                 )
             """))
-            conn.execute(text(_ddl("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS difficulty TEXT")))
-            conn.execute(text(_ddl("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS attempts INTEGER")))
+            _add("difficulty TEXT", "submissions")
+            _add("attempts INTEGER", "submissions")
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS player_stats (
                     user_id BIGINT PRIMARY KEY,
@@ -797,8 +801,8 @@ def _ensure_gd_tables(engine):
                     demons_count INTEGER DEFAULT 0
                 )
             """))
-            conn.execute(text(_ddl("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0")))
-            conn.execute(text(_ddl("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS demons_count INTEGER DEFAULT 0")))
+            _add("points INTEGER DEFAULT 0", "player_stats")
+            _add("demons_count INTEGER DEFAULT 0", "player_stats")
             # Legacy account-merge mechanism removed: GD players are attributed by the GD nick
             # taken from the approved submission (submissions.username), not by account binding.
             conn.execute(text("DROP TABLE IF EXISTS gd_aliases"))
@@ -812,7 +816,7 @@ def _ensure_gd_tables(engine):
                     UNIQUE(user_id, level_id)
                 )
             """))
-            conn.execute(text(_ddl("ALTER TABLE level_completions ADD COLUMN IF NOT EXISTS player_name TEXT")))
+            _add("player_name TEXT", "level_completions")
             try:
                 _gd_backfill_completion_names(conn)
             except Exception as exc:
@@ -1713,7 +1717,9 @@ def _ensure_emperors_tables(engine):
                     updated_at REAL NOT NULL
                 )
             """))
-            conn.execute(text(_ddl("ALTER TABLE emperors_progress ADD COLUMN IF NOT EXISTS counter INTEGER NOT NULL DEFAULT 0")))
+            _stmt = _ddl_add_column("emperors_progress", "counter INTEGER NOT NULL DEFAULT 0", engine=engine)
+            if _stmt:
+                conn.execute(text(_stmt))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
             conn.commit()
