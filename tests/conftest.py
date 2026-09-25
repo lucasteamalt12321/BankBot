@@ -18,6 +18,27 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """Clear in-memory rate-limit counters between tests.
+
+    The counters live in module-level dicts on ``api.index`` and are shared by
+    every test in a session, so without this a handful of register/login calls
+    in one test makes the next unrelated test fail with 429.
+    """
+    import api.index as api
+
+    for name in ("_AI_RATE_LIMITS", "_LOGIN_ATTEMPTS"):
+        store = getattr(api, name, None)
+        if isinstance(store, dict):
+            store.clear()
+    yield
+    for name in ("_AI_RATE_LIMITS", "_LOGIN_ATTEMPTS"):
+        store = getattr(api, name, None)
+        if isinstance(store, dict):
+            store.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_telegram_network(monkeypatch):
     """В тестовом окружении нет сети: log_error→Telegram завис бы навсегда.
 

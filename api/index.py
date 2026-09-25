@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import threading
 import sys
 import tempfile
 import time
@@ -221,6 +222,91 @@ def _auth_user_or_401():
     if not user:
         return None, (jsonify({"auth_required": True, "error": "Требуется авторизация: войдите в аккаунт"}), 401)
     return user, None
+
+
+def _ddl(sql: str) -> str:
+    """Normalize a DDL statement so it runs on both PostgreSQL and SQLite.
+
+    SQLite understands VARCHAR/INTEGER/BOOLEAN/TEXT but not SERIAL or NOW(),
+    and it has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``.
+    """
+    out = re.sub(r"\bSERIAL\s+PRIMARY\s+KEY\b", "INTEGER PRIMARY KEY AUTOINCREMENT", sql, flags=re.I)
+    out = re.sub(r"\bSERIAL\b", "INTEGER", out, flags=re.I)
+    out = re.sub(r"\bTIMESTAMPTZ\b", "TIMESTAMP", out, flags=re.I)
+    out = re.sub(r"\bTIMESTAMP\s+WITH\s+TIME\s+ZONE\b", "TIMESTAMP", out, flags=re.I)
+    out = re.sub(r"\bNOW\(\)", "CURRENT_TIMESTAMP", out, flags=re.I)
+    # SQLite has no "ADD COLUMN IF NOT EXISTS"; a duplicate-column error is the
+    # normal "already migrated" signal here and every caller ignores it.
+    out = re.sub(r"(ADD\s+COLUMN)\s+IF\s+NOT\s+EXISTS\b", r"\1", out, flags=re.I)
+    return out
+
+
+def _ddl_add_column(table: str, column_sql: str, engine=None) -> str | None:
+    """Return a dialect-safe ``ADD COLUMN`` statement, or None if it is already applied.
+
+    ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` works on PostgreSQL but is a
+    syntax error on SQLite, so the column presence is checked up front.
+    """
+    col_sql = re.sub(r"\bIF\s+NOT\s+EXISTS\b", "", column_sql, flags=re.I).strip()
+    col_name = col_sql.split()[0].lower().strip('"')
+    try:
+        engine = engine or get_db_engine()
+        with engine.connect() as conn:
+            if engine.dialect.name == "sqlite":
+                cols = {str(r[1]).lower() for r in conn.execute(text(f"PRAGMA table_info({table})")).all()}
+                if not cols or col_name in cols:
+                    return None
+            else:
+                found = conn.execute(
+                    text("SELECT 1 FROM information_schema.columns "
+                         "WHERE table_name = :t AND column_name = :c LIMIT 1"),
+                    {"t": table, "c": col_name},
+                ).first()
+                if found:
+                    return None
+    except Exception:
+        return f"ALTER TABLE {table} ADD COLUMN {col_sql}"
+    return f"ALTER TABLE {table} ADD COLUMN {col_sql}"
+
+
+_WEB_USER_OPTIONAL_COLUMNS = (
+    "is_admin BOOLEAN DEFAULT FALSE",
+    "email VARCHAR(255) UNIQUE",
+    "created_via VARCHAR(32)",
+)
+
+
+def _ensure_web_user_columns(engine=None) -> None:
+    """Add optional web_users columns that older databases may lack.
+
+    Without this a legacy row set (created before a column was introduced) makes
+    every INSERT fail with "no such column", which surfaced as a 500 on register.
+    """
+    target = engine or get_db_engine()
+    for _col in _WEB_USER_OPTIONAL_COLUMNS:
+        try:
+            _stmt = _ddl_add_column("web_users", _col, engine=target)
+            if _stmt:
+                with target.begin() as conn:
+                    conn.execute(text(_stmt))
+        except Exception:
+            pass
+
+
+def _table_columns(table: str, engine=None) -> set[str]:
+    """Return the lower-cased column names of a table (empty set when unknown)."""
+    try:
+        eng = engine or get_db_engine()
+        with eng.connect() as conn:
+            if eng.dialect.name == "sqlite":
+                return {str(r[1]).lower() for r in conn.execute(text(f"PRAGMA table_info({table})")).all()}
+            rows = conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = :t"),
+                {"t": table},
+            ).all()
+            return {str(r[0]).lower() for r in rows}
+    except Exception:
+        return set()
 
 
 def _ensure_web_coin_tables(engine=None) -> bool:
@@ -681,7 +767,7 @@ def _ensure_gd_tables(engine):
                     difficulty TEXT DEFAULT 'Unknown'
                 )
             """))
-            conn.execute(text("ALTER TABLE levels ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT 'Unknown'"))
+            conn.execute(text(_ddl("ALTER TABLE levels ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT 'Unknown'")))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS submissions (
                     id SERIAL PRIMARY KEY,
@@ -698,8 +784,8 @@ def _ensure_gd_tables(engine):
                     reviewed_by BIGINT
                 )
             """))
-            conn.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS difficulty TEXT"))
-            conn.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS attempts INTEGER"))
+            conn.execute(text(_ddl("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS difficulty TEXT")))
+            conn.execute(text(_ddl("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS attempts INTEGER")))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS player_stats (
                     user_id BIGINT PRIMARY KEY,
@@ -711,8 +797,8 @@ def _ensure_gd_tables(engine):
                     demons_count INTEGER DEFAULT 0
                 )
             """))
-            conn.execute(text("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS demons_count INTEGER DEFAULT 0"))
+            conn.execute(text(_ddl("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0")))
+            conn.execute(text(_ddl("ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS demons_count INTEGER DEFAULT 0")))
             # Legacy account-merge mechanism removed: GD players are attributed by the GD nick
             # taken from the approved submission (submissions.username), not by account binding.
             conn.execute(text("DROP TABLE IF EXISTS gd_aliases"))
@@ -726,7 +812,7 @@ def _ensure_gd_tables(engine):
                     UNIQUE(user_id, level_id)
                 )
             """))
-            conn.execute(text("ALTER TABLE level_completions ADD COLUMN IF NOT EXISTS player_name TEXT"))
+            conn.execute(text(_ddl("ALTER TABLE level_completions ADD COLUMN IF NOT EXISTS player_name TEXT")))
             try:
                 _gd_backfill_completion_names(conn)
             except Exception as exc:
@@ -1177,7 +1263,7 @@ def _ensure_family_tables(engine):
     """Create Family Circle mediation tables if they don't exist (preserves existing data)."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS rooms (
                     id VARCHAR(20) PRIMARY KEY,
                     name VARCHAR(255) NOT NULL,
@@ -1186,8 +1272,8 @@ def _ensure_family_tables(engine):
                     participants_total INTEGER NOT NULL DEFAULT 1,
                     spoke_count INTEGER DEFAULT 0
                 )
-            """))
-            conn.execute(text("""
+            """)))
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS members (
                     id VARCHAR(36) PRIMARY KEY,
                     room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
@@ -1196,9 +1282,9 @@ def _ensure_family_tables(engine):
                     finished BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
+            """)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_room ON members(room_id)"))
-            conn.execute(text("""
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id VARCHAR(36) PRIMARY KEY,
                     member_id VARCHAR(36) REFERENCES members(id) ON DELETE CASCADE,
@@ -1208,9 +1294,9 @@ def _ensure_family_tables(engine):
                     needs_extracted TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
+            """)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_member ON messages(member_id)"))
-            conn.execute(text("""
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS needs (
                     id VARCHAR(36) PRIMARY KEY,
                     room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
@@ -1218,16 +1304,16 @@ def _ensure_family_tables(engine):
                     member_id VARCHAR(36) REFERENCES members(id) ON DELETE SET NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
+            """)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_needs_room ON needs(room_id)"))
-            conn.execute(text("""
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS final_reports (
                     id VARCHAR(36) PRIMARY KEY,
                     room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
                     report_text TEXT NOT NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
+            """)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_final_reports_room ON final_reports(room_id)"))
             conn.commit()
         log_error("FAMILY", "info", "Tables ensured")
@@ -1239,7 +1325,7 @@ def _ensure_web_auth_tables(engine):
     """Create web auth tables (users + sessions) if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(text(_ddl("""
 CREATE TABLE IF NOT EXISTS web_users (
     id SERIAL PRIMARY KEY,                 -- 810
     login VARCHAR(64) UNIQUE NOT NULL,   -- 811
@@ -1252,15 +1338,15 @@ CREATE TABLE IF NOT EXISTS web_users (
     created_at TIMESTAMPTZ DEFAULT NOW(),-- 818
     email VARCHAR(255) UNIQUE            -- email column for authentication
 )
-            """))
-            conn.execute(text("""
+            """)))
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS web_sessions (
                     token VARCHAR(64) PRIMARY KEY,
                     user_id INTEGER REFERENCES web_users(id) ON DELETE CASCADE,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("""
+            """)))
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS web_coin_log (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER,
@@ -1268,8 +1354,8 @@ CREATE TABLE IF NOT EXISTS web_users (
                     description VARCHAR(255),
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("""
+            """)))
+            conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS web_feedback (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER,
@@ -1281,22 +1367,17 @@ CREATE TABLE IF NOT EXISTS web_users (
                     status VARCHAR(16) DEFAULT 'open',
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
+            """)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_sessions_user ON web_sessions(user_id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_coin_log_user ON web_coin_log(user_id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_feedback_status ON web_feedback(status)"))
-            try:
-                conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
-            except Exception:
-                pass
-            try:
-                conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE"))
-            except Exception:
-                pass
-            try:
-                conn.execute(text("ALTER TABLE web_users ADD COLUMN IF NOT EXISTS created_via VARCHAR(32)"))
-            except Exception:
-                pass
+            for _col in _WEB_USER_OPTIONAL_COLUMNS:
+                try:
+                    _stmt = _ddl_add_column("web_users", _col, engine=engine)
+                    if _stmt:
+                        conn.execute(text(_stmt))
+                except Exception:
+                    pass
             conn.commit()
         log_error("AUTH", "info", "Tables ensured")
     except Exception as exc:
@@ -1307,22 +1388,22 @@ def _ensure_social_tables(engine):
     """Create web social tables (friends + friend requests) if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(text(_ddl("""
 CREATE TABLE IF NOT EXISTS friend_requests (
     id SERIAL PRIMARY KEY,
     from_user INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     to_user INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )
-            """))
-            conn.execute(text("""
+            """)))
+            conn.execute(text(_ddl("""
 CREATE TABLE IF NOT EXISTS web_friends (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     friend_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )
-            """))
+            """)))
             try:
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_friend_requests_pair ON friend_requests(from_user, to_user)"))
             except Exception:
@@ -1534,11 +1615,11 @@ def _ensure_code_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_files_project ON code_files(project_id)"))
             try:
-                conn.execute(text("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_done INTEGER NOT NULL DEFAULT 0"))
+                conn.execute(text(_ddl("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_done INTEGER NOT NULL DEFAULT 0")))
             except Exception:
                 pass
             try:
-                conn.execute(text("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_total INTEGER NOT NULL DEFAULT 1"))
+                conn.execute(text(_ddl("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_total INTEGER NOT NULL DEFAULT 1")))
             except Exception:
                 pass
             conn.execute(text("""
@@ -1590,15 +1671,15 @@ def _ensure_parsing_tables(engine):
                 )
             """))
             try:
-                conn.execute(text("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS status VARCHAR(16) DEFAULT 'success'"))
+                conn.execute(text(_ddl("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS status VARCHAR(16) DEFAULT 'success'")))
             except Exception:
                 pass
             try:
-                conn.execute(text("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS chat_id BIGINT"))
+                conn.execute(text(_ddl("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS chat_id BIGINT")))
             except Exception:
                 pass
             try:
-                conn.execute(text("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS message_id BIGINT"))
+                conn.execute(text(_ddl("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS message_id BIGINT")))
             except Exception:
                 pass
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_parsed_transactions_parsed_at ON parsed_transactions(parsed_at)"))
@@ -1632,7 +1713,7 @@ def _ensure_emperors_tables(engine):
                     updated_at REAL NOT NULL
                 )
             """))
-            conn.execute(text("ALTER TABLE emperors_progress ADD COLUMN IF NOT EXISTS counter INTEGER NOT NULL DEFAULT 0"))
+            conn.execute(text(_ddl("ALTER TABLE emperors_progress ADD COLUMN IF NOT EXISTS counter INTEGER NOT NULL DEFAULT 0")))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
             conn.commit()
@@ -5924,25 +6005,54 @@ def notify_admin(text: str) -> None:
         send_telegram_message(ADMIN_TELEGRAM_ID, f"⚠️ {text}")
 
 
+_ERROR_LOG_REENTRY = threading.local()
+
+
 def log_error(module: str, error_type: str, message: str, context: str = "") -> None:
-    """Log error to in-memory buffer, get AI recommendation, notify admin."""
+    """Log error to in-memory buffer, get AI recommendation, notify admin.
+
+    Reentrancy guard: ``send_telegram_message`` reports its own failures through
+    this function, and notifying the admin goes through ``send_telegram_message``
+    again. When Telegram is unreachable that chain became infinite recursion with
+    a real HTTP call per iteration, which froze the request and could take the
+    whole worker down. Nested calls are only recorded in the buffer, and the AI
+    recommendation is rate-limited per module so error spam cannot hammer the
+    provider from the request path.
+    """
     import traceback as _tb
     from datetime import datetime as _dt
-    recommendation = _get_ai_recommendation(module, error_type, message, context)
-    entry = {
-        "time": _dt.utcnow().strftime("%H:%M"),
-        "module": module,
-        "error_type": error_type,
-        "message": message,
-        "context": context,
-        "recommendation": recommendation,
-        "traceback": _tb.format_exc()[:500],
-    }
-    _ERROR_LOG.append(entry)
-    if len(_ERROR_LOG) > _ERROR_LOG_LIMIT:
-        _ERROR_LOG.pop(0)
-    if error_type != "info":
-        notify_admin(f"🔴 [{module}] {message}\n💡 {recommendation}")
+    depth = getattr(_ERROR_LOG_REENTRY, "depth", 0)
+    _ERROR_LOG_REENTRY.depth = depth + 1
+    try:
+        if depth:
+            recommendation = "—"
+        else:
+            try:
+                if _check_ai_rate(f"log_error:{module}", 1, 300):
+                    recommendation = _static_recommendation(module, error_type)
+                else:
+                    recommendation = _get_ai_recommendation(module, error_type, message, context)
+            except Exception:
+                recommendation = _static_recommendation(module, error_type)
+        entry = {
+            "time": _dt.utcnow().strftime("%H:%M"),
+            "module": module,
+            "error_type": error_type,
+            "message": message,
+            "context": context,
+            "recommendation": recommendation,
+            "traceback": _tb.format_exc()[:500],
+        }
+        _ERROR_LOG.append(entry)
+        if len(_ERROR_LOG) > _ERROR_LOG_LIMIT:
+            _ERROR_LOG.pop(0)
+        if error_type != "info" and not depth:
+            try:
+                notify_admin(f"🔴 [{module}] {message}\n💡 {recommendation}")
+            except Exception:
+                pass
+    finally:
+        _ERROR_LOG_REENTRY.depth = depth
 
 
 def _get_ai_recommendation(module: str, error_type: str, message: str, context: str = "") -> str:
@@ -8203,32 +8313,35 @@ def _gd_web_uid(user_id_raw: str | None) -> int | None:
 
 
 def _dnd_require_auth(data_user_id: str | None) -> int | None:
-    """Resolve D&D user_id with auth check. If token present, user_id must match."""
-    uid = _gd_web_uid(data_user_id)
+    """Resolve the D&D user id from the current session.
+
+    Freemium 67/33: D&D is a signed-in feature, so the id always comes from the
+    session. A client-supplied ``user_id`` is only accepted when it matches the
+    signed-in user, so nobody can act on behalf of somebody else.
+    """
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return None
+    uid = _web_user_id("u" + str(user["id"]))
     if uid is None:
         return None
-    token = _auth_token_from_request()
-    if token:
-        user = _get_session_user(token)
-        if user:
-            auth_uid = _web_user_id("u" + str(user["id"]))
-            if auth_uid is not None and auth_uid != uid:
-                return None
+    claimed = _gd_web_uid(data_user_id)
+    if claimed is not None and claimed != uid:
+        return None
     return uid
 
 
 def _chess_require_auth(data_user_id: str | None) -> int | None:
-    """Resolve chess user_id with auth check. If token present, user_id must match."""
-    if not data_user_id:
+    """Resolve the chess user id from the current session (see _dnd_require_auth)."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
         return None
-    uid = _web_user_id(data_user_id)
-    token = _auth_token_from_request()
-    if token:
-        user = _get_session_user(token)
-        if user:
-            auth_uid = _web_user_id("u" + str(user["id"]))
-            if auth_uid is not None and auth_uid != uid:
-                return None
+    uid = _web_user_id("u" + str(user["id"]))
+    if uid is None:
+        return None
+    claimed = _web_user_id(data_user_id) if data_user_id else None
+    if claimed is not None and claimed != uid:
+        return None
     return uid
 
 
@@ -8653,10 +8766,7 @@ def _dnd_plain(text: str) -> str:
 
 @app.route("/api/dnd/status")
 def api_dnd_status():
-    user_id_raw = request.args.get("user_id", "")
-    if not user_id_raw:
-        return jsonify({"error": "Нет user_id"}), 400
-    uid = _dnd_require_auth(user_id_raw)
+    uid = _dnd_require_auth(request.args.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
     try:
@@ -11496,8 +11606,6 @@ def api_chess_link():
     data = request.get_json(silent=True) or {}
     user_id_raw = data.get("user_id", "")
     nick = (data.get("lichess_username") or "").strip()
-    if not user_id_raw:
-        return jsonify({"error": "Нет user_id"}), 400
     if not nick:
         return jsonify({"error": "Введите ник Lichess"}), 400
     uid = _chess_require_auth(user_id_raw)
@@ -11516,10 +11624,7 @@ def api_chess_link():
 @app.route("/api/chess/puzzle", methods=["POST"])
 def api_chess_puzzle():
     data = request.get_json(silent=True) or {}
-    user_id_raw = data.get("user_id", "")
-    if not user_id_raw:
-        return jsonify({"error": "Нет user_id"}), 400
-    uid = _chess_require_auth(user_id_raw)
+    uid = _chess_require_auth(data.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
     session_user = _get_session_user(_auth_token_from_request())
@@ -11569,11 +11674,8 @@ def api_chess_puzzle():
 @app.route("/api/chess/puzzle/check", methods=["POST"])
 def api_chess_puzzle_check():
     data = request.get_json(silent=True) or {}
-    user_id_raw = data.get("user_id", "")
     move = (data.get("move") or "").strip().lower()
-    if not user_id_raw:
-        return jsonify({"error": "Нет user_id"}), 400
-    uid = _chess_require_auth(user_id_raw)
+    uid = _chess_require_auth(data.get("user_id", ""))
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
     pending = _PENDING_PUZZLES.pop(uid, None)
@@ -12646,6 +12748,7 @@ def api_auth_register():
 
     try:
         engine = get_db_engine()
+        _ensure_web_user_columns(engine)
         with engine.connect() as conn:
             existing = conn.execute(
                 text("SELECT id FROM web_users WHERE login = :login"), {"login": login}
@@ -12658,23 +12761,38 @@ def api_auth_register():
                 ).mappings().first()
                 if existing_email:
                     return jsonify({"error": "Email уже занят"}), 409
-            result = conn.execute(
-                text("""
+            _params = {
+                "login": login,
+                "hash": _hash_password(password),
+                "name": display_name,
+                "gd": gd_nickname,
+                "tg": telegram_id,
+                "lichess": lichess_nickname,
+                "email": email,
+                "created_via": source,
+            }
+            # Only write columns the live table actually has: legacy/test schemas
+            # may miss some of the optional ones, and a hard-coded INSERT made
+            # registration fail with a 500 "no such column".
+            _mapping = {
+                "login": "login", "password_hash": "hash", "display_name": "name",
+                "gd_nickname": "gd", "telegram_id": "tg", "lichess_nickname": "lichess",
+                "email": "email", "created_via": "created_via",
+            }
+            _cols = _table_columns("web_users", engine)
+            if _cols:
+                _names = [c for c in _mapping if c in _cols]
+                _insert = (
+                    f"INSERT INTO web_users ({', '.join(_names)}) "
+                    f"VALUES ({', '.join(':' + _mapping[c] for c in _names)}) RETURNING id"
+                )
+            else:
+                _insert = """
                     INSERT INTO web_users (login, password_hash, display_name, gd_nickname, telegram_id, lichess_nickname, email, created_via, is_admin)
                     VALUES (:login, :hash, :name, :gd, :tg, :lichess, :email, :created_via, FALSE)
                     RETURNING id
-                """),
-                {
-                    "login": login,
-                    "hash": _hash_password(password),
-                    "name": display_name,
-                    "gd": gd_nickname,
-                    "tg": telegram_id,
-                    "lichess": lichess_nickname,
-                    "email": email,
-                    "created_via": source,
-                },
-            )
+                """
+            result = conn.execute(text(_insert), _params)
             user_id = result.scalar()
             conn.commit()
     except IntegrityError:
@@ -27346,6 +27464,7 @@ def _family_build_system_prompt(room_name: str, member_names: list[str], spoke_c
 {participants_list}
 
 ## Правила диалога
+0. **Краткость — главное правило.** Это чат, а не консультация. Отвечай в 2–4 предложения (до 100 слов). Никаких списков, разделов, подводок и нумерации. Один уточняющий вопрос — максимум.
 1. Проявляй эмпатию, признавай чувства собеседника.
 2. Не оценивай, кто прав, кто виноват.
 3. Помогай сформулировать мысли без обвинений в адрес других участников.
@@ -27353,16 +27472,20 @@ def _family_build_system_prompt(room_name: str, member_names: list[str], spoke_c
 5. Делай паузы и уточняй: «Правильно ли я понимаю, что...», «Что для тебя самое важное в этой ситуации?»
 6. При запросе на конкретное действие — предложи микро-шаг, который участник может сделать сам (не через другого человека).
 
+## Чего нельзя
+- **Не выдавай экстренные службы и кризисные контакты отпиской.** Бытовая ссора, спор, запреты, ревность, «мама забрала телефон», деньги, учёба, быт — это НЕ повод советовать «звоните 112», «вызывайте полицию/скорую», «обратитесь к психологу». В таких ситуациях работай только с чувствами и потребностями.
+- Упоминай экстренную помощь **только** при прямом сигнале реальной опасности: угроза жизни, физическое насилие, самоповреждение или суицидальные мысли, ребёнок в опасности. Тогда — коротко и прямо предложи помощь.
+- Не повторяй совет об эскалации, если участник уже описал бытовую проблему и не просил помощи.
+- Не пиши длинных абзацев «объяснений», не пересказывай правила, не добавляй мотивационные цитаты.
+
 ## Ограничения
 - {advice_rule}
 - Не придумывай факты, не упоминай имена других участников без необходимости.
 - Никаких диагнозов и профессиональных психологических терминов.
 
 ## Структура ответа
-1. Краткое признание чувств/ситуации (1-2 предложения).
-2. Если нужно — уточняющий вопрос или переформулирование.
-3. Если участник просит совет — микро-шаг (только если {micro_step_allowed}).
-4. **Обязательно в конце** добавь JSON-блок с классификацией:
+Короткий живой ответ: признание чувства + одно уточнение или один микро-шаг. Если участник попросил совет — микро-шаг (только если {micro_step_allowed}).
+В самом конце, отдельной строкой, добавь JSON-блок с классификацией:
 {{"intent_type": "emotion" | "action" | "analysis"}}
 - emotion: участник делится чувствами, переживаниями
 - action: участник просит совета, хочет что-то сделать
@@ -27372,7 +27495,7 @@ def _family_build_system_prompt(room_name: str, member_names: list[str], spoke_c
 Уже выявленные потребности (анонимно):
 {needs_map}
 
-Если заметишь новую потребность — мягко добавь её в общую карту, сформулировав как позитивную ценность."""
+Если заметишь новую потребность — упомяни её одной короткой фразой, не разворачивая список."""
 
 
 def _family_build_synthesis_prompt(needs_map: str) -> str:
@@ -27408,6 +27531,24 @@ def _family_build_synthesis_prompt(needs_map: str) -> str:
 - Без психологических ярлыков."""
 
 
+def _family_tidy_reply(text: str, max_chars: int = 900) -> str:
+    """Normalize a mediator reply: collapse whitespace and cut runaway output.
+
+    The mediator is a chat, so anything longer than a few sentences is a bug —
+    the model likes to fall back into "consultation" mode with bullet lists.
+    """
+    text = re.sub(r"[ \t]+", " ", text.strip())
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    for sep in (". ", ".\n", "! ", "? ", "!\n", "?\n"):
+        idx = cut.rfind(sep)
+        if idx > max_chars // 2:
+            return cut[: idx + 1].strip()
+    return cut.strip()
+
+
 def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dict] | None) -> tuple[str, str | None]:
     parts = [system_prompt]
     if history:
@@ -27415,7 +27556,7 @@ def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dic
             parts.append(f"{h['role']}: {h['content']}")
     parts.append(user_message)
     full_prompt = "\n\n".join(parts)
-    ai_text = call_ai_api(full_prompt, max_tokens=1024)
+    ai_text = call_ai_api(full_prompt, max_tokens=400)
     if not ai_text or ai_text.startswith("❌") or ai_text.startswith("Error") or len(ai_text.strip()) < 2:
         return "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.", None
 
@@ -27430,7 +27571,7 @@ def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dic
         except json.JSONDecodeError:
             pass
         ai_text = re.sub(r'\s*\{("intent_type"\s*:\s*"[^"]+")\}\s*$', '', ai_text).strip()
-    return ai_text, intent_type
+    return _family_tidy_reply(ai_text), intent_type
 
 
 def _family_generate_synthesis(system_prompt: str) -> str:

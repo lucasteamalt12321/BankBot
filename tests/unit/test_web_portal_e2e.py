@@ -140,6 +140,8 @@ def _make_engine():
         user_id BIGINT NOT NULL,
         username TEXT,
         level_name TEXT NOT NULL,
+        difficulty TEXT,
+        attempts INTEGER,
         media_file_id TEXT,
         media_type TEXT,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -285,21 +287,32 @@ def test_stats_page_renders():
     assert "loadStats" not in body
 
 
-def test_dnd_session_sharing_flow():
+@patch("api.index.get_db_engine")
+def test_dnd_session_sharing_flow(mock_engine):
     """Host starts a session (gets share code/url); friend joins via code into the same session."""
     from api import dnd_runtime
+    mock_engine.return_value = _make_engine()
     client = app.test_client()
+    reg = client.post("/api/auth/register", json={
+        "login": "dndhost", "password": "secret123", "email": "dnd@test.local",
+    })
+    headers = _auth_headers(reg.get_json()["token"])
     with patch.object(dnd_runtime, "cmd_dnd_start") as m_start, \
          patch.object(dnd_runtime, "find_active_session") as m_find, \
          patch.object(dnd_runtime, "find_session_by_code") as m_code, \
          patch.object(dnd_runtime, "join_session") as m_join, \
          patch.object(dnd_runtime, "get_session_log") as m_log, \
          patch.object(dnd_runtime, "get_session_players") as m_players:
+        # Freemium 67/33: D&D sessions are only available to signed-in users.
+        anon = client.post("/api/dnd/start", json={"user_id": "web_x", "name": "Подземелье"})
+        assert anon.status_code == 401
+        assert anon.get_json().get("auth_required") is True
+
         # Host starts a session
         m_start.return_value = "🎲 D&D сессия запущена!"
         m_find.return_value = {"id": 42, "name": "Подземелье", "share_code": "ABCD1234",
                                 "current_scene": "Вход", "last_ai_response": ""}
-        r = client.post("/api/dnd/start", json={"user_id": "web_host", "name": "Подземелье"})
+        r = client.post("/api/dnd/start", json={"name": "Подземелье"}, headers=headers)
         assert r.status_code == 200
         d = r.get_json()
         assert d["share_code"] == "ABCD1234"
@@ -308,7 +321,7 @@ def test_dnd_session_sharing_flow():
         # Friend joins via the (case-insensitive) code
         m_code.return_value = {"id": 42, "name": "Подземелье", "status": "active", "share_code": "ABCD1234"}
         m_join.return_value = "✅ Вы присоединились к сессии «Подземелье»!"
-        r2 = client.post("/api/dnd/join", json={"user_id": "web_friend", "code": "abcd1234", "name": "Арден"})
+        r2 = client.post("/api/dnd/join", json={"code": "abcd1234", "name": "Арден"}, headers=headers)
         assert r2.status_code == 200
         assert r2.get_json()["session_id"] == 42
         assert r2.get_json()["share_url"] == "/dnd?session=ABCD1234"
@@ -321,7 +334,7 @@ def test_dnd_session_sharing_flow():
             {"player_name": "Арден", "character_class": "Воин", "level": 1},
         ]
         m_log.return_value = []
-        r3 = client.get("/api/dnd/status?user_id=web_friend")
+        r3 = client.get("/api/dnd/status", headers=headers)
         assert r3.status_code == 200
         sd = r3.get_json()
         assert sd["active"] is True
@@ -330,7 +343,7 @@ def test_dnd_session_sharing_flow():
 
         # Unknown code -> 404
         m_code.return_value = None
-        r4 = client.post("/api/dnd/join", json={"user_id": "web_x", "code": "ZZZZ0000"})
+        r4 = client.post("/api/dnd/join", json={"code": "ZZZZ0000"}, headers=headers)
         assert r4.status_code == 404
 
 
@@ -981,20 +994,33 @@ def test_reading_generate_fallback(mock_engine):
     assert len(data.get("questions", [])) >= 1
 
 
-def test_trivia_question_and_answer():
+@patch("api.index.get_db_engine")
+def test_trivia_question_and_answer(mock_engine):
     """Trivia session flow: ask a question, answer it, verify result."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
     _TRIVIA_SESSIONS.clear()
     client = app.test_client()
+    reg = client.post("/api/auth/register", json={
+        "login": "trivia", "password": "secret123", "email": "trivia@test.local",
+    })
+    headers = _auth_headers(reg.get_json()["token"])
     q = client.post("/api/trivia/question").get_json()
     assert "id" in q
     assert "session_id" in q
     assert len(q["options"]) == 4
     assert "correct_index" not in q, "correct_index must not leak to client"
-    first = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": 0}).get_json()
+    # Freemium 67/33: the answer (and coin award) is only for signed-in users.
+    anon = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": 0})
+    assert anon.status_code == 401
+    assert anon.get_json().get("auth_required") is True
+    first = client.post("/api/trivia/answer", json={"session_id": q["session_id"], "answer_index": 0},
+                        headers=headers).get_json()
     assert "correct" in first
     assert "explanation" in first
     assert "correct_text" in first
-    stale = client.post("/api/trivia/answer", json={"session_id": 99999, "answer_index": 0}).get_json()
+    stale = client.post("/api/trivia/answer", json={"session_id": 99999, "answer_index": 0},
+                        headers=headers).get_json()
     assert stale["correct"] is False
 
 
