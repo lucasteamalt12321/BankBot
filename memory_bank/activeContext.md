@@ -10,6 +10,7 @@
 - **Фикс:** `_ddl(sql, engine=None)` — Postgres (dialect != sqlite) получает SQL без изменений; `_ensure_ddl_column(conn, table, col_sql, engine)` (проверка наличия колонки + `conn.rollback()` при ошибке) заменил сырые ALTERы (code_files×2, parsed_transactions×3, AUTH optional-cols); `engine` продет во все 11 `text(_ddl("""...""", engine)))` (family 5, AUTH 4, SOCIAL 2). Грабли: первая правка давала `conn.execute(text(_ddl("""..."""))), engine)` (кортеж, engine=None) — правильное закрытие `""", engine)))`.
 - **Тесты:** `test_ddl_portability.py` 4/4 (postgres-noop, sqlite-rewrite, idempotent ×2, ensure_ddl_column no-op). Регресс 38+73 passed; 5 падений `test_manual_parsing_handler_e2e` — pre-existing (нет pytest-asyncio, подтверждено на HEAD). ruff чист.
 - **Статус: code+tests закоммичены (`701f83f`). Следующий шаг: память → push → деплой → прод-смоук.**
+- **Доп. фикс `373be16` (15:05→19:51):** прод `DeadlockDetected` в dedupe `daily_prayer_log` (`_ensure_universe_tables`) на двух параллельных холодных стартах → `pg_advisory_xact_lock(729102)` (Postgres-only) + `conn.rollback()` в except. Задеплоено `lthub-l45k7k3bm` (Ready), смоук /login /code /family /md2pdf / → 200, логов-ошибок нет. Спам 18:49/19:25/19:30 в пасте — от старого деплоя (в SQL видна реврайт-форма старого `_ddl`). **Ожидание: нового спама AUTH/SOCIAL/CODE/PARSING/UNIVERSE нет.**
 
 ### 🏁 Выполнено (2026-09-25): 🔍 Багхант Family — Circle (веб+медиатор) и Budget (бот+веб) — код готов
 
