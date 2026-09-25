@@ -7,6 +7,8 @@
 ### 🏁 Выполнено (2026-09-25): 🔍 Багхант Family — Circle (веб+медиатор) и Budget (бот+веб) — код готов
 
 > Полный багхант family-модуля (high+med+low, пользователь выбрал «Всё, включая средне/низкое»). `api/index.py` (~1180 строк) + `family_budget.py` + `budget_commands.py` + тесты. ruff чист; `test_family_mediator.py` 9/9, `test_family_budget.py` (новый, IDOR/валидации) 13/13. **Коммит/деплой/прод-смоук — следующий шаг** (см. `progress.md` Changelog).
+>
+> **✅ Деплой сделан, прод-смоук прошёл** (коммиты `388824b` основной, `61a3b2d` фикс DELETE-500). Локальный прогон `test_family_budget.py` + `test_family_mediator.py` — 22/22, ruff чист, push в GitHub (`2c4cb06..58db1f4`). На проде проверено: `/family`-страницы 200, IDOR-фикс (голый `X-User-Id` → 401), create/join/chat/history/GET OK, DELETE комнаты 200 (отыгран после фикса на прод-смоуке; осиротевшие smoke-комнаты `79466BB0`/`465ED597` удалены).
 
 - **Family Circle (веб + AI-медиатор, Batch A/B):**
   - Приватность: в ИИ-историю попадают ТОЛЬКО сообщения текущего участника (`_family_room_messages(..., member_id)`); свод needs анонимный. Needs — из структурированного JSON-блока ответа ИИ (`_family_pop_json_block`), фолбэк regex по реплике пользователя; промпт медиатора дополнен.

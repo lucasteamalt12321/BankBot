@@ -4,7 +4,7 @@
 
 ## last_checked_commit
 
-**`61a3b2d`** — прод-смоук поймал 500 в `api_family_rooms_delete` (`creator` без `.mappings()` → TypeError). Исправлено, локально DELETE 200, регресс 22/22, ruff чист.
+**`58db1f4`** — багхант Family (Circle + Budget IDOR): 22/22 тесты, ruff чист. Задеплоено на прод (`lthub.vercel.app`): pages 200, IDOR 401, create/join/chat/GET OK, DELETE 200 (фикс `.mappings()` в `61a3b2d`), smoke-комнаты очищены. **Push сделан, последующий аудит не требуется.**
 
 ## Beta Bugs (баги бета-тестирования, 2026-08-27+)
 
