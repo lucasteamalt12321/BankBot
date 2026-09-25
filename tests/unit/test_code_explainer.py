@@ -491,3 +491,113 @@ def test_chat_flow(mock_ai_chat, mock_ai, mock_clone, tmp_path):
         r = client.get(f"/api/code/project/{pid}/file?path=player/player.gd", headers=_auth_headers(token))
         uc = r.get_json()["user_comments"]
         assert any(c["comment"] == "Скорость экспортирована" for c in uc)
+
+
+def _fake_repo_with_big_file(dest):
+    """Fake repo: big.py (900 lines — «большой файл») + main.py (маленький)."""
+    os.makedirs(dest, exist_ok=True)
+    with open(os.path.join(dest, "main.py"), "w", encoding="utf-8") as fh:
+        fh.write("def run():\n    return 1\n")
+    with open(os.path.join(dest, "big.py"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(f"x{i} = {i}" for i in range(900)))
+
+
+_BIG_AI_RESPONSE = json.dumps({
+    "files": {
+        "main.py": {
+            "summary": "Главный модуль.",
+            "line_comments": {"1": "Функция run"},
+        }
+    }
+})
+
+
+@patch("api.index._code_clone_repo")
+@patch("api.index._code_ai_call")
+def test_guest_scan_skips_large_files(mock_ai, mock_clone, tmp_path):
+    """Аноним: загрузка (analyze:false) + «Разобрать» — большие файлы (>800 строк) пропущены, малые проанализированы."""
+    def _fake_clone(url, dest, timeout=30):
+        _fake_repo_with_big_file(dest)
+        return True
+
+    mock_clone.side_effect = _fake_clone
+    mock_ai.return_value = _BIG_AI_RESPONSE
+
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        client = app.test_client()
+
+        # аноним грузит проект (гостевой, user_id NULL, без ИИ)
+        r = client.post("/api/code/analyze", json={"repo_url": "https://github.com/x/big", "analyze": False})
+        assert r.status_code == 200, r.get_json()
+        pid = r.get_json()["project_id"]
+
+        # аноним «разбирает» проект: большие файлы пропускаются
+        r = client.post(f"/api/code/project/{pid}/analyze")
+        assert r.status_code == 200, r.get_json()
+        d = r.get_json()
+        assert d["ok"] is True
+        assert d["skipped_large"] == 1
+        assert d["file_count"] == 1  # только main.py в пуле скана
+        assert d["analyzed_count"] == 1
+
+        # main.py получил ИИ-комментарий
+        r = client.get(f"/api/code/project/{pid}/file?path=main.py")
+        fdata = r.get_json()
+        assert fdata["ai_line_comments"].get("1") == "Функция run"
+
+        # big.py НЕ анализировался (чанки не прогрессировали)
+        r = client.get(f"/api/code/project/{pid}/file?path=big.py")
+        bdata = r.get_json()
+        assert not bdata["ai_line_comments"]
+
+
+@patch("api.index._code_clone_repo")
+@patch("api.index._code_ai_call")
+def test_guest_cannot_scan_owned_project(mock_ai, mock_clone, tmp_path):
+    """Аноним не может сканировать проект, загруженный зарегистрированным пользователем."""
+    def _fake_clone(url, dest, timeout=30):
+        _fake_repo_with_big_file(dest)
+        return True
+
+    mock_clone.side_effect = _fake_clone
+    mock_ai.return_value = _BIG_AI_RESPONSE
+
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        client = app.test_client()
+        token = _create_user(client)
+        r = client.post("/api/code/analyze", json={"repo_url": "https://github.com/x/owned"},
+                        headers=_auth_headers(token))
+        pid = r.get_json()["project_id"]
+
+        # аноним пытается сканировать личный проект → 404
+        r = client.post(f"/api/code/project/{pid}/analyze")
+        assert r.status_code == 404
+        assert r.get_json()["error"] == "Проект не найден"
+
+
+@patch("api.index._code_clone_repo")
+@patch("api.index._code_ai_call")
+def test_guest_scan_rate_limited(mock_ai, mock_clone, tmp_path):
+    """Гостевой скан ограничен по IP: после _CODE_GUEST_SCAN_RATE вызовов → 429."""
+    def _fake_clone(url, dest, timeout=30):
+        _fake_repo_with_big_file(dest)
+        return True
+
+    mock_clone.side_effect = _fake_clone
+    mock_ai.return_value = _BIG_AI_RESPONSE
+
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        client = app.test_client()
+        r = client.post("/api/code/analyze", json={"repo_url": "https://github.com/x/big", "analyze": False})
+        pid = r.get_json()["project_id"]
+
+        from api.index import _CODE_GUEST_SCAN_RATE
+        for _ in range(_CODE_GUEST_SCAN_RATE):
+            r = client.post(f"/api/code/project/{pid}/analyze")
+            assert r.status_code == 200, r.get_json()
+
+        r = client.post(f"/api/code/project/{pid}/analyze")
+        assert r.status_code == 429
