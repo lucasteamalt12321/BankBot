@@ -1,5 +1,8 @@
 """Family Budget bot commands for LTHub."""
 
+import hashlib
+import hmac
+import os
 import re
 
 import httpx
@@ -17,6 +20,18 @@ from bot.budget_parser import parse_expense_line, resolve_member
 AWAIT_EXPENSES = 1
 
 
+def _budget_sig(user_id: int | str) -> str:
+    """HMAC signature for self-HTTP calls to the Family Budget API."""
+    secret = os.getenv("BUDGET_API_SECRET", "")
+    if not secret:
+        return ""
+    return hmac.new(secret.encode(), str(user_id).encode(), hashlib.sha256).hexdigest()
+
+
+def _budget_headers(user_id: int | str) -> dict:
+    return {"X-User-Id": str(user_id), "X-Budget-Sig": _budget_sig(user_id)}
+
+
 async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /budget — открывает Family Budget веб-приложение."""
     if not update.message:
@@ -24,7 +39,7 @@ async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
     base_url = context.bot_data.get("budget_base_url", "https://bank-bot-ruby.vercel.app")
-    app_url = f"{base_url}/family_budget?user_id={user_id}"
+    app_url = f"{base_url}/family_budget?user_id={user_id}&sig={_budget_sig(user_id)}"
 
     keyboard = [[InlineKeyboardButton("💰 Открыть семейный бюджет", url=app_url)]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -96,7 +111,7 @@ async def _create_family(update: Update, name: str):
             res = await client.post(
                 f"{base_url}/api/budget/family/create",
                 json={"name": name, "display_name": display_name},
-                headers={"X-User-Id": str(user_id)},
+                headers=_budget_headers(user_id),
             )
             data = res.json()
             if res.status_code == 201 and "family" in data:
@@ -127,7 +142,7 @@ async def _join_family(update: Update, code: str):
             res = await client.post(
                 f"{base_url}/api/budget/family/join",
                 json={"code": code, "display_name": display_name},
-                headers={"X-User-Id": str(user_id)},
+                headers=_budget_headers(user_id),
             )
             data = res.json()
             if "family" in data:
@@ -152,7 +167,7 @@ async def _family_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient(timeout=10) as client:
             res = await client.get(
                 f"{base_url}/api/budget/family/status?user_id={user_id}",
-                headers={"X-User-Id": str(user_id)},
+                headers=_budget_headers(user_id),
             )
             data = res.json()
             if not data.get("family"):
@@ -185,7 +200,7 @@ async def _leave_family(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient(timeout=10) as client:
             res = await client.get(
                 f"{base_url}/api/budget/family/status?user_id={user_id}",
-                headers={"X-User-Id": str(user_id)},
+                headers=_budget_headers(user_id),
             )
             data = res.json()
             if not data.get("family"):
@@ -200,7 +215,7 @@ async def _leave_family(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             # Since we don't have a leave endpoint yet, redirect to web app
-            app_url = f"{base_url}/family_budget?user_id={user_id}"
+            app_url = f"{base_url}/family_budget?user_id={user_id}&sig={_budget_sig(user_id)}"
             keyboard = [[InlineKeyboardButton("💰 Открыть семейный бюджет", url=app_url)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
@@ -234,7 +249,7 @@ async def _call_api_create_transaction(
             res = await client.post(
                 f"{base_url}/api/budget/transactions",
                 json=payload,
-                headers={"X-User-Id": str(txn_data["payer_id"])},
+                headers=_budget_headers(txn_data["payer_id"]),
             )
             if res.status_code == 201:
                 return res.json()
@@ -249,7 +264,7 @@ async def _fetch_family_info(user_id: str, base_url: str) -> dict | None:
         async with httpx.AsyncClient(timeout=10) as client:
             res = await client.get(
                 f"{base_url}/api/budget/family/status?user_id={user_id}",
-                headers={"X-User-Id": str(user_id)},
+                headers=_budget_headers(user_id),
             )
             data = res.json()
             return data.get("family")
@@ -364,32 +379,29 @@ async def linkvk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /linkvk — generate a 6-digit code to link VK account."""
     from datetime import datetime, timedelta
 
-    from sqlalchemy import text as _text
-
-    from database.database import get_db_engine
+    from database.database import LinkedVKAccount, get_db_session
 
     if not update.message:
         return
 
     user_id = str(update.effective_user.id)
-    code = "".join([str(__import__("random").randint(0, 9)) for _ in range(6)])
-    expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+    code = str(__import__("random").randint(0, 999999)).zfill(6)
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    # Temporary UNIQUE placeholder (never a real numeric VK id) until pairing.
+    placeholder_vk = "tg" + user_id[:17]
 
-    engine = get_db_engine()
-    with engine.connect() as conn:
-        # Upsert: delete old link for this user, insert new
-        conn.execute(
-            _text("DELETE FROM linked_vk_accounts WHERE tg_user_id = :uid"),
-            {"uid": user_id},
-        )
-        conn.execute(
-            _text(
-                "INSERT INTO linked_vk_accounts (tg_user_id, link_code, code_expires_at) "
-                "VALUES (:uid, :code, :exp)"
-            ),
-            {"uid": user_id, "code": code, "exp": expires_at},
-        )
-        conn.commit()
+    db = get_db_session()
+    try:
+        db.query(LinkedVKAccount).filter(LinkedVKAccount.tg_user_id == user_id).delete()
+        db.add(LinkedVKAccount(
+            vk_user_id=placeholder_vk,
+            tg_user_id=user_id,
+            link_code=code,
+            code_expires_at=expires_at,
+        ))
+        db.commit()
+    finally:
+        db.close()
 
     await update.message.reply_text(
         f"🔐 Код привязки VK: {code}\n\n"

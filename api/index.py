@@ -1263,6 +1263,43 @@ def _ensure_verb_tables(engine):
         log_error("VERBS", "error", f"Table init error: {exc}")
 
 
+def _family_dedupe_and_unique_member_names(engine):
+    """Enforce UNIQUE(room_id, display_name). Legacy duplicate names are renamed, not deleted."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_members_room_name ON members(room_id, display_name)"))
+    except Exception:
+        with engine.begin() as conn:
+            seen: set[tuple[str, str]] = set()
+            rows = conn.execute(text(
+                "SELECT id, room_id, display_name FROM members ORDER BY created_at ASC, id ASC"
+            )).mappings().all()
+            for r in rows:
+                key = (r["room_id"], r["display_name"])
+                if key in seen:
+                    new_name = f"{r['display_name'][:80]}#{r['id'][:8]}"
+                    conn.execute(text("UPDATE members SET display_name = :n WHERE id = :id"),
+                                 {"n": new_name, "id": r["id"]})
+                else:
+                    seen.add(key)
+        with engine.begin() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX uq_members_room_name ON members(room_id, display_name)"))
+
+
+def _family_dedupe_and_unique_reports(engine):
+    """Enforce UNIQUE(room_id) on final_reports so a report is generated only once."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_final_reports_room ON final_reports(room_id)"))
+    except Exception:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "DELETE FROM final_reports WHERE id NOT IN (SELECT MIN(id) FROM final_reports GROUP BY room_id)"
+            ))
+        with engine.begin() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX uq_final_reports_room ON final_reports(room_id)"))
+
+
 def _ensure_family_tables(engine):
     """Create Family Circle mediation tables if they don't exist (preserves existing data)."""
     try:
@@ -1320,6 +1357,8 @@ def _ensure_family_tables(engine):
             """)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_final_reports_room ON final_reports(room_id)"))
             conn.commit()
+        _family_dedupe_and_unique_member_names(engine)
+        _family_dedupe_and_unique_reports(engine)
         log_error("FAMILY", "info", "Tables ensured")
     except Exception as exc:
         log_error("FAMILY", "error", f"Table init error: {exc}")
@@ -5700,12 +5739,129 @@ def normalize_command(text: str | None) -> str:
     return first_token.split("@", maxsplit=1)[0].lower()
 
 
+def _handle_budget_family_command(chat_id: int, user_id: str, name: str, args: list[str]) -> None:
+    """Handle /family subcommands directly in the webhook (create/join/info/leave)."""
+    import random as _rnd
+
+    sub = (args[0].lower() if args else "help")
+    engine = get_db_engine()
+    st = str(user_id)
+
+    if sub == "create":
+        fam_name = " ".join(args[1:]).strip()[:255] if len(args) > 1 else ""
+        if not fam_name:
+            send_telegram_message(chat_id, "Укажите название семьи: /family create <название>")
+            return
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            if row:
+                send_telegram_message(chat_id, "❌ Вы уже состоите в семье.")
+                return
+            code = "".join(_rnd.choices("0123456789", k=6))
+            for _ in range(50):
+                exists = conn.execute(text("SELECT 1 FROM families WHERE invite_code = :c"), {"c": code}).mappings().first()
+                if not exists:
+                    break
+                code = "".join(_rnd.choices("0123456789", k=6))
+            conn.execute(
+                text("INSERT INTO families (name, admin_id, invite_code) VALUES (:n, :a, :c)"),
+                {"n": fam_name, "a": st, "c": code},
+            )
+            fam_id = conn.execute(text("SELECT id FROM families WHERE invite_code = :c"), {"c": code}).mappings().first()["id"]
+            conn.execute(
+                text("INSERT INTO family_members (family_id, user_id, display_name) VALUES (:f, :u, :d)"),
+                {"f": fam_id, "u": st, "d": name or "Участник"},
+            )
+            conn.commit()
+        send_telegram_message(
+            chat_id,
+            f"✅ Семья «{fam_name}» создана!\n\n"
+            f"📌 Код приглашения: <code>{code}</code>\n\n"
+            f"Поделитесь кодом — присоединиться: /family join <код>",
+            parse_mode="HTML",
+        )
+    elif sub == "join":
+        code = (args[1].strip() if len(args) > 1 else "")
+        if not code:
+            send_telegram_message(chat_id, "Укажите код приглашения: /family join <код>")
+            return
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            if row:
+                send_telegram_message(chat_id, "❌ Вы уже состоите в семье.")
+                return
+            fam = conn.execute(text("SELECT id, name FROM families WHERE invite_code = :c"), {"c": code}).mappings().first()
+            if not fam:
+                send_telegram_message(chat_id, "❌ Неверный код приглашения.")
+                return
+            conn.execute(
+                text("INSERT INTO family_members (family_id, user_id, display_name) VALUES (:f, :u, :d)"),
+                {"f": fam["id"], "u": st, "d": name or "Участник"},
+            )
+            conn.commit()
+        send_telegram_message(
+            chat_id,
+            f"✅ Вы присоединились к семье «{fam['name']}»!\n\nОткройте /budget чтобы начать учёт трат.",
+        )
+    elif sub == "info":
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT family_id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            if not row:
+                send_telegram_message(chat_id, "❌ Вы не состоите ни в одной семье.")
+                return
+            fam = conn.execute(text("SELECT id, name, admin_id, invite_code FROM families WHERE id = :f"), {"f": row["family_id"]}).mappings().first()
+            members = conn.execute(
+                text("SELECT user_id, display_name FROM family_members WHERE family_id = :f ORDER BY joined_at"),
+                {"f": row["family_id"]},
+            ).mappings().all()
+        lines = "\n".join(
+            f"• {m['display_name']} {'(админ)' if str(m['user_id']) == str(fam['admin_id']) else ''}"
+            for m in members
+        )
+        send_telegram_message(
+            chat_id,
+            f"🏠 Семья: {fam['name']}\n📌 Код: <code>{fam['invite_code']}</code>\n\n"
+            f"👥 Участники ({len(members)}):\n{lines}",
+            parse_mode="HTML",
+        )
+    elif sub == "leave":
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT family_id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            if not row:
+                send_telegram_message(chat_id, "❌ Вы не состоите ни в одной семье.")
+                return
+            adm = conn.execute(text("SELECT admin_id FROM families WHERE id = :f"), {"f": row["family_id"]}).mappings().first()
+            if adm and str(adm["admin_id"]) == st:
+                send_telegram_message(
+                    chat_id,
+                    "❌ Вы администратор семьи. Передайте права или расформируйте семью через веб-приложение.",
+                )
+                return
+            conn.execute(
+                text("DELETE FROM family_members WHERE user_id = :u AND family_id = :f"),
+                {"u": st, "f": row["family_id"]},
+            )
+            conn.commit()
+        send_telegram_message(chat_id, "✅ Вы вышли из семьи.")
+    else:
+        send_telegram_message(
+            chat_id,
+            "📋 Управление семьёй\n\n"
+            "Доступные команды:\n"
+            "• /family create <название> — создать новую семью\n"
+            "• /family join <код> — присоединиться к семье\n"
+            "• /family info — информация о вашей семье\n"
+            "• /family leave — выйти из семьи\n"
+            "• /budget — открыть веб-приложение",
+        )
+
+
 def _fetch_family_info_via_api(user_id: str) -> dict | None:
     """Get family info via internal HTTP call."""
     try:
         resp = requests.get(
             f"https://bank-bot-ruby.vercel.app/api/budget/family/status?user_id={user_id}",
-            headers={"X-User-Id": user_id},
+            headers={"X-User-Id": user_id, "X-Budget-Sig": _budget_sign_user_id(user_id)},
             timeout=10,
         )
         data = resp.json()
@@ -5728,7 +5884,7 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
         resp = requests.post(
             "https://bank-bot-ruby.vercel.app/api/budget/transactions",
             json=payload,
-            headers={"X-User-Id": str(txn_data["payer_id"])},
+            headers={"X-User-Id": str(txn_data["payer_id"]), "X-Budget-Sig": _budget_sign_user_id(txn_data["payer_id"])},
             timeout=10,
         )
         return resp.status_code == 201
@@ -9323,7 +9479,9 @@ def debug_puzzle():
 
 @app.route("/test_send/<int:chat_id>")
 def test_send(chat_id):
-    """Test sending a message to a chat_id."""
+    """Test sending a message to a chat_id (admin only)."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     try:
         send_telegram_message(chat_id, "🔧 Тестовое сообщение от LTHub")
         return jsonify({"ok": True, "chat_id": chat_id})
@@ -24673,7 +24831,7 @@ def telegram_webhook(secret: str):
         elif command == "/endings" and chat_id:
             send_endings_trainer(chat_id)
         elif command == "/budget" and chat_id:
-            budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}"
+            budget_url = f"https://bank-bot-ruby.vercel.app/family_budget?user_id={user_id}&sig={_budget_sign_user_id(user_id)}"
             vk_app_url = "https://vk.com/app54665568"
             send_telegram_message(
                 chat_id,
@@ -24703,6 +24861,8 @@ def telegram_webhook(secret: str):
                     ]
                 },
             )
+        elif command == "/family" and chat_id:
+            _handle_budget_family_command(chat_id, str(user_id), name, (msg_text or "").split()[1:])
         elif command == "/addexpense" and chat_id:
             _ADDE_LOG.append({"user_id": user_id, "name": name, "chat_id": chat_id, "text": msg_text[:100], "time": datetime.now().isoformat()})
             _ADDE_LOG[:] = _ADDE_LOG[-50:]
@@ -26842,10 +27002,16 @@ def get_fallback_sets():
 @app.route("/api/set_webhook", methods=["GET"])
 def set_webhook():
     """Set Telegram webhook to the current Vercel deployment."""
+    from urllib.parse import urlparse
+
     secret = os.getenv("WEBHOOK_SECRET") or ""
     if not secret:
         return jsonify({"error": "WEBHOOK_SECRET env var not configured"}), 500
     base = request.host_url.rstrip("/")
+    host = urlparse(base).hostname or ""
+    allowed = host == "bank-bot-ruby.vercel.app" or host.endswith(".vercel.app")
+    if not allowed:
+        return jsonify({"error": "webhook может указывать только на Vercel-домены проекта"}), 403
     webhook_url = f"{base}/telegram/webhook/{secret}"
     drop_pending = request.args.get("drop") == "1"
     try:
@@ -26976,6 +27142,7 @@ def debug_addexpense():
 
 from bot.budget_parser import parse_expense_line
 from bot.web.family_budget import (
+    _budget_sign_user_id,
     api_balance,
     api_debt_pay,
     api_debts_list,
@@ -27187,14 +27354,24 @@ Text: {text}"""
 
 # ── Family Circle (медиация) ──────────────────────────────────────
 
+_FAMILY_ENCRYPTION_WARNED = False
+
+
 def _family_cipher():
+    global _FAMILY_ENCRYPTION_WARNED
     key = os.getenv("ENCRYPTION_KEY")
     if not key:
+        if not _FAMILY_ENCRYPTION_WARNED:
+            _FAMILY_ENCRYPTION_WARNED = True
+            log_error("FAMILY", "warn", "ENCRYPTION_KEY not set — family messages stored without encryption")
         return None
     try:
         from cryptography.fernet import Fernet
         return Fernet(key.encode() if isinstance(key, str) else key)
     except Exception:
+        if not _FAMILY_ENCRYPTION_WARNED:
+            _FAMILY_ENCRYPTION_WARNED = True
+            log_error("FAMILY", "warn", "ENCRYPTION_KEY invalid — family messages stored without encryption")
         return None
 
 
@@ -27241,6 +27418,49 @@ def _family_check_password(password: str, stored: str) -> bool:
     return True
 
 
+class _FamilyPasswordError(ValueError):
+    """Wrong member name/password (maps to HTTP 403)."""
+
+
+def _family_validate_name(value: str, label: str = "имя") -> str:
+    name = (value or "").strip()
+    if not name:
+        raise ValueError(f"Укажите {label}")
+    if len(name) > 100:
+        raise ValueError(f"{label.capitalize()} не может быть длиннее 100 символов")
+    return name
+
+
+def _family_validate_room_name(value: str) -> str:
+    name = (value or "").strip()
+    if not name:
+        raise ValueError("Укажите название комнаты")
+    if len(name) > 255:
+        raise ValueError("Название комнаты не может быть длиннее 255 символов")
+    return name
+
+
+def _family_validate_password(value: str) -> str:
+    password = value or ""
+    if len(password) < 4:
+        raise ValueError("Пароль должен содержать минимум 4 символа")
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("Пароль слишком длинный (максимум 72 байта)")
+    return password
+
+
+def _family_client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or "unknown"
+    return request.remote_addr or "unknown"
+
+
+def _family_rate_limit(key: str, max_requests: int = 10, window: int = 60) -> bool:
+    """Return True if a family endpoint rate limit is exceeded (in-memory, per key)."""
+    return _check_ai_rate(f"family_{key}", max_requests=max_requests, window=window)
+
+
 def _family_gen_room_id() -> str:
     engine = get_db_engine()
     while True:
@@ -27283,30 +27503,59 @@ def _family_create_room(name: str, creator_name: str) -> dict:
 
 
 def _family_join_room(room_id: str, member_name: str, password: str) -> dict:
+    from sqlalchemy.exc import IntegrityError
+    name = _family_validate_name(member_name, "имя участника")
+    password = _family_validate_password(password)
     engine = get_db_engine()
-    name = (member_name or "").strip()
-    if not name:
-        raise ValueError("Укажите имя участника")
-    if not password or len(password) < 4:
-        raise ValueError("Пароль должен содержать минимум 4 символа")
     with engine.connect() as conn:
         room = conn.execute(text("SELECT id FROM rooms WHERE id = :rid"), {"rid": room_id}).fetchone()
     if not room:
         raise ValueError("Комната не найдена")
+    room_info = _family_get_room(room_id)
     existing = _family_member_by_name(room_id, name)
     if existing:
-        return {"ok": True, "your_password": None, "is_new": False}
+        if not _family_check_password(password, existing["password_hash"]):
+            raise _FamilyPasswordError("Неверное имя участника или пароль")
+        return {
+            "ok": True,
+            "is_new": False,
+            "your_password": None,
+            "room_id": room_id,
+            "finished": existing["finished"],
+            "room": room_info,
+        }
     member_id = str(uuid.uuid4())
-    with engine.begin() as conn:
-        conn.execute(text(
-            "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
-            "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
-        ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(password),
-            "ts": datetime.now(timezone.utc)})
-        conn.execute(text(
-            "UPDATE rooms SET participants_total = participants_total + 1 WHERE id = :rid"
-        ), {"rid": room_id})
-    return {"ok": True, "your_password": None, "is_new": True}
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
+                "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
+            ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(password),
+                "ts": datetime.now(timezone.utc)})
+            conn.execute(text(
+                "UPDATE rooms SET participants_total = participants_total + 1 WHERE id = :rid"
+            ), {"rid": room_id})
+    except IntegrityError:
+        # Concurrent join with the same name — let the existing member verify instead.
+        existing = _family_member_by_name(room_id, name)
+        if existing and _family_check_password(password, existing["password_hash"]):
+            return {
+                "ok": True,
+                "is_new": False,
+                "your_password": None,
+                "room_id": room_id,
+                "finished": existing["finished"],
+                "room": _family_get_room(room_id),
+            }
+        raise _FamilyPasswordError("Неверное имя участника или пароль")
+    return {
+        "ok": True,
+        "is_new": True,
+        "your_password": None,
+        "room_id": room_id,
+        "finished": False,
+        "room": room_info,
+    }
 
 
 def _family_get_room(room_id: str) -> dict | None:
@@ -27334,7 +27583,8 @@ def _family_member_by_name(room_id: str, name: str) -> dict | None:
     with engine.connect() as conn:
         row = conn.execute(text(
             "SELECT id, display_name, password_hash, finished FROM members "
-            "WHERE room_id = :rid AND display_name = :name"
+            "WHERE room_id = :rid AND display_name = :name "
+            "ORDER BY created_at ASC, id ASC LIMIT 1"
         ), {"rid": room_id, "name": name}).mappings().first()
     return dict(row) if row else None
 
@@ -27358,14 +27608,22 @@ def _family_verify_member(room_id: str, name: str, password: str) -> dict | None
     return member
 
 
-def _family_room_messages(room_id: str) -> list[dict]:
+def _family_room_messages(room_id: str, member_id: str | None = None) -> list[dict]:
+    """Return decrypted messages. When member_id is given, only that member's dialog is returned
+    (privacy: the mediator never sees other members' messages in the chat history)."""
     engine = get_db_engine()
+    sql = (
+        "SELECT m.content, m.response, mem.display_name FROM messages m "
+        "JOIN members mem ON mem.id = m.member_id "
+        "WHERE mem.room_id = :rid"
+    )
+    params: dict[str, str] = {"rid": room_id}
+    if member_id is not None:
+        sql += " AND m.member_id = :mid"
+        params["mid"] = member_id
+    sql += " ORDER BY m.created_at"
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT m.content, m.response, mem.display_name FROM messages m "
-            "JOIN members mem ON mem.id = m.member_id "
-            "WHERE mem.room_id = :rid ORDER BY m.created_at"
-        ), {"rid": room_id}).mappings().all()
+        rows = conn.execute(text(sql), params).mappings().all()
     result = []
     for r in rows:
         result.append({
@@ -27401,15 +27659,16 @@ def _family_create_message(member_id: str, content: str, response: str | None,
 def _family_add_need(room_id: str, need_text: str, member_id: str | None = None) -> None:
     engine = get_db_engine()
     need_id = str(uuid.uuid4())
+    clean = (need_text or "").strip()[:200]
     with engine.begin() as conn:
         conn.execute(text(
             "INSERT INTO needs (id, room_id, need_text, member_id, created_at) "
             "VALUES (:id, :rid, :text, :mid, :ts)"
-        ), {"id": need_id, "rid": room_id, "text": need_text, "mid": member_id,
+        ), {"id": need_id, "rid": room_id, "text": _family_encrypt(clean), "mid": member_id,
             "ts": datetime.now(timezone.utc)})
 
 
-def _family_room_needs_text(room_id: str) -> str:
+def _family_room_needs_text(room_id: str, max_items: int = 40) -> str:
     engine = get_db_engine()
     with engine.connect() as conn:
         needs = conn.execute(text(
@@ -27417,7 +27676,13 @@ def _family_room_needs_text(room_id: str) -> str:
         ), {"rid": room_id}).scalars().all()
     if not needs:
         return "Пока нет зафиксированных потребностей."
-    return "\n".join(f"- {n}" for n in needs)
+    lines = []
+    for n in needs[-max_items:]:
+        value = _family_decrypt(n if isinstance(n, str) else (n or ""))
+        value = (value or "").strip()
+        if value:
+            lines.append(f"- {value[:200]}")
+    return "\n".join(lines) if lines else "Пока нет зафиксированных потребностей."
 
 
 def _family_finish_member(member: dict) -> None:
@@ -27427,11 +27692,32 @@ def _family_finish_member(member: dict) -> None:
 
 
 def _family_count_spoken(room_id: str) -> int:
+    """Number of distinct members who actually sent at least one message."""
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        return conn.execute(text(
+            "SELECT COUNT(DISTINCT m.member_id) FROM messages m "
+            "JOIN members mem ON mem.id = m.member_id WHERE mem.room_id = :rid"
+        ), {"rid": room_id}).scalar() or 0
+
+
+def _family_count_finished(room_id: str) -> int:
     engine = get_db_engine()
     with engine.connect() as conn:
         return conn.execute(text(
             "SELECT COUNT(*) FROM members WHERE room_id = :rid AND finished"
         ), {"rid": room_id}).scalar() or 0
+
+
+def _family_recount_spoken(room_id: str) -> None:
+    """Atomically recompute spoke_count from actual messages (lost-update safe)."""
+    with get_db_engine().begin() as conn:
+        conn.execute(text(
+            "UPDATE rooms SET spoke_count = ("
+            "  SELECT COUNT(DISTINCT m.member_id) FROM messages m "
+            "  JOIN members mem ON mem.id = m.member_id WHERE mem.room_id = :rid"
+            ") WHERE id = :rid"
+        ), {"rid": room_id})
 
 
 def _family_save_report(room_id: str, report_text: str) -> None:
@@ -27441,7 +27727,7 @@ def _family_save_report(room_id: str, report_text: str) -> None:
         conn.execute(text(
             "INSERT INTO final_reports (id, room_id, report_text, created_at) "
             "VALUES (:id, :rid, :text, :ts)"
-        ), {"id": report_id, "rid": room_id, "text": report_text,
+        ), {"id": report_id, "rid": room_id, "text": _family_encrypt(report_text),
             "ts": datetime.now(timezone.utc)})
 
 
@@ -27451,7 +27737,10 @@ def _family_get_report(room_id: str) -> str | None:
         row = conn.execute(text(
             "SELECT report_text FROM final_reports WHERE room_id = :rid ORDER BY created_at DESC LIMIT 1"
         ), {"rid": room_id}).mappings().first()
-    return row["report_text"] if row else None
+    if not row:
+        return None
+    value = _family_decrypt(row["report_text"])
+    return value if value else None
 
 
 def _family_build_system_prompt(room_name: str, member_names: list[str], spoke_count: int, needs_map: str) -> str:
@@ -27496,6 +27785,9 @@ def _family_build_system_prompt(room_name: str, member_names: list[str], spoke_c
 - emotion: участник делится чувствами, переживаниями
 - action: участник просит совета, хочет что-то сделать
 - analysis: участник анализирует ситуацию, ищет причину
+Если участник явно сформулировал новую потребность или ценность (например, «мне важно...», «для меня ценно...») — добавь в тот же JSON-блок поле needs списком, максимум 2 короткие формулировки (до 100 символов каждая), без имён и обвинений:
+{{"intent_type": "emotion", "needs": ["быть услышанным"]}}
+Бери потребности только из слов участника. Не изобретай, не дублируй уже известные потребности.
 
 ## Потребности комнаты
 Уже выявленные потребности (анонимно):
@@ -27555,29 +27847,57 @@ def _family_tidy_reply(text: str, max_chars: int = 900) -> str:
     return cut.strip()
 
 
-def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dict] | None) -> tuple[str, str | None]:
+def _family_pop_json_block(text: str) -> tuple[str, dict | None]:
+    """Strip a trailing JSON block (intent/needs) from the mediator reply.
+
+    Returns (cleaned_text, parsed_dict_or_None). Only flat objects are matched.
+    """
+    m = re.search(r'\{[^{}]*?(?:intent_type|needs)[^{}]*?\}\s*$', text, re.DOTALL)
+    if not m:
+        return text, None
+    try:
+        obj = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return text, None
+    if not isinstance(obj, dict):
+        return text, None
+    return text[: m.start()].strip(), obj
+
+
+def _family_clean_needs(obj: dict | None) -> list[str]:
+    needs = []
+    if not isinstance(obj, dict):
+        return needs
+    raw = obj.get("needs")
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, str):
+                value = item.strip()[:200]
+                if len(value) >= 10 and value not in needs:
+                    needs.append(value)
+            if len(needs) >= 5:
+                break
+    return needs
+
+
+def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dict] | None) -> tuple[str, str | None, list[str]]:
     parts = [system_prompt]
     if history:
-        for h in history:
+        for h in history[-20:]:
             parts.append(f"{h['role']}: {h['content']}")
     parts.append(user_message)
     full_prompt = "\n\n".join(parts)
     ai_text = call_ai_api(full_prompt, max_tokens=400)
     if not ai_text or ai_text.startswith("❌") or ai_text.startswith("Error") or len(ai_text.strip()) < 2:
-        return "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.", None
+        return "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.", None, []
 
+    clean_text, obj = _family_pop_json_block(ai_text)
     intent_type = None
-    json_match = re.search(r'\{("intent_type"\s*:\s*"[^"]+")\}', ai_text, re.DOTALL)
-    if json_match:
-        try:
-            parsed = json.loads("{" + json_match.group(1) + "}")
-            intent_val = parsed.get("intent_type")
-            if isinstance(intent_val, str) and len(intent_val) <= 50:
-                intent_type = intent_val
-        except json.JSONDecodeError:
-            pass
-        ai_text = re.sub(r'\s*\{("intent_type"\s*:\s*"[^"]+")\}\s*$', '', ai_text).strip()
-    return _family_tidy_reply(ai_text), intent_type
+    parsed_intent = obj.get("intent_type") if isinstance(obj, dict) else None
+    if isinstance(parsed_intent, str) and len(parsed_intent) <= 50:
+        intent_type = parsed_intent
+    needs = _family_clean_needs(obj)
+    return _family_tidy_reply(clean_text), intent_type, needs
 
 
 def _family_generate_synthesis(system_prompt: str) -> str:
@@ -27589,7 +27909,7 @@ def _family_generate_synthesis(system_prompt: str) -> str:
 
 def _family_extract_needs(response_text: str) -> list[str]:
     needs = []
-    lower = response_text.lower()
+    lower = response_text.lower()[:1500]
     patterns = [
         r'(?:тебе\s+)?важно\s+(.+)',
         r'(?:похоже|кажется|вижу),?\s+(?:что\s+)?(?:для\s+)?(?:тебя|тебе)\s+(.+?)(?:[.?!]|$)',
@@ -27597,10 +27917,10 @@ def _family_extract_needs(response_text: str) -> list[str]:
     ]
     for pattern in patterns:
         for m in re.findall(pattern, lower):
-            need = m.strip().rstrip(".,!?")
+            need = m.strip().rstrip(".,!?")[:200]
             if len(need) > 10 and need not in needs:
                 needs.append(need)
-    return needs
+    return needs[:5]
 
 
 # ── Family Circle: API ────────────────────────────────────────────
@@ -27608,10 +27928,13 @@ def _family_extract_needs(response_text: str) -> list[str]:
 @app.route("/api/family/rooms", methods=["POST"])
 def api_family_rooms_create():
     data = request.get_json() or {}
-    name = (data.get("name") or "").strip()
-    creator_name = (data.get("creator_name") or "").strip()
-    if not name:
-        return jsonify({"error": "Укажите название комнаты"}), 400
+    try:
+        name = _family_validate_room_name(data.get("name"))
+        creator_name = _family_validate_name(data.get("creator_name") or "Я", "ваше имя")
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if _family_rate_limit(f"create:{_family_client_ip()}", max_requests=10, window=3600):
+        return jsonify({"error": "Слишком много комнат создаётся. Подождите немного."}), 429
     try:
         result = _family_create_room(name, creator_name)
         return jsonify(result)
@@ -27626,11 +27949,13 @@ def api_family_rooms_join():
     room_id = (data.get("room_id") or "").strip()
     member_name = (data.get("member_name") or "").strip()
     password = (data.get("password") or "").strip()
-    if not password or len(password) < 4:
-        return jsonify({"error": "Пароль должен содержать минимум 4 символа"}), 400
+    if _family_rate_limit(f"join:{_family_client_ip()}", max_requests=10, window=60):
+        return jsonify({"error": "Слишком много попыток входа. Подождите минуту."}), 429
     try:
         result = _family_join_room(room_id, member_name, password)
         return jsonify(result)
+    except _FamilyPasswordError as e:
+        return jsonify({"error": str(e)}), 403
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as exc:
@@ -27643,15 +27968,21 @@ def api_family_rooms_get(room_id):
     room = _family_get_room(room_id)
     if not room:
         return jsonify({"error": "Комната не найдена"}), 404
-    room["members"] = _family_room_members(room_id)
+    # Member list is intentionally NOT exposed without authentication.
+    room["finished_count"] = _family_count_finished(room_id)
     return jsonify(room)
 
 
 @app.route("/api/family/rooms/<room_id>", methods=["DELETE"])
 def api_family_rooms_delete(room_id):
     data = request.get_json(silent=True) or {}
-    member_name = (data.get("member_name") or "").strip()
-    password = (data.get("password") or "").strip()
+    try:
+        member_name = _family_validate_name(data.get("member_name"), "имя участника")
+        password = _family_validate_password(data.get("password"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if _family_rate_limit(f"delete:{_family_client_ip()}", max_requests=10, window=3600):
+        return jsonify({"error": "Слишком много запросов. Подождите немного."}), 429
     member = _family_verify_member(room_id, member_name, password)
     if not member:
         return jsonify({"error": "Неверное имя участника или пароль"}), 403
@@ -27682,10 +28013,12 @@ def api_family_chat_send():
     password = (data.get("password") or "").strip()
     message = (data.get("message") or "").strip()
 
+    if not message:
+        return jsonify({"error": "Сообщение пустое"}), 400
     if len(message) > 2000:
         return jsonify({"error": "Максимальная длина сообщения — 2000 символов"}), 400
 
-    if _check_ai_rate(f"family_chat:{room_id}:{member_name}"):
+    if _check_ai_rate(f"family_chat:{room_id}:{member_name}", max_requests=4):
         return jsonify({"error": "Слишком много сообщений. Подождите минуту."}), 429
 
     member = _family_verify_member(room_id, member_name, password)
@@ -27702,16 +28035,19 @@ def api_family_chat_send():
     member_names = _family_room_members(room_id)
     system_prompt = _family_build_system_prompt(room["name"], member_names, room["spoke_count"], needs_text)
 
+    # Privacy: history contains only THIS member's own messages.
     history = []
-    for msg in _family_room_messages(room_id):
+    for msg in _family_room_messages(room_id, member_id=member["id"])[-20:]:
         history.append({"role": "user", "content": f"{msg['member_name']}: {msg['content']}"})
         if msg["response"]:
             history.append({"role": "assistant", "content": msg["response"]})
 
     current_message = f"{member_name}: {message}"
-    response_text, intent_type = _family_chat_dialog(system_prompt, current_message, history)
+    response_text, intent_type, needs_found = _family_chat_dialog(system_prompt, current_message, history)
 
-    needs_found = _family_extract_needs(response_text)
+    needs_found = _family_clean_needs({"needs": needs_found})
+    if not needs_found:
+        needs_found = _family_extract_needs(message)
     for need_text in needs_found:
         _family_add_need(room_id, need_text, member["id"])
 
@@ -27721,6 +28057,7 @@ def api_family_chat_send():
         intent_type=intent_type,
         needs_extracted=[{"need": n} for n in needs_found] if needs_found else None,
     )
+    _family_recount_spoken(room_id)
 
     return jsonify({"response": response_text, "intent_type": intent_type})
 
@@ -27731,6 +28068,8 @@ def api_family_chat_finish():
     room_id = (data.get("room_id") or "").strip()
     member_name = (data.get("member_name") or "").strip()
     password = (data.get("password") or "").strip()
+    if _family_rate_limit(f"finish:{_family_client_ip()}", max_requests=10, window=60):
+        return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
 
     member = _family_verify_member(room_id, member_name, password)
     if not member:
@@ -27739,12 +28078,32 @@ def api_family_chat_finish():
         return jsonify({"error": "Вы уже завершили диалог"}), 400
 
     _family_finish_member(member)
+    _family_recount_spoken(room_id)
     room = _family_get_room(room_id)
-    if room:
-        new_count = _family_count_spoken(room_id)
-        with get_db_engine().begin() as conn:
-            conn.execute(text("UPDATE rooms SET spoke_count = :c WHERE id = :rid"), {"c": new_count, "rid": room_id})
-    return jsonify({"ok": True})
+    return jsonify({
+        "ok": True,
+        "room": room,
+        "finished_count": _family_count_finished(room_id) if room else None,
+    })
+
+
+@app.route("/api/family/chat/history", methods=["POST"])
+def api_family_chat_history():
+    data = request.get_json() or {}
+    room_id = (data.get("room_id") or "").strip()
+    member_name = (data.get("member_name") or "").strip()
+    password = (data.get("password") or "").strip()
+    member = _family_verify_member(room_id, member_name, password)
+    if not member:
+        return jsonify({"error": "Неверное имя участника или пароль"}), 403
+    messages = _family_room_messages(room_id, member_id=member["id"])
+    room = _family_get_room(room_id)
+    return jsonify({
+        "messages": messages,
+        "room": room,
+        "finished": member["finished"],
+        "finished_count": _family_count_finished(room_id) if room else 0,
+    })
 
 
 @app.route("/api/family/report/generate", methods=["POST"])
@@ -27762,6 +28121,9 @@ def api_family_report_generate():
     if not room or room["status"] != "active":
         return jsonify({"error": "Комната недоступна"}), 400
 
+    if _family_rate_limit(f"report:{room_id}", max_requests=2, window=60):
+        return jsonify({"error": "Подождите минуту перед повторной генерацией отчёта"}), 429
+
     engine = get_db_engine()
     with engine.connect() as conn:
         unfinished = conn.execute(text(
@@ -27778,7 +28140,17 @@ def api_family_report_generate():
     prompt = _family_build_synthesis_prompt(needs_text)
     report_text = _family_generate_synthesis(prompt)
 
-    _family_save_report(room_id, report_text)
+    try:
+        _family_save_report(room_id, report_text)
+    except Exception:
+        # Concurrent generation — the winner's report is returned instead.
+        existing = _family_get_report(room_id)
+        if existing:
+            return jsonify({"report_text": existing})
+        log_error("FAMILY", "error", "save report error after generation")
+        return jsonify({"error": "Не удалось сохранить отчёт"}), 500
+    with get_db_engine().begin() as conn:
+        conn.execute(text("UPDATE rooms SET status = 'finished' WHERE id = :rid AND status = 'active'"), {"rid": room_id})
     return jsonify({"report_text": report_text})
 
 
@@ -27843,24 +28215,390 @@ function hide(el) { if (el) el.style.display = 'none'; }
 function show(el, display) { if (el) el.style.display = display || 'block'; }
 function store(key, val) { try { sessionStorage.setItem('fc_' + key, val); } catch(e) {} }
 function load(key) { try { return sessionStorage.getItem('fc_' + key); } catch(e) { return null; } }
+function saveSession(roomId, name, password) {
+    store('room_id', roomId); store('member_name', name); store('password', password);
+}
+function toast(msg) {
+    var el = document.createElement('div');
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:999;max-width:90%;text-align:center;';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(function() { el.remove(); }, 2600);
+}
+function escapeHtml(text) { var d = document.createElement('div'); d.textContent = text == null ? '' : text; return d.innerHTML; }
 function api(method, path, body) {
     return new Promise(function(resolve, reject) {
         var xhr = new XMLHttpRequest();
         xhr.open(method, API + path);
         xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.timeout = 20000;
+        xhr.timeout = 60000;
         xhr.ontimeout = function() { reject(new Error('Сервер не ответил. Попробуйте ещё раз.')); };
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== 4) return;
-            var data = {};
+            var data = null;
             try { data = JSON.parse(xhr.responseText); } catch(e) {}
-            if (xhr.status >= 200 && xhr.status < 300) { resolve(data); }
-            else { reject(new Error(data.error || data.detail || 'Ошибка сервера')); }
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(data || {});
+            } else {
+                var msg = 'Ошибка сервера (' + xhr.status + ')';
+                if (data && (data.error || data.detail)) msg = data.error || data.detail;
+                if (xhr.status === 0) msg = 'Сетевая ошибка';
+                reject(new Error(msg));
+            }
         };
         xhr.onerror = function() { reject(new Error('Сетевая ошибка')); };
         xhr.send(body ? JSON.stringify(body) : null);
     });
 }
+"""
+
+_FAMILY_INDEX_JS = """
+(function() {
+    var createBtn = $('createBtn');
+    if (!createBtn) return;
+    createBtn.addEventListener('click', function() {
+        var name = $('roomName').value.trim() || 'Семейный совет';
+        var creator = $('creatorName').value.trim() || 'Я';
+        showError('createError', '');
+        createBtn.disabled = true;
+        createBtn.textContent = 'Создаём...';
+        api('POST', '/rooms', { name: name, creator_name: creator })
+            .then(function(data) {
+                saveSession(data.room_id, data.your_name || creator, data.your_password || '');
+                $('roomIdDisplay').textContent = 'ID комнаты: ' + data.room_id;
+                var link = window.location.origin + data.invite_link;
+                $('inviteLink').innerHTML = 'Ссылка: <a href="' + link + '">' + link + '</a>';
+                var passDiv = $('passwordDisplay');
+                passDiv.innerHTML = '<h3 style="font-size:14px;margin-bottom:8px;">Ваш пароль (сохраните его!):</h3>';
+                var entryEl = document.createElement('div'); entryEl.className = 'entry';
+                var nameEl = document.createElement('span'); nameEl.className = 'name'; nameEl.textContent = data.your_name || '';
+                var passEl = document.createElement('span'); passEl.className = 'pass'; passEl.textContent = data.your_password || '';
+                entryEl.appendChild(nameEl); entryEl.appendChild(passEl); passDiv.appendChild(entryEl);
+                show($('resultCard'));
+                $('goToRoomBtn').onclick = function() {
+                    window.location.href = '/family/room?room_id=' + encodeURIComponent(data.room_id);
+                };
+            })
+            .catch(function(err) {
+                showError('createError', err.message);
+            })
+            .then(function() {
+                createBtn.disabled = false;
+                createBtn.textContent = 'Создать комнату';
+            });
+    });
+})();
+"""
+
+_FAMILY_ROOM_JS = """
+(function() {
+    var loginBtn = $('loginBtn');
+    if (!loginBtn) return;
+
+    var inFlight = false;
+    var finishInFlight = false;
+    var ownFinished = false;
+    var pollTimer = null;
+    var pollCount = 0;
+
+    function params(name) {
+        var m = (window.location.search || '').match(new RegExp('[?&]' + name + '=([^&]+)'));
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    function roomStatusLabel(status) {
+        if (status === 'active') return 'Активна';
+        if (status === 'finished') return 'Завершена';
+        return status || '—';
+    }
+
+    function renderRoomMeta(room) {
+        if (!room) return;
+        var info = ''
+            + '<div class="info-row"><span class="info-label">Статус</span><span class="info-value">' + escapeHtml(roomStatusLabel(room.status)) + '</span></div>'
+            + '<div class="info-row"><span class="info-label">Высказалось</span><span class="info-value">' + (room.spoke_count || 0) + '/' + (room.participants_total || 0) + '</span></div>'
+            + '<div class="info-row"><span class="info-label">Участников</span><span class="info-value">' + (room.participants_total || 0) + '</span></div>';
+        if (room.status === 'finished') {
+            info += '<div class="info-row"><span class="info-label">Статус</span><span class="info-value">Комната завершена</span></div>';
+        }
+        $('roomInfo').innerHTML = info;
+        $('roomSubtitle').textContent = 'Комната: ' + room.name;
+    }
+
+    function setFinishedUi() {
+        ownFinished = true;
+        $('sendBtn').disabled = true;
+        $('messageInput').disabled = true;
+        $('finishBtn').disabled = true;
+        $('finishBtn').textContent = '✓ Диалог завершён';
+        $('messageInput').placeholder = 'Вы завершили диалог';
+    }
+
+    function showReportGate(room) {
+        var allFinished = room && room.participants_total > 0 && room.finished_count >= room.participants_total;
+        var readyEl = $('reportReady');
+        var hintEl = $('reportHint');
+        if (!readyEl || !hintEl) return;
+        if (allFinished) {
+            hintEl.style.display = 'none';
+            readyEl.style.display = 'block';
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+            return;
+        }
+        var done = room ? (room.finished_count || 0) : 0;
+        var total = room ? (room.participants_total || 0) : 0;
+        readyEl.style.display = 'none';
+        hintEl.style.display = 'block';
+        var left = Math.max(0, total - done);
+        hintEl.textContent = 'Отчёт появится, когда все завершат диалог. Ещё ждут: ' + left + '.';
+    }
+
+    function startPolling() {
+        var roomId = load('room_id');
+        if (!roomId || pollTimer || pollCount > 24) return;
+        pollTimer = setInterval(function() {
+            pollCount++;
+            if (pollCount > 24) { clearInterval(pollTimer); pollTimer = null; return; }
+            api('GET', '/rooms/' + encodeURIComponent(roomId))
+                .then(function(data) { if (data) showReportGate(data); })
+                .catch(function() {});
+        }, 15000);
+    }
+
+    function addMessage(type, label, text) {
+        var div = document.createElement('div');
+        div.className = 'msg ' + type;
+        div.innerHTML = '<div class="label">' + escapeHtml(label) + '</div>' + escapeHtml(text);
+        $('chatLog').appendChild(div);
+        $('chatLog').scrollTop = $('chatLog').scrollHeight;
+    }
+
+    function loadHistory() {
+        var roomId = load('room_id'), name = load('member_name'), password = load('password');
+        if (!roomId || !name || !password) return;
+        api('POST', '/chat/history', { room_id: roomId, member_name: name, password: password })
+            .then(function(data) {
+                renderRoomMeta(data.room);
+                var msgs = data.messages || [];
+                for (var i = 0; i < msgs.length; i++) {
+                    addMessage('user', msgs[i].member_name || name, msgs[i].content);
+                    if (msgs[i].response) addMessage('ai', 'Медиатор', msgs[i].response);
+                }
+                if (data.finished) {
+                    setFinishedUi();
+                }
+                showReportGate(data.room);
+                if (data.finished && !(data.room && data.room.finished_count >= data.room.participants_total)) {
+                    startPolling();
+                }
+            })
+            .catch(function(err) {
+                showError('chatError', 'Не удалось загрузить историю: ' + err.message);
+            });
+    }
+
+    function enterRoom(roomId, name, password, auto) {
+        if (inFlight) return;
+        showError('loginError', '');
+        loginBtn.disabled = true;
+        loginBtn.textContent = 'Входим...';
+        api('POST', '/rooms/join', { room_id: roomId.trim(), member_name: name.trim(), password: password.trim() })
+            .then(function(data) {
+                saveSession(data.room_id, name.trim(), password.trim());
+                hide($('loginCard'));
+                show($('chatCard'));
+                if (data.is_new) toast('Вы присоединились к комнате!');
+                renderRoomMeta(data.room);
+                loadHistory();
+                $('messageInput').focus();
+            })
+            .catch(function(err) {
+                showError('loginError', err.message);
+                if (auto) toast('Не удалось войти автоматически. Введите данные ещё раз.');
+            })
+            .then(function() {
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Войти';
+            });
+    }
+
+    function tryLogin() {
+        var roomId = $('roomIdInput').value.trim();
+        var name = $('nameInput').value.trim();
+        var password = $('passwordInput').value.trim();
+        if (!roomId || !name || !password) { showError('loginError', 'Заполните ID комнаты, имя и пароль'); return; }
+        if (name.length > 100) { showError('loginError', 'Имя не может быть длиннее 100 символов'); return; }
+        enterRoom(roomId, name, password, false);
+    }
+
+    loginBtn.addEventListener('click', tryLogin);
+    ['roomIdInput', 'nameInput', 'passwordInput'].forEach(function(id) {
+        var el = $(id);
+        if (el) el.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); tryLogin(); } });
+    });
+
+    var urlRoom = params('room_id');
+    if (urlRoom) { $('roomIdInput').value = urlRoom; }
+    var savedRoom = load('room_id'), savedName = load('member_name'), savedPass = load('password');
+    if (savedRoom && savedName && savedPass && (!urlRoom || savedRoom === urlRoom)) {
+        $('roomIdInput').value = savedRoom;
+        $('nameInput').value = savedName;
+        $('passwordInput').value = savedPass;
+        enterRoom(savedRoom, savedName, savedPass, true);
+    }
+
+    var sendBtn = $('sendBtn');
+    var msgInput = $('messageInput');
+    var typing = $('typing');
+
+    msgInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+    });
+
+    sendBtn.addEventListener('click', function() {
+        var text = msgInput.value.trim();
+        if (!text || inFlight || finishInFlight || ownFinished) return;
+        var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+        if (!roomId || !memberName || !password) { showError('chatError', 'Сессия потеряна. Войдите заново.'); return; }
+        showError('chatError', '');
+        inFlight = true;
+        sendBtn.disabled = true; msgInput.disabled = true; $('finishBtn').disabled = true;
+        addMessage('user', memberName, text);
+        msgInput.value = '';
+        show(typing);
+        api('POST', '/chat/send', { room_id: roomId, member_name: memberName, password: password, message: text })
+            .then(function(data) {
+                hide(typing);
+                addMessage('ai', 'Медиатор', data.response);
+            })
+            .catch(function(err) {
+                hide(typing);
+                showError('chatError', err.message);
+                msgInput.value = text;
+                var last = $('chatLog').lastChild;
+                if (last && last.className && String(last.className).indexOf('msg user') !== -1) {
+                    $('chatLog').removeChild(last);
+                }
+            })
+            .then(function() {
+                inFlight = false;
+                sendBtn.disabled = ownFinished || finishInFlight;
+                msgInput.disabled = ownFinished || finishInFlight;
+                $('finishBtn').disabled = finishInFlight || ownFinished || inFlight;
+                if (!ownFinished && !finishInFlight) msgInput.focus();
+            });
+    });
+
+    $('finishBtn').addEventListener('click', function() {
+        if (inFlight) { toast('Подождите завершения текущего сообщения.'); return; }
+        if (finishInFlight) return;
+        if (!confirm('Вы уверены, что хотите завершить диалог? После этого вы не сможете писать в этой комнате.')) return;
+        var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
+        finishInFlight = true;
+        $('finishBtn').disabled = true;
+        $('finishBtn').textContent = 'Завершаем...';
+        api('POST', '/chat/finish', { room_id: roomId, member_name: memberName, password: password })
+            .then(function(data) {
+                setFinishedUi();
+                showError('chatError', '');
+                showReportGate(data.room);
+                if (data.room && !(data.room.finished_count >= data.room.participants_total)) {
+                    startPolling();
+                }
+            })
+            .catch(function(err) {
+                showError('chatError', err.message);
+                $('finishBtn').textContent = 'Завершить диалог';
+                $('finishBtn').disabled = ownFinished || inFlight;
+            })
+            .then(function() {
+                finishInFlight = false;
+                if (!ownFinished) { $('finishBtn').disabled = false; }
+            });
+    });
+
+    $('reportBtn').addEventListener('click', function() {
+        window.location.href = '/family/result';
+    });
+})();
+"""
+
+_FAMILY_RESULT_JS = r"""
+(function() {
+    var getReportBtn = $('getReportBtn');
+    if (!getReportBtn) return;
+
+    function params(name) {
+        var m = (window.location.search || '').match(new RegExp('[?&]' + name + '=([^&]+)'));
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    var savedRoom = load('room_id'), savedName = load('member_name'), savedPass = load('password');
+    var urlRoom = params('room_id'), urlName = params('name');
+    if (savedRoom) { $('roomIdInput').value = savedRoom; }
+    if (savedName) { $('nameInput').value = savedName; }
+    if (savedPass) { $('passwordInput').value = savedPass; }
+    if (!savedRoom && urlRoom) { $('roomIdInput').value = urlRoom; }
+    if (!savedName && urlName) { $('nameInput').value = urlName; }
+
+    getReportBtn.addEventListener('click', fetchReport);
+
+    function fetchReport() {
+        var roomId = $('roomIdInput').value.trim();
+        var memberName = $('nameInput').value.trim();
+        var password = $('passwordInput').value.trim();
+        if (!roomId || !memberName || !password) { showError('reportError', 'Заполните ID комнаты, имя и пароль'); return; }
+        showError('reportError', '');
+        getReportBtn.disabled = true;
+        getReportBtn.textContent = 'Получаем...';
+        api('POST', '/report/generate', { room_id: roomId, member_name: memberName, password: password })
+            .then(function(data) {
+                $('reportTitle').textContent = 'Отчёт по комнате';
+                $('reportContent').innerHTML = formatReport(data.report_text);
+                show($('reportCard'));
+            })
+            .catch(function(err) {
+                showError('reportError', err.message);
+            })
+            .then(function() {
+                getReportBtn.disabled = false;
+                getReportBtn.textContent = 'Получить отчёт';
+            });
+    }
+
+    function formatReport(text) {
+        if (!text) return '<div class="report-section"><p>Отчёт пуст.</p></div>';
+        var safe = escapeHtml(text);
+        var blocks = safe.split(/###\s*\d+\.\s+/);
+        if (blocks.length < 2) {
+            return '<div class="report-section"><p>' + safe.replace(/\n/g, '<br>') + '</p></div>';
+        }
+        var out = '';
+        for (var i = 1; i < blocks.length; i++) {
+            var lines = blocks[i].split(/\n/);
+            var head = lines.shift();
+            var body = '';
+            var inList = false;
+            for (var j = 0; j < lines.length; j++) {
+                var line = lines[j];
+                if (/^-\s+/.test(line)) {
+                    var item = line.replace(/^-\s+/, '');
+                    if (!inList) { body += '<ul>'; inList = true; }
+                    body += '<li>' + item + '</li>';
+                } else {
+                    if (inList) { body += '</ul>'; inList = false; }
+                    if (line.trim()) body += '<p>' + line + '</p>';
+                }
+            }
+            if (inList) body += '</ul>';
+            if (!body) body = '<p></p>';
+            out += '<div class="report-section"><h3>' + head + '</h3>' + body + '</div>';
+        }
+        return out;
+    }
+
+    $('printBtn').addEventListener('click', function() { window.print(); });
+})();
 """
 
 
@@ -27904,37 +28642,7 @@ def family_page():
 
     <script>
 {_FAMILY_JS_UTILS}
-    (function() {{
-        var createBtn = $('createBtn');
-        if (!createBtn) return;
-        createBtn.addEventListener('click', function() {{
-            var name = $('roomName').value.trim() || 'Семейный совет';
-            var creator = $('creatorName').value.trim() || 'Я';
-            showError('createError', '');
-            createBtn.disabled = true;
-            createBtn.textContent = 'Создаём...';
-            api('POST', '/rooms', {{ name: name, creator_name: creator }})
-                .then(function(data) {{
-                    $('roomIdDisplay').textContent = 'ID комнаты: ' + data.room_id;
-                    $('inviteLink').innerHTML = 'Ссылка: <a href="' + data.invite_link + '">' + window.location.origin + data.invite_link + '</a>';
-                    var passDiv = $('passwordDisplay');
-                    passDiv.innerHTML = '<h3 style="font-size:14px;margin-bottom:8px;">Ваш пароль (сохраните его!):</h3>';
-                    var entryEl = document.createElement('div'); entryEl.className = 'entry';
-                    var nameEl = document.createElement('span'); nameEl.className = 'name'; nameEl.textContent = data.your_name || '';
-                    var passEl = document.createElement('span'); passEl.className = 'pass'; passEl.textContent = data.your_password || '';
-                    entryEl.appendChild(nameEl); entryEl.appendChild(passEl); passDiv.appendChild(entryEl);
-                    show($('resultCard'));
-                    $('goToRoomBtn').onclick = function() {{ window.location.href = '/family/room?room_id=' + data.room_id; }};
-                }})
-                .catch(function(err) {{
-                    showError('createError', err.message);
-                }})
-                .then(function() {{
-                    createBtn.disabled = false;
-                    createBtn.textContent = 'Создать комнату';
-                }});
-        }});
-    }})();
+{_FAMILY_INDEX_JS}
     </script>
 </body>
 </html>"""
@@ -27965,21 +28673,13 @@ def family_room_page():
             <h2>Вход в комнату</h2>
             <label for="roomIdInput">ID комнаты</label>
             <input id="roomIdInput" type="text" placeholder="Вставьте ID комнаты">
-            <label for="memberSelect">Ваше имя</label>
-            <select id="memberSelect"></select>
-            <p id="memberSelectHint" style="font-size:12px;color:#aaa;margin-top:4px;">Сначала введите ID комнаты</p>
+            <label for="nameInput">Ваше имя</label>
+            <input id="nameInput" type="text" placeholder="Как вас зовут" maxlength="100">
             <label for="passwordInput">Пароль</label>
-            <input id="passwordInput" type="password" placeholder="Пароль участника">
+            <input id="passwordInput" type="password" placeholder="Пароль участника" maxlength="72">
             <button id="loginBtn">Войти</button>
             <div id="loginError" class="error"></div>
-            <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;">
-                <label for="joinName">Новый участник? Введите имя</label>
-                <input id="joinName" type="text" placeholder="Имя для входа">
-                <label for="joinPassword">Пароль (мин. 4 символа)</label>
-                <input id="joinPassword" type="password" placeholder="Придумайте пароль" minlength="4">
-                <button id="joinBtn" class="secondary">Присоединиться к комнате</button>
-                <div id="joinInfo" class="success"></div>
-            </div>
+            <p style="font-size:12px;color:var(--bb-muted);margin-top:10px;">Если имени ещё нет — участник будет создан с этим паролем автоматически.</p>
         </div>
 
         <div id="chatCard" class="card" style="display:none;">
@@ -27987,7 +28687,7 @@ def family_room_page():
             <div id="chatLog" class="chat-log"></div>
             <div id="typing" class="typing" style="display:none;">✏️ ИИ печатает...</div>
             <div class="chat-input-row">
-                <input id="messageInput" type="text" placeholder="Напишите сообщение..." maxlength="5000">
+                <input id="messageInput" type="text" placeholder="Напишите сообщение..." maxlength="2000">
                 <button id="sendBtn">Отправить</button>
             </div>
             <div id="chatError" class="error"></div>
@@ -28000,178 +28700,14 @@ def family_room_page():
             <div style="margin-top:12px;">
                 <button id="reportBtn" class="secondary">📄 Посмотреть отчёт</button>
                 <p id="reportReady" style="font-size:12px;color:var(--bb-green2);margin-top:4px;display:none;">✅ Отчёт готов!</p>
+                <p id="reportHint" style="font-size:12px;color:var(--bb-muted);margin-top:4px;display:none;"></p>
             </div>
         </div>
     </div>
 
     <script>
 {_FAMILY_JS_UTILS}
-    (function() {{
-        var loginBtn = $('loginBtn');
-        if (!loginBtn) return;
-
-        var urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('room_id')) {{
-            $('roomIdInput').value = urlParams.get('room_id');
-            loadRoomInfo(urlParams.get('room_id'));
-        }}
-
-        $('roomIdInput').addEventListener('change', function() {{
-            var rid = $('roomIdInput').value.trim();
-            if (rid) loadRoomInfo(rid);
-        }});
-
-        var savedRoom = load('room_id');
-        var savedName = load('member_name');
-        var savedPass = load('password');
-        if (savedRoom && savedName && savedPass) {{
-            $('roomIdInput').value = savedRoom;
-            loadRoomInfo(savedRoom, savedName, savedPass);
-        }}
-
-        function loadRoomInfo(roomId, autoName, autoPass) {{
-            api('GET', '/rooms/' + roomId)
-                .then(function(data) {{
-                    $('roomSubtitle').textContent = 'Комната: ' + data.name;
-                    var sel = $('memberSelect');
-                    sel.innerHTML = '';
-                    data.members.forEach(function(m) {{
-                        var opt = document.createElement('option');
-                        opt.value = m;
-                        opt.textContent = m;
-                        sel.appendChild(opt);
-                    }});
-                    if (autoName && data.members.indexOf(autoName) !== -1) {{
-                        sel.value = autoName;
-                        $('passwordInput').value = autoPass || '';
-                        tryLogin();
-                    }}
-                }})
-                .catch(function(err) {{
-                    showError('loginError', 'Не удалось загрузить комнату: ' + err.message);
-                }});
-        }}
-
-        loginBtn.addEventListener('click', tryLogin);
-
-        function tryLogin() {{
-            var roomId = $('roomIdInput').value.trim();
-            var memberName = $('memberSelect').value;
-            var password = $('passwordInput').value.trim();
-            if (!roomId || !memberName || !password) {{
-                showError('loginError', 'Заполните все поля');
-                return;
-            }}
-            showError('loginError', '');
-            loginBtn.disabled = true;
-            api('GET', '/rooms/' + roomId)
-                .then(function(data) {{
-                    if (data.members.indexOf(memberName) === -1) throw new Error('Участник не найден в этой комнате');
-                    store('room_id', roomId);
-                    store('member_name', memberName);
-                    store('password', password);
-                    $('roomSubtitle').textContent = 'Комната: ' + data.name;
-                    $('roomInfo').innerHTML = '';
-                    var infoHtml = ''
-                        + '<div class="info-row"><span class="info-label">Статус</span><span class="info-value">' + (data.status === 'active' ? 'Активна' : data.status) + '</span></div>'
-                        + '<div class="info-row"><span class="info-label">Высказалось</span><span class="info-value">' + data.spoke_count + '/' + data.participants_total + '</span></div>'
-                        + '<div class="info-row"><span class="info-label">Участники</span><span class="info-value">' + data.members.map(escapeHtml).join(', ') + '</span></div>';
-                    $('roomInfo').innerHTML = infoHtml;
-                    hide($('loginCard'));
-                    show($('chatCard'));
-                    $('messageInput').focus();
-                }})
-                .catch(function(err) {{
-                    showError('loginError', err.message);
-                }})
-                .then(function() {{
-                    loginBtn.disabled = false;
-                }});
-        }}
-
-        $('joinBtn').addEventListener('click', function() {{
-            var roomId = $('roomIdInput').value.trim();
-            var name = $('joinName').value.trim();
-            var joinPass = $('joinPassword').value.trim();
-            if (!roomId || !name || !joinPass) {{ showError('loginError', 'Введите ID комнаты, имя и пароль'); return; }}
-            if (joinPass.length < 4) {{ showError('loginError', 'Пароль должен содержать минимум 4 символа'); return; }}
-            showError('loginError', '');
-            $('joinBtn').disabled = true;
-            api('POST', '/rooms/join', {{ room_id: roomId, member_name: name, password: joinPass }})
-                .then(function(data) {{
-                    $('joinInfo').textContent = data.is_new ? 'Вы успешно присоединились! Теперь войдите через форму выше.' : 'Участник уже есть. Введите пароль ниже.';
-                    $('joinPassword').value = '';
-                    loadRoomInfo(roomId);
-                }})
-                .catch(function(err) {{
-                    showError('loginError', err.message);
-                }})
-                .then(function() {{
-                    $('joinBtn').disabled = false;
-                }});
-        }});
-
-        var sendBtn = $('sendBtn');
-        var msgInput = $('messageInput');
-        var chatLog = $('chatLog');
-        var typing = $('typing');
-
-        msgInput.addEventListener('keydown', function(e) {{
-            if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); sendBtn.click(); }}
-        }});
-
-        sendBtn.addEventListener('click', function() {{
-            var text = msgInput.value.trim();
-            if (!text) return;
-            var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
-            if (!roomId || !memberName || !password) {{ showError('chatError', 'Сессия потеряна. Войдите заново.'); return; }}
-            showError('chatError', '');
-            sendBtn.disabled = true; msgInput.disabled = true;
-            addMessage('user', memberName, text);
-            msgInput.value = '';
-            show(typing);
-            api('POST', '/chat/send', {{ room_id: roomId, member_name: memberName, password: password, message: text }})
-                .then(function(data) {{
-                    hide(typing);
-                    addMessage('ai', 'Медиатор', data.response);
-                }})
-                .catch(function(err) {{
-                    hide(typing);
-                    showError('chatError', err.message);
-                }})
-                .then(function() {{
-                    sendBtn.disabled = false; msgInput.disabled = false; msgInput.focus();
-                }});
-        }});
-
-        function addMessage(type, label, text) {{
-            var div = document.createElement('div');
-            div.className = 'msg ' + type;
-            div.innerHTML = '<div class="label">' + escapeHtml(label) + '</div>' + escapeHtml(text);
-            chatLog.appendChild(div);
-            chatLog.scrollTop = chatLog.scrollHeight;
-        }}
-        function escapeHtml(text) {{ var d = document.createElement('div'); d.textContent = text; return d.innerHTML; }}
-
-        $('finishBtn').addEventListener('click', function() {{
-            if (!confirm('Вы уверены, что хотите завершить диалог? После этого вы не сможете писать в этой комнате.')) return;
-            var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
-            api('POST', '/chat/finish', {{ room_id: roomId, member_name: memberName, password: password }})
-                .then(function() {{
-                    sendBtn.disabled = true; msgInput.disabled = true;
-                    $('finishBtn').disabled = true; $('finishBtn').textContent = '✓ Диалог завершён';
-                    showError('chatError', '');
-                    show($('reportReady'));
-                }})
-                .catch(function(err) {{ showError('chatError', err.message); }});
-        }});
-
-        $('reportBtn').addEventListener('click', function() {{
-            var roomId = load('room_id'), memberName = load('member_name'), password = load('password');
-            sessionStorage.setItem('family_pass_' + roomId, password);
-            window.location.href = '/family/result?room_id=' + roomId + '&name=' + encodeURIComponent(memberName);
-        }});
-    }})();
+{_FAMILY_ROOM_JS}
     </script>
 </body>
 </html>"""
@@ -28202,10 +28738,10 @@ def family_result_page():
             <h2>Получить отчёт</h2>
             <label for="roomIdInput">ID комнаты</label>
             <input id="roomIdInput" type="text" placeholder="ID комнаты">
-            <label for="memberSelect">Ваше имя</label>
-            <select id="memberSelect"></select>
+            <label for="nameInput">Ваше имя</label>
+            <input id="nameInput" type="text" placeholder="Ваше имя" maxlength="100">
             <label for="passwordInput">Пароль</label>
-            <input id="passwordInput" type="password" placeholder="Пароль участника">
+            <input id="passwordInput" type="password" placeholder="Пароль участника" maxlength="72">
             <button id="getReportBtn">Получить отчёт</button>
             <div id="reportError" class="error"></div>
         </div>
@@ -28219,77 +28755,7 @@ def family_result_page():
 
     <script>
 {_FAMILY_JS_UTILS}
-    (function() {{
-        var getReportBtn = $('getReportBtn');
-        if (!getReportBtn) return;
-
-        var urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('room_id') && urlParams.get('name')) {{
-            var storedPass = sessionStorage.getItem('family_pass_' + urlParams.get('room_id')) || '';
-            $('roomIdInput').value = urlParams.get('room_id');
-            loadMembers(urlParams.get('room_id'), urlParams.get('name'), storedPass);
-        }}
-
-        $('roomIdInput').addEventListener('change', function() {{
-            var rid = $('roomIdInput').value.trim();
-            if (rid) loadMembers(rid);
-        }});
-
-        function loadMembers(roomId, autoName, autoPass) {{
-            api('GET', '/rooms/' + roomId)
-                .then(function(data) {{
-                    var sel = $('memberSelect');
-                    sel.innerHTML = '';
-                    data.members.forEach(function(m) {{
-                        var opt = document.createElement('option');
-                        opt.value = m;
-                        opt.textContent = m;
-                        sel.appendChild(opt);
-                    }});
-                    if (autoName) {{
-                        sel.value = autoName;
-                        $('passwordInput').value = autoPass || '';
-                        fetchReport();
-                    }}
-                }})
-                .catch(function(err) {{ showError('reportError', err.message); }});
-        }}
-
-        getReportBtn.addEventListener('click', fetchReport);
-
-        function fetchReport() {{
-            var roomId = $('roomIdInput').value.trim();
-            var memberName = $('memberSelect').value;
-            var password = $('passwordInput').value.trim();
-            if (!roomId || !memberName || !password) {{ showError('reportError', 'Заполните все поля'); return; }}
-            showError('reportError', '');
-            getReportBtn.disabled = true;
-            getReportBtn.textContent = 'Генерируем...';
-            api('POST', '/report/generate', {{ room_id: roomId, member_name: memberName, password: password }})
-                .then(function(data) {{
-                    $('reportTitle').textContent = 'Отчёт по комнате';
-                    $('reportContent').innerHTML = formatReport(data.report_text);
-                    show($('reportCard'));
-                }})
-                .catch(function(err) {{ showError('reportError', err.message); }})
-                .then(function() {{ getReportBtn.disabled = false; getReportBtn.textContent = 'Получить отчёт'; }});
-        }}
-
-        function escapeHtml(text) {{ var d = document.createElement('div'); d.textContent = text; return d.innerHTML; }}
-
-        function formatReport(text) {{
-            var html = escapeHtml(text)
-                .replace(/### \\d+\\.\\s+(.+)/g, '</div><div class="report-section"><h3>$1</h3>')
-                .replace(/- (.+)/g, '<li>$1</li>')
-                .replace(/\\n\\n/g, '</p><p>')
-                .replace(/\\n/g, '<br>');
-            html = html.replace(/<li>/g, '<ul><li>');
-            html = html.replace(/<\\/li>(?![\\s\\S]*?<\\/li>)/g, '</li></ul>');
-            return '<div class="report-section" style="margin-top:0;">' + html + '</div>';
-        }}
-
-        $('printBtn').addEventListener('click', function() {{ window.print(); }});
-    }})();
+{_FAMILY_RESULT_JS}
     </script>
 </body>
 </html>"""
