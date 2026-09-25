@@ -1134,6 +1134,10 @@ def _ensure_universe_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"))
             try:
+                # Serialize concurrent cold starts: two instances deduping the
+                # same rows deadlock each other (DeadlockDetected · 19:51 prod).
+                if engine.dialect.name != "sqlite":
+                    conn.execute(text("SELECT pg_advisory_xact_lock(729102)")).first()
                 # Dedup existing rows so the unique index can be created.
                 # Use a dialect-appropriate system row identifier: SQLite uses
                 # `rowid`, Postgres uses `ctid`.
@@ -1145,9 +1149,13 @@ def _ensure_universe_tables(engine):
                 conn.execute(text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_prayer_log_user_date ON daily_prayer_log(user_id, prayer_date)"
                 ))
+                conn.commit()
             except Exception as exc:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
                 log_error("UNIVERSE", "error", f"daily_prayer_log unique index warn: {exc}")
-            conn.commit()
         log_error("UNIVERSE", "info", "Tables ensured successfully")
     except Exception as exc:
         log_error("UNIVERSE", "error", f"Table init error: {exc}")
