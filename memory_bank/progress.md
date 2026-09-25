@@ -1913,7 +1913,7 @@ _Баги добавляются по ходу тестирования оста
 - **Проверки:** ruff clean; 86 тестов затронутых наборов (web_portal_e2e 24, error_logging 4, family_mediator 5, social 3, freemium_gates 5, code_explainer 10, mathematics 10, physics 9, russian 8, short_mode 8) — зелёные.
 
 ## last_checked_commit
-ea6a9a2 (2026-09-25; fix(family+auth): переносимый DDL, сессионный uid в dnd/chess, рекурсия log_error, короткий медиатор; 86 тестов, ruff clean)
+b0013a8 (2026-09-25; fix(family+auth): переносимый DDL, сессионный uid в dnd/chess, рекурсия log_error, короткий медиатор; 86 тестов, ruff clean)
 95d7cf2 (2026-09-21; fix(md2pdf): понятные ошибки improveMd при не-JSON/таймаут ответах ИИ — багхант; 15+/8 md2pdf tests, ruff clean, deployed)
 624f3a3 (2026-09-21; feat(md2pdf): кнопка «✨ Улучшить форматирование» + POST /api/md2pdf/format — ИИ-переформатирование Markdown; 7/7 md2pdf + 10/10 code-explainer tests, ruff clean, node --check OK, deployed)
 (infra) 2026-09-21: Vercel project renamed bank-bot → lthub; canonical prod domain lthub.vercel.app (legacy alias bank-bot-ruby.vercel.app retained for Telegram webhook); both 200. No code changes.
