@@ -27991,7 +27991,7 @@ def api_family_rooms_delete(room_id):
         creator = conn.execute(
             text("SELECT id FROM members WHERE room_id = :rid ORDER BY created_at ASC LIMIT 1"),
             {"rid": room_id},
-        ).fetchone()
+        ).mappings().first()
     if not creator or creator["id"] != member["id"]:
         return jsonify({"error": "Удалить комнату может только её создатель"}), 403
     with engine.begin() as conn:
