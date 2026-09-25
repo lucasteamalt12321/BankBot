@@ -2,6 +2,10 @@
 
 **Текущая фаза:** Phase 6 OGE Center — **Максимальная прокачка OGE-системы** (SM-2标准算法, тренажёр инфо с самооценкой, физика в экзамене, аналитика, серверный квиз-движок, due-cards, хаб-прогрессбары)
 
+## last_checked_commit
+
+**`388824b`** — багхант Family (Circle + Budget IDOR): 22/22 тесты, ruff чист. Деплой/прод-смоук — следующий шаг.
+
 ## Beta Bugs (баги бета-тестирования, 2026-08-27+)
 
 > Формат записи: **[MODULE-BUG-N]** модуль — краткое описание. Шаги воспроизведения / ожидаемое / фактическое / статус (open/fixed).
@@ -215,6 +219,20 @@ _Баги добавляются по ходу тестирования оста
 - **[SEC-BUG-6]** (low) мёртвый CORS-блок в `api/index.py` (0.0.0.0) — функционально бесполезен. Можно удалить.
 
 ## Changelog
+
+### 2026-09-25 (Session: 🔍 Багхант Family — Circle веб/медиатор + Budget бот/веб)
+- **[BUGHUNT]** Полный багхант family-модуля (пользователь: «сделай всё, включая средне/низкое»). Код внесён в рабочую копию, тесты зелёные. **Коммит + деплой + прод-смоук (`.195`) — следующий шаг.**
+- **Family Circle (Batch A — backend, api/index.py):**
+  - `_ensure_family_tables` + `_family_dedupe_and_unique_member_names`/`_family_dedupe_and_unique_reports` (дедуп legacy → UNIQUE(room_id, display_name) и UNIQUE(room_id)), `_FamilyPasswordError`, `_family_validate_name/room_name/password`, `_family_client_ip`, `_family_rate_limit`, `_family_cipher` warn-once.
+  - `_family_join_room` — пароль + гонка IntegrityError; `_family_member_by_name` ORDER BY; `_family_room_messages(room_id, member_id=)` — изоляция истории участника.
+  - `_family_add_need` шифрует/кап 200, `_family_room_needs_text` дешифрует/лимит 40; `_family_count_spoken` (DISTINCT) + `_family_recount_spoken`; `_family_count_finished`; `_family_save_report`/`_family_get_report` шифрование.
+  - Медиатор: промпт + поле `{"intent_type", "needs"}`; `_family_pop_json_block`/`_family_clean_needs`/`_family_chat_dialog` → **(text, intent, needs)**; `_family_extract_needs` кап 200/5 шт (по реплике пользователя).
+  - API: create/join/GET/DELETE/chat send/finish/history/report/generate — валидации, rate-limits, приватная история, идемпотентный отчёт, `status='finished'`.
+- **Family Circle (Batch B — frontend):** `_FAMILY_JS_UTILS` (api() 60s timeout, toast, saveSession, fc_* ключи) + новые `_FAMILY_INDEX_JS`/`_FAMILY_ROOM_JS`/`_FAMILY_RESULT_JS` (plain-строки); /family, /family/room, /family/result переписаны (единый вход, авто-логин по сессии, `**_family_chat_dialog** вернул 3-tuple`, гейт отчёта, новый парсер). Важно для тестов: `test_chat_dialog_is_capped_and_strips_intent_json` теперь распаковывает `(reply, intent, needs)`.
+- **Family Budget (Batch C, багхантинг IDOR/спинкинг):**
+  - **IDOR:** `_get_user_id()` — только session-token или **HMAC `BUDGET_API_SECRET`** (`X-Budget-Sig`/`sig`), оголённый `X-User-Id`/`user_id` → reject. Bot /budget/self-HTTP/VK-pairing/SPA — подпись; VK вернёт `sig` на pairing/status.
+  - `api_transaction_create` (int(amount)-фикс + member-валидация payer/for_whom), `api_debt_pay` (свои долги или админ, member-валидация, debt_id по семье), vk_status/vk_link (живая сессия, ISO-expiry-парс, sig), `linkvk_command` (ORM+DateTime+place-holder vk), webhook `/family` + signed budget_url, self-HTTP под вопрос, `/test_send` admin-gate, `/api/set_webhook` только Vercel-домены (Host-hijack).
+- **Тесты:** `test_family_mediator.py` 9/9 (3-tuple + needs/полный паринг/валидации), новый `test_family_budget.py` 13/13 (signature verify/forge-reject, 400 amount, 403 non-member payer/for_whom, own-debt только/успех), ruff чист (4 файла), `py_compile` чист.
 
 ### 2026-09-21 (Session: 🔍 Багхант md2pdf)
 - **[BUGHUNT]** Найден и исправлен UX-баг (коммит `95d7cf2`, задеплоено): `improveMd()` при не-JSON ответе (HTML-страница ошибки Vercel при таймауте ИИ/шлюза) падало в `r.json()` и показывало «Unexpected token '<'». Теперь ответ читается как текст, JSON парсится через try/catch; ошибки 429/502/HTML → понятные русские сообщения («Слишком много запросов…», «ИИ временно недоступен…», «сервис недоступен»). `<body>` финальный сет показывается при любом исходе.
