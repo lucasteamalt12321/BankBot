@@ -224,12 +224,23 @@ def _auth_user_or_401():
     return user, None
 
 
-def _ddl(sql: str) -> str:
-    """Normalize a DDL statement so it runs on both PostgreSQL and SQLite.
+def _ddl(sql: str, engine=None) -> str:
+    """Normalize a DDL statement so it runs on the target database.
+
+    PostgreSQL natively supports SERIAL / TIMESTAMPTZ / NOW() and
+    ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``, so it must receive the
+    statement untouched — rewriting here is what produced one SyntaxError
+    ("AUTOINCREMENT") and one DuplicateColumn ("ADD COLUMN IF NOT EXISTS"
+    stripped) per cold start in the Telegram admin chat.
 
     SQLite understands VARCHAR/INTEGER/BOOLEAN/TEXT but not SERIAL or NOW(),
-    and it has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``.
+    and it has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` — those forms
+    are rewritten only when the target dialect is SQLite.
     """
+    if engine is not None:
+        dialect = getattr(engine, "dialect", None)
+        if dialect is not None and dialect.name != "sqlite":
+            return sql
     out = re.sub(r"\bSERIAL\s+PRIMARY\s+KEY\b", "INTEGER PRIMARY KEY AUTOINCREMENT", sql, flags=re.I)
     out = re.sub(r"\bSERIAL\b", "INTEGER", out, flags=re.I)
     out = re.sub(r"\bTIMESTAMPTZ\b", "TIMESTAMP", out, flags=re.I)
@@ -267,6 +278,28 @@ def _ddl_add_column(table: str, column_sql: str, engine=None) -> str | None:
     except Exception:
         return f"ALTER TABLE {table} ADD COLUMN {col_sql}"
     return f"ALTER TABLE {table} ADD COLUMN {col_sql}"
+
+
+def _ensure_ddl_column(conn, table: str, column_sql: str, engine=None) -> None:
+    """Idempotently add a column inside an ``engine.connect()`` block.
+
+    Unlike a bare ``_ddl(ALTER ... ADD COLUMN IF NOT EXISTS ...)`` this never
+    emits the ALTER when the column already exists (no DuplicateColumn), and on
+    any unexpected failure it rolls this connection back so the surrounding
+    transaction is not poisoned — otherwise every subsequent statement fails
+    with ``InFailedSqlTransaction`` (that cascade produced the CODE/PARSING
+    spam in Telegram).
+    """
+    stmt = _ddl_add_column(table, column_sql, engine)
+    if not stmt:
+        return
+    try:
+        conn.execute(text(stmt))
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
 
 
 _WEB_USER_OPTIONAL_COLUMNS = (
@@ -1313,7 +1346,7 @@ def _ensure_family_tables(engine):
                     participants_total INTEGER NOT NULL DEFAULT 1,
                     spoke_count INTEGER DEFAULT 0
                 )
-            """)))
+            """, engine)))
             conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS members (
                     id VARCHAR(36) PRIMARY KEY,
@@ -1323,7 +1356,7 @@ def _ensure_family_tables(engine):
                     finished BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """)))
+            """, engine)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_room ON members(room_id)"))
             conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS messages (
@@ -1335,7 +1368,7 @@ def _ensure_family_tables(engine):
                     needs_extracted TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """)))
+            """, engine)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_member ON messages(member_id)"))
             conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS needs (
@@ -1345,7 +1378,7 @@ def _ensure_family_tables(engine):
                     member_id VARCHAR(36) REFERENCES members(id) ON DELETE SET NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """)))
+            """, engine)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_needs_room ON needs(room_id)"))
             conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS final_reports (
@@ -1354,7 +1387,7 @@ def _ensure_family_tables(engine):
                     report_text TEXT NOT NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """)))
+            """, engine)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_final_reports_room ON final_reports(room_id)"))
             conn.commit()
         _family_dedupe_and_unique_member_names(engine)
@@ -1381,14 +1414,14 @@ CREATE TABLE IF NOT EXISTS web_users (
     created_at TIMESTAMPTZ DEFAULT NOW(),-- 818
     email VARCHAR(255) UNIQUE            -- email column for authentication
 )
-            """)))
+            """, engine)))
             conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS web_sessions (
                     token VARCHAR(64) PRIMARY KEY,
                     user_id INTEGER REFERENCES web_users(id) ON DELETE CASCADE,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """)))
+            """, engine)))
             conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS web_coin_log (
                     id SERIAL PRIMARY KEY,
@@ -1397,7 +1430,7 @@ CREATE TABLE IF NOT EXISTS web_users (
                     description VARCHAR(255),
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """)))
+            """, engine)))
             conn.execute(text(_ddl("""
                 CREATE TABLE IF NOT EXISTS web_feedback (
                     id SERIAL PRIMARY KEY,
@@ -1410,17 +1443,12 @@ CREATE TABLE IF NOT EXISTS web_users (
                     status VARCHAR(16) DEFAULT 'open',
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """)))
+            """, engine)))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_sessions_user ON web_sessions(user_id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_coin_log_user ON web_coin_log(user_id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_feedback_status ON web_feedback(status)"))
             for _col in _WEB_USER_OPTIONAL_COLUMNS:
-                try:
-                    _stmt = _ddl_add_column("web_users", _col, engine=engine)
-                    if _stmt:
-                        conn.execute(text(_stmt))
-                except Exception:
-                    pass
+                _ensure_ddl_column(conn, "web_users", _col, engine)
             conn.commit()
         log_error("AUTH", "info", "Tables ensured")
     except Exception as exc:
@@ -1438,7 +1466,7 @@ CREATE TABLE IF NOT EXISTS friend_requests (
     to_user INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )
-            """)))
+            """, engine)))
             conn.execute(text(_ddl("""
 CREATE TABLE IF NOT EXISTS web_friends (
     id SERIAL PRIMARY KEY,
@@ -1446,7 +1474,7 @@ CREATE TABLE IF NOT EXISTS web_friends (
     friend_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )
-            """)))
+            """, engine)))
             try:
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_friend_requests_pair ON friend_requests(from_user, to_user)"))
             except Exception:
@@ -1657,14 +1685,9 @@ def _ensure_code_tables(engine):
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_files_project ON code_files(project_id)"))
-            try:
-                conn.execute(text(_ddl("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_done INTEGER NOT NULL DEFAULT 0")))
-            except Exception:
-                pass
-            try:
-                conn.execute(text(_ddl("ALTER TABLE code_files ADD COLUMN IF NOT EXISTS ai_chunks_total INTEGER NOT NULL DEFAULT 1")))
-            except Exception:
-                pass
+            # Legacy migration for tables created before ai_chunks_* existed.
+            _ensure_ddl_column(conn, "code_files", "ai_chunks_done INTEGER NOT NULL DEFAULT 0", engine)
+            _ensure_ddl_column(conn, "code_files", "ai_chunks_total INTEGER NOT NULL DEFAULT 1", engine)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS code_user_comments (
                     id SERIAL PRIMARY KEY,
@@ -1713,18 +1736,10 @@ def _ensure_parsing_tables(engine):
                     parsed_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """))
-            try:
-                conn.execute(text(_ddl("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS status VARCHAR(16) DEFAULT 'success'")))
-            except Exception:
-                pass
-            try:
-                conn.execute(text(_ddl("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS chat_id BIGINT")))
-            except Exception:
-                pass
-            try:
-                conn.execute(text(_ddl("ALTER TABLE parsed_transactions ADD COLUMN IF NOT EXISTS message_id BIGINT")))
-            except Exception:
-                pass
+            # Legacy migration for parsed_transactions rows created before these columns.
+            _ensure_ddl_column(conn, "parsed_transactions", "status VARCHAR(16) DEFAULT 'success'", engine)
+            _ensure_ddl_column(conn, "parsed_transactions", "chat_id BIGINT", engine)
+            _ensure_ddl_column(conn, "parsed_transactions", "message_id BIGINT", engine)
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_parsed_transactions_parsed_at ON parsed_transactions(parsed_at)"))
             try:
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_parsed_transactions_msg ON parsed_transactions(chat_id, message_id) WHERE message_id IS NOT NULL"))
