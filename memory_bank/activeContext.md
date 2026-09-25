@@ -4,6 +4,13 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### 🏁 Выполнено (2026-09-25): 🔧 Фикс TG-спама на холодных стартах — DDL-портируемость `_ddl` (коммит `701f83f`)
+
+- **[BUG] TG-чат спамился «Table init error» на каждый холодный старт** (батчи 17:27…18:49). Корень: `_ddl()` безусловно переписывал DDL под SQLite даже для Postgres → AUTH/SOCIAL `SyntaxError near "AUTOINCREMENT"` (SERIAL→AUTOINCREMENT), CODE/PARSING `DuplicateColumn` (strip `ADD COLUMN IF NOT EXISTS`) → `try/except pass` без rollback → каскад `InFailedSqlTransaction` на `code_user_comments`/`ix_parsed_transactions_parsed_at`.
+- **Фикс:** `_ddl(sql, engine=None)` — Postgres (dialect != sqlite) получает SQL без изменений; `_ensure_ddl_column(conn, table, col_sql, engine)` (проверка наличия колонки + `conn.rollback()` при ошибке) заменил сырые ALTERы (code_files×2, parsed_transactions×3, AUTH optional-cols); `engine` продет во все 11 `text(_ddl("""...""", engine)))` (family 5, AUTH 4, SOCIAL 2). Грабли: первая правка давала `conn.execute(text(_ddl("""..."""))), engine)` (кортеж, engine=None) — правильное закрытие `""", engine)))`.
+- **Тесты:** `test_ddl_portability.py` 4/4 (postgres-noop, sqlite-rewrite, idempotent ×2, ensure_ddl_column no-op). Регресс 38+73 passed; 5 падений `test_manual_parsing_handler_e2e` — pre-existing (нет pytest-asyncio, подтверждено на HEAD). ruff чист.
+- **Статус: code+tests закоммичены (`701f83f`). Следующий шаг: память → push → деплой → прод-смоук.**
+
 ### 🏁 Выполнено (2026-09-25): 🔍 Багхант Family — Circle (веб+медиатор) и Budget (бот+веб) — код готов
 
 > Полный багхант family-модуля (high+med+low, пользователь выбрал «Всё, включая средне/низкое»). `api/index.py` (~1180 строк) + `family_budget.py` + `budget_commands.py` + тесты. ruff чист; `test_family_mediator.py` 9/9, `test_family_budget.py` (новый, IDOR/валидации) 13/13. **Коммит/деплой/прод-смоук — следующий шаг** (см. `progress.md` Changelog).
