@@ -28338,6 +28338,8 @@ _CODE_SKIP_EXT = {
 }
 
 _CODE_MAX_FILES = 35          # max files AI-analyzed per run
+_CODE_GUEST_SCAN_MAX_LINES = 800   # файлы длиннее НЕ сканируются у анонимов («без больших файлов»)
+_CODE_GUEST_SCAN_RATE = 3     # гостевых скан-запросов в час на IP
 _CODE_MAX_ANALYZE_LINES = 500 # lines sent to AI per file (single-shot fallback)
 _CODE_CHUNK_LINES = 450       # lines per AI chunk for large files
 _CODE_CHUNKS_PER_RUN = 5      # AI chunk budget per analyze/reanalyze call (fits Vercel 60s limit)
@@ -29409,15 +29411,30 @@ def api_code_project_delete(project_id):
 
 
 def api_code_reanalyze(project_id):
-    """POST /api/code/project/<id>/analyze — run AI analysis on already-loaded files."""
+    """POST /api/code/project/<id>/analyze — run AI analysis on already-loaded files.
+
+    Freemium: аноним может сканировать ТОЛЬКО публичные гостевые проекты
+    (user_id NULL) и БЕЗ больших файлов (дольше `_CODE_GUEST_SCAN_MAX_LINES`
+    строк исключаются из пула анализа) с rate-limit по IP; полное сканирование
+    (включая большие файлы чанками) — только за вход.
+    """
     user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
-    project = _code_project_owned(project_id, int(user["id"]))
-    if not project:
-        return jsonify({"ok": False, "error": "Проект не найден"}), 404
-    if _check_ai_rate(f"code_{int(user['id'])}") or _check_db_rate(f"code_reanalyze_{int(user['id'])}", 10, 3600):
-        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+    uid = int(user["id"]) if user else None
+    guest = False
+    if uid is None:
+        project = _code_project_visible(project_id, None)
+        if not project:
+            return jsonify({"ok": False, "error": "Проект не найден"}), 404
+        ip = request.remote_addr or "unknown"
+        if _check_db_rate(f"code_scan_anon_{ip}", _CODE_GUEST_SCAN_RATE, 3600) or _check_ai_rate(f"code_anon_{ip}"):
+            return jsonify({"ok": False, "error": "Слишком много запросов без аккаунта. Войдите, чтобы продолжить"}), 429
+        guest = True
+    else:
+        project = _code_project_owned(project_id, uid)
+        if not project:
+            return jsonify({"ok": False, "error": "Проект не найден"}), 404
+        if _check_ai_rate(f"code_{uid}") or _check_db_rate(f"code_reanalyze_{uid}", 10, 3600):
+            return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
 
     engine = get_db_engine()
     try:
@@ -29432,6 +29449,15 @@ def api_code_reanalyze(project_id):
             "line_count": int(r["line_count"] or 0),
             "content": r["content"] or "",
         } for r in rows]
+        skipped_large = 0
+        if guest:
+            small = []
+            for f in files:
+                if f["line_count"] > _CODE_GUEST_SCAN_MAX_LINES:
+                    skipped_large += 1
+                else:
+                    small.append(f)
+            files = small
         files.sort(key=lambda f: (-_code_file_importance(f), f["path"]))
     except Exception as exc:
         log_error("CODE", "error", f"reanalyze load error: {exc}")
@@ -29480,7 +29506,12 @@ def api_code_reanalyze(project_id):
             "AND ai_chunks_done >= ai_chunks_total"
         ), {"pid": project_id}).mappings().first()
         analyzed_total = int(done["c"]) if done else 0
-    return jsonify({"ok": True, "analyzed_count": analyzed_total, "file_count": len(files)})
+    return jsonify({
+        "ok": True,
+        "analyzed_count": analyzed_total,
+        "file_count": len(files),
+        "skipped_large": skipped_large if guest else 0,
+    })
 
 
 def api_code_update(project_id):
@@ -29833,7 +29864,10 @@ async function analyzeProject() {{
         var d = await r.json();
         prog.done();
         if (!d.ok) {{ prog.fail(); showErr(d.error || 'Ошибка'); return; }}
-        setMsg('Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '. Нажмите «🚀 Анализировать всё», чтобы обработать оставшиеся файлы автоматически.');
+        var _msg = 'Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count;
+        if (d.skipped_large > 0) _msg += ' (большие файлы пропущены — войдите, чтобы сканировать всё)';
+        else _msg += '. Нажмите «🚀 Анализировать всё», чтобы обработать оставшиеся файлы автоматически.';
+        setMsg(_msg);
         await loadProject(CURRENT_PROJECT.id, false);
         prog.hide();
     }} catch(e) {{ prog.fail(); showErr('Сеть: ' + e.message); }}
