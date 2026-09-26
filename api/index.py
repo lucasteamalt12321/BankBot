@@ -630,6 +630,11 @@ _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW = 300  # 5 minutes
 
+# Регистрация (по IP): короткий burst 30/5мин не блокирует школьный класс за NAT,
+# жёсткий суточный лимит — DB-backed, работает между холодными стартами.
+_REGISTER_BURST = 30
+_REGISTER_DAILY = 200
+
 _AI_RATE_LIMITS: dict[str, list[float]] = {}
 _AI_RATE_WINDOW = 60  # 1 minute window
 _AI_RATE_MAX = 10     # max 10 requests per minute per key
@@ -12898,8 +12903,11 @@ def settings_page():
 @app.route("/api/auth/register", methods=["POST"])
 def api_auth_register():
     """Создать аккаунт с логином/паролем и опциональными полями."""
-    if _check_ai_rate("register:" + (request.remote_addr or "unknown"), max_requests=5, window=300):
+    ip = request.remote_addr or "unknown"
+    if _check_ai_rate("register:" + ip, max_requests=_REGISTER_BURST, window=300):
         return jsonify({"error": "Слишком много запросов. Подождите."}), 429
+    if _check_db_rate("reg_day:" + ip, _REGISTER_DAILY, 86400):
+        return jsonify({"error": "Слишком много регистраций за сутки с этого адреса. Попробуйте позже."}), 429
     data = request.get_json(silent=True) or {}
     login = (data.get("login") or "").strip().lower()
     password = data.get("password") or ""
