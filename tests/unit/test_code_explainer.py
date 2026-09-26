@@ -601,3 +601,134 @@ def test_guest_scan_rate_limited(mock_ai, mock_clone, tmp_path):
 
         r = client.post(f"/api/code/project/{pid}/analyze")
         assert r.status_code == 429
+
+
+def _seed_project(engine, uid):
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO code_projects (user_id, repo_url, repo_name, status, file_count) "
+            "VALUES (:uid, 'https://github.com/x/seed', 'seed', 'ready', 0)"
+        ), {"uid": uid})
+        pid = conn.execute(text("SELECT MAX(id) FROM code_projects")).scalar()
+    return pid
+
+
+def _seed_file(engine, pid, path, lang, line_count, content, done=0, total=1, summary=""):
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
+            "line_count, content, ai_summary, ai_line_comments, ai_chunks_done, ai_chunks_total) "
+            "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, '{}', :done, :total)"
+        ), {"pid": pid, "path": path, "parent": "/".join(path.split("/")[:-1]),
+            "lang": lang, "lc": line_count, "content": content, "summary": summary,
+            "done": done, "total": total})
+
+
+@patch("api.index._code_ai_call")
+def test_reanalyze_advances_past_first_35_files(mock_ai):
+    """«Анализировать всё»: пул — недокрытые файлы, а не всегда первые 35; прогресс растёт до 100%."""
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        client = app.test_client()
+        token = _create_user(client)
+        with engine.connect() as conn:
+            uid = conn.execute(text("SELECT id FROM web_users WHERE login='code_user'")).scalar()
+
+    pid = _seed_project(engine, uid)
+    for i in range(35):
+        _seed_file(engine, pid, f"src/mod{i}.py", ".py", 10, f"def f{i}():\n    return {i}\n",
+                   done=1, total=1, summary=f"Модуль {i}")
+    _seed_file(engine, pid, "tests/zzz_unanalyzed.py", ".py", 10, "def helper():\n    return 1\n")
+
+    mock_ai.return_value = json.dumps({"files": {
+        "tests/zzz_unanalyzed.py": {"summary": "Вспомогательный тестовый модуль.",
+                                    "line_comments": {"1": "Функция helper"}}
+    }})
+
+    with patch("api.index.get_db_engine", return_value=engine):
+        r = client.post(f"/api/code/project/{pid}/analyze", headers=_auth_headers(token))
+    assert r.status_code == 200, r.get_json()
+    d = r.get_json()
+    assert d["ok"] is True
+    assert d["file_count"] == 36
+    assert d["analyzed_count"] == 36  # регресс-фикс: анализ дошёл до конца, а не застрял на 35
+
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT ai_chunks_done, ai_summary FROM code_files "
+            "WHERE project_id = :pid AND file_path = 'tests/zzz_unanalyzed.py'"
+        ), {"pid": pid}).mappings().first()
+    assert int(row["ai_chunks_done"]) == 1
+    assert "тестовый" in (row["ai_summary"] or "")
+
+
+@patch("api.index._code_ai_call")
+def test_reanalyze_resumes_chunked_file(mock_ai):
+    """Анализ большого файла продолжается с хранимого прогресса, а не перечитывает готовые чанки."""
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        client = app.test_client()
+        token = _create_user(client)
+        with engine.connect() as conn:
+            uid = conn.execute(text("SELECT id FROM web_users WHERE login='code_user'")).scalar()
+
+    pid = _seed_project(engine, uid)
+    _seed_file(engine, pid, "src/big.py", ".py", 1000,
+               "\n".join(f"line {i}" for i in range(1000)), done=1, total=3)
+
+    captured = {}
+
+    def _fake_ai(prompt, max_tokens=1600):
+        captured["prompt"] = prompt
+        return json.dumps({"files": {"src/big.py": {
+            "summary": "Большой модуль.", "line_comments": {"460": "Строка 460"}}}})
+
+    mock_ai.side_effect = _fake_ai
+
+    with patch("api.index.get_db_engine", return_value=engine):
+        r = client.post(f"/api/code/project/{pid}/analyze", headers=_auth_headers(token))
+    assert r.status_code == 200, r.get_json()
+    d = r.get_json()
+    assert d["file_count"] == 1
+    assert d["analyzed_count"] == 1
+
+    prompt = captured["prompt"]
+    assert "фрагмент 2/3, строки 451–900" in prompt
+    assert "фрагмент 1/3" not in prompt  # resume не перечитывает уже готовый фрагмент
+
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT ai_chunks_done, ai_chunks_total FROM code_files "
+            "WHERE project_id = :pid AND file_path = 'src/big.py'"
+        ), {"pid": pid}).mappings().first()
+    assert int(row["ai_chunks_done"]) == int(row["ai_chunks_total"]) == 3
+
+
+def test_infer_summary_languages():
+    """"Хирургические" сводки для html/py/js/json вместо бессодержательных «Файл X — N строк»."""
+    from api.index import _code_heuristic_summary
+
+    cases = [
+        ({"path": "site/index.html", "lang_key": ".html",
+          "content": "<html><head><title>Магазин игрушек</title></head><body></body></html>"},
+         "Магазин игрушек"),
+        ({"path": "app/main.py", "lang_key": ".py",
+          "content": "def run():\n    return 1\nclass Runner:\n    pass\n"},
+         "функции: run"),
+        ({"path": "app/main.py", "lang_key": ".py",
+          "content": "class Runner:\n    def go(self):\n        pass\n"},
+         "классы: Runner"),
+        ({"path": "cfg/data.json", "lang_key": ".json",
+          "content": '{"name": "bot", "port": 80}'},
+         "ключи: name, port"),
+        ({"path": "web/app.js", "lang_key": ".js",
+          "content": "const PORT = 3000;\nexport function start() {}\n"},
+         "start"),
+        ({"path": "docs/note.md", "lang_key": ".md",
+          "content": "# Установка\n## Запуск\n"},
+         "Установка"),
+    ]
+    for info, needle in cases:
+        out, _ = _code_heuristic_summary(info)
+        assert needle in out, (info["path"], out)
+        assert " — " in out

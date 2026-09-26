@@ -28835,6 +28835,7 @@ _CODE_SKIP_EXT = {
 _CODE_MAX_FILES = 35          # max files AI-analyzed per run
 _CODE_GUEST_SCAN_MAX_LINES = 800   # файлы длиннее НЕ сканируются у анонимов («без больших файлов»)
 _CODE_GUEST_SCAN_RATE = 3     # гостевых скан-запросов в час на IP
+_CODE_REANALYZE_RATE_LIMIT = 30    # «Анализировать всё»: серии в час на пользователя
 _CODE_MAX_ANALYZE_LINES = 500 # lines sent to AI per file (single-shot fallback)
 _CODE_CHUNK_LINES = 450       # lines per AI chunk for large files
 _CODE_CHUNKS_PER_RUN = 5      # AI chunk budget per analyze/reanalyze call (fits Vercel 60s limit)
@@ -29277,18 +29278,106 @@ def _code_heuristic_summary(file_info: dict) -> tuple[str, dict]:
         if kv_pairs:
             parts.append(f"{len(kv_pairs)} параметров")
         return " — ".join(parts) + ".", {}
-    # Generic fallback: extract identifiers
+    title, detail_parts = _code_infer_summary(lines, lang_key)
+    if title:
+        return f"Файл {fname} — {title}.", {}
+    summary_parts = [f"{lang_name}, {line_count} строк"]
+    summary_parts.extend(detail_parts)
+    return f"Файл {fname} — {'; '.join(summary_parts)}.", {}
+
+
+def _code_infer_summary(lines: list[str], lang_key: str) -> tuple[str, list[str]]:
+    """Try to describe a file's purpose from its content without AI.
+
+    Returns (title, extra_detail_parts); title describes the file meaningfully,
+    extra parts are used as fallback detail when no title was inferred.
+    """
+    joined = "\n".join(lines[:400])
+    lk = (lang_key or "").lower()
+    if lk == ".py":
+        funcs = re.findall(r"^\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)", joined, re.M)
+        classes = re.findall(r"^\s*class\s+([a-zA-Z_]\w*)", joined, re.M)
+        parts = []
+        if funcs:
+            parts.append("функции: " + ", ".join(dict.fromkeys(funcs[:6])))
+        if classes:
+            parts.append("классы: " + ", ".join(dict.fromkeys(classes[:5])))
+        return "", parts
+    if lk in (".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"):
+        consts = re.findall(r"^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([a-zA-Z_$]\w*)\s*=", joined, re.M)
+        funcs = re.findall(r"^(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_$]\w*)", joined, re.M)
+        classes = re.findall(r"^(?:export\s+)?class\s+([a-zA-Z_$]\w*)", joined, re.M)
+        parts = []
+        names = list(dict.fromkeys(funcs + consts + classes))
+        if names:
+            parts.append("объявления: " + ", ".join(names[:6]))
+        return "", parts
+    if lk == ".html":
+        title = re.search(r"<html[^>]*>\s*<head[^>]*>.*?<title[^>]*>(.*?)</title>", joined, re.S | re.I) or \
+            re.search(r"<title[^>]*>(.*?)</title>", joined, re.S | re.I)
+        if title:
+            return title.group(1).strip() or "", []
+        heads = list(dict.fromkeys(h.strip() for h in
+            re.findall(r"<h[1-6][^>]*>(.*?)</h[1-6]>", joined, re.S | re.I)))
+        parts = []
+        if heads:
+            parts.append("заголовки: " + ", ".join(heads[:5]))
+        forms = re.findall(r"<form", joined, re.I)
+        if forms:
+            parts.append(f"форм: {len(forms)}")
+        inputs = re.findall(r"<input", joined, re.I)
+        if inputs:
+            parts.append(f"полей ввода: {len(inputs)}")
+        scripts = re.findall(r"<script", joined, re.I)
+        if scripts:
+            parts.append(f"скриптов: {len(scripts)}")
+        return "", parts
+    if lk == ".json":
+        try:
+            obj = json.loads(joined)
+        except Exception:
+            obj = None
+        if isinstance(obj, dict):
+            keys = list(dict.fromkeys(str(k) for k in obj))
+            return "", [f"ключи: {', '.join(keys[:8])}"]
+        if isinstance(obj, list):
+            return "", [f"массив из {len(obj)} элемента(ов)"]
+        return "", []
+    if lk == ".css":
+        rules = len(re.findall(r"\}", joined))
+        classes_ = list(dict.fromkeys(
+            m.strip() for m in re.findall(r"\.([a-zA-Z_][\w-]*)\s*\{", joined)[:8]))
+        parts = []
+        if rules:
+            parts.append(f"правил: {rules}")
+        if classes_:
+            parts.append("селекторы: " + ", ".join(classes_[:6]))
+        return "", parts
+    if lk in (".md", ".markdown", ".rst", ".txt"):
+        heads = [h.strip() for h in re.findall(r"^#{1,4}\s+(.*)", joined, re.M)]
+        if heads:
+            return "", [f"разделы: {', '.join(dict.fromkeys(heads[:6]))}"]
+        return "", []
+    if lk in (".yaml", ".yml", ".toml"):
+        tops = list(dict.fromkeys(
+            l.strip().rstrip(":").strip("[]") for l in lines
+            if l.strip() and not l.strip().startswith(("#", ";"))
+            and (l.strip().endswith(":") or l.strip().startswith("["))))
+        if tops:
+            return "", [f"разделы: {', '.join(tops[:6])}"]
+        return "", []
+    # GDScript и прочие языки — структурный разбор
     classes = [l.split()[-1].split("(")[0] for l in lines if "class " in l and "extends" in l][:5]
     funcs = [l.strip().replace("func ", "").split("(")[0] for l in lines if l.strip().startswith("func ")][:5]
     signals = [l.strip() for l in lines if l.strip().startswith("signal ")][:5]
-    summary_parts = [f"{lang_name}, {line_count} строк"]
+    parts = []
     if classes:
-        summary_parts.append(f"классы: {', '.join(classes)}")
+        parts.append(f"классы: {', '.join(classes)}")
     if funcs:
-        summary_parts.append(f"функции: {', '.join(funcs)}")
+        parts.append(f"функции: {', '.join(funcs)}")
     if signals:
-        summary_parts.append(f"сигналы: {', '.join(s.replace('signal ', '') for s in signals)}")
-    return f"Файл {fname} — {'; '.join(summary_parts)}.", {}
+        parts.append(f"сигналы: {', '.join(s.replace('signal ', '') for s in signals)}")
+    return "", parts
 
 
 def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
@@ -29328,7 +29417,7 @@ def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
         if 1 <= line_no <= len(lines) and isinstance(v, str) and v.strip():
             cleaned[str(line_no)] = v.strip()[:300]
     if not summary:
-        summary = f"Файл {os.path.basename(file_info['path'])} — {lang_name}."
+        summary, _ = _code_heuristic_summary(file_info)
     return summary, cleaned
 
 
@@ -29928,7 +30017,7 @@ def api_code_reanalyze(project_id):
         project = _code_project_owned(project_id, uid)
         if not project:
             return jsonify({"ok": False, "error": "Проект не найден"}), 404
-        if _check_ai_rate(f"code_{uid}") or _check_db_rate(f"code_reanalyze_{uid}", 10, 3600):
+        if _check_ai_rate(f"code_{uid}") or _check_db_rate(f"code_reanalyze_{uid}", _CODE_REANALYZE_RATE_LIMIT, 3600):
             return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
 
     engine = get_db_engine()
@@ -29943,6 +30032,7 @@ def api_code_reanalyze(project_id):
             "lang_key": r["language"],
             "line_count": int(r["line_count"] or 0),
             "content": r["content"] or "",
+            "ai_chunks_done": int(r["ai_chunks_done"] or 0),
         } for r in rows]
         skipped_large = 0
         if guest:
@@ -29958,12 +30048,19 @@ def api_code_reanalyze(project_id):
         log_error("CODE", "error", f"reanalyze load error: {exc}")
         return jsonify({"ok": False, "error": "Не удалось загрузить файлы"}), 500
 
-    done_map = {f["path"]: int((f.get("ai_chunks_done") or 0)) for f in files}
-
-    analyze_pool = files[: _CODE_MAX_FILES]
+    # Resume: в пул берутся ТОЛЬКО файлы с недокрытыми чанками, поэтому каждая
+    # серия «Анализировать всё» продвигается дальше по списку, а не перечитывает
+    # первые _CODE_MAX_FILES файлов с нуля.
+    pending = []
+    for f in files:
+        total = _code_chunks_total(f["line_count"])
+        if f["ai_chunks_done"] < total:
+            pending.append(f)
+    analyze_pool = pending[: _CODE_MAX_FILES]
     batch_results = {}
     covered = {}
     if analyze_pool:
+        done_map = {f["path"]: min(f["ai_chunks_done"], _code_chunks_total(f["line_count"])) for f in analyze_pool}
         batch_results, covered = _code_analyze_batch(analyze_pool, resume=done_map)
     updated = 0
     for f in analyze_pool:
@@ -29971,7 +30068,7 @@ def api_code_reanalyze(project_id):
         if f["path"] not in batch_results:
             continue
         chunks_total = _code_chunks_total(f["line_count"])
-        chunks_done = min(chunks_total, covered.get(f["path"], 0))
+        chunks_done = min(chunks_total, covered.get(f["path"], f["ai_chunks_done"]))
         try:
             with engine.begin() as conn:
                 row = conn.execute(text(
@@ -29995,12 +30092,14 @@ def api_code_reanalyze(project_id):
 
     with engine.begin() as conn:
         conn.execute(text("UPDATE code_projects SET status = 'ready' WHERE id = :id"), {"id": project_id})
-    with engine.connect() as conn:
-        done = conn.execute(text(
-            "SELECT COUNT(*) AS c FROM code_files WHERE project_id = :pid AND file_type = 'file' "
-            "AND ai_chunks_done >= ai_chunks_total"
-        ), {"pid": project_id}).mappings().first()
-        analyzed_total = int(done["c"]) if done else 0
+    analyzed_total = 0
+    for f in files:
+        total = _code_chunks_total(f["line_count"])
+        done = f["ai_chunks_done"]
+        if f["path"] in covered:
+            done = max(done, covered.get(f["path"], 0))
+        if min(done, total) >= total:
+            analyzed_total += 1
     return jsonify({
         "ok": True,
         "analyzed_count": analyzed_total,
@@ -30396,7 +30495,7 @@ async function analyzeAll() {{
                 setMsg('✅ Готово: проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '.');
                 break;
             }}
-            if (series >= 12) {{
+            if (series >= 20) {{
                 setMsg('Сделано серий: ' + series + '. Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + '. Нажмите «🚀 Анализировать всё» ещё раз, чтобы продолжить.');
                 break;
             }}
