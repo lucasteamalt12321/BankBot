@@ -13657,6 +13657,102 @@ def api_admin_user_coins(user_id):
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
+# Таблицы, где user_id — это id Telegram, а не веб-аккаунта: их не трогаем.
+_ADMIN_TG_KEYED_TABLES = {
+    "submissions", "player_stats", "level_completions", "game_states",
+    "user_preferences", "infection_status", "daily_prayer_log",
+}
+
+
+def _admin_user_ref_columns(conn) -> list[tuple[str, str, bool]]:
+    """(table, column, is_text) для всех колонок, ссылающихся на веб-пользователя.
+
+    Веб-модули хранят либо сырой ``web_users.id``, либо хеш
+    ``_web_user_id("u<id>")`` (монеты/шахматы) — поэтому колонки обоих типов.
+    """
+    dialect = conn.engine.dialect.name
+    names = ("user_id", "from_user", "to_user", "friend_id")
+    refs: list[tuple[str, str, bool]] = []
+    try:
+        if dialect == "sqlite":
+            tables = [str(r[0]) for r in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")).all()]
+        else:
+            tables = [str(r[0]) for r in conn.execute(text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = current_schema()")).all()]
+    except Exception:
+        return refs
+    for table in tables:
+        if table == "web_users" or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table or ""):
+            continue
+        try:
+            if dialect == "sqlite":
+                for c in conn.execute(text(f"PRAGMA table_info({table})")).all():
+                    col = str(c[1])
+                    if col.lower() in names:
+                        refs.append((table, col, str(c[2] or "").upper().startswith(("TEXT", "CHAR", "CLOB"))))
+            else:
+                rows = conn.execute(text(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = :t "
+                    "AND column_name IN ('user_id', 'from_user', 'to_user', 'friend_id')"),
+                    {"t": table}).all()
+                for col, dtype in rows:
+                    refs.append((table, str(col), str(dtype).lower() in
+                                 ("text", "character varying", "character", "citext")))
+        except Exception:
+            continue
+    return refs
+
+
+@app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
+def api_admin_user_delete(user_id):
+    """Удалить веб-аккаунт вместе с его данными (сессии, друзья, монеты, активность).
+
+    Нужно для чистки тестовых/спам-аккаунтов и модерации. Telegram-ключевые
+    таблицы (GD, Вселенная) не трогаются: там user_id — это id телеграма.
+    """
+    admin = _admin_require()
+    if not admin:
+        return jsonify({"error": "Нет доступа"}), 403
+    if int(admin["id"]) == int(user_id):
+        return jsonify({"error": "Нельзя удалить свой аккаунт"}), 400
+    hashed = _web_user_id("u" + str(user_id))
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT id, login FROM web_users WHERE id = :id"),
+                {"id": user_id}).mappings().first()
+            if not row:
+                return jsonify({"error": "Пользователь не найден"}), 404
+            refs = _admin_user_ref_columns(conn)
+        # По одной транзакции на таблицу: падение одной не должно ронять остальные
+        # (на Postgres ошибка внутри begin() даёт InFailedSqlTransaction на весь блок).
+        removed: dict[str, int] = {}
+        for table, column, is_text in refs:
+            if table in _ADMIN_TG_KEYED_TABLES:
+                continue
+            vals = [str(user_id), str(hashed)] if is_text else [int(user_id), int(hashed)]
+            try:
+                with engine.begin() as conn:
+                    res = conn.execute(
+                        text(f"DELETE FROM {table} WHERE {column} IN :vals")
+                        .bindparams(bindparam("vals", expanding=True)),
+                        {"vals": vals})
+                    if res.rowcount:
+                        removed[f"{table}.{column}"] = int(res.rowcount)
+            except Exception as exc:
+                log_error("ADMIN", "warn", f"user delete {table}.{column}: {exc}")
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM web_users WHERE id = :id"), {"id": user_id})
+        return jsonify({"ok": True, "login": row["login"], "removed": removed})
+    except Exception as exc:
+        log_error("ADMIN", "error", f"user delete error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
 @app.route("/api/admin/coins/award", methods=["POST"])
 def api_admin_coins_award():
     admin = _admin_require()
@@ -13943,6 +14039,7 @@ def admin_page():
                     (u.is_admin
                         ? '<button class="btn btn-danger btn-small" onclick="toggleAdmin(' + u.id + ',false)">Снять админа</button>'
                         : '<button class="btn btn-small" onclick="toggleAdmin(' + u.id + ',true)">Сделать админом</button>') +
+                    ' <button class="btn btn-danger btn-small" onclick="deleteUser(' + u.id + ',\\\'' + esc(u.login) + '\\\')">Удалить</button>' +
                     '</td></tr>';
             });
             h += '</table>';
@@ -13968,6 +14065,18 @@ def admin_page():
         api('/api/admin/set_admin', {method: 'POST', body: JSON.stringify({user_id: userId, is_admin: makeAdmin})}).then(function(res) {
             if (res.ok) { toast(makeAdmin ? 'Админ назначен' : 'Админ снят'); loadUsers(); }
             else toast(res.j.error || 'Ошибка', true);
+        });
+    }
+
+    function deleteUser(userId, login) {
+        if (!confirm('Удалить @' + login + ' вместе с его данными? Действие необратимо.')) return;
+        api('/api/admin/users/' + userId, {method: 'DELETE'}).then(function(res) {
+            if (res.ok) {
+                var n = res.j.removed ? Object.keys(res.j.removed).length : 0;
+                toast('Аккаунт удалён (таблиц: ' + n + ')');
+                loadUsers();
+                loadStats();
+            } else toast(res.j.error || 'Ошибка', true);
         });
     }
 
