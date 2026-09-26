@@ -4,6 +4,19 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### 🏁 Выполнено (2026-09-26): 💻 Code Explainer — «Анализировать всё» доводит анализ до 100% + содержательные комментарии (коммит `c832c95`)
+
+> Закрыт бэклог-пункт из «не сделано в этой сессии» (стр. ниже). Коммит code+tests `c832c95`, далее память → push → деплой (`lthub-…`) → прод-смоук.
+
+- **[BUG] кнопка «🚀 Анализировать всё» не работала** — два корня в `api_code_reanalyze`:
+  1. `files` грузился БЕЗ `ai_chunks_done` (index.py), но `done_map` строился из `f.get("ai_chunks_done") or 0` → resume всегда = 0, каждый повтор перечитывал файлы с нуля;
+  2. `analyze_pool = files[: _CODE_MAX_FILES]` всегда брал ПЕРВЫЕ 35 по приоритету → после их покрытия повторные серии ничего нового не делали → `analyzed_count` замирал → JS падал в «Прогресс не растёт (лимит ИИ?)».
+  - **Фикс:** `ai_chunks_done` включён в dict файла; пул = только файлы с `ai_chunks_done < _code_chunks_total(line_count)` (до `_CODE_MAX_FILES` шт.); `analyzed_count` считается по текущему набору файлов (в т.ч. гостевой фильтр). Каждая серия продвигается дальше по важности, цикл JS сходится к `analyzed_count == file_count`.
+  - **Rate-limit:** `code_reanalyze_{uid}` 10 → `_CODE_REANALYZE_RATE_LIMIT = 30`/час (серии ≤ 20 в JS), чтобы «Анализировать всё» не упиралось в лимит; `_check_ai_rate` (10/мин) остался реальным бюджетом.
+- **[BUG] комментарии «Файл html, 20 строк»** — `_code_heuristic_summary` знал только GDScript-паттерны (class/func/signal). Новый `_code_infer_summary`: Python (def/class), JS/TS (const/function/class/export), HTML (`<title>`→заголовок сводки, иначе h1-h6/форм/инпутов/скриптов), JSON (ключи/массив), CSS (правила/селекторы), Markdown/текст (#-заголовки), YAML/TOML (разделы), GDScript как раньше. Fallback `_code_analyze_file_ai` при пустом summary тоже переведён на эвристику.
+- **Тесты:** `test_code_explainer.py` +3 → 16/16: `test_reanalyze_advances_past_first_35_files` (36 файлов: 35 готовых + 1 недокрытый в хвосте приоритета → `analyzed_count == file_count == 36`, старый код застревал на 35), `test_reanalyze_resumes_chunked_file` (1000 строк, resume с чанка 2/3 — prompt без «фрагмент 1/3», `ai_chunks_done→3`), `test_infer_summary_languages` (6 кейсов: html-title/py-funcs/py-classes/json-keys/js-export/md-heads). Регресс 29 passed (code_explainer 16 + ddl_portability 4 + error_logging + ai_chat_fallback), ruff чист.
+- **Статус: code+tests закоммичены (`c832c95`). Следующий шаг: память → push → деплой → прод-смоук.**
+
 ### 🏁 Выполнено (2026-09-25): 🔧 Фикс TG-спама на холодных стартах — DDL-портируемость `_ddl` (коммит `701f83f`)
 
 - **[BUG] TG-чат спамился «Table init error» на каждый холодный старт** (батчи 17:27…18:49). Корень: `_ddl()` безусловно переписывал DDL под SQLite даже для Postgres → AUTH/SOCIAL `SyntaxError near "AUTOINCREMENT"` (SERIAL→AUTOINCREMENT), CODE/PARSING `DuplicateColumn` (strip `ADD COLUMN IF NOT EXISTS`) → `try/except pass` без rollback → каскад `InFailedSqlTransaction` на `code_user_comments`/`ix_parsed_transactions_parsed_at`.
@@ -48,6 +61,7 @@
 ### ✅ Выполнено (2026-09-25): багхант — DDL, безопасность uid, рекурсия log_error, медиатор
 - **[TASK] пользователя: глобальный багхант (акцент — family/друзья), медиатор, Code Explainer.** Сделано и запушено (`b0013a8`): переносимый DDL (`_ddl`/`_ddl_add_column`/`_table_columns`/`_ensure_web_user_columns`, INSERT по фактическим колонкам) — закрыты 500 регистрации; **сессионный uid в dnd/chess** вместо доверия `user_id` из тела (анонимная имперсонация); **рекурсия `log_error → notify_admin → send_telegram_message → log_error`** при недоступном Telegram (зависание запроса) — thread-local guard + rate-limit ИИ; **медиатор короче** (max_tokens 400, 2–4 предложения) и без ложного «звоните 112» на бытовых конфликтах. Тесты: +`test_error_logging.py` (4), +`test_family_mediator.py` (5), conftest чистит rate-лимиты; 86 тестов зелёные, ruff clean.
 - **Осталось в очереди (не сделано в этой сессии):** баг Code Explainer — (1) кнопка «Анализировать всё» не работает: ложный «Прогресс не растёт (лимит ИИ?)» из-за сравнения `analyzed_count`, жёсткий `_CODE_MAX_FILES = 35`, rate-limit 10/час против `series >= 12`; (2) качество комментариев — «Файл html, 20 строк» вместо содержательных (`_code_analyze_file_ai` prompt + fallback-комментарии `_code_analyze_batch`). Также продуктовый кандидат: лимит регистрации 5/IP за 300 с блокирует школьный класс за одним NAT-IP.
+  - **→ [BUG 1+2 закрыты коммитом `c832c95` (2026-09-26), см. запись вверху. Остаётся продуктовый кандидат: лимит регистрации 5/IP за 300 с блокирует школьный класс за одним NAT-IP — обсудить/ослабить отдельно.]**
 
 ### ✅ Выполнено (2026-09-24): 💻 Code Explainer — гостевой скан без больших файлов (коммит `c97ad4f`)
 

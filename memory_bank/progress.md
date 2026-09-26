@@ -4,7 +4,7 @@
 
 ## last_checked_commit
 
-**`373be16`** — фикс TG-спама на холодных стартах. Закрыто в двух коммитах: `701f83f` — DDL-портируемость (`_ddl(sql, engine)` dialect-aware: Postgres получает нативный SQL; `_ensure_ddl_column` + `text(_ddl(..., engine))` во всех 11 CREATE-блоках) → больше нет `SyntaxError near "AUTOINCREMENT"` (AUTH/SOCIAL) и каскада `InFailedSqlTransaction` (CODE/PARSING); `373be16` — `pg_advisory_xact_lock` + rollback в dedupe `daily_prayer_log` → нет `DeadlockDetected` (UNIVERSE 19:51). Тесты `test_ddl_portability.py` 4/4, ruff чист, регресс 38+73 (5 asyncio-падений pre-existing). **Задеплоено `lthub-l45k7k3bm` (Ready), прод-смоук: /login /code /family /md2pdf / → 200, в логах — ноль Table init/SyntaxError/DuplicateColumn/Deadlock. Push `7fbc33e..373be16` сделан.**
+**`c832c95`** — фикс Code Explainer «Анализировать всё» + языковые эвристики комментариев. См. Changelog 2026-09-26.
 
 ## Beta Bugs (баги бета-тестирования, 2026-08-27+)
 
@@ -219,6 +219,12 @@ _Баги добавляются по ходу тестирования оста
 - **[SEC-BUG-6]** (low) мёртвый CORS-блок в `api/index.py` (0.0.0.0) — функционально бесполезен. Можно удалить.
 
 ## Changelog
+
+### 2026-09-26 (Session: 💻 Code Explainer — «Анализировать всё» доводит до 100% + содержательные комментарии)
+- **[BUG] «Анализировать всё» не работало (бэклог).** Два корня в `api_code_reanalyze`: (1) dict файла не содержал `ai_chunks_done`, а `done_map = f.get("ai_chunks_done") or 0` → resume вечно 0, повторы перечитывали с нуля; (2) `analyze_pool = files[:35]` всегда брал первые 35 по важности → после их покрытия прогресс замирал → JS «Прогресс не растёт (лимит ИИ?)».
+  - **Фикс:** `ai_chunks_done` в dict; пул = файлы с `done < total` (`_code_chunks_total`), каждая серия продвигается дальше; `analyzed_count` — по текущему набору (учёт гостевого фильтра). Rate `code_reanalyze` 10→`_CODE_REANALYZE_RATE_LIMIT=30`/час (JS `series>=12`→`20`), чтобы серии сходились.
+- **[BUG] сводки «Файл html, 20 строк».** Новый `_code_infer_summary(lines, lang_key)`: Python def/class, JS/TS const/function/class/export, HTML `<title>` (→ заголовок сводки) или h1–h6/формы/инпуты/скрипты, JSON ключи/массив, CSS правила/селекторы, MD `.md/txt` #-заголовки, YAML/TOML разделы, GDScript как прежде. Fallback `_code_analyze_file_ai` при пустом summary → эвристика.
+- **Тесты:** `test_code_explainer.py` 16/16 (+3: `test_reanalyze_advances_past_first_35_files` — 35 готовых + 1 недокрытый → `analyzed_count==file_count==36`; `test_reanalyze_resumes_chunked_file` — 1000 строк, resume с 2/3 чанка, prompt без «фрагмент 1/3», `ai_chunks_done→3`; `test_infer_summary_languages` 6 кейсов). Регресс 29 passed; ruff чист. Коммит code+tests `c832c95`. **Шаг: push + деплой + прод-смоук.**
 
 ### 2026-09-25 (Session: 🔧 Фикс TG-спама — DDL-портируемость + deadlock UNIVERSE)
 - **[BUG] TG-спам «Table init error» на каждый холодный старт закрыт двумя коммитами:**
