@@ -1156,6 +1156,72 @@ def test_admin_stats_and_users(mock_engine):
     assert no_access.status_code == 403
 
 
+@patch("api.index.get_db_engine")
+def test_admin_delete_user(mock_engine):
+    """DELETE /api/admin/users/<id> удаляет аккаунт вместе с зависимыми данными."""
+    engine = _make_engine()
+    mock_engine.return_value = engine
+    client = app.test_client()
+
+    admin = client.post("/api/auth/register", json={
+        "login": "boss", "password": "secret123", "email": "boss@test.local",
+    }).get_json()
+    _promote_admin(admin["user_id"])
+    admin_headers = _auth_headers(admin["token"])
+
+    target = client.post("/api/auth/register", json={
+        "login": "smoke_x", "password": "secret123", "email": "smoke_x@test.local",
+    }).get_json()
+    target_id = target["user_id"]
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO web_activity_log (user_id, day, module, actions) "
+            "VALUES (:uid, '2026-01-01', 'code', 3)"), {"uid": target_id})
+        conn.execute(text(
+            "INSERT INTO web_friends (user_id, friend_id) VALUES (:a, :b), (:b, :a)"),
+            {"a": target_id, "b": admin["user_id"]})
+        conn.execute(text(
+            "INSERT INTO friend_requests (from_user, to_user) VALUES (:a, :b)"),
+            {"a": target_id, "b": admin["user_id"]})
+        conn.execute(text(
+            "INSERT INTO web_feedback (user_id, login, category, message) "
+            "VALUES (:uid, 'smoke_x', 'bug', 'test')"), {"uid": target_id})
+
+    assert client.get("/api/auth/me", headers=_auth_headers(target["token"])).status_code == 200
+
+    resp = client.delete(f"/api/admin/users/{target_id}", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["login"] == "smoke_x"
+    assert data["removed"]
+
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM web_users WHERE id = :i"),
+                            {"i": target_id}).scalar() == 0
+        checks = {
+            "web_activity_log": "user_id = :i",
+            "web_friends": "user_id = :i OR friend_id = :i",
+            "friend_requests": "from_user = :i OR to_user = :i",
+            "web_feedback": "user_id = :i",
+        }
+        for table, where in checks.items():
+            left = conn.execute(text(f"SELECT COUNT(*) FROM {table} WHERE {where}"),
+                                {"i": target_id}).scalar()
+            assert left == 0, f"{table} not cleaned: {left}"
+        for table, where in (("web_friends", "user_id = :i OR friend_id = :i"),
+                             ("friend_requests", "from_user = :i OR to_user = :i")):
+            left = conn.execute(text(f"SELECT COUNT(*) FROM {table} WHERE {where}"),
+                                {"i": admin["user_id"]}).scalar()
+            assert left == 0, f"{table} has dangling rows for admin: {left}"
+
+    assert client.get("/api/auth/me", headers=_auth_headers(target["token"])).status_code == 401
+    assert client.delete(f"/api/admin/users/{target_id}", headers=admin_headers).status_code == 404
+    assert client.delete(f"/api/admin/users/{admin['user_id']}", headers=admin_headers).status_code == 400
+    assert client.delete(f"/api/admin/users/{target_id}").status_code == 403
+
+
 def test_reading_trainer_page_clean_html():
     """Reading trainer page has no stray f-string artifacts."""
     body = app.test_client().get("/reading_trainer.html").get_data(as_text=True)
