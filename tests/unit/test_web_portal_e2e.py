@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import re
+import time
 from datetime import datetime, timezone
 from unittest.mock import patch
 from sqlalchemy import create_engine, event, text
@@ -1166,3 +1167,39 @@ def test_suggest_page_contains_form():
     body = app.test_client().get("/suggest").get_data(as_text=True)
     assert "category" in body
     assert "module" in body
+
+
+def test_register_rate_limits():
+    """Регистрация с одного IP: burst 30/5мин — школьный класс за NAT регистрируется;
+    жёсткий суточный лимит (DB-backed) блокирует ботов."""
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        client = app.test_client()
+
+        from api.index import _REGISTER_BURST, _REGISTER_DAILY
+
+        for i in range(_REGISTER_BURST):
+            r = client.post("/api/auth/register",
+                            json={"login": f"stu{i:02d}", "password": "secret123",
+                                  "email": f"stu{i:02d}@t.local"})
+            assert r.status_code == 200, (i, r.get_json())
+
+        r = client.post("/api/auth/register", json={"login": "spam", "password": "secret123"})
+        assert r.status_code == 429
+
+    # суточный лимит: rate_limits заполнена → 429 даже с чистым burst-счётчиком
+    _AI_RATE_LIMITS.clear()  # сбросить in-memory burst от 30 регистраций выше
+    engine = _make_engine()
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS rate_limits "
+            "(key TEXT NOT NULL, ts DOUBLE PRECISION NOT NULL)"))
+        for _ in range(_REGISTER_DAILY):
+            conn.execute(text(
+                "INSERT INTO rate_limits (key, ts) VALUES ('reg_day:127.0.0.1', :ts)"),
+                {"ts": time.time()})
+    with patch("api.index.get_db_engine", return_value=engine):
+        client = app.test_client()
+        r = client.post("/api/auth/register", json={"login": "spam2", "password": "secret123"})
+        assert r.status_code == 429
+        assert "сутки" in (r.get_json().get("error") or "")
