@@ -31233,6 +31233,41 @@ def api_pyed_hover():
     return jsonify({"ok": True, "text": text, "doc": doc, "goto": target})
 
 
+def _pyed_syntax_error(err) -> dict:
+    """Normalize a jedi/builtin syntax error into {line, column, message}.
+
+    jedi 0.20 yields ``jedi.api.errors.SyntaxError`` with only ``line``/``column``
+    and a ``<SyntaxError from=(1, 6) to=(1, 7)>`` repr — it has no ``message``
+    attribute at all, so reading it raised AttributeError on every keystroke.
+    Builtin ``SyntaxError`` uses ``lineno``/``offset``/``msg`` instead.
+    """
+    line = getattr(err, "line", None) or getattr(err, "lineno", None) or 1
+    column = getattr(err, "column", None)
+    if column is None:
+        column = getattr(err, "offset", None)
+    message = ""
+    for attr in ("message", "msg"):
+        value = getattr(err, attr, None)
+        if value:
+            message = str(value)
+            break
+    if not message:
+        args = getattr(err, "args", None) or ()
+        if args and isinstance(args[0], str):
+            message = args[0]
+    if not message:
+        match = re.search(r"from=\((\d+),\s*(\d+)\)", str(err))
+        if match:
+            message = f"синтаксическая ошибка (строка {match.group(1)}, позиция {match.group(2)})"
+        else:
+            message = "синтаксическая ошибка"
+    return {
+        "line": max(1, int(line or 1)),
+        "column": max(0, int(column or 0)),
+        "message": _pyed_trim(message, 300),
+    }
+
+
 def api_pyed_lint():
     """POST /api/pyed/lint — syntax diagnostics for red squiggles."""
     uid, failure = _pyed_user()
@@ -31248,13 +31283,11 @@ def api_pyed_lint():
     if script is not None:
         try:
             for err in script.get_syntax_errors():
-                errors.append({
-                    "line": max(1, int(err.line or 1)),
-                    "column": max(0, int(err.column or 0)),
-                    "message": _pyed_trim(err.message, 300),
-                })
+                errors.append(_pyed_syntax_error(err))
         except Exception as exc:
-            log_error("PYED", "error", f"lint failed: {exc}")
+            # not fatal: the compile() fallback below still produces a squiggle,
+            # so this must not page Telegram on every keystroke
+            log_error("PYED", "info", f"lint fallback to compile(): {exc}")
     if not errors:
         try:
             compile(code, "main.py", "exec")
