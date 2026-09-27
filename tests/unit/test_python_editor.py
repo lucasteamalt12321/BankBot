@@ -100,6 +100,13 @@ def _require_jedi():
     return pytest.importorskip("jedi", reason="jedi is required for LSP hints")
 
 
+def _assert_no_pyed_error_log(mock_log_error):
+    """No PYED call at "error" level — those are the ones that page Telegram."""
+    noisy = [c for c in mock_log_error.call_args_list
+             if c.args and c.args[0] == "PYED" and c.args[1] == "error"]
+    assert not noisy, f"unexpected PYED error log (would notify Telegram): {noisy}"
+
+
 # ── DDL + page ────────────────────────────────────────────────────────────
 
 def test_pyed_ddl_is_idempotent():
@@ -280,6 +287,52 @@ def test_complete_returns_builtin_and_keywords():
         assert r.status_code == 200
         labels = {item["label"] for item in r.get_json()["items"]}
         assert "print" in labels
+
+
+def test_complete_clamps_position_outside_the_line():
+    """A cursor position past the end of a line must not raise or spam the error log.
+
+    jedi raises ``ValueError`` when ``column`` exceeds the line length, which used to
+    be swallowed as ``degraded`` *and* logged at "error" level (a Telegram message).
+    """
+    _require_jedi()
+    engine = _make_engine()
+    from unittest.mock import patch
+    with patch("api.index.get_db_engine", return_value=engine), \
+            patch("api.index.log_error") as err:
+        client = app.test_client()
+        token = _register(client, "pyed_clamp")
+        # line 2 is "math.sq", the trailing \n makes column 8 invalid for jedi
+        r = client.post("/api/pyed/complete",
+                        json={"code": "import math\nmath.sq\n", "line": 2, "column": 8},
+                        headers=_auth(token))
+        assert r.status_code == 200, r.get_json()
+        data = r.get_json()
+        assert data["ok"] is True
+        assert data.get("degraded") is not True
+        assert "sqrt" in {item["label"] for item in data["items"]}
+        _assert_no_pyed_error_log(err)
+
+
+def test_lsp_endpoints_tolerate_bogus_positions():
+    """Out-of-range line/column on every LSP endpoint: 200, no error-level log."""
+    _require_jedi()
+    engine = _make_engine()
+    from unittest.mock import patch
+    with patch("api.index.get_db_engine", return_value=engine), \
+            patch("api.index.log_error") as err:
+        client = app.test_client()
+        token = _register(client, "pyed_bogus")
+        body = {"code": "import math\nmath.sq\n", "line": 99, "column": 99}
+        for path, key in (("/api/pyed/complete", "items"),
+                          ("/api/pyed/signature", "signatures"),
+                          ("/api/pyed/hover", "text"),
+                          ("/api/pyed/lint", "errors")):
+            r = client.post(path, json=body, headers=_auth(token))
+            assert r.status_code == 200, (path, r.get_json())
+            assert r.get_json()["ok"] is True
+            assert key in r.get_json()
+        _assert_no_pyed_error_log(err)
 
 
 def test_complete_on_user_symbol_carries_docstring():
