@@ -781,6 +781,10 @@ def get_db_engine():
         except Exception as exc:
             log_error("CODE", "error", f"table init skipped: {exc}")
         try:
+            _ensure_pyed_tables(DB_ENGINE)
+        except Exception as exc:
+            log_error("PYED", "error", f"table init skipped: {exc}")
+        try:
             with DB_ENGINE.begin() as conn:
                 conn.execute(text(
                     "CREATE TABLE IF NOT EXISTS rate_limits ("
@@ -1728,6 +1732,38 @@ def _ensure_code_tables(engine):
         log_error("CODE", "info", "Table ensured")
     except Exception as exc:
         log_error("CODE", "error", f"Table init error: {exc}")
+
+
+def _ensure_pyed_tables(engine):
+    """Create Python Editor tables if they don't exist (per-user documents).
+
+    ``user_id`` is INTEGER on purpose: it matches ``web_users.id`` (SERIAL), so
+    the admin delete-user endpoint (which walks every user-referencing column)
+    removes these rows automatically, and the FK cascade is a second safety net.
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(_ddl("""
+                CREATE TABLE IF NOT EXISTS pyed_documents (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
+                    name VARCHAR(120) NOT NULL,
+                    content TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """, engine)))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_pyed_documents_user_name "
+                "ON pyed_documents(user_id, name)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_pyed_documents_user "
+                "ON pyed_documents(user_id, updated_at)"
+            ))
+        log_error("PYED", "info", "Table ensured")
+    except Exception as exc:
+        log_error("PYED", "error", f"Table init error: {exc}")
 
 
 def _ensure_parsing_tables(engine):
@@ -6773,6 +6809,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Объяснение кода из репозитория: дерево проекта с ИИ-комментариями</p>
                     </div>
                 </a>
+                <a class="card" href="/editor">
+                    <div class="card-icon">🐍</div>
+                    <div class="card-content">
+                        <h2>Редактор Python <span class="beta-tag">Бета</span></h2>
+                        <p>Пишем и запускаем код прямо в браузере: подсказки как в VS Code, запуск и консоль</p>
+                    </div>
+                </a>
                 <a class="card" href="/md2pdf">
                     <div class="card-icon">📄</div>
                     <div class="card-content">
@@ -7239,7 +7282,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     '/informatics': 'informatics', '/math': 'math', '/russian': 'russian',
                     '/physics': 'physics', '/exam': 'exam', '/family': 'family_circle',
                     '/admin': 'admin', '/music': 'music', '/textbooks': 'textbooks',
-                    '/code': 'code', '/suggest': 'suggest'
+                    '/code': 'code', '/editor': 'python_editor', '/suggest': 'suggest'
                 };
                 function score(card) {
                     if (!HUB_SORT_OK) return 0;
@@ -10355,17 +10398,59 @@ _BLOCKED_MODULES = {
 _BLOCKED_KEYWORDS = {'__import__', 'eval', 'exec', 'open', '__builtins__'}
 
 
-def _tool_run_python(code: str) -> str:
-    """Execute Python code in an isolated, restricted sandbox.
+def _sandbox_preexec(cpu_seconds: int, memory_mb: int, max_filesize_mb: int = 8):
+    """Build a ``preexec_fn`` capping CPU, address space, files and descriptors.
+
+    Returns ``None`` when no memory cap was requested or the platform has no
+    ``resource`` module (Windows), so the child keeps the default setup.
+    """
+    if memory_mb <= 0 or os.name != "posix":
+        return None
+    import resource
+
+    mem_bytes = memory_mb * 1024 * 1024
+    file_bytes = max_filesize_mb * 1024 * 1024
+    cpu = max(1, int(cpu_seconds))
+
+    def _apply():
+        for res, value in (
+            (resource.RLIMIT_CPU, cpu),
+            (resource.RLIMIT_AS, mem_bytes),
+            (resource.RLIMIT_FSIZE, file_bytes),
+            (resource.RLIMIT_NOFILE, 64),
+        ):
+            try:
+                resource.setrlimit(res, (value, value))
+            except (ValueError, OSError):
+                pass
+        try:
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        except (ValueError, OSError, AttributeError):
+            pass
+
+    return _apply
+
+
+def _run_python_sandbox(code: str, timeout: int = 10, max_output: int = 4000,
+                        memory_mb: int = 0) -> dict:
+    """Execute Python code in an isolated, restricted sandbox and report details.
 
     The child process gets a sanitized environment (no DB/API secrets) and a
     private temp cwd, so it cannot reach the app's credentials or filesystem.
     AST parsing blocks dangerous modules/imports/execution helpers.
+
+    ``memory_mb`` additionally caps address space / CPU / open files through
+    ``preexec_fn`` (POSIX only) — the wall-clock timeout alone does not stop a
+    fork bomb or an allocation loop. Returns a dict with ``stdout``, ``stderr``
+    and either ``error`` or ``ok``; ``memory_mb=0`` means "no rlimits" so the
+    legacy AI-chat behaviour is preserved exactly.
     """
     import ast
     import shutil
+    result = {"ok": False, "stdout": "", "stderr": "", "error": "", "ms": 0}
     if not code.strip():
-        return "empty code"
+        result["error"] = "empty code"
+        return result
     try:
         tree = ast.parse(code)
         for node in ast.walk(tree):
@@ -10373,20 +10458,25 @@ def _tool_run_python(code: str) -> str:
                 for alias in node.names:
                     mod = alias.name.split('.')[0]
                     if mod in _BLOCKED_MODULES:
-                        return f"Blocked: import {mod} is not allowed"
+                        result["error"] = f"Blocked: import {mod} is not allowed"
+                        return result
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
                     mod = node.module.split('.')[0]
                     if mod in _BLOCKED_MODULES:
-                        return f"Blocked: from {mod} import is not allowed"
+                        result["error"] = f"Blocked: from {mod} import is not allowed"
+                        return result
             elif isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name) and node.func.id in _BLOCKED_KEYWORDS:
-                    return f"Blocked: {node.func.id}() is not allowed"
+                    result["error"] = f"Blocked: {node.func.id}() is not allowed"
+                    return result
     except SyntaxError:
-        return "Syntax error in code"
+        result["error"] = "Syntax error in code"
+        return result
     except Exception:
         pass
     sandbox_dir = tempfile.mkdtemp(prefix="pc_sandbox_", dir=tempfile.gettempdir())
+    started = time.time()
     try:
         # Minimal env: PATH for locating the interpreter only. No database or
         # API credentials are inherited, limiting what leaked code can exfiltrate.
@@ -10403,21 +10493,37 @@ def _tool_run_python(code: str) -> str:
                 [sys.executable, "-Ic", code],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=timeout,
                 cwd=sandbox_dir,
                 env=clean_env,
+                preexec_fn=_sandbox_preexec(timeout + 1, memory_mb),
             )
         except subprocess.TimeoutExpired:
-            return "Timeout: code took more than 10 seconds"
+            result["error"] = f"Timeout: code took more than {timeout} seconds"
+            result["ms"] = int((time.time() - started) * 1000)
+            return result
         except Exception as exc:
-            return f"Execution error: {exc}"
-        out = proc.stdout.strip()
-        err = proc.stderr.strip()
-        if err:
-            return (out + "\n" if out else "") + "STDERR:\n" + err[:4000]
-        return out if out else "(no output)"
+            result["error"] = f"Execution error: {exc}"
+            result["ms"] = int((time.time() - started) * 1000)
+            return result
+        result["stdout"] = proc.stdout.strip()[:max_output]
+        result["stderr"] = proc.stderr.strip()[:max_output]
+        result["ok"] = not result["stderr"]
+        result["ms"] = int((time.time() - started) * 1000)
+        return result
     finally:
         shutil.rmtree(sandbox_dir, ignore_errors=True)
+
+
+def _tool_run_python(code: str) -> str:
+    """Execute Python code in a sandbox and flatten the result for the AI chat."""
+    res = _run_python_sandbox(code)
+    if res["error"]:
+        return res["error"]
+    out = res["stdout"]
+    if res["stderr"]:
+        return (out + "\n" if out else "") + "STDERR:\n" + res["stderr"]
+    return out if out else "(no output)"
 
 
 def _tool_browse_web(url: str) -> str:
@@ -30916,6 +31022,1060 @@ loadProjects();
 </script>
 </body>
 </html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# ── Python Editor (/editor) — CodeMirror 6 UI + jedi language engine ──────────
+
+# The LSP refuses oversized buffers: jedi re-parses the whole file on every
+# keystroke batch, and the Vercel lambda has a 60 s hard ceiling.
+_PYED_MAX_CODE_BYTES = 150_000
+_PYED_MAX_DOC_CHARS = 400_000
+_PYED_MAX_DOCS = 50
+_PYED_MAX_NAME = 120
+_PYED_LSP_RATE = (300, 60)       # completions/hovers per user per minute
+_PYED_RUN_RATE = (20, 3600)      # code executions per user per hour
+_PYED_RUN_TIMEOUT = 8
+_PYED_RUN_MEMORY_MB = 256
+_PYED_RUN_MAX_OUTPUT = 8000
+_PYED_MAX_COMPLETIONS = 60
+_PYED_MAX_DOC = 400
+
+_PYED_DEFAULT_CODE = '''# 🐍 Редактор Python — начни печатать, подсказки появятся сами
+# Пробел или \\t — отступ, Ctrl+Enter — запуск, Ctrl+S — сохранить
+
+
+def greet(name: str) -> str:
+    """Возвращает приветствие для имени."""
+    return f"Привет, {name}!"
+
+
+names = ["Аня", "Борис", "Вика"]
+
+for person in names:
+    print(greet(person))
+
+# Попробуй: набери "per" или "na" — редактор подскажет имена и методы
+numbers = [4, 8, 15]
+print(sorted(numbers), sum(numbers))
+'''
+
+_PYED_KEYWORDS_FALLBACK = [
+    "and", "as", "assert", "async", "await", "break", "class", "continue", "def",
+    "del", "elif", "else", "except", "False", "finally", "for", "from", "global",
+    "if", "import", "in", "is", "lambda", "None", "nonlocal", "not", "or", "pass",
+    "raise", "return", "True", "try", "while", "with", "yield",
+]
+
+
+def _pyed_user():
+    """Resolve the acting web user, or a 401 that triggers the global login modal.
+
+    The ``auth_required`` flag is what ``_FREEMIUM_AUTH_JS`` looks for to show the
+    login modal instead of a dismissible banner — a plain ``{"error": ...}`` would
+    only render a banner.
+    """
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return None, (jsonify({
+            "ok": False,
+            "error": "Редактор Python доступен после входа в аккаунт",
+            "auth_required": True,
+        }), 401)
+    try:
+        return int(user["id"]), None
+    except (TypeError, ValueError):
+        return None, (jsonify({"ok": False, "error": "Сессия некорректна"}), 401)
+
+
+def _pyed_payload() -> tuple:
+    """Extract (code, line, column) from a JSON body with sane bounds."""
+    data = request.get_json(silent=True) or {}
+    code = str(data.get("code") or "")
+    try:
+        line = max(1, int(data.get("line") or 1))
+    except (TypeError, ValueError):
+        line = 1
+    try:
+        column = max(0, int(data.get("column") or 0))
+    except (TypeError, ValueError):
+        column = 0
+    return code, line, column
+
+
+def _pyed_script(code: str):
+    """Build a jedi Script; returns (jedi_module_or_None, script_or_None)."""
+    try:
+        import jedi
+    except Exception as exc:
+        log_error("PYED", "error", f"jedi unavailable: {exc}")
+        return None, None
+    try:
+        return jedi, jedi.Script(code=code, path="main.py")
+    except Exception as exc:
+        log_error("PYED", "error", f"jedi script error: {exc}")
+        return jedi, None
+
+
+def _pyed_trim(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    return text[:limit]
+
+
+def api_pyed_complete():
+    """POST /api/pyed/complete — Python completion items at a position."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    if _check_db_rate(f"pyed_lsp_{uid}", _PYED_LSP_RATE[0], _PYED_LSP_RATE[1]):
+        return jsonify({"ok": False, "error": "Слишком много запросов подсказок, подождите"}), 429
+    code, line, column = _pyed_payload()
+    if not code.strip() or len(code) > _PYED_MAX_CODE_BYTES:
+        return jsonify({"ok": True, "items": [], "truncated": len(code) > _PYED_MAX_CODE_BYTES})
+    _jedi, script = _pyed_script(code)
+    if script is None:
+        return jsonify({"ok": True, "items": [], "degraded": True})
+    try:
+        completions = script.complete(line=line, column=column)
+    except Exception as exc:
+        log_error("PYED", "error", f"complete failed: {exc}")
+        return jsonify({"ok": True, "items": [], "degraded": True})
+    items = []
+    seen = set()
+    for comp in completions[:_PYED_MAX_COMPLETIONS]:
+        if comp.name in seen:
+            continue
+        seen.add(comp.name)
+        try:
+            doc = _pyed_trim(comp.docstring(), _PYED_MAX_DOC)
+        except Exception:
+            doc = ""
+        items.append({
+            "label": comp.name,
+            "type": comp.type or "",
+            "detail": _pyed_trim(comp.description or "", 160),
+            "doc": doc,
+        })
+    return jsonify({"ok": True, "items": items})
+
+
+def api_pyed_signature():
+    """POST /api/pyed/signature — call signature help for the argument under the cursor."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    if _check_db_rate(f"pyed_lsp_{uid}", _PYED_LSP_RATE[0], _PYED_LSP_RATE[1]):
+        return jsonify({"ok": False, "error": "Слишком много запросов подсказок, подождите"}), 429
+    code, line, column = _pyed_payload()
+    if not code.strip() or len(code) > _PYED_MAX_CODE_BYTES:
+        return jsonify({"ok": True, "signatures": []})
+    _jedi, script = _pyed_script(code)
+    if script is None:
+        return jsonify({"ok": True, "signatures": []})
+    try:
+        signatures = script.get_signatures(line=line, column=column)
+    except Exception as exc:
+        log_error("PYED", "error", f"signature failed: {exc}")
+        return jsonify({"ok": True, "signatures": []})
+    return jsonify({"ok": True, "signatures": [{
+        "label": _pyed_trim(sig.to_string(), 300),
+        "doc": _pyed_trim(getattr(sig, "docstring", lambda raw=False: "")(raw=True), 400),
+    } for sig in signatures[:5]]})
+
+
+def api_pyed_hover():
+    """POST /api/pyed/hover — inferred type, docstring and goto-definition."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    if _check_db_rate(f"pyed_lsp_{uid}", _PYED_LSP_RATE[0], _PYED_LSP_RATE[1]):
+        return jsonify({"ok": False, "error": "Слишком много запросов подсказок, подождите"}), 429
+    code, line, column = _pyed_payload()
+    if not code.strip() or len(code) > _PYED_MAX_CODE_BYTES:
+        return jsonify({"ok": True, "text": "", "doc": "", "goto": None})
+    _jedi, script = _pyed_script(code)
+    if script is None:
+        return jsonify({"ok": True, "text": "", "doc": "", "goto": None})
+    text = ""
+    doc = ""
+    try:
+        inferred = script.infer(line=line, column=column)
+        if inferred:
+            head = inferred[0]
+            text = _pyed_trim(head.description or head.name, 200)
+            try:
+                doc = _pyed_trim(head.docstring(), _PYED_MAX_DOC)
+            except Exception:
+                doc = ""
+    except Exception as exc:
+        log_error("PYED", "error", f"infer failed: {exc}")
+    target = None
+    try:
+        for name in script.goto(line=line, column=column) or []:
+            if name.line and name.column:
+                target = {"line": int(name.line), "column": int(name.column), "name": name.name}
+                break
+    except Exception:
+        target = None
+    return jsonify({"ok": True, "text": text, "doc": doc, "goto": target})
+
+
+def api_pyed_lint():
+    """POST /api/pyed/lint — syntax diagnostics for red squiggles."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    if _check_db_rate(f"pyed_lsp_{uid}", _PYED_LSP_RATE[0], _PYED_LSP_RATE[1]):
+        return jsonify({"ok": True, "errors": []})
+    code, _line, _column = _pyed_payload()
+    errors = []
+    if not code.strip():
+        return jsonify({"ok": True, "errors": errors})
+    _jedi, script = _pyed_script(code)
+    if script is not None:
+        try:
+            for err in script.get_syntax_errors():
+                errors.append({
+                    "line": max(1, int(err.line or 1)),
+                    "column": max(0, int(err.column or 0)),
+                    "message": _pyed_trim(err.message, 300),
+                })
+        except Exception as exc:
+            log_error("PYED", "error", f"lint failed: {exc}")
+    if not errors:
+        try:
+            compile(code, "main.py", "exec")
+        except SyntaxError as exc:
+            errors.append({
+                "line": max(1, int(exc.lineno or 1)),
+                "column": max(0, int(exc.offset or 0) - 1),
+                "message": _pyed_trim(exc.msg or "Syntax error", 300),
+            })
+        except Exception:
+            pass
+    return jsonify({"ok": True, "errors": errors[:20]})
+
+
+def _pyed_clean_name(raw) -> str:
+    name = str(raw or "").strip().replace("\\", "/").split("/")[-1].strip()
+    name = re.sub(r"[\x00-\x1f<>:\"|?*]", "", name)
+    return name[:_PYED_MAX_NAME]
+
+
+def _pyed_owned_doc(conn, uid: int, doc_id: int):
+    return conn.execute(
+        text("SELECT id, name FROM pyed_documents WHERE id = :id AND user_id = :uid"),
+        {"id": doc_id, "uid": uid},
+    ).mappings().first()
+
+
+def api_pyed_documents():
+    """GET /api/pyed/documents — list the user's documents (newest first)."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT id, name, LENGTH(content) AS size, updated_at FROM pyed_documents "
+                "WHERE user_id = :uid ORDER BY updated_at DESC, id DESC LIMIT :lim"
+            ), {"uid": uid, "lim": _PYED_MAX_DOCS}).mappings().fetchall()
+    except Exception as exc:
+        log_error("PYED", "error", f"documents list failed: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось загрузить список файлов"}), 500
+    return jsonify({"ok": True, "documents": [{
+        "id": row["id"],
+        "name": row["name"],
+        "size": int(row["size"] or 0),
+        "updated_at": str(row["updated_at"] or ""),
+    } for row in rows]})
+
+
+def api_pyed_document_get(doc_id):
+    """GET /api/pyed/documents/<id> — full content of one owned document."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(text(
+                "SELECT id, name, content, updated_at FROM pyed_documents "
+                "WHERE id = :id AND user_id = :uid"
+            ), {"id": doc_id, "uid": uid}).mappings().first()
+    except Exception as exc:
+        log_error("PYED", "error", f"document get failed: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось загрузить файл"}), 500
+    if not row:
+        return jsonify({"ok": False, "error": "Файл не найден"}), 404
+    return jsonify({
+        "ok": True,
+        "id": row["id"],
+        "name": row["name"],
+        "content": row["content"] or "",
+        "updated_at": str(row["updated_at"] or ""),
+    })
+
+
+def api_pyed_document_create():
+    """POST /api/pyed/documents — create a document (or reopen an existing name)."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    data = request.get_json(silent=True) or {}
+    name = _pyed_clean_name(data.get("name"))
+    if not name:
+        return jsonify({"ok": False, "error": "Введите имя файла"}), 400
+    content = str(data.get("content") or "")
+    if len(content) > _PYED_MAX_DOC_CHARS:
+        return jsonify({"ok": False, "error": "Файл слишком большой"}), 400
+    try:
+        with get_db_engine().begin() as conn:
+            existing = conn.execute(
+                text("SELECT id FROM pyed_documents WHERE user_id = :uid AND name = :name"),
+                {"uid": uid, "name": name},
+            ).first()
+            if existing:
+                conn.execute(text(
+                    "UPDATE pyed_documents SET content = :c, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = :id AND user_id = :uid"
+                ), {"c": content, "id": existing[0], "uid": uid})
+                return jsonify({"ok": True, "id": int(existing[0]), "name": name, "reopened": True})
+            total = int(conn.execute(
+                text("SELECT COUNT(*) FROM pyed_documents WHERE user_id = :uid"),
+                {"uid": uid},
+            ).scalar() or 0)
+            if total >= _PYED_MAX_DOCS:
+                return jsonify({"ok": False, "error": f"Лимит файлов: {_PYED_MAX_DOCS}. Удалите лишние"}), 400
+            new_id = conn.execute(text(
+                "INSERT INTO pyed_documents (user_id, name, content) "
+                "VALUES (:uid, :name, :c) RETURNING id"
+            ), {"uid": uid, "name": name, "c": content}).scalar()
+    except Exception as exc:
+        log_error("PYED", "error", f"document create failed: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось создать файл"}), 500
+    return jsonify({"ok": True, "id": int(new_id), "name": name, "reopened": False})
+
+
+def api_pyed_document_save(doc_id):
+    """PUT /api/pyed/documents/<id> — autosave content (and optionally rename)."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    data = request.get_json(silent=True) or {}
+    content = str(data.get("content") or "")
+    if len(content) > _PYED_MAX_DOC_CHARS:
+        return jsonify({"ok": False, "error": "Файл слишком большой"}), 400
+    rename = _pyed_clean_name(data.get("name")) if data.get("name") is not None else ""
+    try:
+        with get_db_engine().begin() as conn:
+            owned = _pyed_owned_doc(conn, uid, doc_id)
+            if not owned:
+                return jsonify({"ok": False, "error": "Файл не найден"}), 404
+            if rename and rename != owned["name"]:
+                clash = conn.execute(
+                    text("SELECT id FROM pyed_documents WHERE user_id = :uid AND name = :name AND id <> :id"),
+                    {"uid": uid, "name": rename, "id": doc_id},
+                ).first()
+                if clash:
+                    return jsonify({"ok": False, "error": f"Файл «{rename}» уже есть"}), 409
+                conn.execute(text(
+                    "UPDATE pyed_documents SET name = :n WHERE id = :id AND user_id = :uid"
+                ), {"n": rename, "id": doc_id, "uid": uid})
+            conn.execute(text(
+                "UPDATE pyed_documents SET content = :c, updated_at = CURRENT_TIMESTAMP "
+                "WHERE id = :id AND user_id = :uid"
+            ), {"c": content, "id": doc_id, "uid": uid})
+    except Exception as exc:
+        log_error("PYED", "error", f"document save failed: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось сохранить файл"}), 500
+    return jsonify({"ok": True, "id": doc_id, "name": rename or owned["name"]})
+
+
+def api_pyed_document_delete(doc_id):
+    """DELETE /api/pyed/documents/<id> — remove one of the user's documents."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    try:
+        with get_db_engine().begin() as conn:
+            owned = _pyed_owned_doc(conn, uid, doc_id)
+            if not owned:
+                return jsonify({"ok": False, "error": "Файл не найден"}), 404
+            conn.execute(text(
+                "DELETE FROM pyed_documents WHERE id = :id AND user_id = :uid"
+            ), {"id": doc_id, "uid": uid})
+    except Exception as exc:
+        log_error("PYED", "error", f"document delete failed: {exc}")
+        return jsonify({"ok": False, "error": "Не удалось удалить файл"}), 500
+    return jsonify({"ok": True, "id": doc_id})
+
+
+def api_pyed_run():
+    """POST /api/pyed/run — execute the buffer in the sandbox and return its output."""
+    uid, failure = _pyed_user()
+    if failure:
+        return failure
+    if _check_db_rate(f"pyed_run_{uid}", _PYED_RUN_RATE[0], _PYED_RUN_RATE[1]):
+        return jsonify({"ok": False, "error": "Слишком много запусков, подождите"}), 429
+    data = request.get_json(silent=True) or {}
+    code = str(data.get("code") or "")
+    if not code.strip():
+        return jsonify({"ok": False, "error": "Пустой код"}), 400
+    if len(code) > _PYED_MAX_CODE_BYTES:
+        return jsonify({"ok": False, "error": "Слишком большой код для запуска"}), 400
+    res = _run_python_sandbox(
+        code,
+        timeout=_PYED_RUN_TIMEOUT,
+        max_output=_PYED_RUN_MAX_OUTPUT,
+        memory_mb=_PYED_RUN_MEMORY_MB,
+    )
+    if res["error"]:
+        return jsonify({
+            "ok": False,
+            "error": res["error"],
+            "stdout": res["stdout"],
+            "ms": res["ms"],
+        })
+    return jsonify({
+        "ok": res["ok"],
+        "stdout": res["stdout"],
+        "stderr": res["stderr"],
+        "ms": res["ms"],
+    })
+
+
+@app.route("/api/pyed/complete", methods=["POST"])
+def api_pyed_complete_route():
+    return api_pyed_complete()
+
+
+@app.route("/api/pyed/signature", methods=["POST"])
+def api_pyed_signature_route():
+    return api_pyed_signature()
+
+
+@app.route("/api/pyed/hover", methods=["POST"])
+def api_pyed_hover_route():
+    return api_pyed_hover()
+
+
+@app.route("/api/pyed/lint", methods=["POST"])
+def api_pyed_lint_route():
+    return api_pyed_lint()
+
+
+@app.route("/api/pyed/documents", methods=["GET"])
+def api_pyed_documents_route():
+    return api_pyed_documents()
+
+
+@app.route("/api/pyed/documents", methods=["POST"])
+def api_pyed_document_create_route():
+    return api_pyed_document_create()
+
+
+@app.route("/api/pyed/documents/<int:doc_id>", methods=["GET"])
+def api_pyed_document_get_route(doc_id):
+    return api_pyed_document_get(doc_id)
+
+
+@app.route("/api/pyed/documents/<int:doc_id>", methods=["PUT"])
+def api_pyed_document_save_route(doc_id):
+    return api_pyed_document_save(doc_id)
+
+
+@app.route("/api/pyed/documents/<int:doc_id>", methods=["DELETE"])
+def api_pyed_document_delete_route(doc_id):
+    return api_pyed_document_delete(doc_id)
+
+
+@app.route("/api/pyed/run", methods=["POST"])
+def api_pyed_run_route():
+    return api_pyed_run()
+
+
+@app.route("/editor")
+def pyed_editor_page():
+    """GET /editor — Python editor (CodeMirror 6) with jedi-powered hints."""
+    html = """<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🐍 Редактор Python — LTHub</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<style>
+:root{
+  --ed-bg:#1e1e1e; --ed-panel:#252526; --ed-tabs:#181818; --ed-border:#333333;
+  --ed-text:#d4d4d4; --ed-muted:#858585; --ed-blue:#3794ff; --ed-accent:#4ec9b0;
+  --ed-red:#f14c4c; --ed-amber:#d7ba7d; --ed-green:#6a9955; --ed-purple:#c586c0;
+  --ed-active:#37373d; --ed-line:#c6c6c6; --ed-console:#0d0d0d;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ed-bg);color:var(--ed-text);font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;overflow:hidden}
+a{color:var(--ed-blue)}
+header{height:42px;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--ed-tabs);border-bottom:1px solid var(--ed-border);flex:0 0 auto}
+header h1{font-size:15px;margin:0;font-weight:600;color:var(--ed-text)}
+header .sp{flex:1}
+.ed-btn{background:#2d2d30;border:1px solid #3f3f46;color:var(--ed-text);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
+.ed-btn:hover{background:#3a3a3d}
+.ed-btn.primary{background:var(--ed-blue);border-color:var(--ed-blue);color:#fff}
+.ed-btn.primary:hover{filter:brightness(1.1)}
+#tabs{display:flex;gap:2px;padding:0 8px;background:var(--ed-tabs);border-bottom:1px solid var(--ed-border);overflow-x:auto;flex:0 0 auto;min-height:34px;align-items:stretch}
+.tab{display:flex;align-items:center;gap:8px;padding:0 10px;background:transparent;border:none;border-right:1px solid var(--ed-border);color:var(--ed-muted);cursor:pointer;font-size:13px;white-space:nowrap;font-family:inherit}
+.tab.active{background:var(--ed-panel);color:var(--ed-text);border-top:1px solid var(--ed-blue)}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--ed-amber);display:none}
+.tab.dirty .dot{display:block}
+.tab .x{opacity:.55;font-size:15px;line-height:1}
+.tab .x:hover{opacity:1;color:var(--ed-red)}
+#newrow{display:flex;align-items:center;padding:4px 10px}
+#newrow input{background:#1b1b1b;border:1px solid var(--ed-accent);color:var(--ed-text);border-radius:3px;padding:3px 6px;font-size:13px;width:150px;font-family:inherit}
+#main{flex:1;display:flex;min-height:0}
+#editorHost{flex:1;min-width:0;overflow:hidden}
+.cm-editor{height:100%;font-size:14px}
+.cm-editor .cm-content{font-family:"Cascadia Code","Fira Code",Consolas,"Courier New",monospace;padding-bottom:40vh}
+.cm-editor.cm-focused{outline:none}
+.cm-scroller{overflow:auto}
+#fallbackWrap{display:none;flex:1;padding:10px}
+#fallbackWrap textarea{width:100%;height:100%;background:#1b1b1b;color:var(--ed-text);border:1px solid var(--ed-border);border-radius:4px;font-family:"Cascadia Code",Consolas,monospace;font-size:14px;padding:10px;resize:none}
+#consoleBox{flex:0 0 auto;border-top:1px solid var(--ed-border);background:var(--ed-console);display:flex;flex-direction:column;max-height:45%}
+#consoleHead{display:flex;align-items:center;gap:8px;padding:3px 10px;font-size:12px;color:var(--ed-muted);cursor:pointer;user-select:none}
+#consoleBody{overflow:auto;padding:6px 10px;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:13px;white-space:pre-wrap;word-break:break-word;min-height:52px}
+#consoleBox.collapsed #consoleBody{display:none}
+.line-out{color:var(--ed-text)}
+.line-err{color:var(--ed-red)}
+.line-sys{color:var(--ed-muted)}
+#status{flex:0 0 auto;height:24px;display:flex;align-items:center;gap:16px;padding:0 12px;background:var(--ed-blue);color:#fff;font-size:12px}
+#sig{position:absolute;left:0;right:0;background:#252526;border-bottom:1px solid var(--ed-border);padding:3px 12px;font-family:"Cascadia Code",Consolas,monospace;font-size:12.5px;color:var(--ed-accent);display:none;z-index:5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sig .doc{color:var(--ed-muted)}
+#hoverTip{max-width:460px;white-space:pre-wrap;font-size:12.5px;padding:8px 10px}
+#hoverTip .t{color:var(--ed-accent);font-weight:600}
+#hoverTip .d{color:var(--ed-text-soft,var(--ed-muted));margin-top:4px}
+details.help{position:fixed;right:12px;bottom:34px;background:var(--ed-panel);border:1px solid var(--ed-border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--ed-muted);max-width:330px;z-index:9}
+details.help summary{cursor:pointer;color:var(--ed-text)}
+details.help td{padding:1px 10px 1px 0;color:var(--ed-muted)}
+details.help b{color:var(--ed-text);font-weight:600}
+#banner{display:none;margin:0;padding:8px 12px;background:#3a1d1d;border-bottom:1px solid #6b2b2b;color:#ffb4b4;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐍 Редактор Python</h1>
+  <span class="sp"></span>
+  <button class="ed-btn" id="btnRun" title="Запустить (Ctrl+Enter)">▶ Запустить</button>
+  <button class="ed-btn primary" id="btnSave" title="Сохранить (Ctrl+S)">💾 Сохранить</button>
+  <button class="ed-btn" id="btnDelete" title="Удалить файл из аккаунта">🗑</button>
+  <a class="ed-btn" href="/" title="Вернуться в хаб">← Хаб</a>
+</header>
+<p id="banner"></p>
+<div id="tabs"></div>
+<div id="main">
+  <div id="editorHost"><div id="sig"></div></div>
+  <div id="fallbackWrap">
+    <textarea id="fallbackArea" spellcheck="false" placeholder="print('Привет, мир!')"></textarea>
+  </div>
+  <div id="consoleBox">
+    <div id="consoleHead">▸ Консоль <span id="consoleMeta" class="sp"></span><span id="consoleToggle">▾</span></div>
+    <div id="consoleBody"><div class="line-sys">Нажмите «Запустить» (Ctrl+Enter), чтобы увидеть вывод.</div></div>
+  </div>
+</div>
+<div id="status">
+  <span id="stPos">Ln 1, Col 1</span><span>Python</span><span>Пробелы: 4</span>
+  <span class="sp" style="flex:1"></span><span id="stSave">Готово</span>
+</div>
+<details class="help">
+  <summary>Горячие клавиши</summary>
+  <table>
+    <tr><td><b>Ctrl+Enter</b></td><td>запуск кода</td></tr>
+    <tr><td><b>Ctrl+S</b></td><td>сохранить файл</td></tr>
+    <tr><td><b>Ctrl+Space</b></td><td>подсказки</td></tr>
+    <tr><td><b>Ctrl+/</b></td><td>комментарий</td></tr>
+    <tr><td><b>Ctrl+F</b></td><td>поиск</td></tr>
+    <tr><td><b>Alt+клик</b></td><td>курсор в нескольких местах</td></tr>
+  </table>
+</details>
+<script type="module">
+const DEFAULT_CODE = __DEFAULT_CODE__;
+const KEYWORDS = __KEYWORDS__;
+let view = null, linterFn = null, hoverFn = null;
+let docs = [], activeId = null, dirty = false, saveTimer = null, running = false;
+let lspAbort = null, hoverAbort = null, lintAbort = null, sigTimer = null;
+
+const el = (id) => document.getElementById(id);
+const TOKEN = () => localStorage.getItem('web_token') || '';
+function authH() {
+  var h = {'Content-Type': 'application/json'};
+  var t = TOKEN();
+  if (t) h['X-Auth-Token'] = t;
+  return h;
+}
+function banner(msg) {
+  var b = el('banner');
+  if (!msg) { b.style.display = 'none'; b.textContent = ''; return; }
+  b.textContent = msg; b.style.display = 'block';
+}
+async function api(path, opts) {
+  opts = opts || {};
+  var r = await fetch(path, {
+    method: opts.method || 'GET',
+    headers: authH(),
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  var d = null;
+  try { d = await r.json(); } catch (e) { d = {}; }
+  if (!r.ok) {
+    // 401: глобальный обработчик сам показывает модалку входа — второй баннер не нужен
+    var msg = d.error || ('Ошибка ' + r.status);
+    if (r.status === 401) { var e = new Error(msg); e.auth = true; throw e; }
+    banner(msg);
+    throw new Error(msg);
+  }
+  banner('');
+  return d;
+}
+function consoleLine(text, cls) {
+  var box = el('consoleBody');
+  var empty = box.querySelector('.line-sys');
+  if (empty && box.children.length === 1) box.textContent = '';
+  var div = document.createElement('div');
+  div.className = cls || 'line-out';
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+function clearConsole() { el('consoleBody').textContent = ''; }
+function setSaveState(text) { el('stSave').textContent = text; }
+function code() { return view ? view.state.doc.toString() : el('fallbackArea').value; }
+function setCode(text) {
+  if (view) {
+    view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: text}});
+  } else {
+    el('fallbackArea').value = text;
+  }
+}
+function markDirty(flag) {
+  dirty = flag;
+  var tab = document.querySelector('.tab.active');
+  if (tab) tab.classList.toggle('dirty', flag);
+  setSaveState(flag ? 'Изменено' : 'Сохранено');
+  if (flag) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveDoc, 1500);
+  }
+}
+
+// ── вкладки файлов ────────────────────────────────────────────────────────
+function renderTabs() {
+  var wrap = el('tabs');
+  wrap.textContent = '';
+  docs.forEach(function (doc) {
+    var tab = document.createElement('button');
+    tab.className = 'tab' + (doc.id === activeId ? ' active' : '');
+    if (doc.id === activeId && dirty) tab.classList.add('dirty');
+    var name = document.createElement('span');
+    name.textContent = doc.name;
+    var dot = document.createElement('span');
+    dot.className = 'dot';
+    var x = document.createElement('span');
+    x.className = 'x';
+    x.textContent = '×';
+    x.title = 'Закрыть вкладку';
+    x.onclick = function (e) { e.stopPropagation(); closeTab(doc); };
+    tab.appendChild(name); tab.appendChild(dot); tab.appendChild(x);
+    tab.onclick = function () { openDoc(doc); };
+    wrap.appendChild(tab);
+  });
+  var row = document.createElement('div');
+  row.id = 'newrow';
+  var plus = document.createElement('button');
+  plus.className = 'tab';
+  plus.textContent = '＋';
+  plus.title = 'Новый файл';
+  plus.onclick = showNewInput;
+  row.appendChild(plus);
+  wrap.appendChild(row);
+}
+function showNewInput() {
+  var row = el('newrow');
+  if (el('newName')) return;
+  var input = document.createElement('input');
+  input.id = 'newName';
+  input.placeholder = 'имя.py';
+  row.appendChild(input);
+  input.focus();
+  function done(ok) {
+    var name = input.value.trim();
+    if (ok && name) createDoc(name);
+    var old = el('newName');
+    if (old) old.remove();
+  }
+  input.onkeydown = function (e) {
+    if (e.key === 'Enter') done(true);
+    if (e.key === 'Escape') done(false);
+  };
+  input.onblur = function () { done(true); };
+}
+async function loadDocs() {
+  try {
+    var d = await api('/api/pyed/documents');
+    docs = d.documents || [];
+  } catch (e) {
+    docs = [];
+  }
+  if (!docs.length) {
+    // гость или первый заход: работаем в несохранённом буфере с шаблоном
+    docs = [{id: null, name: 'main.py', size: 0}];
+    activeId = null;
+    setCode(DEFAULT_CODE);
+  } else {
+    await openDoc(docs[0]);
+  }
+  renderTabs();
+}
+async function openDoc(doc) {
+  if (doc.id === activeId && view) { renderTabs(); return; }
+  activeId = doc.id;
+  if (doc.id === null) {
+    setCode(DEFAULT_CODE);
+  } else {
+    try {
+      var d = await api('/api/pyed/documents/' + doc.id);
+      doc.name = d.name;
+      setCode(d.content || '');
+    } catch (e) { /* баннер уже показан */ }
+  }
+  markDirty(false);
+  renderTabs();
+  if (view) view.focus();
+}
+async function createDoc(name) {
+  if (!/\\.py$/i.test(name)) name += '.py';
+  try {
+    var d = await api('/api/pyed/documents', {method: 'POST', body: {name: name, content: ''}});
+    var doc = {id: d.id, name: d.name, size: 0};
+    var at = docs.findIndex(function (x) { return x.id === null; });
+    if (at >= 0) { docs[at] = doc; } else { docs.push(doc); }
+    activeId = doc.id;
+    setCode(d.reopened ? '' : '# Новый файл\\n\\n');
+    markDirty(true);
+    renderTabs();
+    if (view) view.focus();
+  } catch (e) { /* баннер уже показан */ }
+}
+async function saveDoc() {
+  clearTimeout(saveTimer);
+  var active = docs.filter(function (d) { return d.id === activeId; })[0];
+  if (!active || active.id === null) {
+    // первый файл: сохранить под именем из шаблона
+    try {
+      var made = await api('/api/pyed/documents', {
+        method: 'POST', body: {name: active.name || 'main.py', content: code()}
+      });
+      active.id = made.id;
+      active.name = made.name;
+      active.size = code().length;
+      markDirty(false);
+      renderTabs();
+      consoleLine('Файл сохранён: ' + active.name, 'line-sys');
+      return true;
+    } catch (e) { return false; }
+  }
+  try {
+    var d = await api('/api/pyed/documents/' + active.id, {
+      method: 'PUT', body: {content: code(), name: active.name}
+    });
+    active.name = d.name;
+    active.size = code().length;
+    markDirty(false);
+    renderTabs();
+    return true;
+  } catch (e) { return false; }
+}
+async function closeTab(doc) {
+  if (doc.id === activeId && dirty) await saveDoc();
+  var idx = docs.indexOf(doc);
+  docs = docs.filter(function (d) { return d !== doc; });
+  if (doc.id !== activeId) { renderTabs(); return; }
+  activeId = null;
+  var next = docs[Math.min(idx, docs.length - 1)];
+  if (next) { await openDoc(next); return; }
+  docs = [{id: null, name: 'main.py', size: 0}];
+  activeId = null;
+  setCode(DEFAULT_CODE);
+  markDirty(false);
+  renderTabs();
+}
+async function deleteDoc() {
+  var active = docs.filter(function (d) { return d.id === activeId; })[0];
+  if (!active || active.id === null) {
+    banner('Этот файл ещё не сохранён — сначала сохраните его');
+    return;
+  }
+  if (!confirm('Удалить файл «' + active.name + '» без возможности восстановления?')) return;
+  try {
+    await api('/api/pyed/documents/' + active.id, {method: 'DELETE'});
+    await closeTab(active);
+    consoleLine('Файл удалён: ' + active.name, 'line-sys');
+  } catch (e) { /* баннер уже показан */ }
+}
+
+// ── запуск ────────────────────────────────────────────────────────────────
+async function runCode() {
+  if (running) return;
+  running = true;
+  el('btnRun').disabled = true;
+  el('consoleMeta').textContent = 'запуск...';
+  clearConsole();
+  try {
+    var d = await api('/api/pyed/run', {method: 'POST', body: {code: code()}});
+    var out = (d.stdout || '').trim();
+    if (out) out.split('\\n').forEach(function (l) { consoleLine(l, 'line-out'); });
+    if (d.stderr) d.stderr.split('\\n').forEach(function (l) { consoleLine(l, 'line-err'); });
+    if (!out && !d.stderr) consoleLine('(вывода нет)', 'line-sys');
+    consoleLine('— выполнено за ' + d.ms + ' мс —', 'line-sys');
+  } catch (e) {
+    consoleLine(e.message || 'Ошибка запуска', 'line-err');
+  }
+  el('consoleMeta').textContent = '';
+  el('btnRun').disabled = false;
+  running = false;
+}
+
+// ── подсказки (jedi) ──────────────────────────────────────────────────────
+function cursor() {
+  if (!view) return {line: 1, column: 0};
+  var pos = view.state.selection.main.head;
+  var line = view.state.doc.lineAt(pos);
+  return {line: line.number, column: pos - line.from};
+}
+function posOf(text, line, column) {
+  var lines = text.split('\\n');
+  var from = 0;
+  for (var i = 0; i < line - 1 && i < lines.length; i++) from += lines[i].length + 1;
+  return Math.min(from + Math.max(0, column), text.length);
+}
+function callStub(item) {
+  var t = (item.type || '').toLowerCase();
+  if (t === 'function' || t === 'method' || /\\(\\)/.test(item.detail || '')) {
+    var name = item.label.split('(')[0];
+    return name + '()';
+  }
+  return item.label;
+}
+async function lspPost(path, payload, signal) {
+  var r = await fetch(path, {method: 'POST', headers: authH(), body: JSON.stringify(payload), signal: signal});
+  if (!r.ok) return null;
+  return await r.json();
+}
+function makeComplete() {
+  return async function (context) {
+    var word = context.matchBefore(/[A-Za-z_0-9.]*/);
+    if (!context.explicit && (!word || word.from === word.to)) return null;
+    var at = cursor();
+    if (lspAbort) lspAbort.abort();
+    lspAbort = new AbortController();
+    var d = await lspPost('/api/pyed/complete', {
+      code: view.state.doc.toString(), line: at.line, column: at.column
+    }, lspAbort.signal);
+    if (!d || !d.items || !d.items.length) {
+      return KEYWORDS.map(function (k) { return {label: k, type: 'keyword'}; });
+    }
+    return d.items.map(function (item) {
+      return {
+        label: item.label,
+        type: item.type,
+        detail: item.detail,
+        info: item.doc,
+        apply: function (v, completion, from, to) {
+          var text = callStub(item);
+          v.dispatch({
+            changes: {from: from, to: to, insert: text},
+            selection: {anchor: from + text.length - (text.endsWith('()') ? 1 : 0)}
+          });
+        }
+      };
+    });
+  };
+}
+function makeLinter() {
+  return async function (view) {
+    if (lintAbort) lintAbort.abort();
+    lintAbort = new AbortController();
+    var at = {line: view.state.selection.main.head};
+    var line = view.state.doc.lineAt(at.line);
+    var d = await lspPost('/api/pyed/lint', {
+      code: view.state.doc.toString(), line: 1, column: 0
+    }, lintAbort.signal);
+    if (!d || !d.errors) return [];
+    var text = view.state.doc.toString();
+    var out = [];
+    d.errors.forEach(function (e) {
+      var at = posOf(text, e.line, e.column);
+      if (at >= text.length) return;   // ошибка за пределами буфера — не рисуем
+      out.push({
+        from: at,
+        to: Math.min(text.length, at + Math.max(1, e.message.length % 7)),
+        severity: 'error',
+        message: e.message
+      });
+    });
+    return out;
+  };
+}
+function makeHover() {
+  return async function (view, pos) {
+    var before = view.state.doc.sliceString(0, pos);
+    if (!/[A-Za-z_0-9]$/.test(before)) return null;
+    if (hoverAbort) hoverAbort.abort();
+    hoverAbort = new AbortController();
+    var line = view.state.doc.lineAt(pos);
+    var d = await lspPost('/api/pyed/hover', {
+      code: view.state.doc.toString(), line: line.number, column: pos - line.from
+    }, hoverAbort.signal);
+    if (!d || (!d.text && !d.doc)) return null;
+    var dom = document.createElement('div');
+    dom.id = 'hoverTip';
+    if (d.text) {
+      var t = document.createElement('div');
+      t.className = 't'; t.textContent = d.text;
+      dom.appendChild(t);
+    }
+    if (d.doc) {
+      var doc = document.createElement('div');
+      doc.className = 'd'; doc.textContent = d.doc.slice(0, 500);
+      dom.appendChild(doc);
+    }
+    return {dom: dom};
+  };
+}
+function showSignature() {
+  if (!view) return;
+  var head = view.state.selection.main.head;
+  var line = view.state.doc.lineAt(head);
+  var text = view.state.doc.sliceString(0, head);
+  var m = /([A-Za-z_][A-Za-z_0-9]*)\\s*\\([^()]*$/.exec(text);
+  var box = el('sig');
+  if (!m) { box.style.display = 'none'; return; }
+  var pos = head - m[1].length - 1;
+  var defLine = view.state.doc.lineAt(pos < 0 ? 0 : pos);
+  fetch('/api/pyed/signature', {
+    method: 'POST', headers: authH(),
+    body: JSON.stringify({
+      code: view.state.doc.toString(), line: defLine.number, column: defLine.to - defLine.from
+    })
+  }).then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || !d.signatures || !d.signatures.length) { box.style.display = 'none'; return; }
+      box.textContent = '';
+      var sig = d.signatures[0].label;
+      box.appendChild(document.createTextNode(sig));
+      if (d.signatures[0].doc) {
+        var sp = document.createElement('span');
+        sp.className = 'doc';
+        sp.textContent = '  ' + d.signatures[0].doc.split('\\n')[0];
+        box.appendChild(sp);
+      }
+      box.style.display = 'block';
+    })
+    .catch(function () { box.style.display = 'none'; });
+}
+
+// ── запуск редактора ──────────────────────────────────────────────────────
+async function boot() {
+  el('btnRun').onclick = runCode;
+  el('btnSave').onclick = saveDoc;
+  el('btnDelete').onclick = deleteDoc;
+  el('consoleHead').onclick = function () {
+    var box = el('consoleBox');
+    box.classList.toggle('collapsed');
+    el('consoleToggle').textContent = box.classList.contains('collapsed') ? '▸' : '▾';
+  };
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runCode(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveDoc(); }
+  });
+  el('fallbackArea').addEventListener('input', function () { markDirty(true); });
+
+  try {
+    const cm = await import('https://esm.sh/codemirror@6.0.1');
+    const py = await import('https://esm.sh/@codemirror/lang-python@6.1.7?deps=codemirror@6.0.1');
+    const lintPkg = await import('https://esm.sh/@codemirror/lint@6.8.5?deps=codemirror@6.0.1');
+    const dark = await import('https://esm.sh/@codemirror/theme-one-dark@6.1.2?deps=codemirror@6.0.1');
+
+    linterFn = lintPkg.linter(makeLinter(), {delay: 600});
+    hoverFn = makeHover();
+    const host = el('editorHost');
+    host.style.position = 'relative';
+    view = new cm.EditorView({
+      parent: host,
+      state: cm.EditorState.create({
+        doc: '',
+        extensions: [
+          dark.oneDark,
+          py.python(),
+          cm.lineNumbers(),
+          cm.foldGutter(),
+          lintPkg.lintGutter(),
+          cm.highlightActiveLine(),
+          cm.highlightActiveLineGutter(),
+          cm.drawSelection(),
+          cm.rectangularSelection(),
+          cm.crosshairCursor(),
+          cm.highlightSpecialChars(),
+          cm.history(),
+          cm.bracketMatching(),
+          cm.closeBrackets(),
+          cm.indentUnit.of('    '),
+          cm.codeFolding(),
+          cm.highlightSelectionMatches(),
+          cm.autocompletion({
+            override: [makeComplete()],
+            activateOnTyping: true,
+            icons: true,
+            defaultKeymap: true
+          }),
+          linterFn,
+          cm.EditorView.lineWrapping,
+          cm.placeholder('print("Привет, мир!")'),
+          cm.hoverTooltip(hoverFn, {hoverTime: 350}),
+          cm.keymap.of([
+            ...cm.closeBracketsKeymap,
+            ...cm.defaultKeymap,
+            ...cm.searchKeymap,
+            ...cm.historyKeymap,
+            ...cm.foldKeymap,
+            ...cm.completionKeymap,
+            cm.indentWithTab
+          ]),
+          cm.EditorView.updateListener.of(function (u) {
+            if (!u.selectionSet && !u.docChanged) return;
+            if (u.docChanged) markDirty(true);
+            var pos = u.state.selection.main.head;
+            var line = u.state.doc.lineAt(pos);
+            el('stPos').textContent = 'Ln ' + line.number + ', Col ' + (pos - line.from + 1);
+            clearTimeout(sigTimer);
+            sigTimer = setTimeout(showSignature, 400);
+          })
+        ]
+      })
+    });
+  } catch (e) {
+    // CDN недоступен (например, школьная сеть) — работаем на textarea
+    el('editorHost').style.display = 'none';
+    el('fallbackWrap').style.display = 'flex';
+    consoleLine('Редактор подсказок недоступен офлайн, работает простой режим.', 'line-sys');
+  }
+  await loadDocs();
+  if (view) view.focus();
+}
+boot();
+</script>
+</body>
+</html>"""
+    html = html.replace(
+        "__DEFAULT_CODE__", json.dumps(_PYED_DEFAULT_CODE, ensure_ascii=False).replace("</", "<\\/"))
+    html = html.replace(
+        "__KEYWORDS__", json.dumps(_PYED_KEYWORDS_FALLBACK, ensure_ascii=False).replace("</", "<\\/"))
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
