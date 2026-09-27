@@ -369,6 +369,32 @@ def test_lint_reports_syntax_error():
         assert ok.get_json()["errors"] == []
 
 
+def test_lint_reports_every_error_through_jedi():
+    """jedi reports all syntax errors, ``compile`` only the first.
+
+    Guards the jedi branch specifically: reading ``err.message`` used to raise
+    AttributeError (jedi 0.20 has no such attribute), the ``compile`` fallback hid
+    it, and every keystroke paged Telegram with "lint failed".
+    """
+    _require_jedi()
+    engine = _make_engine()
+    from unittest.mock import patch
+    with patch("api.index.get_db_engine", return_value=engine), \
+            patch("api.index.log_error") as err:
+        client = app.test_client()
+        token = _register(client, "pyed_lint2")
+        code = "def f(:\n    pass\nx = = 1\n"
+        r = client.post("/api/pyed/lint", json={"code": code}, headers=_auth(token))
+        assert r.status_code == 200
+        errors = r.get_json()["errors"]
+        assert len(errors) == 2, errors
+        assert {e["line"] for e in errors} == {1, 3}
+        for item in errors:
+            assert item["column"] >= 0
+            assert item["message"] and "attribute" not in item["message"]
+        _assert_no_pyed_error_log(err)
+
+
 def test_lint_without_jedi_falls_back_to_compile(monkeypatch):
     """A broken/absent jedi must still surface the SyntaxError from ``compile``."""
     import builtins
