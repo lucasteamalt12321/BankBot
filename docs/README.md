@@ -275,6 +275,26 @@ LTHub/
 - **Персона-атрибуция прохождений = ник из заявки:** каждый completion хранит `level_completions.player_name` — GD-ник из approved-`submissions.username` (backfill `_gd_backfill_completion_names`), а НЕ владельца аккаунта. Один аккаунт может иметь несколько персон (пример: аккаунт 1597272920 = персоны «LucasTeam» за Supersonic и «ShadowRaven» за TVOL). Топ игроков, карточка игрока, список викторов и completers в лидерборде группируются ПО НИКУ ИЗ ЗАЯВКИ. Таблица-агрегатор `gd_aliases` УДАЛЕНА (редундантна). Исторические строки без ников дополняются именем аккаунта.
 - **Админ-панель игрока (кнопка «＋»):** для `is_admin` на карточке `/gd/player/<nick>` — кнопка «＋ Добавить уровень»: выпадающий список из `GET /api/gd/leaderboard`, поле «Ссылка на медиа» + `file`-инпут (фото/видео ≤16 МБ, data-URI; http(s) или файл — правила как у сабмита), кнопка «✕» у каждого completion. **POST `/api/gd/admin/player/<nick>/completions`** (media обязателен) создаёт approved `submissions` + `level_completions` и пересчитывает статы; **DELETE `/api/gd/admin/player/<nick>/completions?level_id=`** убирает уровень из пройденных; **PUT `/api/gd/admin/player/<nick>/nick`** (`new_nick`, кнопка «✏️ Сменить ник») переименовывает персону (меняет `submissions.username` и `player_name`, сливает статистику). Оба требуют админ-сессию (403 иначе). Признак админа отдаётся СЕРВЕРОМ в карточку (не-админы не получают кнопок), админ-fetch'и шлют `X-Auth-Token`.
 
+### Python Editor Module (редактор кода `/editor`)
+
+Веб-редактор Python с интерфейсом как в VS Code: настоящие подсказки, проверка синтаксиса и запуск кода прямо в браузере. Дополняет школьный проект — писать и запускать Python без установки.
+
+**Компоненты:**
+- `api/index.py` — секция `# ── Python Editor ──` (между `/code` и `/md2pdf`): таблица `pyed_documents` (`_ensure_pyed_tables()` в `get_db_engine()`), LSP-слой, CRUD файлов, запуск в песочнице, страница `pyed_editor_page()`.
+- Карточка «🐍 Редактор Python» в хабе `/` + ключ `HUB_KEY['/editor'] = 'python_editor'`.
+- `memory_bank/python_editor_module.md` — план модуля, API, грабли, acceptance criteria.
+
+**API эндпоинты** (все кроме страницы требуют входа, на 401 отдают `auth_required: true` — срабатывает глобальная модалка входа):
+- `POST /api/pyed/complete|signature|hover|lint` — LSP-слой на движке `jedi` (in-process статический анализ parso; полноценный LSP-демон на Vercel невозможен — лямды stateless). Rate-limit 300/мин, лимит тела 150 КБ, деградация до клиентских ключевых слов при недоступном `jedi`.
+- `GET/POST /api/pyed/documents`, `GET/PUT/DELETE /api/pyed/documents/<id>` — файлы аккаунта: автосейв 1.5 с, переименование (409 при конфликте), лимит 50 файлов, изоляция между пользователями. `user_id INTEGER` — совпадает с `web_users.id`, поэтому админ-эндпоинт `DELETE /api/admin/users/<id>` удаляет файлы вместе с аккаунтом (плюс `ON DELETE CASCADE`).
+- `POST /api/pyed/run` — выполнение: AST-блок-лист, чистый env, таймаут 8 с, память 256 МБ, обрезка вывода 8000 симв., `_sandbox_preexec` (`RLIMIT_CPU/AS/FSIZE/NOFILE/CORE`). Rate-limit 20/час.
+
+**Клиент:** CodeMirror 6 с `esm.sh` (One Dark, номера строк, active line, скобки, автоотступ, folding, `Ctrl+F`, мультикурсор, `Ctrl+/`, `Ctrl+Enter` = запуск, `Ctrl+S` = сохранить), вкладки файлов, консоль вывода, статусбар `Ln/Col`, тултип по `hover`, полоса подсказки аргументов, красные волнистые линии из `lint`. **При недоступности CDN — автоматический откат на `<textarea>`**: сохранение и запуск продолжают работать (актуально для школьной сети).
+
+**Тесты:** `tests/unit/test_python_editor.py` — 24 теста (CRUD, изоляция, санитизация имени, контракт 401, jedi-подсказки, lint, деградация без jedi, rate-limit, запуск и блок опасных импортов, регресс админ-удаления).
+
+**Ограничения:** сетевой egress и `PATH` в песочнице не ограничены (существующее ограничение платформы); полноценное закрытие — контейнер/микро-VM. Анонимный `/api/ai_chat` по-прежнему вызывает `_tool_run_python` без авторизации (только IP-лимит) — известная дыра вне этого модуля.
+
 ## Запуск и проверка
 
 Актуальный практический сценарий запуска описан в `RUN.md`.

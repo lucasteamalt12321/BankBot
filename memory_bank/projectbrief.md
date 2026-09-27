@@ -633,6 +633,25 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **Phase 9: 100/100 completed** (коммит `dbbacc5`)
 
+---
+
+### Phase 10: Модуль «Редактор Python» (PYED) (2026-09-27)
+
+**Контекст:** запрос пользователя «добавь модуль — редактор python. интерфейс схожий с vs code: тоже с подсказками». Согласовано: CodeMirror 6 (не Monaco — 300 КБ против ~3 МБ, школьный класс с телефонов), настоящий language server, кнопка «Запустить» с выводом, хранение в аккаунте. План: `memory_bank/python_editor_module.md`.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| PYED-01 | Бэкенд: `_ensure_pyed_tables` (`pyed_documents`, `user_id INTEGER` → подхватывается админ-удалением + FK cascade) + LSP-слой на jedi `POST /api/pyed/complete|signature|hover|lint` (ленивый импорт, деградация без jedi, лимит 150 КБ, `_check_db_rate` 300/мин) | completed | 30 |
+| PYED-02 | Файлы в аккаунте: `GET/POST /api/pyed/documents`, `GET/PUT/DELETE /api/pyed/documents/<id>` (санитизация имени, конфликт переименования 409, лимит 50 файлов, изоляция между пользователями, автосейв 1.5 с на клиенте) | completed | 15 |
+| PYED-03 | Запуск кода: `POST /api/pyed/run` + `_run_python_sandbox` (AST-блок-лист, чистый env, таймаут 8 с, обрезка 8000 симв.) + `_sandbox_preexec` (`RLIMIT_CPU/AS/FSIZE/NOFILE/CORE`, POSIX). AI-чат-контракт `_tool_run_python` сохранён без изменений | completed | 20 |
+| PYED-04 | Страница `/editor`: VS Code-look на CodeMirror 6 (One Dark, номера строк, active line, скобки, автоотступ, folding, `Ctrl+F`, мультикурсор, `Ctrl+/`, `Ctrl+Enter`, `Ctrl+S`), вкладки файлов, консоль, статусбар, тултип hover, полоса подсказки аргументов, красные линии из lint, откат на `<textarea>` если CDN недоступен | completed | 25 |
+| PYED-05 | Хаб `/`: карточка «🐍 Редактор Python» + `HUB_KEY['/editor']` | completed | 5 |
+| PYED-TEST | `tests/unit/test_python_editor.py` — 24 passed; `node --check` по отрендеренному `<script type="module">`; ruff чист; регресс `test_web_portal_e2e` + `test_code_explainer` — 66 passed; 21 падение в широком прогоне подтверждены как pre-existing на чистом HEAD | completed | 5 |
+
+**PYED: 100/100 (код) — ожидает push + деплой + прод-смоук**
+
+---
+
 ## Additional Tasks (2026-04-03)
 
 | ID | Task | Priority | Status |
