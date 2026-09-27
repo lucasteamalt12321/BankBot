@@ -31100,6 +31100,12 @@ def _pyed_payload() -> tuple:
         column = max(0, int(data.get("column") or 0))
     except (TypeError, ValueError):
         column = 0
+    # jedi raises ValueError for a position outside the line, so clamp to the real
+    # bounds of the submitted code: line 1..len(lines), column 0..len(line text).
+    # A stale client position must degrade to "no completions", never to an error log.
+    lines = code.split("\n")
+    line = min(line, len(lines)) if lines else 1
+    column = min(column, len(lines[line - 1]))
     return code, line, column
 
 
@@ -31137,6 +31143,9 @@ def api_pyed_complete():
         return jsonify({"ok": True, "items": [], "degraded": True})
     try:
         completions = script.complete(line=line, column=column)
+    except ValueError:
+        # position outside the line — nothing to complete, not an error
+        return jsonify({"ok": True, "items": [], "degraded": False})
     except Exception as exc:
         log_error("PYED", "error", f"complete failed: {exc}")
         return jsonify({"ok": True, "items": [], "degraded": True})
@@ -31174,6 +31183,8 @@ def api_pyed_signature():
         return jsonify({"ok": True, "signatures": []})
     try:
         signatures = script.get_signatures(line=line, column=column)
+    except ValueError:
+        return jsonify({"ok": True, "signatures": []})
     except Exception as exc:
         log_error("PYED", "error", f"signature failed: {exc}")
         return jsonify({"ok": True, "signatures": []})
@@ -31207,6 +31218,8 @@ def api_pyed_hover():
                 doc = _pyed_trim(head.docstring(), _PYED_MAX_DOC)
             except Exception:
                 doc = ""
+    except ValueError:
+        pass  # cursor outside the line — no type info, not an error
     except Exception as exc:
         log_error("PYED", "error", f"infer failed: {exc}")
     target = None
