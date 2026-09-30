@@ -1269,3 +1269,39 @@ def test_register_rate_limits():
         r = client.post("/api/auth/register", json={"login": "spam2", "password": "secret123"})
         assert r.status_code == 429
         assert "сутки" in (r.get_json().get("error") or "")
+
+
+def test_dnd_start_creates_schema_on_fresh_db():
+    """Regression: "Новая сессия" must work on a cold DB, not only with a warm schema.
+
+    ``_ensure_dnd_tables`` used raw PostgreSQL DDL (SERIAL / TIMESTAMPTZ / NOW() and a
+    single multi-column ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``) that SQLite
+    rejects, so the whole function aborted, ``dnd_sessions`` never got ``share_code``
+    and ``POST /api/dnd/start`` answered 500. Unlike ``test_dnd_session_sharing_flow``
+    this drives the real runtime instead of mocking ``cmd_dnd_start``.
+    """
+    from api.index import _ensure_dnd_tables
+
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        _ensure_dnd_tables(engine)
+        client = app.test_client()
+        reg = client.post("/api/auth/register", json={
+            "login": "dndreal", "password": "secret123", "email": "dndreal@test.local",
+        })
+        headers = _auth_headers(reg.get_json()["token"])
+
+        r = client.post("/api/dnd/start", json={"name": "Подземелье"}, headers=headers)
+        assert r.status_code == 200, r.get_data(as_text=True)[:400]
+        d = r.get_json()
+        assert d["ok"] is True
+        assert d["active"] is True
+        assert d["share_code"]
+        assert d["share_url"] == "/dnd?session=" + d["share_code"]
+
+        # Re-running the DDL on an already-initialised DB must stay a no-op.
+        _ensure_dnd_tables(engine)
+        with engine.connect() as conn:
+            cols = {row[1] for row in conn.execute(text("PRAGMA table_info(dnd_sessions)"))}
+        assert "share_code" in cols
+        assert "chapter_breakdown" in cols

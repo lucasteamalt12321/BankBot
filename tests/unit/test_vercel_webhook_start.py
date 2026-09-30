@@ -1,8 +1,11 @@
 from unittest.mock import Mock, patch
 
+import pytest
+
 from api.index import CHAT_RESPONSE_MODES, WEBHOOK_SECRET, app
 
 
+@pytest.mark.allow_telegram
 def test_vercel_webhook_replies_to_start() -> None:
     update_payload = {
         "update_id": 1,
@@ -34,6 +37,7 @@ def test_vercel_webhook_replies_to_start() -> None:
     assert "/long_all — полный режим для всех" in payload["text"]
 
 
+@pytest.mark.allow_telegram
 def test_normalize_start_with_bot_mention() -> None:
     update_payload = {
         "update_id": 2,
@@ -57,6 +61,7 @@ def test_normalize_start_with_bot_mention() -> None:
     mock_post.assert_called_once()
 
 
+@pytest.mark.allow_telegram
 def test_vercel_webhook_long_mode_changes_start_text() -> None:
     CHAT_RESPONSE_MODES.clear()
     client = app.test_client()

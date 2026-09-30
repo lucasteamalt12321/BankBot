@@ -4,9 +4,21 @@
 
 ## last_checked_commit
 
-**после удаления модуля** (рабочее дерево, коммит с удалением — следующий) — модуль «Редактор Python» `/editor` удалён по решению пользователя. См. Changelog 2026-09-28.
+**`1c6530c` + рабочее дерево** — BUGHUNT, итерация 1: исправлен баг «Новая сессия» в D&D (500 на холодной БД) и сломана изоляция Telegram в тестах. См. Changelog 2026-09-30.
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
+
+## Changelog 2026-09-30 — BUGHUNT, итерация 1 (D&D cold-DB + тестовая инфраструктура)
+
+**Исправлено:**
+
+- **D&D, «Новая сессия» → 500.** `_ensure_dnd_tables` выполняла сырой PostgreSQL DDL в обход `_ddl()`: `SERIAL` / `TIMESTAMPTZ` / `NOW()` и один много-колоночный `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. SQLite отвергает и то, и другое, исключение прерывало функцию сразу после успешного `CREATE TABLE` — таблица `dnd_sessions` оставалась без `share_code`, и `POST /api/dnd/start` (`cmd_dnd_start`) падал на `INSERT`. **Баг бил только по холодной БД** — на прогретой схеме и на Postgres всё работало, поэтому в проде проявлялся бы только на первом запросе после деплоя. Добавлен `_ddl_session(engine)` / `_DdlConn`: нормализация DDL через существующий `_ddl()`, глотка «уже применено» (`duplicate column name` / `already exists`), всё остальное пробрасывается в штатный обработчик; много-колоночный `ALTER` заменён на цикл `_ensure_ddl_column` по одной колонке.
+- **Регрессия `test_dnd_start_creates_schema_on_fresh_db`** (`tests/unit/test_web_portal_e2e.py`) — реальный DB-путь без мока `cmd_dnd_start` (существующий `test_dnd_session_sharing_flow` мокает runtime и баг не ловил). Проверено: на старом коде тест падает (`no such table: dnd_sessions`), на новом проходит; повторный `_ensure_dnd_tables` — no-op.
+- **Тестовая инфраструктура:** 8 тестов падали без связи с кодом. (1) Не хватало `pytest-asyncio` — он есть в `requirements-dev.txt`, но не был установлен локально; 5 async-тестов `test_template_coder.py` падали с «async def functions are not natively supported». Установил пакет, тесты починились. (2) 3 теста `test_vercel_webhook_start.py` не могли пройти принципиально: autouse-фикстура `_no_telegram_network` глушила `send_telegram_message` — то самое поведение, которое они проверяют. Добавил маркер `@pytest.mark.allow_telegram` (зарегистрирован в `tests/pytest.ini`); для помеченных тестов глушатся только служебные каналы `log_error` / `notify_admin`, `send_telegram_message` остаётся под моком теста.
+
+**Проверки:** `ruff check api/index.py tests/` — чисто; целевой набор (`test_web_portal_e2e`, `test_vercel_webhook_start`, `test_template_coder`, `test_code_explainer`, `test_find_hardcoded_ids_script`) — **73 passed**; ручной смоук `POST /api/dnd/start` на чистой SQLite — 200 + `share_code`.
+
+**Известно на будущее:** ~17 `_ensure_*` функций по-прежнему шлют сырой PostgreSQL DDL — `_ddl_session` для них готов, но автоматическая замена не сделана осознанно (часть функций содержит DML, где `_ddl()` неуместен; нужна выборочная правка). Также расхождение окружения: локально pytest 9.0.3 против пинна `pytest==8.3.4` в `requirements-dev.txt`; полный прогон тестов требует пере-классификации после установки плагина.
 
 ## Beta Bugs (баги бета-тестирования, 2026-08-27+)
 

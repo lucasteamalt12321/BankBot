@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 
 import requests
@@ -300,6 +301,66 @@ def _ensure_ddl_column(conn, table: str, column_sql: str, engine=None) -> None:
             conn.rollback()
         except Exception:
             pass
+
+
+_DDL_STATEMENT = re.compile(r"^\s*(CREATE|ALTER|DROP)\b", re.I)
+_DDL_BENIGN_ERROR = re.compile(
+    r"duplicate column name|already exists|duplicate object|use IF NOT EXISTS",
+    re.I,
+)
+
+
+class _DdlConn:
+    """Connection wrapper that keeps ``_ensure_*`` DDL portable across dialects.
+
+    Every DDL statement is normalized through :func:`_ddl`, so the same text runs
+    on PostgreSQL (SERIAL / TIMESTAMPTZ / NOW() / ADD COLUMN IF NOT EXISTS) and on
+    SQLite, which supports none of those. "Already applied" failures - duplicate
+    column, existing index - are swallowed, because a second cold start is the
+    normal case; anything else propagates to the caller's own error handler so
+    real DDL problems still reach Telegram.
+    """
+
+    def __init__(self, conn, engine=None):
+        self._conn = conn
+        self._engine = engine
+
+    def execute(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if _DDL_STATEMENT.match(sql):
+            sql = _ddl(sql, self._engine)
+        try:
+            return self._conn.execute(text(sql), *args, **kwargs)
+        except Exception as exc:
+            if _DDL_BENIGN_ERROR.search(str(exc)):
+                return None
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            raise
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+@contextmanager
+def _ddl_session(engine):
+    """``engine.connect()`` that normalizes DDL and tolerates re-runs."""
+    conn = engine.connect()
+    try:
+        yield _DdlConn(conn, engine)
+    finally:
+        conn.close()
 
 
 _WEB_USER_OPTIONAL_COLUMNS = (
@@ -1166,9 +1227,16 @@ def _ensure_universe_tables(engine):
 
 
 def _ensure_dnd_tables(engine):
-    """Create D&D AI Master tables/columns if they don't exist."""
+    """Create D&D AI Master tables/columns if they don't exist.
+
+    Runs through :func:`_ddl_session` so the DDL also works on SQLite. The raw
+    statements used SERIAL / TIMESTAMPTZ / NOW() and one multi-column
+    ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``, which SQLite rejects; that
+    aborted the whole function, so ``dnd_sessions`` never got ``share_code`` and
+    ``POST /api/dnd/start`` (the "Новая сессия" button) answered 500.
+    """
     try:
-        with engine.connect() as conn:
+        with _ddl_session(engine) as conn:
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS dnd_sessions (
                     id SERIAL PRIMARY KEY,
@@ -1190,23 +1258,23 @@ def _ensure_dnd_tables(engine):
                     chapter_breakdown TEXT
                 )
             """))
-            conn.execute(text("""
-                ALTER TABLE dnd_sessions
-                    ADD COLUMN IF NOT EXISTS description TEXT,
-                    ADD COLUMN IF NOT EXISTS share_code VARCHAR(16),
-                    ADD COLUMN IF NOT EXISTS max_players INTEGER DEFAULT 6,
-                    ADD COLUMN IF NOT EXISTS current_players INTEGER DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'planning',
-                    ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
-                    ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ,
-                    ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
-                    ADD COLUMN IF NOT EXISTS book_content TEXT,
-                    ADD COLUMN IF NOT EXISTS current_scene TEXT,
-                    ADD COLUMN IF NOT EXISTS context_summary TEXT,
-                    ADD COLUMN IF NOT EXISTS ai_system_prompt TEXT,
-                    ADD COLUMN IF NOT EXISTS last_ai_response TEXT,
-                    ADD COLUMN IF NOT EXISTS chapter_breakdown TEXT
-            """))
+            for _col in (
+                "description TEXT",
+                "share_code VARCHAR(16)",
+                "max_players INTEGER DEFAULT 6",
+                "current_players INTEGER DEFAULT 0",
+                "status VARCHAR(20) DEFAULT 'planning'",
+                "started_at TIMESTAMPTZ",
+                "paused_at TIMESTAMPTZ",
+                "completed_at TIMESTAMPTZ",
+                "book_content TEXT",
+                "current_scene TEXT",
+                "context_summary TEXT",
+                "ai_system_prompt TEXT",
+                "last_ai_response TEXT",
+                "chapter_breakdown TEXT",
+            ):
+                _ensure_ddl_column(conn, "dnd_sessions", _col, engine)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS dnd_characters (
                     id SERIAL PRIMARY KEY,

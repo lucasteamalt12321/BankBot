@@ -652,6 +652,29 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+### Phase 11: Баг-хант по всему проекту + закрытие мелких долгов (BUGHUNT)
+
+**Контекст:** запрос пользователя 2026-09-28 «багхант по всему проекту + закрытие мелких должков». Разведка выполнена 5 параллельными субагентами (веб-бэкенд `api/index.py`, бот-слой, тесты/CI, репозиторий/зависимости, фронтенд-JS) + полный прогон тестов: **275 failed, 1474 passed, 34 skipped** за 11:42. Находки верифицированы; исправлено 2 из 12 (BUG-11, BUG-12), остальное в очереди.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| BUG-01 | **P0-безопасность веб-бэкенда:** `_admin_require()` на `/api/set_webhook` (утечка `WEBHOOK_SECRET` в ответе = захват бота), `/api/debug_webhook`, `/api/test_telegram`, `/debug_puzzle`; IDOR `/test_puzzle/<int:user_id>` (баланс монет любого юзера) | pending | 13 |
+| BUG-02 | **P0-неограниченный LLM/DoS:** `/api/endings_process` (нет auth, нет rate-limit, нет верхней границы текста), `/api/verbs/generate` (rate-limit ключуется по клиентскому `user_id` + бесконечный рост `VERB_GEN_LOCK`), `/api/music/analyze\|change_tempo\|change_key` (нет auth, librosa/ffmpeg на файлах до 8 МБ) | pending | 11 |
+| BUG-03 | **Мёртвые скрипты страниц (SyntaxError в отрендеренном JS):** `/chess` (`api/index.py:11545` — `\'` рвёт JS-литерал) и `/endings_trainer.html` (`api/index.py:10025` — `\n` превращается в реальный перевод строки внутри regex). Обе страницы нефункциональны полностью. Вернуть регресс-тест с `node --check` по отрендеренному HTML | pending | 11 |
+| BUG-04 | **XSS:** `/md2pdf` — `marked.parse` без DOMPurify → HTML попадает в `iframe.srcdoc` в origin с `web_token`; `api/reading_trainer.py` — текст из LLM в `innerHTML` без esc; `/ai_chat` — `img src` из ответа модели без esc | pending | 10 |
+| BUG-05 | **Гонки в боте (деньги):** `with_for_update()` — no-op на SQLite (`bank_bot/repositories/balance_repository.py:90`), read-modify-write баланса; покупка в `core/managers/shop_manager.py:72` (двойное списание / бесплатный товар); `bot/handlers/parsing_handler.py:468` (потеря начислений + `float` для денег); двойной ежедневный бонус (TOCTOU) в `core/systems/motivation_system.py:44`; нестабильный `ORDER BY` в магазине | pending | 13 |
+| BUG-06 | **DoS и лимиты:** неограниченный бросок кубиков `999999999d6` (`bot/handlers/dnd_message_handler.py:39`) — синхронный цикл блокирует event loop; `/api/achievements/activity` — `actions` без верхней границы (накрутка лидерборда); `/api/dnd/fix` без rate-limit; отсутствует `MAX_CONTENT_LENGTH` | pending | 8 |
+| BUG-07 | **Секреты и конфиг:** `WEBHOOK_SECRET` с захардкоженным fallback `"fallback_not_configured"` + три несовместимых способа вычислить HMAC (`run_bot.py:80` vs `api/index.py:623` vs `hf-watchdog.yml`) → при отсутствии env все апдейты отбрасываются; `ADMIN_TELEGRAM_ID = 2091908459` в коде (`api/index.py:704`, `core/services/broadcast_service.py:107`); `NTFY_TOPIC` с ID владельца в `config/.env.shared:14`; webhook-секрет печатается в лог `.github/workflows/hf-watchdog.yml` | pending | 9 |
+| BUG-08 | **Гигиена репозитория:** `data/chat_export/` (274 файла, 14,6 МБ, персональные данные) в индексе git; `src/repository_impl.py` — побайтовая копия `src/repository.py`; 5 идентичных пар `bank_bot/services/*` ↔ `core/services/*`; нет `.gitattributes` при 540 CRLF-файлах; `desktop.ini`, `.hypothesis/` (0,9 МБ) в репозитории | pending | 7 |
+| BUG-09 | **Зависимости и деплой:** 6 мёртвых пакетов в `requirements.txt` (`vk_api`, `prometheus-client`, `python-dotenv`, `pytz`, `python-dateutil`); 4 конфликтующих requirements-файла; нерабочий `wsgi.py` (импортирует несуществующий `app.py`) + `Procfile` без gunicorn; `.hypothesis`, `vk_mini_app` не исключены из `.vercelignore`; расхождение Python 3.11/3.12 | pending | 5 |
+| BUG-10 | **CI и тесты:** ruff в CI не проверяет `api/` (31 356 строк) и `bank_bot/`; линтингуются несуществующие `bridge_bot/` `vk_bot/`; `node --check` не покрыт ни одним тестом (единственный тест удалён в `1c6530c`); классификация 275 падений (env mismatch vs реальные баги) и починка дешёвых | pending | 4 |
+| BUG-11 | **D&D: 500 на холодной БД (кнопка «Новая сессия»):** `_ensure_dnd_tables` слала сырой PostgreSQL DDL (`SERIAL`/`TIMESTAMPTZ`/`NOW()` + много-колоночный `ALTER ... ADD COLUMN IF NOT EXISTS`), что SQLite отвергает → функция падала сразу после `CREATE TABLE`, `dnd_sessions` оставался без `share_code`, `POST /api/dnd/start` отвечал 500. Фикс: `_ddl_session`/`_DdlConn` (нормализация через `_ddl()` + глотка «уже применено») + `_ensure_ddl_column` по одной колонке; регрессия `test_dnd_start_creates_schema_on_fresh_db` (проверена: падает на старом коде) | completed | 6 |
+| BUG-12 | **Тестовая инфраструктура:** отсутствующий `pytest-asyncio` ронял 5 async-тестов; autouse-фикстура `_no_telegram_network` глушила `send_telegram_message`, из-за чего 3 теста `test_vercel_webhook_start.py` не могли пройти в принципе. Фикс: маркер `@pytest.mark.allow_telegram` (зарегистрирован в `tests/pytest.ini`), для помеченных тестов глушатся только `log_error`/`notify_admin` | completed | 3 |
+
+**BUGHUNT: 9/100** — разведка завершена; исправлены баг холодной БД в D&D (BUG-11) и тестовая инфраструктура (BUG-12), оба с регрессиями. План: P0-безопасность и мёртвые страницы сначала (BUG-01..04), затем гонки в боте (BUG-05), дальше долги (BUG-08..10).
+
+---
+
 ## Additional Tasks (2026-04-03)
 
 | ID | Task | Priority | Status |
