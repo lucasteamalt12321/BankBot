@@ -72,6 +72,27 @@ Text message → parse_all_messages()
 
 `Я занят(а)` является особым входом: включает личный `/watch` даже если пользователь ещё не в watch-mode.
 
+### Переносимый DDL: `_ddl()` / `_ddl_session()` / `_ensure_ddl_column()`
+
+Схема в `api/index.py` создаётся лениво функциями `_ensure_*` при первом обращении, и
+одним и тем же кодом должна работать и на PostgreSQL (прод), и на SQLite (тесты и
+локальный запуск без `DATABASE_URL`). Отсюда правила:
+
+- **Сырой `conn.execute(text("CREATE/ALTER/DROP ..."))` с диалектными конструкциями
+  запрещён.** `SERIAL`, `TIMESTAMPTZ`, `NOW()`, `ADD COLUMN IF NOT EXISTS` и
+  много-колоночный `ALTER` SQLite не понимает.
+- Весь DDL прогоняется через `_ddl(sql, engine)`, который переписывает конструкции под
+  диалекту. Оборачивать в него нужно только DDL — DML идёт как есть.
+- `_ddl_session(engine)` — предпочтительная обёртка: нормализует DDL и глотает
+  «уже применено» (`duplicate column name` / `already exists`), потому что повторный
+  cold start — норма. Остальные ошибки пробрасываются в штатный `log_error`.
+- Добавление колонки — только по одной через `_ensure_ddl_column(conn, table, "COL TYPE", engine)`
+  (само уже проверяет `information_schema` / `PRAGMA table_info`).
+- Грабли, стоившие бага «Новая сессия» (2026-09-30): один непрошенный `ALTER` ронял
+  **всю** функцию сразу после `CREATE TABLE`, поэтому таблица создавалась, но без новых
+  колонок, и падал уже следующий запрос. Ловить такие бабы можно только тестом на
+  **холодной** БД — на прогретой схеме и на Postgres всё работает.
+
 ### Planned runtime removals for webhook migration
 
 - Background periodic loops are disabled in HF webhook runtime.
