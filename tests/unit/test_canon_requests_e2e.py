@@ -42,6 +42,14 @@ def _user_token(client, login="canonuser"):
     return resp.get_json()["token"]
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """Лимит 5 заявок/мин in-memory: каждый тест стартует с чистого счётчика."""
+    index_api._AI_RATE_LIMITS.clear()
+    yield
+    index_api._AI_RATE_LIMITS.clear()
+
+
 @pytest.fixture()
 def client():
     return app.test_client()
@@ -108,11 +116,152 @@ def test_request_submit_validation(mock_engine):
     }, headers=_auth_headers(token))
     assert bad_level.status_code == 400
 
-    ok = c.post("/api/canon/request", json={
+    ok = c.post("/api/canon/request", data={
         "title": "Новый трек", "kind": "track", "author": "Канон-автор",
         "content": "Полный текст произведения", "canon_level": "high",
-    }, headers=_auth_headers(token))
+        "file": (io.BytesIO(b"fake-mp3"), "track.mp3"),
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
     assert ok.status_code == 200
+    assert ok.get_json()["has_file"] is True
+
+
+@patch("api.index.get_db_engine")
+def test_request_file_rules_by_kind(mock_engine):
+    """Трек — файл обязателен; статья — текст обязателен, ссылка и файл опциональны."""
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+    token = _user_token(c)
+
+    track_no_file = c.post("/api/canon/request", data={
+        "title": "Трек без файла", "kind": "track", "author": "А",
+        "content": "Текст трека",
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert track_no_file.status_code == 400
+    assert "файл" in track_no_file.get_json()["error"]
+
+    track_bad_ext = c.post("/api/canon/request", data={
+        "title": "Трек с пдф", "kind": "track", "author": "А",
+        "file": (io.BytesIO(b"pdf"), "track.pdf"),
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert track_bad_ext.status_code == 400
+
+    track_bad_format = c.post("/api/canon/request", data={
+        "title": "Трек с exe", "kind": "track", "author": "А",
+        "file": (io.BytesIO(b"exe"), "track.exe"),
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert track_bad_format.status_code == 400
+
+    track_ok = c.post("/api/canon/request", data={
+        "title": "Трек с файлом", "kind": "track", "author": "А",
+        "url": "https://t.me/lucasteamgroup/1", "content": "Текст трека",
+        "file": (io.BytesIO(b"ogg-bytes"), "theme.ogg"),
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert track_ok.status_code == 200
+    assert track_ok.get_json()["has_file"] is True
+
+    # JSON без файла допустим только для не-треков.
+    json_track = c.post("/api/canon/request", json={
+        "title": "Трек json", "kind": "track", "author": "А", "content": "Текст",
+    }, headers=_auth_headers(token))
+    assert json_track.status_code == 400
+
+
+@patch("api.index.get_db_engine")
+def test_request_file_rules_article(mock_engine):
+    """Для статей ссылка и файл опциональны — достаточно текста."""
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+    token = _user_token(c)
+
+    no_file_no_url = c.post("/api/canon/request", data={
+        "title": "Статья без вложений", "kind": "article", "author": "Б",
+        "content": "Текст статьи",
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert no_file_no_url.status_code == 200
+    assert no_file_no_url.get_json()["has_file"] is False
+
+    with_pdf = c.post("/api/canon/request", data={
+        "title": "Статья с пдф", "kind": "article", "author": "Б",
+        "content": "Текст статьи",
+        "file": (io.BytesIO(b"%PDF-1.4"), "paper.pdf"),
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert with_pdf.status_code == 200
+    assert with_pdf.get_json()["file_name"] == "paper.pdf"
+
+    bad_format = c.post("/api/canon/request", data={
+        "title": "Статья с exe", "kind": "article", "author": "Б",
+        "content": "Текст статьи",
+        "file": (io.BytesIO(b"exe"), "paper.exe"),
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert bad_format.status_code == 400
+
+    no_text = c.post("/api/canon/request", data={
+        "title": "Статья без текста", "kind": "article", "author": "Б",
+        "file": (io.BytesIO(b"%PDF-1.4"), "paper.pdf"),
+    }, content_type="multipart/form-data", headers=_auth_headers(token))
+    assert no_text.status_code == 400
+
+    json_article = c.post("/api/canon/request", json={
+        "title": "Статья json", "kind": "article", "author": "А", "content": "Текст",
+    }, headers=_auth_headers(token))
+    assert json_article.status_code == 200
+
+
+@patch("api.index.get_db_engine")
+def test_request_file_download_and_approve(mock_engine):
+    """Файл заявки: админ видит метаданные, скачивает файл; approve переносит аудио в трек."""
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+
+    user_token = _user_token(c)
+    admin_token = _admin_token(c)
+
+    c.post("/api/canon/request", data={
+        "title": "Трек с вложением", "kind": "track", "author": "Композитор",
+        "content": "Текст трека", "canon_level": "high",
+        "file": (io.BytesIO(b"request-mp3-bytes"), "song.mp3"),
+    }, content_type="multipart/form-data", headers=_auth_headers(user_token))
+    c.post("/api/canon/request", data={
+        "title": "Статья с вложением", "kind": "article", "author": "Писатель",
+        "content": "Текст статьи",
+        "file": (io.BytesIO(b"article-pdf-bytes"), "paper.pdf"),
+    }, content_type="multipart/form-data", headers=_auth_headers(user_token))
+
+    listing = c.get("/api/admin/canon/requests", headers=_auth_headers(admin_token)).get_json()
+    items = {r["title"]: r for r in listing["items"]}
+    track_req = items["Трек с вложением"]
+    article_req = items["Статья с вложением"]
+    assert track_req["has_file"] is True
+    assert track_req["file_name"] == "song.mp3"
+    assert track_req["file_mime"] == "audio/mpeg"
+    assert track_req["file_size"] == len(b"request-mp3-bytes")
+    assert "file_data" not in track_req
+
+    assert c.get(f"/api/admin/canon/requests/{track_req['id']}/file").status_code == 403
+    download = c.get(f"/api/admin/canon/requests/{track_req['id']}/file",
+                     headers=_auth_headers(admin_token))
+    assert download.status_code == 200
+    assert download.data == b"request-mp3-bytes"
+    assert download.mimetype == "audio/mpeg"
+    assert "song.mp3" in download.headers["Content-Disposition"]
+    assert c.get("/api/admin/canon/requests/999999/file",
+                 headers=_auth_headers(admin_token)).status_code == 404
+
+    c.post(f"/api/admin/canon/requests/{track_req['id']}/approve", json={},
+           headers=_auth_headers(admin_token))
+    c.post(f"/api/admin/canon/requests/{article_req['id']}/approve", json={},
+           headers=_auth_headers(admin_token))
+
+    works = c.get("/api/canon/works").get_json()["works"]
+    track_work = next(w for w in works if w["title"] == "Трек с вложением")
+    article_work = next(w for w in works if w["title"] == "Статья с вложением")
+    assert track_work["has_audio"] is True
+    assert track_work["audio_name"] == "song.mp3"
+    assert article_work["has_audio"] is False
+
+    stream = c.get(f"/api/canon/work/{track_work['id']}/audio")
+    assert stream.status_code == 200
+    assert stream.data == b"request-mp3-bytes"
 
 
 @patch("api.index.get_db_engine")
@@ -124,10 +273,11 @@ def test_admin_moderation_flow(mock_engine):
     user_token = _user_token(c)
     admin_token = _admin_token(c)
 
-    c.post("/api/canon/request", json={
+    c.post("/api/canon/request", data={
         "title": "Трек Ада", "kind": "track", "author": "Ада",
         "content": "Текст трека", "canon_level": "high",
-    }, headers=_auth_headers(user_token))
+        "file": (io.BytesIO(b"ada-mp3"), "ada.mp3"),
+    }, content_type="multipart/form-data", headers=_auth_headers(user_token))
 
     no_access = c.get("/api/admin/canon/requests")
     assert no_access.status_code == 403
@@ -171,7 +321,7 @@ def test_admin_reject_and_doc_overlay(mock_engine):
 
     admin_token = _admin_token(c)
     c.post("/api/canon/request", json={
-        "title": "Отклонённый", "author": "Кто-то", "content": "Текст",
+        "title": "Отклонённый", "kind": "article", "author": "Кто-то", "content": "Текст",
     }, headers=_auth_headers(_user_token(c)))
 
     listing = c.get("/api/admin/canon/requests", headers=_auth_headers(admin_token)).get_json()
@@ -206,17 +356,18 @@ def test_admin_reject_and_doc_overlay(mock_engine):
 
 @patch("api.index.get_db_engine")
 def test_audio_upload_stream_delete(mock_engine):
-    """Admin uploads audio for a track -> public stream -> has_audio in API -> delete."""
+    """Файл трека из заявки попадает в work.audio; админ может перезалить и удалить аудио."""
     mock_engine.return_value = _make_engine()
     c = app.test_client()
 
     user_token = _user_token(c)
     admin_token = _admin_token(c)
 
-    c.post("/api/canon/request", json={
+    c.post("/api/canon/request", data={
         "title": "Трек с аудио", "kind": "track", "author": "Автор",
         "content": "Текст", "canon_level": "high",
-    }, headers=_auth_headers(user_token))
+        "file": (io.BytesIO(b"fake-mp3-bytes"), "track.mp3"),
+    }, content_type="multipart/form-data", headers=_auth_headers(user_token))
 
     listing = c.get("/api/admin/canon/requests", headers=_auth_headers(admin_token)).get_json()
     req_id = next(r["id"] for r in listing["items"] if r["title"] == "Трек с аудио")
@@ -224,7 +375,7 @@ def test_audio_upload_stream_delete(mock_engine):
 
     works = c.get("/api/canon/works").get_json()
     work = next(w for w in works["works"] if w["title"] == "Трек с аудио")
-    assert work["has_audio"] is False
+    assert work["has_audio"] is True
 
     anon_upload = c.post(
         f"/api/admin/canon/works/{work['id']}/audio",
@@ -243,7 +394,7 @@ def test_audio_upload_stream_delete(mock_engine):
 
     upload = c.post(
         f"/api/admin/canon/works/{work['id']}/audio",
-        data={"audio": (io.BytesIO(b"fake-mp3-bytes"), "track.mp3")},
+        data={"audio": (io.BytesIO(b"reuploaded-mp3"), "track.mp3")},
         content_type="multipart/form-data",
         headers=_auth_headers(admin_token),
     )
@@ -267,7 +418,7 @@ def test_audio_upload_stream_delete(mock_engine):
     stream = c.get(f"/api/canon/work/{work['id']}/audio")
     assert stream.status_code == 200
     assert stream.mimetype == "audio/mpeg"
-    assert stream.data == b"fake-mp3-bytes"
+    assert stream.data == b"reuploaded-mp3"
 
     missing = c.get("/api/canon/work/999999/audio")
     assert missing.status_code == 404
