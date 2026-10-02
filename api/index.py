@@ -889,6 +889,9 @@ def _ensure_gd_tables(engine):
             """))
             _add("difficulty TEXT", "submissions")
             _add("attempts INTEGER", "submissions")
+            # Co-op: GD nick of the second player in a two-player run. Nullable,
+            # so existing single-player submissions are unaffected.
+            _add("partner_nick TEXT", "submissions")
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS player_stats (
                     user_id BIGINT PRIMARY KEY,
@@ -1634,6 +1637,7 @@ def _ensure_canon_tables(engine):
                 audio_name VARCHAR(255),
                 audio_mime VARCHAR(100),
                 audio_size INTEGER,
+                audio_url TEXT,
                 view_count INTEGER DEFAULT 0,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -1645,6 +1649,7 @@ def _ensure_canon_tables(engine):
             "ADD COLUMN IF NOT EXISTS audio_name VARCHAR(255)",
             "ADD COLUMN IF NOT EXISTS audio_mime VARCHAR(100)",
             "ADD COLUMN IF NOT EXISTS audio_size INTEGER",
+            "ADD COLUMN IF NOT EXISTS audio_url TEXT",
             "ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0",
         ):
             try:
@@ -1662,6 +1667,10 @@ def _ensure_canon_tables(engine):
                 canon_level VARCHAR(16) NOT NULL DEFAULT 'medium',
                 url TEXT,
                 content TEXT DEFAULT '',
+                file_data BYTEA,
+                file_name VARCHAR(255),
+                file_mime VARCHAR(100),
+                file_size INTEGER,
                 status VARCHAR(16) NOT NULL DEFAULT 'pending',
                 reviewer_id INTEGER,
                 review_note TEXT,
@@ -1669,6 +1678,17 @@ def _ensure_canon_tables(engine):
                 reviewed_at TIMESTAMPTZ
             )
         """))
+        # ALTER-дополнения для уже существующей прод-таблицы (Supabase).
+        for column_sql in (
+            "ADD COLUMN IF NOT EXISTS file_data BYTEA",
+            "ADD COLUMN IF NOT EXISTS file_name VARCHAR(255)",
+            "ADD COLUMN IF NOT EXISTS file_mime VARCHAR(100)",
+            "ADD COLUMN IF NOT EXISTS file_size INTEGER",
+        ):
+            try:
+                conn.execute(text(f"ALTER TABLE canon_requests {column_sql}"))
+            except Exception as exc:
+                log_error("CANON", "error", f"alter canon_requests ({column_sql[:30]}...) skipped: {exc}")
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS canon_doc (
                 id SERIAL PRIMARY KEY,
@@ -4888,7 +4908,31 @@ def get_gd_hardest_level_name(user_id: int) -> str:
         return "Нет"
 
 
-def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str, status: str | None = None, difficulty: str | None = None, attempts: int | None = None) -> int | None:
+_GD_COOP_MAX_NICK = 50
+
+
+def _gd_norm_coop_partner(partner_nick: str | None, owner_nick: str) -> tuple[str | None, str | None]:
+    """Validate the co-op partner nick. Returns (nick_or_None, error_message).
+
+    Empty input means a normal single-player run, so None is not an error.
+    The partner is credited by GD nick (see _gd_persona_lookup), so the nick has
+    to be a plausible GD name: bounded length, no control chars, and never the
+    owner's own nick (a run with yourself would be credited twice).
+    """
+    raw = (partner_nick or "").strip()
+    if not raw:
+        return None, None
+    if len(raw) > _GD_COOP_MAX_NICK:
+        return None, f"GD-ник напарника слишком длинный (макс. {_GD_COOP_MAX_NICK} символов)"
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
+        return None, "GD-ник напарника содержит недопустимые символы"
+    owner = (owner_nick or "").strip()
+    if owner and raw.casefold() == owner.casefold():
+        return None, "GD-ник напарника совпадает с вашим — укажите другого игрока"
+    return raw, None
+
+
+def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str, status: str | None = None, difficulty: str | None = None, attempts: int | None = None, partner_nick: str | None = None) -> int | None:
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -4896,10 +4940,10 @@ def create_gd_submission(user_id: int, username: str, level_name: str, media_fil
                 # Full submission with media
                 result = conn.execute(
                     text("""
-                        INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, media_file_id, media_type, status)
-                        VALUES (:uid, :un, :ln, :dif, :att, :mfid, :mt, 'pending') RETURNING id
+                        INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, media_file_id, media_type, status, partner_nick)
+                        VALUES (:uid, :un, :ln, :dif, :att, :mfid, :mt, 'pending', :pnick) RETURNING id
                     """),
-                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "mfid": media_file_id, "mt": media_type},
+                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "mfid": media_file_id, "mt": media_type, "pnick": partner_nick},
                 ).mappings().first()
                 conn.commit()
                 if result:
@@ -4910,10 +4954,10 @@ def create_gd_submission(user_id: int, username: str, level_name: str, media_fil
                 # Create placeholder submission (media pending by default, or explicit status)
                 result = conn.execute(
                     text("""
-                        INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, status)
-                        VALUES (:uid, :un, :ln, :dif, :att, :st) RETURNING id
+                        INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, status, partner_nick)
+                        VALUES (:uid, :un, :ln, :dif, :att, :st, :pnick) RETURNING id
                     """),
-                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "st": status or "pending_media"},
+                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "st": status or "pending_media", "pnick": partner_nick},
                 ).mappings().first()
                 conn.commit()
                 return int(result["id"]) if result else None
@@ -5008,6 +5052,7 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
             rows = conn.execute(
                 text("""
                     SELECT s.username, s.media_file_id, s.media_type, s.submitted_at, s.user_id AS uid,
+                           s.partner_nick,
                            wu.login AS web_login, wu.display_name, wu.gd_nickname,
                            tu.username AS tg_username, tu.first_name AS tg_first_name
                     FROM submissions s
@@ -5049,7 +5094,12 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
                     or d.get("gd_nickname") or d.get("display_name")
                     or d.get("tg_first_name") or d.get("tg_username") or "Игрок"
                 )
+                # Co-op: the partner credited by this same run (credited in their
+                # own profile too, see _gd_persona_lookup).
+                d["coop_with"] = (d.get("partner_nick") or "").strip() or None
+                d["is_coop"] = bool(d["coop_with"])
                 d.pop("uid", None)
+                d.pop("partner_nick", None)
                 if d.get("submitted_at"):
                     d["submitted_at"] = str(d["submitted_at"])[:19]
                 result.append(d)
@@ -5160,39 +5210,68 @@ def _gd_rename_persona(conn, old_nick: str, new_nick: str) -> bool:
 
 
 def _gd_persona_lookup(conn, nick: str) -> dict | None:
-    """Resolve a GD nick to the persona's completions (deduped per account and level).
+    """Resolve a GD nick to the persona's completions (deduped per level).
 
-    Returns completions owned by any account whose approved submissions used this
-    GD nick, or None when no approved submission has it.
+    A level counts for this nick when the nick owns an approved submission
+    (role "owner") or when the nick is recorded as the co-op partner in
+    submissions.partner_nick (role "partner"). Only approved submissions are
+    read, so a rejected co-op run credits nobody. Solo beats co-op on the same
+    level, and each level is counted once no matter how many submissions back
+    it. Each completion carries is_coop / coop_with for the UI.
+
+    "uid" is the account that actually submitted under this nick, or None for a
+    pure co-op partner who never submitted anything — callers must treat None as
+    "no owning account" and fall back to the account lookup.
     """
     n = (nick or "").strip()
     if not n:
         return None
     rows = conn.execute(text("""
-        SELECT s.user_id, lv.id AS level_id, MIN(s.submitted_at) AS first_at
+        SELECT lv.id AS level_id, s.submitted_at AS at, 0 AS as_partner,
+               s.partner_nick AS other_name, s.user_id AS uid
         FROM submissions s
         JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
         WHERE s.status = 'approved' AND LOWER(TRIM(s.username)) = LOWER(:n)
-        GROUP BY s.user_id, lv.id
+        UNION ALL
+        SELECT lv.id, s.submitted_at, 1, s.username, s.user_id
+        FROM submissions s
+        JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+        WHERE s.status = 'approved' AND LOWER(TRIM(s.partner_nick)) = LOWER(:n)
     """), {"n": n}).mappings().all()
     if not rows:
         return None
-    uid = int(rows[0]["user_id"])
-    compl = []
+    owner_uid: int | None = None
+    best: dict[int, dict] = {}
     for r in rows:
+        if not int(r["as_partner"]) and owner_uid is None:
+            owner_uid = int(r["uid"])
+        at_str = str(r["at"])[:19] if r.get("at") else ""
+        cand = {
+            "at": at_str,
+            "as_partner": int(r["as_partner"]),
+            "other": (r["other_name"] or "").strip() or None,
+        }
+        cur = best.get(int(r["level_id"]))
+        # Solo (as_partner=0) wins ties; otherwise the earliest submission wins.
+        if cur is None or (cand["as_partner"], cand["at"]) < (cur["as_partner"], cur["at"]):
+            best[int(r["level_id"])] = cand
+    compl = []
+    for level_id, chosen in best.items():
         lv = conn.execute(
             text("SELECT id, name, position, difficulty FROM levels WHERE id = :lid"),
-            {"lid": int(r["level_id"])},
+            {"lid": level_id},
         ).mappings().first()
         if not lv:
             continue
         d = dict(lv)
-        d["completed_at"] = str(r["first_at"])[:19] if r.get("first_at") else None
+        d["completed_at"] = chosen["at"] or None
+        d["is_coop"] = bool(chosen["as_partner"])
+        d["coop_with"] = chosen["other"] if chosen["as_partner"] else None
         d["difficulty_key"] = _gd_norm_difficulty(d.get("difficulty"), d.get("position"))
         d["difficulty"] = GD_DIFFICULTY_LABELS.get(d["difficulty_key"], "Unknown")
         compl.append(d)
     compl.sort(key=lambda x: int(x.get("position") or 1e9))
-    return {"uid": uid, "completions": compl}
+    return {"uid": owner_uid, "completions": compl}
 
 
 def _gd_completions_stats(conn, completions: list[dict]) -> dict:
@@ -5346,23 +5425,34 @@ def get_gd_player_profile(nick: str) -> dict | None:
         with get_db_engine().begin() as conn:
             _gd_ensure_points_backfill(conn)
             persona = _gd_persona_lookup(conn, nick)
+            try:
+                account_uid, src = _gd_resolve_player_uid(conn, nick)
+            except Exception:
+                account_uid, src = None, {}
             if persona:
                 player_name = nick
                 completions = persona["completions"]
-                try:
-                    _, src = _gd_resolve_player_uid(conn, nick)
-                except Exception:
-                    src = {}
-            else:
-                uid, src = _gd_resolve_player_uid(conn, nick)
-                if uid is None:
-                    return {"nick": nick, "found": False}
+                # A player can be both a co-op partner and an account holder (solo
+                # runs attributed to the account). Merge the account-side levels in
+                # so the persona branch does not hide them, deduped by level.
+                if account_uid is not None:
+                    try:
+                        seen = {int(c["id"]) for c in completions if c.get("id") is not None}
+                        for c in _gd_player_completions(conn, int(account_uid)):
+                            if int(c["id"]) not in seen:
+                                completions.append(c)
+                        completions.sort(key=lambda x: int(x.get("position") or 1e9))
+                    except Exception as exc:
+                        print(f"get_gd_player_profile: account merge skipped: {exc}")
+            elif account_uid is not None:
                 player_name = (
                     src.get("gd_nickname") or src.get("display_name")
                     or src.get("tg_first_name") or src.get("tg_username")
                     or src.get("username") or nick
                 )
-                completions = _gd_player_completions(conn, uid)
+                completions = _gd_player_completions(conn, int(account_uid))
+            else:
+                return {"nick": nick, "found": False}
             st = _gd_completions_stats(conn, completions)
             return {
                 "nick": nick,
@@ -7455,6 +7545,10 @@ def gd_page():
                     </select>
                     <input type="number" id="sub-attempts" min="1" placeholder="Попытки (необязательно)" onkeydown="if(event.key==='Enter')submitRecord()">
                 </div>
+                <div class="input-row" style="flex-direction:column;align-items:stretch;gap:4px">
+                    <input type="text" id="sub-partner" maxlength="50" placeholder="🤝 GD-ник напарника — если проходите на двоих (необязательно)" onkeydown="if(event.key==='Enter')submitRecord()">
+                    <span class="hint">Прохождение на двоих: укажите ник второго игрока и приложите один общий пруф — уровень засчитается обоим.</span>
+                </div>
                 <div class="input-row" style="margin-bottom:6px">
                     <button type="button" class="tab" id="mode-file-btn" style="flex:none" onclick="setMediaMode('file')">📎 Файл</button>
                     <button type="button" class="tab" id="mode-link-btn" style="flex:none" onclick="setMediaMode('link')">🔗 Ссылка</button>
@@ -7746,6 +7840,7 @@ var IS_ADMIN = false;
                             var list = '';
                             d.completions.forEach(function(c) {
                                 list += '<div class="sub-card"><div style="font-size:15px;font-weight:700"><a href="/gd/level/' + c.id + '" style="color:var(--gh-accent);text-decoration:none">#' + c.position + ' · ' + esc(c.name) + '</a> ' + badge(c.difficulty_key, c.difficulty) + '</div>'
+                                    + (c.is_coop ? '<div class="hint" style="margin-top:2px">🤝 co-op с ' + esc(c.coop_with || 'напарником') + '</div>' : '')
                                     + (c.completed_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.completed_at) + '</div>' : '')
                                     + '</div>';
                             });
@@ -7789,6 +7884,8 @@ var IS_ADMIN = false;
                 if (difSel && difSel.value) { fd.append('difficulty', difSel.value); }
                 var attInp = document.getElementById('sub-attempts');
                 if (attInp && attInp.value && parseInt(attInp.value, 10) > 0) { fd.append('attempts', attInp.value); }
+                var partnerInp = document.getElementById('sub-partner');
+                if (partnerInp && partnerInp.value.trim()) { fd.append('partner_nick', partnerInp.value.trim()); }
                 if (mediaMode === 'link') { fd.append('media_url', mediaUrl); }
                 else { fd.append('media', mediaFile, mediaFile.name); }
                 var xhr = new XMLHttpRequest();
@@ -7802,6 +7899,7 @@ var IS_ADMIN = false;
                         out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
                         hubTrack('gd', 1);
                         document.getElementById('sub-level').value = '';
+                        if (partnerInp) { partnerInp.value = ''; }
                         if (mediaInput) { mediaInput.value = ''; updateMediaLabel(); }
                         if (linkInput) { linkInput.value = ''; }
                         setMediaMode('file');
@@ -7886,6 +7984,7 @@ var IS_ADMIN = false;
                         html += '<div class="sub-card">'
                             + '<div style="color:var(--gh-muted);font-size:13px">Заявка #' + s.id + ' · ' + _gdEsc(s.username || s.user_id) + '</div>'
                             + '<div style="color:var(--gh-text);font-size:15px;margin:6px 0">🎮 ' + _gdEsc(s.level_name) + '</div>'
+                            + (s.partner_nick ? '<div class="hint" style="margin-top:0;color:#a855f7;font-weight:700">🤝 co-op на двоих — напарник: ' + _gdEsc(s.partner_nick) + ' (приложен один общий пруф)</div>' : '')
                             + '<div class="hint" style="margin-top:0">'
                             + (s.difficulty ? '⭐ Сложность: ' + _gdEsc(s.difficulty) + ' · ' : '')
                             + (s.attempts ? '💀 Попыток: ' + _gdEsc(String(s.attempts)) + ' · ' : '')
@@ -8083,8 +8182,11 @@ def gd_level_page(level_id: int):
                 cs.forEach(function(c) {
                     var prof = c.web_login ? ' · <a href="/u/' + encodeURIComponent(c.web_login) + '">профиль →</a>' : ' · <a href="/gd/player/' + encodeURIComponent(c.player_name || '') + '">рекорды →</a>';
                     var first = c.is_first ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#fbbf24;color:#0b0e14">⚡ Первый виктор</span>' : '';
+                    var coop = c.is_coop && c.coop_with ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#a855f7;color:#0b0e14">🤝 co-op</span>'
+                        + '<div class="hint" style="margin-top:2px">С напарником: <a href="/gd/player/' + encodeURIComponent(c.coop_with) + '">' + esc(c.coop_with) + '</a></div>' : '';
                     html += '<div class="sub-card">'
                         + '<div class="cp-name">👑 ' + esc(c.player_name || 'Игрок') + prof + first + '</div>'
+                        + coop
                         + (c.username && c.username !== c.player_name ? '<div class="hint" style="margin-top:2px">GD: ' + esc(c.username) + '</div>' : '')
                         + (c.submitted_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.submitted_at) + '</div>' : '')
                         + gdMediaHtml(c.media_file_id, c.media_type)
@@ -8340,6 +8442,7 @@ def gd_player_page(nick: str):
                     html += '<div class="sub-card"><div class="lv-name"><a href="/gd/level/' + c.id + '">#' + c.position + ' · ' + esc(c.name) + '</a> ' + gdDiffBadge(c.difficulty_key, c.difficulty)
                         + (IS_ADMIN ? ' <button onclick="admDelCompl(' + c.id + ')" title="Убрать из пройденных" style="margin-left:6px;background:transparent;border:1px solid var(--gh-border);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--gh-red);font-weight:700">✕</button>' : '')
                         + '</div>'
+                        + (c.is_coop ? '<div class="hint" style="margin-top:2px">🤝 co-op с <a href="/gd/player/' + encodeURIComponent(c.coop_with || '') + '">' + esc(c.coop_with || 'напарником') + '</a></div>' : '')
                         + (c.completed_at ? '<div class="hint" style="margin-top:2px">📅 ' + esc(c.completed_at) + '</div>' : '')
                         + '</div>';
                 });
@@ -8645,6 +8748,11 @@ def api_gd_submit():
     # В лидерборде показываем именно GD-ник из аккаунта.
     username = gd_nick
 
+    # Co-op на двоих: необязательный GD-ник напарника под тем же общим пруфом.
+    partner_nick, coop_error = _gd_norm_coop_partner(request.form.get("partner_nick"), gd_nick)
+    if coop_error:
+        return jsonify({"error": coop_error}), 400
+
     # Медиа (видео/фото или внешняя ссылка с прохождением) — обязательно, как в Telegram-флоу.
     media_file = request.files.get("media")
     media_url = (request.form.get("media_url") or "").strip()
@@ -8696,7 +8804,7 @@ def api_gd_submit():
     else:
         return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
 
-    sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending", difficulty=difficulty, attempts=attempts)
+    sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending", difficulty=difficulty, attempts=attempts, partner_nick=partner_nick)
     if not sub_id:
         return jsonify({"error": "Ошибка создания заявки"}), 500
     return jsonify({"ok": True, "submission_id": sub_id})
@@ -8828,12 +8936,17 @@ def _gd_admin_build_media() -> tuple[str | None, str | None, str | None]:
 
 
 def _gd_admin_player_uid(conn, nick: str) -> int | None:
-    """Resolve a player-card nick to a user_id (persona first, then account)."""
+    """Resolve a player-card nick to a user_id (persona first, then account).
+
+    A pure co-op partner has no owning account (persona["uid"] is None), so the
+    account lookup must still run instead of returning None outright.
+    """
     persona = _gd_persona_lookup(conn, nick)
-    if persona:
-        return persona["uid"]
-    uid, _ = _gd_resolve_player_uid(conn, nick)
-    return uid if uid is not None else None
+    uid = persona.get("uid") if persona else None
+    if uid is not None:
+        return int(uid)
+    acc_uid, _ = _gd_resolve_player_uid(conn, nick)
+    return int(acc_uid) if acc_uid is not None else None
 
 
 @app.route("/api/gd/admin/player/<nick>/completions", methods=["POST"])
@@ -22886,9 +22999,59 @@ def api_canon_documents():
     })
 
 
+# ── Canon Request Files ─────────────────────────────────────────────────────
+
+_MAX_REQUEST_FILE_BYTES = 8 * 1024 * 1024
+_ALLOWED_REQUEST_FILE_MIME = {
+    "application/pdf",
+    "text/plain",
+    "text/markdown",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.oasis.opendocument.text",
+    "application/rtf",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+}
+_REQUEST_DOC_EXT_MIME = {
+    "pdf": "application/pdf",
+    "txt": "text/plain",
+    "md": "text/markdown",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "odt": "application/vnd.oasis.opendocument.text",
+    "rtf": "application/rtf",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+    "gif": "image/gif",
+}
+
+
+def _canon_request_file_mime(filename: str, mimetype: str = "") -> str | None:
+    """Определить MIME файла заявки по расширению; None — формат не поддерживается."""
+    mime = _canon_audio_mime(filename)
+    if mime:
+        return mime
+    ext = (filename or "").rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
+    mime = _REQUEST_DOC_EXT_MIME.get(ext)
+    if mime:
+        return mime
+    declared = (mimetype or "").split(";")[0].strip().lower()
+    return declared if declared in _ALLOWED_REQUEST_FILE_MIME else None
+
+
 @app.route("/api/canon/request", methods=["POST"])
 def api_canon_request_submit():
-    """Подать заявку на канонизацию (только зарегистрированный пользователь)."""
+    """Подать заявку на канонизацию (только зарегистрированный пользователь).
+
+    Формат: multipart/form-data (файл трека/статьи) или application/json (legacy, без файла).
+    Правила по типу: трек — файл обязателен, ссылка опциональна; статья/архив —
+    текст обязателен, ссылка и файл опциональны.
+    """
     user = _get_session_user(_auth_token_from_request())
     if not user:
         return jsonify({"error": "Не авторизован"}), 401
@@ -22898,14 +23061,21 @@ def api_canon_request_submit():
     if _check_ai_rate(rate_key, max_requests=5, window=60):
         return jsonify({"error": "Слишком много заявок. Подождите минуту."}), 429
 
-    data = request.get_json(silent=True) or {}
-    title = (data.get("title") or "").strip()
-    author = (data.get("author") or "").strip()
-    content = (data.get("content") or "").strip()
-    canon_level = (data.get("canon_level") or "").strip() or "medium"
-    kind = (data.get("kind") or "").strip() or "track"
-    url = (data.get("url") or "").strip()
-    date = (data.get("date") or "").strip()
+    upload = None
+    if (request.content_type or "").startswith("multipart/form-data"):
+        form = request.form.to_dict()
+        upload = request.files.get("file")
+    else:
+        raw = request.get_json(silent=True) or {}
+        form = {k: ("" if v is None else str(v)) for k, v in raw.items()}
+
+    title = (form.get("title") or "").strip()
+    author = (form.get("author") or "").strip()
+    content = (form.get("content") or "").strip()
+    canon_level = (form.get("canon_level") or "").strip() or "medium"
+    kind = (form.get("kind") or "").strip() or "track"
+    url = (form.get("url") or "").strip()
+    date = (form.get("date") or "").strip()
 
     if not title or not author:
         return jsonify({"error": "Укажите название и автора произведения"}), 400
@@ -22915,8 +23085,6 @@ def api_canon_request_submit():
         return jsonify({"error": "Автор слишком длинный (макс. 100 символов)"}), 400
     if len(url) > 500:
         return jsonify({"error": "Ссылка слишком длинная (макс. 500 символов)"}), 400
-    if not content:
-        return jsonify({"error": "Вставьте полный текст произведения"}), 400
     if len(content) > 5000:
         return jsonify({"error": "Текст слишком длинный (макс. 5000 символов)"}), 400
     if canon_level not in ("high", "medium", "low", "archive"):
@@ -22924,13 +23092,38 @@ def api_canon_request_submit():
     if kind not in ("track", "article", "archive"):
         return jsonify({"error": "Некорректный тип произведения"}), 400
 
+    file_data = file_name = file_mime = None
+    file_size = None
+    if upload and (upload.filename or "").strip():
+        file_name = upload.filename.strip()[:255]
+        file_mime = _canon_request_file_mime(file_name, upload.mimetype or "")
+        if not file_mime:
+            return jsonify({
+                "error": "Файл не поддерживается. Допустимо: mp3/ogg/wav/m4a/aac, "
+                         "pdf/txt/md/doc/docx/odt/rtf, png/jpg/webp/gif",
+            }), 400
+        if kind == "track" and file_mime not in _ALLOWED_AUDIO_MIME:
+            return jsonify({"error": "Для трека нужен аудиофайл (mp3, ogg, wav, m4a, aac)"}), 400
+        file_data = upload.read()
+        if not file_data:
+            return jsonify({"error": "Пустой файл"}), 400
+        if len(file_data) > _MAX_REQUEST_FILE_BYTES:
+            return jsonify({"error": f"Файл слишком большой (макс. {_MAX_REQUEST_FILE_BYTES // (1024 * 1024)} МБ)"}), 400
+        file_size = len(file_data)
+
+    if kind == "track" and not file_data:
+        return jsonify({"error": "Для трека обязательно приложите файл с треком"}), 400
+    if kind != "track" and not content:
+        return jsonify({"error": "Вставьте полный текст статьи"}), 400
+
     try:
         with get_db_engine().connect() as conn:
             conn.execute(
                 text("""
                     INSERT INTO canon_requests
-                        (user_id, title, kind, author, date, canon_level, url, content)
-                    VALUES (:uid, :t, :k, :a, :d, :l, :u, :c)
+                        (user_id, title, kind, author, date, canon_level, url, content,
+                         file_data, file_name, file_mime, file_size)
+                    VALUES (:uid, :t, :k, :a, :d, :l, :u, :c, :fd, :fn, :fm, :fs)
                 """),
                 {
                     "uid": user.get("id"),
@@ -22941,13 +23134,17 @@ def api_canon_request_submit():
                     "l": canon_level,
                     "u": url or None,
                     "c": content,
+                    "fd": file_data,
+                    "fn": file_name,
+                    "fm": file_mime,
+                    "fs": file_size,
                 },
             )
             conn.commit()
     except Exception as exc:
         log_error("CANON", "error", f"request submit error: {exc}")
         return jsonify({"error": "Не удалось отправить заявку"}), 500
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "has_file": bool(file_data), "file_name": file_name})
 
 
 # ── Admin Canon Moderation ────────────────────────────────────────────────
@@ -22958,27 +23155,25 @@ def api_admin_canon_requests():
     if not _admin_require():
         return jsonify({"error": "Нет доступа"}), 403
     status = (request.args.get("status") or "").strip()
+    # Явный список колонок: file_data (BYTEA) не сериализуется в JSON.
+    select_sql = """
+        SELECT r.id, r.user_id, r.title, r.kind, r.author, r.date, r.canon_level,
+               r.url, r.content, r.status, r.reviewer_id, r.review_note,
+               r.file_name, r.file_mime, r.file_size,
+               r.created_at, r.reviewed_at, w.login AS requester
+        FROM canon_requests r
+        LEFT JOIN web_users w ON w.id = r.user_id
+    """
     try:
         with get_db_engine().connect() as conn:
             if status:
                 rows = conn.execute(
-                    text("""
-                        SELECT r.*, w.login AS requester
-                        FROM canon_requests r
-                        LEFT JOIN web_users w ON w.id = r.user_id
-                        WHERE r.status = :s
-                        ORDER BY r.created_at DESC LIMIT 200
-                    """),
+                    text(select_sql + " WHERE r.status = :s ORDER BY r.created_at DESC LIMIT 200"),
                     {"s": status},
                 ).mappings().all()
             else:
                 rows = conn.execute(
-                    text("""
-                        SELECT r.*, w.login AS requester
-                        FROM canon_requests r
-                        LEFT JOIN web_users w ON w.id = r.user_id
-                        ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200
-                    """),
+                    text(select_sql + " ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200"),
                 ).mappings().all()
         items = []
         for r in rows:
@@ -22986,11 +23181,39 @@ def api_admin_canon_requests():
             for key in ("created_at", "reviewed_at"):
                 if d.get(key):
                     d[key] = str(d[key])[:19]
+            d["has_file"] = bool(d.get("file_name"))
             items.append(d)
         return jsonify({"count": len(items), "items": items})
     except Exception as exc:
         log_error("CANON", "error", f"admin requests error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/admin/canon/requests/<int:req_id>/file")
+def api_admin_canon_request_file(req_id):
+    """Скачать файл, приложенный к заявке (только админ)."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
+    try:
+        with get_db_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT file_data, file_name, file_mime FROM canon_requests WHERE id = :rid"),
+                {"rid": req_id},
+            ).mappings().first()
+    except Exception as exc:
+        log_error("CANON", "error", f"request file error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+    if not row or not row["file_data"]:
+        return jsonify({"error": "Файл не найден"}), 404
+    name = row["file_name"] or "file"
+    return (
+        bytes(row["file_data"]),
+        200,
+        {
+            "Content-Type": row["file_mime"] or "application/octet-stream",
+            "Content-Disposition": f'attachment; filename="{_html_escape(name)}"',
+        },
+    )
 
 
 @app.route("/api/admin/canon/requests/<int:req_id>/approve", methods=["POST"])
@@ -23008,10 +23231,14 @@ def api_admin_canon_request_approve(req_id):
             ).mappings().first()
             if not row:
                 return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
+            # Файл трека из заявки сразу становится аудио произведения.
+            attach_audio = row["kind"] == "track" and row["file_mime"] in _ALLOWED_AUDIO_MIME
             conn.execute(
                 text("""
-                    INSERT INTO canon_works (title, kind, author, date, canon_level, url, content, status, submitted_by)
-                    VALUES (:t, :k, :a, :d, :l, :u, :c, 'approved', :sb)
+                    INSERT INTO canon_works
+                        (title, kind, author, date, canon_level, url, content, status, submitted_by,
+                         audio_data, audio_name, audio_mime, audio_size)
+                    VALUES (:t, :k, :a, :d, :l, :u, :c, 'approved', :sb, :ad, :an, :am, :asz)
                 """),
                 {
                     "t": row["title"],
@@ -23022,6 +23249,10 @@ def api_admin_canon_request_approve(req_id):
                     "u": row["url"],
                     "c": row["content"],
                     "sb": row["user_id"],
+                    "ad": row["file_data"] if attach_audio else None,
+                    "an": row["file_name"] if attach_audio else None,
+                    "am": row["file_mime"] if attach_audio else None,
+                    "asz": row["file_size"] if attach_audio else None,
                 },
             )
             conn.execute(
@@ -23878,6 +24109,7 @@ def canon_request_page():
             background: var(--gh-panel); color: var(--gh-text2); font-size: 15px; font-family: inherit; box-sizing: border-box;
         }
         .field textarea { min-height: 200px; resize: vertical; }
+        .field input[type="file"] { padding: 10px; font-size: 14px; }
         .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--gh-accent); }
         .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .btn { padding: 12px 24px; border: none; border-radius: 8px; background: var(--gh-green); color: var(--gh-text2); font-size: 15px; font-family: inherit; cursor: pointer; }
@@ -23917,7 +24149,7 @@ def canon_request_page():
             <div class="row">
                 <div class="field">
                     <label for="f-kind">Тип</label>
-                    <select id="f-kind">
+                    <select id="f-kind" onchange="syncKind()">
                         <option value="track">🎵 Трек</option>
                         <option value="article">📜 Статья</option>
                         <option value="archive">🗄 Архив</option>
@@ -23939,12 +24171,17 @@ def canon_request_page():
                     <input id="f-date" placeholder="напр. 24.04.2026">
                 </div>
                 <div class="field">
-                    <label for="f-url">Ссылка (t.me)</label>
+                    <label for="f-url">Ссылка — опционально</label>
                     <input id="f-url" placeholder="https://t.me/lucasteamgroup/...">
                 </div>
             </div>
             <div class="field">
-                <label for="f-content">Полный текст *</label>
+                <label for="f-file" id="f-file-label">Файл с треком *</label>
+                <input type="file" id="f-file">
+                <div class="hint" id="f-file-hint"></div>
+            </div>
+            <div class="field">
+                <label for="f-content" id="f-content-label">Текст трека — опционально</label>
                 <textarea id="f-content" maxlength="5000" placeholder="Вставьте текст трека или статьи..."></textarea>
                 <div class="hint">Максимум 5000 символов. Текст должен соответствовать правилам канона (Блок 1).</div>
             </div>
@@ -23959,33 +24196,62 @@ def canon_request_page():
                 document.getElementById('req-form').style.display = 'block';
                 document.getElementById('guest').style.display = 'none';
             }
+            syncKind();
         })();
+        var TRACK_ACCEPT = 'audio/*';
+        var DOC_ACCEPT = '.pdf,.txt,.md,.doc,.docx,.odt,.rtf,.png,.jpg,.jpeg,.webp,.gif';
+        function syncKind() {
+            var kind = document.getElementById('f-kind').value;
+            var isTrack = kind === 'track';
+            document.getElementById('f-file').setAttribute('accept', isTrack ? TRACK_ACCEPT : DOC_ACCEPT);
+            document.getElementById('f-file-label').textContent = isTrack ? 'Файл с треком *' : 'Файл — опционально';
+            document.getElementById('f-file-hint').textContent = isTrack
+                ? 'Обязательно приложите аудиофайл трека (mp3, ogg, wav, m4a, aac), максимум 8 МБ.'
+                : 'Ссылка и файл необязательны — можно прислать только текст. Допустимо: pdf, txt, md, doc(x), odt, rtf, png, jpg, webp, gif.';
+            document.getElementById('f-content-label').textContent = isTrack
+                ? 'Текст трека — опционально'
+                : (kind === 'archive' ? 'Текст архива *' : 'Полный текст статьи *');
+        }
+        function fail(text) {
+            var msg = document.getElementById('req-msg');
+            msg.className = 'msg error';
+            msg.textContent = text;
+        }
         function sendRequest() {
             var token = localStorage.getItem('web_token');
-            if (!token) { document.getElementById('req-msg').className = 'msg error'; document.getElementById('req-msg').textContent = 'Не авторизован — войдите.'; return; }
-            var data = {
-                title: document.getElementById('f-title').value.trim(),
-                author: document.getElementById('f-author').value.trim(),
-                kind: document.getElementById('f-kind').value,
-                canon_level: document.getElementById('f-level').value,
-                date: document.getElementById('f-date').value.trim(),
-                url: document.getElementById('f-url').value.trim(),
-                content: document.getElementById('f-content').value.trim()
-            };
+            if (!token) { fail('Не авторизован — войдите.'); return; }
+            var kind = document.getElementById('f-kind').value;
+            var content = document.getElementById('f-content').value.trim();
+            var fileInput = document.getElementById('f-file');
+            var file = fileInput.files && fileInput.files[0];
+            if (kind === 'track' && !file) { fail('Для трека обязательно приложите файл с треком.'); return; }
+            if (kind !== 'track' && !content) { fail('Вставьте полный текст статьи.'); return; }
+            var fd = new FormData();
+            fd.append('title', document.getElementById('f-title').value.trim());
+            fd.append('author', document.getElementById('f-author').value.trim());
+            fd.append('kind', kind);
+            fd.append('canon_level', document.getElementById('f-level').value);
+            fd.append('date', document.getElementById('f-date').value.trim());
+            fd.append('url', document.getElementById('f-url').value.trim());
+            fd.append('content', content);
+            if (file) { fd.append('file', file); }
             var btn = document.getElementById('send-btn');
             btn.disabled = true;
             fetch('/api/canon/request', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify(data)
+                headers: { 'Authorization': 'Bearer ' + token },
+                body: fd
             }).then(function(r) { return r.json().then(function(j) { return {ok: r.ok, j: j}; }); })
               .then(function(r) {
                 var msg = document.getElementById('req-msg');
                 msg.className = r.ok ? 'msg ok' : 'msg error';
                 msg.textContent = r.ok ? '✅ Заявка отправлена! Администратор рассмотрит её.' : (r.j.error || 'Ошибка');
-                if (r.ok) { document.getElementById('req-form').reset(); }
+                if (r.ok) {
+                    document.getElementById('req-form').reset();
+                    syncKind();
+                }
                 btn.disabled = false;
-              }).catch(function() { var msg = document.getElementById('req-msg'); msg.className = 'msg error'; msg.textContent = 'Ошибка сети'; btn.disabled = false; });
+              }).catch(function() { fail('Ошибка сети'); btn.disabled = false; });
         }
     </script>
 </body>
@@ -24091,6 +24357,11 @@ def admin_canon_page():
                         '<div class="meta">' + esc(rr.author || '') + ' · ' + esc(rr.canon_level || '') + ' · ' + esc(rr.kind || '') + '</div>' +
                         '<div class="content-preview">' + esc(rr.content || '').substring(0, 600) + '</div>' +
                         (rr.url ? '<div class="meta">🔗 ' + esc(rr.url) + '</div>' : '') +
+                        (rr.has_file
+                            ? '<div class="meta">📎 ' + esc(rr.file_name || 'файл') +
+                              (rr.file_size ? ' · ' + Math.ceil(rr.file_size / 1024) + ' КБ' : '') +
+                              ' <button class="btn btn-secondary" onclick="downloadReqFile(' + rr.id + ')">⬇️ Скачать файл</button></div>'
+                            : '') +
                         (rr.review_note ? '<div class="meta">📝 ' + esc(rr.review_note) + '</div>' : '') +
                         (rr.status === 'pending' ?
                             '<button class="btn btn-success" onclick="decide(' + rr.id + ", 'approve'" + ')">✅ Одобрить</button>' +
@@ -24098,6 +24369,25 @@ def admin_canon_page():
                     box.appendChild(div);
                 });
             });
+        }
+
+        function downloadReqFile(id) {
+            fetch('/api/admin/canon/requests/' + id + '/file', { headers: { 'Authorization': 'Bearer ' + (TOKEN || '') } })
+              .then(function(r) {
+                  if (!r.ok) { return r.json().then(function(j) { throw new Error(j.error || 'Ошибка'); }); }
+                  var disp = r.headers.get('Content-Disposition') || '';
+                  var m = /filename="([^"]+)"/.exec(disp);
+                  return r.blob().then(function(b) { return { blob: b, name: m ? m[1] : 'file' }; });
+              })
+              .then(function(f) {
+                  var a = document.createElement('a');
+                  a.href = URL.createObjectURL(f.blob);
+                  a.download = f.name;
+                  document.body.appendChild(a);
+                  a.click();
+                  setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+              })
+              .catch(function(e) { alert(e.message || 'Ошибка скачивания'); });
         }
 
         function decide(id, action) {

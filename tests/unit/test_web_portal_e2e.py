@@ -154,7 +154,8 @@ def _make_engine():
         status TEXT NOT NULL DEFAULT 'pending',
         submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         reviewed_at TIMESTAMP,
-        reviewed_by BIGINT
+        reviewed_by BIGINT,
+        partner_nick TEXT
     );
     CREATE TABLE IF NOT EXISTS levels (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,6 +195,7 @@ def _make_engine():
         audio_name VARCHAR(255),
         audio_mime VARCHAR(100),
         audio_size INTEGER,
+        audio_url TEXT,
         view_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -208,6 +210,10 @@ def _make_engine():
         canon_level VARCHAR(16) NOT NULL DEFAULT 'medium',
         url TEXT,
         content TEXT DEFAULT '',
+        file_data BLOB,
+        file_name VARCHAR(255),
+        file_mime VARCHAR(100),
+        file_size INTEGER,
         status VARCHAR(16) NOT NULL DEFAULT 'pending',
         reviewer_id INTEGER,
         review_note TEXT,
