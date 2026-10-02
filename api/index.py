@@ -699,6 +699,7 @@ _REGISTER_DAILY = 200
 _AI_RATE_LIMITS: dict[str, list[float]] = {}
 _AI_RATE_WINDOW = 60  # 1 minute window
 _AI_RATE_MAX = 10     # max 10 requests per minute per key
+_ENDINGS_MAX_TEXT = 4000  # max chars of source text for /api/endings_process
 
 def _check_ai_rate(key: str, max_requests: int = _AI_RATE_MAX, window: int = _AI_RATE_WINDOW) -> bool:
     """Return True if rate limit exceeded for the given key.
@@ -9548,6 +9549,8 @@ def health():
 @app.route("/debug_puzzle")
 def debug_puzzle():
     """Debug endpoint to test puzzle system."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     results = {"bot_token_set": bool(BOT_TOKEN), "bot_id": BOT_ID}
 
     # Test send_telegram_message
@@ -9583,7 +9586,13 @@ def test_send(chat_id):
 
 @app.route("/test_puzzle/<int:user_id>")
 def test_puzzle(user_id):
-    """Simulate puzzle handler step by step."""
+    """Simulate puzzle handler step by step.
+
+    Admin-only: it replays another user's puzzle flow and returns their coin
+    balance and puzzle state, which is an IDOR on any public deployment.
+    """
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     results = {"user_id": user_id}
 
     # Step 1: get_chess_account
@@ -10000,9 +10009,11 @@ def endings_trainer():
             document.getElementById('exercise-screen').style.display = 'block';
             document.getElementById('exercise-content').innerHTML = '<div style="text-align:center;padding:40px;color:#999;">Создаю упражнение...</div>';
 
+            var _endTok = localStorage.getItem('web_token') || '';
+            if (!_endTok) { alert('Войдите в аккаунт, чтобы создавать упражнения.'); window.location.href = '/login?redirect=/endings_trainer.html'; return; }
             fetch('/api/endings_process', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': _endTok },
                 body: JSON.stringify({ text: text })
             })
             .then(r => r.json())
@@ -10090,7 +10101,7 @@ def endings_trainer():
             segments = [];
         }
 
-        function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>'); }
+        function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\\n/g,'<br>'); }
         function escapeAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     </script>
 </body>
@@ -11610,7 +11621,7 @@ def chess_page():
             } else if (xhr.status === 401) {
                 panels.stats.innerHTML = '<div class="card"><h3>Статистика — для зарегистрированных</h3>' +
                     '<div class="msg info">Монеты, история пазлов и привязка Lichess сохраняются после входа в аккаунт.</div>' +
-                    '<div><button class="btn" onclick="window.showLtLogin && window.showLtLogin(\'Войдите, чтобы открыть статистику\')">Войти / Зарегистрироваться</button></div></div>';
+                    '<div><button class="btn" onclick="window.showLtLogin && window.showLtLogin(&quot;Войдите, чтобы открыть статистику&quot;)">Войти / Зарегистрироваться</button></div></div>';
             } else {
                 panels.stats.innerHTML = '<div class="msg err">Ошибка загрузки статистики.</div>';
             }
@@ -19038,6 +19049,9 @@ def _music_send(out_path):
 
 @app.route("/api/music/analyze", methods=["POST"])
 def api_music_analyze():
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     from core.music import analyze, audio_utils
     path, err = _music_save_upload("file")
     if err:
@@ -19054,6 +19068,9 @@ def api_music_analyze():
 
 @app.route("/api/music/change_tempo", methods=["POST"])
 def api_music_change_tempo():
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     from core.music import change_tempo
     path, err = _music_save_upload("file")
     if err:
@@ -19084,6 +19101,9 @@ def api_music_change_tempo():
 
 @app.route("/api/music/change_key", methods=["POST"])
 def api_music_change_key():
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     from core.music import change_key
     path, err = _music_save_upload("file")
     if err:
@@ -24642,7 +24662,23 @@ def irregular_verbs_page():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
-VERB_GEN_LOCK: dict[int, float] = {}
+VERB_GEN_LOCK: dict[str, float] = {}
+_VERB_GEN_COOLDOWN = 10  # seconds between generations
+_VERB_GEN_LOCK_MAX = 5000  # prune threshold, keeps the dict from growing forever
+
+
+def _verb_gen_locked(key: str, now: float) -> bool:
+    """True if this caller is still inside the generation cooldown.
+
+    Prunes expired entries once the dict grows past ``_VERB_GEN_LOCK_MAX``; the
+    keys are attacker-controlled in part, so without pruning the process would
+    accumulate one entry per distinct caller for the lifetime of the server.
+    """
+    if len(VERB_GEN_LOCK) > _VERB_GEN_LOCK_MAX:
+        for stale in [k for k, ts in VERB_GEN_LOCK.items() if now - ts >= _VERB_GEN_COOLDOWN]:
+            VERB_GEN_LOCK.pop(stale, None)
+    seen = VERB_GEN_LOCK.get(key)
+    return seen is not None and now - seen < _VERB_GEN_COOLDOWN
 
 
 @app.route("/api/verbs/generate", methods=["POST"])
@@ -24661,12 +24697,24 @@ def api_verbs_generate():
     count = max(1, min(50, count))
     uid = _web_user_id(user_id_raw)
     now = time.time()
-    if uid in VERB_GEN_LOCK and now - VERB_GEN_LOCK[uid] < 10:
+    # The cooldown used to be keyed on the client-supplied user_id, so rotating it
+    # bypassed the limit entirely. Key it on the caller's address (server-derived)
+    # and on the web session when there is one, then keep the cooldown bounded.
+    ip = request.remote_addr or ""
+    session_user = _get_session_user(_auth_token_from_request())
+    lock_keys = [f"verbs_gen:{ip}", f"verbs_gen_uid:{uid}"]
+    if session_user:
+        lock_keys.append(f"verbs_gen_uid:{_web_user_id('u' + str(session_user['id']))}")
+    if any(_verb_gen_locked(k, now) for k in lock_keys):
         return jsonify({"error": "Подождите 10 секунд между генерациями"}), 429
-    VERB_GEN_LOCK[uid] = now
+    if _check_ai_rate("verbs_gen:" + ip, 5, 60) or _check_db_rate("verbs_gen_" + ip, 60, 3600):
+        return jsonify({"error": "Слишком много генераций. Подождите минуту."}), 429
+    for k in lock_keys:
+        VERB_GEN_LOCK[k] = now
     tasks = _generate_verb_exercise(verbs, count, mode, wishes)
     if not tasks:
-        VERB_GEN_LOCK.pop(uid, None)
+        for k in lock_keys:
+            VERB_GEN_LOCK.pop(k, None)
         return jsonify({"error": "AI не смог сгенерировать задание. Проверьте глаголы и попробуйте ещё раз."}), 503
     ex_id = random.randint(100000, 999999)
     while _load_verb_exercise(ex_id) is not None:
@@ -24675,7 +24723,8 @@ def api_verbs_generate():
         ex_data = {"id": ex_id, "teacher_id": uid, "verbs": verbs, "task_count": count, "mode": mode, "wishes": wishes, "tasks": tasks}
         _save_verb_exercise(ex_data)
     except Exception as exc:
-        VERB_GEN_LOCK.pop(uid, None)
+        for k in lock_keys:
+            VERB_GEN_LOCK.pop(k, None)
         log_error("VERBS", "error", f"save exercise error: {exc}")
         return jsonify({"error": "Не удалось сохранить задание. Попробуйте ещё раз."}), 500
     share_url = request.host_url.rstrip("/") + "/irregular_verbs/exercise/" + str(ex_id)
@@ -26939,6 +26988,8 @@ def test_ai():
 @app.route("/api/test_telegram", methods=["GET"])
 def test_telegram():
     """Test Telegram API access from Vercel."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     result = {"bot_token_set": bool(BOT_TOKEN)}
     try:
         me = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
@@ -27264,9 +27315,16 @@ def get_fallback_sets():
 
 @app.route("/api/set_webhook", methods=["GET"])
 def set_webhook():
-    """Set Telegram webhook to the current Vercel deployment."""
+    """Set Telegram webhook to the current Vercel deployment.
+
+    Admin-only. The webhook URL embeds WEBHOOK_SECRET, so anyone who learns it can
+    impersonate the bot (including sending as ADMIN_TELEGRAM_ID), therefore the
+    secret is never echoed back: the response carries a redacted path only.
+    """
     from urllib.parse import urlparse
 
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     secret = os.getenv("WEBHOOK_SECRET") or ""
     if not secret:
         return jsonify({"error": "WEBHOOK_SECRET env var not configured"}), 500
@@ -27276,6 +27334,7 @@ def set_webhook():
     if not allowed:
         return jsonify({"error": "webhook может указывать только на Vercel-домены проекта"}), 403
     webhook_url = f"{base}/telegram/webhook/{secret}"
+    redacted_url = f"{base}/telegram/webhook/***"
     drop_pending = request.args.get("drop") == "1"
     try:
         r = requests.get(
@@ -27288,14 +27347,21 @@ def set_webhook():
             },
             timeout=10,
         )
-        return jsonify({"set": r.json(), "url": webhook_url, "bot_token_set": bool(BOT_TOKEN)})
+        body = r.json() if r.ok else {"ok": False, "description": r.text[:200]}
+        return jsonify({
+            "set": {"ok": body.get("ok"), "description": body.get("description")},
+            "url": redacted_url,
+            "bot_token_set": bool(BOT_TOKEN),
+        })
     except Exception as e:
-        return jsonify({"error": str(e), "url": webhook_url})
+        return jsonify({"error": str(e), "url": redacted_url})
 
 
 @app.route("/api/debug_webhook", methods=["GET"])
 def debug_webhook():
     """Debug: check webhook state on Telegram."""
+    if _web_admin_session() is None:
+        return jsonify({"error": "Нет прав администратора"}), 403
     try:
         r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
         info = r.json().get("result", {})
@@ -27441,12 +27507,28 @@ app.route("/api/budget/vk/link", methods=["POST"])(api_vk_link)
 
 @app.route("/api/endings_process", methods=["POST"])
 def api_endings_process():
-    """Generate fill-in-the-blank endings exercise using AI."""
+    """Generate fill-in-the-blank endings exercise using AI.
+
+    Auth + rate limited: this calls the LLM on caller-supplied text, so without a
+    gate anyone could drain the AI quota, and without a length cap a single request
+    could ship an unbounded prompt.
+    """
+    _, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
+    ip = request.remote_addr or ""
+    if _check_ai_rate("endings:" + ip, 3, 60) or _check_db_rate("endings_" + ip, 20, 3600):
+        return jsonify({"ok": False, "error": "Слишком много запросов. Подождите минуту."}), 429
     try:
-        data = request.get_json()
-        text = (data or {}).get("text", "").strip()
+        data = request.get_json(silent=True) or {}
+        text = (data.get("text") or "").strip()
         if not text or len(text) < 10:
             return jsonify({"ok": False, "error": "Текст слишком короткий (нужно минимум 10 символов)"})
+        if len(text) > _ENDINGS_MAX_TEXT:
+            return jsonify({
+                "ok": False,
+                "error": f"Текст слишком длинный (максимум {_ENDINGS_MAX_TEXT} символов)",
+            }), 400
 
         prompt = f"""You are given a Russian text. Your task: create a JSON structure that marks 5-10 words where the ending should be replaced with a blank in an exercise.
 

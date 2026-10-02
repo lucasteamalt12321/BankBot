@@ -3,10 +3,16 @@
 import base64
 import io
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.pool import StaticPool
 
@@ -1305,3 +1311,189 @@ def test_dnd_start_creates_schema_on_fresh_db():
             cols = {row[1] for row in conn.execute(text("PRAGMA table_info(dnd_sessions)"))}
         assert "share_code" in cols
         assert "chapter_breakdown" in cols
+
+
+@patch("api.index.get_db_engine")
+def test_admin_only_routes_reject_anonymous(mock_engine):
+    """Diagnostics must not be reachable without an admin session.
+
+    Regression for the P0 audit: /api/set_webhook leaked WEBHOOK_SECRET in its
+    response body and let anyone repoint the bot's webhook, /api/debug_webhook,
+    /api/test_telegram and /debug_puzzle were fully public, and
+    /test_puzzle/<user_id> returned another user's coin balance (IDOR).
+    """
+    mock_engine.return_value = _make_engine()
+    client = app.test_client()
+
+    admin_only = [
+        ("get", "/api/set_webhook"),
+        ("get", "/api/debug_webhook"),
+        ("get", "/api/test_telegram"),
+        ("get", "/debug_puzzle"),
+        ("get", "/test_puzzle/1"),
+        ("get", "/test_send/123"),
+    ]
+    for method, path in admin_only:
+        resp = getattr(client, method)(path)
+        assert resp.status_code == 403, f"{path} должен требовать админа, got {resp.status_code}"
+        assert "прав" in (resp.get_json().get("error") or "").lower()
+
+    reg = client.post("/api/auth/register", json={
+        "login": "plainuser", "password": "secret123", "email": "plain@test.local",
+    })
+    headers = _auth_headers(reg.get_json()["token"])
+    assert client.get("/api/set_webhook", headers=headers).status_code == 403
+    assert client.get("/test_puzzle/1", headers=headers).status_code == 403
+
+    _promote_admin(reg.get_json()["user_id"])
+    monkey = pytest.MonkeyPatch()
+    monkey.setenv("WEBHOOK_SECRET", "s3cr3t-webhook-value")
+    try:
+        vh = {"Host": "bank-bot-ruby.vercel.app"}
+        vh.update(headers)
+        with patch("api.index.requests.get") as mock_get:
+            mock_get.return_value = Mock(ok=True)
+            mock_get.return_value.json.return_value = {"ok": True, "result": True, "description": "ok"}
+            r = client.get("/api/set_webhook", headers=vh)
+    finally:
+        monkey.undo()
+    assert r.status_code == 200, r.get_data(as_text=True)[:300]
+    body = r.get_json()
+    assert "***" in body["url"], "секрет не должен попадать в ответ"
+    assert "s3cr3t-webhook-value" not in r.get_data(as_text=True)
+
+
+@patch("api.index.get_db_engine")
+def test_endings_process_requires_auth_and_caps_text(mock_engine):
+    """/api/endings_process is an LLM call: gate it and cap the payload."""
+    mock_engine.return_value = _make_engine()
+    client = app.test_client()
+
+    anon = client.post("/api/endings_process", json={"text": "Мама мыла раму."})
+    assert anon.status_code == 401
+    assert anon.get_json().get("auth_required") is True
+
+    reg = client.post("/api/auth/register", json={
+        "login": "endings", "password": "secret123", "email": "endings@test.local",
+    })
+    headers = _auth_headers(reg.get_json()["token"])
+
+    too_long = client.post("/api/endings_process", json={"text": "абвгд " * 5000}, headers=headers)
+    assert too_long.status_code == 400
+    assert "длинный" in (too_long.get_json().get("error") or "")
+
+    with patch("api.index.call_ai_api", return_value=(
+        '[{"t":"Мама "},{"b":"мыл","e":"а"},{"t":" "},{"b":"рам","e":"у"},{"t":"."}]'
+    )):
+        r = client.post("/api/endings_process", json={"text": "Мама мыла раму."}, headers=headers)
+    assert r.status_code == 200, r.get_data(as_text=True)[:300]
+    body = r.get_json()
+    assert body.get("ok") is True
+    assert body.get("segments")
+
+
+@patch("api.index.get_db_engine")
+def test_music_upload_endpoints_require_auth(mock_engine):
+    """/api/music/analyze|change_tempo|change_key are CPU-heavy: require a session."""
+    mock_engine.return_value = _make_engine()
+    client = app.test_client()
+
+    for path in ("/api/music/analyze", "/api/music/change_tempo", "/api/music/change_key"):
+        resp = client.post(path, data={})
+        assert resp.status_code == 401, f"{path}: {resp.status_code}"
+        assert resp.get_json().get("auth_required") is True
+
+
+@patch("api.index.get_db_engine")
+def test_verb_generation_cooldown_not_bypassable_by_user_id(mock_engine):
+    """The generation cooldown must not be keyed on a client-supplied user_id."""
+    from api.index import (
+        VERB_GEN_LOCK,
+        _VERB_GEN_COOLDOWN,
+        _VERB_GEN_LOCK_MAX,
+        _verb_gen_locked,
+    )
+
+    mock_engine.return_value = _make_engine()
+    VERB_GEN_LOCK.clear()
+    client = app.test_client()
+
+    calls = []
+
+    def _fake_gen(verbs, count, mode, wishes):
+        calls.append(verbs)
+        return [{"inf": "делать", "past": "делал", "pp": "делал"}]
+
+    with patch("api.index._generate_verb_exercise", side_effect=_fake_gen), \
+         patch("api.index._save_verb_exercise"), \
+         patch("api.index._load_verb_exercise", return_value=None):
+        first = client.post("/api/verbs/generate", json={"verbs": "делать", "user_id": "u1"})
+        assert first.status_code == 200, first.get_data(as_text=True)[:200]
+        second = client.post("/api/verbs/generate", json={"verbs": "делать", "user_id": "u2"})
+        assert second.status_code == 429, "обход кулдауна сменой user_id"
+
+    assert len(calls) == 1
+    assert _VERB_GEN_COOLDOWN == 10
+
+    for n in range(_VERB_GEN_LOCK_MAX + 10):
+        VERB_GEN_LOCK[f"filler{n}"] = 0.0
+    _verb_gen_locked("probe", time.time())
+    assert len(VERB_GEN_LOCK) <= _VERB_GEN_LOCK_MAX, "словарь кулдауна должен чиститься"
+    VERB_GEN_LOCK.clear()
+
+
+def _iter_inline_scripts(html: str):
+    """Yield (index, source) for every inline <script> block in rendered HTML."""
+    for n, m in enumerate(re.findall(r"<script[^>]*>(.*?)</script>", html, re.S)):
+        if m.strip():
+            yield n, m
+
+
+def test_rendered_pages_have_no_js_syntax_errors():
+    """Every inline script on a rendered page must survive ``node --check``.
+
+    The bug this guards is silent: the page is a Python string, so ``\\n`` and
+    ``\\'`` are consumed by Python before the browser ever sees the JS. That broke
+    /chess and /endings_trainer.html completely (both died with a SyntaxError in
+    the middle of the page script) while every other test still passed. Checking
+    the *rendered* HTML is the only place the damage is visible.
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node не установлен — нельзя проверить синтаксис JS")
+
+    # Страницы с самым большим объёмом inline-JS плюс обе ранее сломанные.
+    paths = [
+        "/chess",
+        "/endings_trainer.html",
+        "/dnd",
+        "/math",
+        "/physics",
+        "/reading_trainer",
+        "/irregular_verbs",
+        "/trivia",
+    ]
+    client = app.test_client()
+    checked = 0
+    for path in paths:
+        resp = client.get(path)
+        if resp.status_code != 200:
+            continue
+        html = resp.get_data(as_text=True)
+        for idx, block in _iter_inline_scripts(html):
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".js", delete=False, encoding="utf-8"
+            ) as fh:
+                fh.write(block)
+                tmp = fh.name
+            try:
+                proc = subprocess.run(
+                    [node, "--check", tmp], capture_output=True, text=True
+                )
+            finally:
+                os.unlink(tmp)
+            assert proc.returncode == 0, (
+                f"{path}: inline script #{idx} не парсится node\n{proc.stderr[:500]}"
+            )
+            checked += 1
+    assert checked > 0, "не нашлось ни одного inline-скрипта для проверки"
