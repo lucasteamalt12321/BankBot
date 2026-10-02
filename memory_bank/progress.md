@@ -3014,4 +3014,4 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Статус в git:** НЕ закоммичено (пользователь и третий сеанс оставили туннель автору, пока тесты падали). В дереве: изменён `.gitignore`, untracked `scripts/lthub_tunnel/` и `tests/unit/test_lthub_tunnel.py`. Канон и GD co-op уехали чужим коммитом `f50afb4`/`59d68bd`.
 
 ## last_checked_commit
-  59d68bd (2026-10-02; docs(mb): GD-08 co-op закрыт — плюс незакоммиченный TUNNEL Phase 12 выше).
+  b0415ae (2026-10-02; feat(tunnel): обход блокировки Vercel-домена через VPN-подписку — Phase 12 TUNNEL 90/100).
