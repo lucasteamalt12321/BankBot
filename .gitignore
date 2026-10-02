@@ -83,3 +83,8 @@ node_modules/
 vk_mini_app/dist/
 
 .env*
+
+# lthub-tunnel: бинарь sing-box и локальные источники подписок
+scripts/lthub_tunnel/bin/
+scripts/lthub_tunnel/dist/
+scripts/lthub_tunnel/sources.local.json
