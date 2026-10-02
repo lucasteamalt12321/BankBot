@@ -676,6 +676,23 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+### Phase 12: Обход блокировки Vercel-домена через VPN-подписку (TUNNEL)
+
+**Контекст:** запрос пользователя 2026-10-02. `lthub.vercel.app` и `audioservice.vercel.app` недоступны из РФ, покупать домен и Cloudflare отказались (этап 2 отменён). Решение — настольный/мобильный прокси из уже имеющихся подписок. Вариант «поднять всё в Telegram-бота на сервере» отклонён: рабочие ноды живут минутами, хост в РФ.
+
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| TUN-01 | Пакет `scripts/lthub_tunnel/`: `subscriptions.py` (base64/голый текст/склейка источников), `nodes.py` (VLESS/Trojan → outbound sing-box с диагностикой отказов), `sbconfig.py`, `clash.py`, `tunnel.py` (CLI: `install/build/check/up/export`) | completed | 20 |
+| TUN-02 | Самочистка конфига: `prune_config()` разбирает `outbound[N]` из вывода `sing-box check`, выкидывает негодные ноды и повторяет проверку — одна плохая нода больше не роняет весь конфиг | completed | 15 |
+| TUN-03 | Windows-сценарий: `up --open` поднимает `mixed` 127.0.0.1:2080, ждёт первый замер `urltest`, открывает сайт в Edge с `--proxy-server` и отдельным `--user-data-dir` (личные сессии не затрагиваются). Без TUN-драйверов и прав админа | completed | 25 |
+| TUN-04 | Android-раздача: `export` выгружает `lthub-clash.yaml` (Mihomo/v2rayNG), `lthub-sing-box.json`, `lthub-nodes.tsv`; `README.md` с инструкцией для Windows и Android | completed | 20 |
+| TUN-05 | Тесты `tests/unit/test_lthub_tunnel.py` (39) + ruff чист, экспортированный конфиг проходит `sing-box check` | completed | 10 |
+| TUN-06 | Раздача конфигов конечным пользователям (ссылка на подписку с хоста или команда в боте) — не согласовано с пользователем | pending | 10 |
+
+**TUNNEL: 90/100.** Реальные ограничения, зафиксированные проверками: `sing-box` 1.14.2 не умеет транспорт `xhttp` (отбрасывается ~10–15 % нод списка); Reality требует uTLS, `packetEncoding` допускает только `xudp`/`packetaddr`, из flow поддержан только `xtls-rprx-vision`; один источник подписок отдаёт сертификат не на свой хост и пропускается целиком (проверка TLS не отключается). Проверено end-to-end: через прокси `https://lthub.vercel.app` отдаёт HTTP 200, аудио-origin отвечает ожидаемым 405 на GET.
+
+---
+
 ## Additional Tasks (2026-04-03)
 
 | ID | Task | Priority | Status |
