@@ -73,10 +73,10 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | completed | 5 |
 | GD-06 | Админ-команды (/add_level, /set_level_position) | completed | 4 |
 | GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | completed | 3 |
-| GD-08 | **Co-op прохождения на 2 игроков:** ник напарника в форме `/gd/level/<id>`, общий пруф, атрибуция обоим по GD-нику из одобренных заявок, бейдж co-op в профиле и на странице уровня (только веб) | in_progress | 3 |
+| GD-08 | **Co-op прохождения на 2 игроков:** ник напарника в форме `/gd`, общий пруф, атрибуция обоим по GD-нику из одобренных заявок, бейдж co-op в профиле и на странице уровня (только веб) | completed | 3 |
 | GD-TEST | Тестирование GD Module (unit + integration + manual) | completed | 3 |
 
-**GD Module: 33/36 (94%)** — co-op (GD-08) добавлен 2026-10-02 как новый пункт ТЗ; до него модуль был 33/33 (100%).
+**GD Module: 36/36 (100%)** — co-op (GD-08) добавлен 2026-10-02 как новый пункт ТЗ и закрыт в тот же день (`f50afb4`, 21 тест). До него модуль был 33/33.
 
 ---
 
