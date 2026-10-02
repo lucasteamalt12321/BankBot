@@ -4,9 +4,32 @@
 
 ## last_checked_commit
 
-**`1c6530c` + рабочее дерево** — BUGHUNT, итерация 1: исправлен баг «Новая сессия» в D&D (500 на холодной БД) и сломана изоляция Telegram в тестах. См. Changelog 2026-09-30.
+**`1c6530c` + рабочее дерево** — BUGHUNT, итерации 1-2: исправлены холодная БД в D&D, тестовая изоляция, P0-безопасность веб-бэкенда, неограниченный LLM/DoS и две мёртвые страницы. См. Changelog 2026-09-28 / 2026-09-30.
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
+
+## Changelog 2026-09-30 — BUGHUNT, итерация 2 (P0-безопасность + мёртвые страницы)
+
+**P0-безопасность (BUG-01, 24 → 0):**
+
+- `/api/set_webhook`: был публичным и возвращал webhook-URL с `WEBHOOK_SECRET` (захват бота, включая impersonation `ADMIN_TELEGRAM_ID`). Добавлен admin-гейт, в ответе `/telegram/webhook/***`; секрет не echoed ни при успехе, ни при ошибке; из ответа Telegram оставлены только `ok`/`description`.
+- IDOR `/test_puzzle/<int:user_id>` (отдавал баланс и состояние пазлов любого юзера) — теперь admin-only.
+- `/api/debug_webhook`, `/api/test_telegram`, `/debug_puzzle` — добавлен admin-гейт.
+
+**Неограниченный LLM/DoS (BUG-02):**
+
+- `/api/endings_process`: добавлены auth, rate-limit (3/мин + 20/час на IP) и лимит текста 4000 символов. Попутно исправлен фронтенд `/endings_trainer.html` — он не слал `X-Auth-Token` и после гейта сломался бы.
+- `/api/verbs/generate`: кулдаун 10 секунд больше не обходится подменой `user_id` в теле — ключ теперь по IP и web-сессии; добавлен DB-backed rate-limit (5/мин, 60/час); `VERB_GEN_LOCK` теперь чистится (`_verb_gen_locked`, порог 5000) и больше не растёт бесконечно; тип ключа исправлен на `dict[str, float]`.
+- `/api/music/analyze|change_tempo|change_key` — добавлен auth (тяжёлые CPU-операции на файлах до 8 МБ).
+
+**Мёртвые страницы (BUG-03):**
+
+- `/endings_trainer.html` и `/chess` были мертвы целиком из-за Python-escape в inline-JS (`\n` внутри regex; `\'` рвал JS-литерал). Исправлено, обе страницы снова парсятся.
+- Возвращён регресс-тест `test_rendered_pages_have_no_js_syntax_errors`: `node --check` по inline-скриптам **отрендеренного** HTML на 8 страницах. Проверен в обе стороны — с откаченным фиксом падает.
+
+**Регрессии (5 новых тестов):** admin-гейты + отсутствие секрета в ответе, auth/лимиты `/api/endings_process`, auth music-эндпоинтов, невозможность обхода кулдауна `/api/verbs/generate` и чистка словаря, JS-синтаксис отрендеренных страниц.
+
+**Проверки:** `ruff check api/ tests/` — чисто; целевой набор — **78 passed** (было 73).
 
 ## Changelog 2026-09-30 — BUGHUNT, итерация 1 (D&D cold-DB + тестовая инфраструктура)
 
