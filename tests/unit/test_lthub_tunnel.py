@@ -19,8 +19,22 @@ from scripts.lthub_tunnel.nodes import (
     parse_vless,
     unsupported_reason,
 )
-from scripts.lthub_tunnel.sbconfig import build_config, prune_config
-from scripts.lthub_tunnel.subscriptions import decode_body, merge, parse_subscription
+from scripts.lthub_tunnel.probe import (
+    PingResult,
+    format_ping_table,
+    probe_nodes,
+    select_fastest,
+)
+from scripts.lthub_tunnel.sbconfig import build_config, prune_config, write_nodes_report
+from scripts.lthub_tunnel import subscriptions
+from scripts.lthub_tunnel.subscriptions import (
+    SubscriptionError,
+    decode_body,
+    fetch,
+    merge,
+    parse_subscription,
+)
+from scripts.lthub_tunnel.tunnel import pick_fastest
 
 # reality + tcp, без fp (sing-box требует uTLS для reality) и с мусором в host
 REALITY_TCP = (
@@ -331,6 +345,356 @@ def test_prune_config_returns_immediately_when_valid():
     pruned, removed = prune_config(config, lambda cfg: None)
     assert pruned is config
     assert removed == []
+
+
+# --- ping / выбор самой быстрой ноды ----------------------------------------
+
+
+def test_select_fastest_orders_by_ping_and_caps_top():
+    nodes = _nodes(REALITY_TCP, WS_TLS, GRPC_REALTITY)
+    results = {
+        "n0": PingResult("n0", 300.0),
+        "n1": PingResult("n1", 50.0),
+        "n2": PingResult("n2", 120.0),
+    }
+    alive, dead = select_fastest(nodes, results, top=2)
+    assert [n.tag for n in alive] == ["n1", "n2"]
+    assert dead == []
+
+
+def test_select_fastest_drops_unreachable_nodes():
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    results = {
+        "n0": PingResult("n0", error="ConnectionRefusedError: refused"),
+        "n1": PingResult("n1", 80.0),
+    }
+    alive, dead = select_fastest(nodes, results, top=0)
+    assert [n.tag for n in alive] == ["n1"]
+    assert [d.tag for d in dead] == ["n0"]
+
+
+def test_select_fastest_keeps_everything_when_nobody_answered():
+    """Пинг - фильтр, а не приговор: чужая сеть не должна ломать запуск."""
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    results = {"n0": PingResult("n0", error="timeout"), "n1": PingResult("n1", error="timeout")}
+    alive, dead = select_fastest(nodes, results, top=5)
+    assert [n.tag for n in alive] == ["n0", "n1"]
+    assert len(dead) == 2
+
+
+def test_select_fastest_treats_missing_result_as_dead():
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    alive, dead = select_fastest(nodes, {"n0": PingResult("n0", 10.0)}, top=0)
+    assert [n.tag for n in alive] == ["n0"]
+    assert dead[0].tag == "n1"
+    assert dead[0].error == "нет результата пинга"
+
+
+def test_select_fastest_on_empty_input():
+    assert select_fastest([], {}, top=3) == ([], [])
+
+
+def test_ping_result_ok_follows_error():
+    assert PingResult("n0", 12.0).ok is True
+    assert PingResult("n0", error="boom").ok is False
+
+
+def test_probe_nodes_measures_local_listener():
+    """Реальный замер по локальному сокету: latency больше нуля, ошибок нет."""
+    import socket
+    import threading
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(4)
+    port = server.getsockname()[1]
+    stop = threading.Event()
+
+    def serve():
+        server.settimeout(0.5)
+        while not stop.is_set():
+            try:
+                conn, _ = server.accept()
+                conn.close()
+            except OSError:
+                pass
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        node = Node(tag="local", protocol="vless", name="local", server="127.0.0.1", port=port, uuid="u")
+        results = probe_nodes([node], timeout=2.0, workers=1)
+    finally:
+        stop.set()
+        thread.join(timeout=2)
+        server.close()
+
+    assert results["local"].ok, results["local"].error
+    assert results["local"].latency_ms >= 0
+
+
+def test_probe_nodes_reports_unreachable_port():
+    import socket
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()  # порт свободен, но кто-то мог занять - главное, что не висящий
+
+    node = Node(tag="dead", protocol="vless", name="dead", server="127.0.0.1", port=port, uuid="u")
+    results = probe_nodes([node], timeout=0.5, workers=1)
+    assert set(results) == {"dead"}
+    assert isinstance(results["dead"].latency_ms, float)
+    assert isinstance(results["dead"].error, str)
+
+
+def test_probe_nodes_on_empty_list():
+    assert probe_nodes([]) == {}
+
+
+def test_format_ping_table_shows_fastest_first():
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    results = {"n0": PingResult("n0", 400.0), "n1": PingResult("n1", 45.0)}
+    text = format_ping_table(nodes, results)
+    assert text.index("n1") < text.index("n0")
+    assert "45" in text
+    # Обе ноды ответили - строки про неответивших быть не должно.
+    assert "Не ответили" not in text
+
+
+def test_format_ping_table_counts_dead_nodes():
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    results = {"n0": PingResult("n0", 400.0), "n1": PingResult("n1", error="timeout")}
+    text = format_ping_table(nodes, results)
+    assert "Не ответили: 1" in text
+    assert "n1" not in text
+
+
+def test_format_ping_table_without_alive_nodes():
+    nodes = _nodes(REALITY_TCP)
+    text = format_ping_table(nodes, {"n0": PingResult("n0", error="timeout")})
+    assert "никто не ответил" in text
+
+
+def test_nodes_report_includes_ping_columns(tmp_path):
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    path = tmp_path / "nodes.tsv"
+    write_nodes_report(nodes, path, {"n0": PingResult("n0", 42.0)})
+    text = path.read_text(encoding="utf-8")
+    assert "ping_ms" in text
+    assert "42" in text
+    assert "нет пинга" in text
+
+
+def test_nodes_report_without_pings_has_no_ping_columns(tmp_path):
+    nodes = _nodes(REALITY_TCP)
+    path = tmp_path / "nodes.tsv"
+    write_nodes_report(nodes, path)
+    text = path.read_text(encoding="utf-8")
+    assert "ping_ms" not in text
+    assert text.splitlines()[0].count("\t") == 7
+
+
+# --- повторы скачивания подписки -------------------------------------------
+
+
+class _FakeResponse:
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_fetch_retries_transient_reset(monkeypatch):
+    """Vercel рвёт соединение на холодном старте - одна вспышка не должна
+    выкидывать все ~100 нод источника."""
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout=None, context=None):
+        agent = request.get_header("User-agent")
+        calls.append(agent)
+        if len(calls) <= 4:  # два агента по два прохода
+            raise OSError(10054, "connection reset by peer")
+        return _FakeResponse(b"vless://x")
+
+    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
+    assert fetch("https://example.org/sub", timeout=1) == "vless://x"
+    assert len(calls) == 5
+
+
+def test_fetch_gives_up_after_retries(monkeypatch):
+    calls: list[int] = []
+
+    def fake_urlopen(request, timeout=None, context=None):
+        calls.append(1)
+        raise OSError("down")
+
+    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(subscriptions, "RETRIES", 2)
+    with pytest.raises(SubscriptionError, match="down"):
+        fetch("https://example.org/sub", timeout=1)
+    # 2 попытки × 4 User-Agent
+    assert len(calls) == 8
+
+
+def test_fetch_skips_agent_loop_for_explicit_user_agent(monkeypatch):
+    calls: list[int] = []
+
+    def fake_urlopen(request, timeout=None, context=None):
+        calls.append(1)
+        return _FakeResponse(b"vless://x")
+
+    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    fetch("https://example.org/sub", timeout=1, user_agent="my-client")
+    assert len(calls) == 1
+
+
+# --- пайплайн выбора нод в CLI ---------------------------------------------
+
+
+class _Args:
+    """Минимальный Namespace для pick_fastest."""
+
+    only = ""
+    no_ping = False
+    top = 10
+    ping_timeout = 0.5
+
+
+def test_pick_fastest_returns_single_node_without_ping():
+    args = _Args()
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    picked, pings = pick_fastest(args, nodes[:1])
+    assert [n.tag for n in picked] == ["n0"]
+    assert pings == {}
+
+
+def test_pick_fastest_respects_no_ping():
+    args = _Args()
+    args.no_ping = True
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    picked, pings = pick_fastest(args, nodes)
+    assert len(picked) == 2
+    assert pings == {}
+
+
+def test_pick_fastest_respects_only(monkeypatch):
+    """Явно выбранная нода пингуется впустую - проще доверить её urltest.
+    Фильтр ``--only`` применяется раньше, в collect_nodes."""
+    args = _Args()
+    args.only = "n1"
+    monkeypatch.setattr(
+        "scripts.lthub_tunnel.tunnel.probe_nodes",
+        lambda *a, **k: pytest.fail("--only не должен пинговать"),
+    )
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    picked, pings = pick_fastest(args, [n for n in nodes if n.tag == "n1"])
+    assert [n.tag for n in picked] == ["n1"]
+    assert pings == {}
+
+
+def test_pick_fastest_keeps_all_when_nobody_answers(monkeypatch):
+    args = _Args()
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    monkeypatch.setattr(
+        "scripts.lthub_tunnel.tunnel.probe_nodes",
+        lambda *a, **k: {"n0": PingResult("n0", error="timeout"), "n1": PingResult("n1", error="timeout")},
+    )
+    picked, pings = pick_fastest(args, nodes)
+    assert [n.tag for n in picked] == ["n0", "n1"]
+    assert pings
+
+
+def test_pick_fastest_drops_dead_and_caps(monkeypatch):
+    args = _Args()
+    args.top = 1
+    nodes = _nodes(REALITY_TCP, WS_TLS)
+    monkeypatch.setattr(
+        "scripts.lthub_tunnel.tunnel.probe_nodes",
+        lambda *a, **k: {"n0": PingResult("n0", 300.0), "n1": PingResult("n1", error="refused")},
+    )
+    picked, pings = pick_fastest(args, nodes)
+    assert [n.tag for n in picked] == ["n0"]
+    assert pings["n1"].error == "refused"
+
+
+# --- кеш подписки -----------------------------------------------------------
+
+
+def test_fetch_cached_writes_cache_on_success(monkeypatch, tmp_path):
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30: "vless://fresh")
+    body, cached = subscriptions.fetch_cached("https://host/sub?token=secret", cache_dir=tmp_path)
+    assert (body, cached) == ("vless://fresh", False)
+    files = list(tmp_path.iterdir())
+    assert len(files) == 1
+    # Токен из URL в имя файла не попадает - только хост и хеш.
+    assert "secret" not in files[0].name
+    assert files[0].read_text(encoding="utf-8") == "vless://fresh"
+
+
+def test_fetch_cached_falls_back_to_cache(monkeypatch, tmp_path):
+    def boom(url, timeout=30):
+        raise subscriptions.SubscriptionError("connection reset")
+
+    monkeypatch.setattr(subscriptions, "fetch", boom)
+    with pytest.raises(subscriptions.SubscriptionError):
+        subscriptions.fetch_cached("https://host/sub", cache_dir=tmp_path)
+
+    cache = subscriptions._cache_file("https://host/sub", tmp_path)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text("vless://stale", encoding="utf-8")
+    body, cached = subscriptions.fetch_cached("https://host/sub", cache_dir=tmp_path)
+    assert (body, cached) == ("vless://stale", True)
+
+
+def test_fetch_cached_without_cache_dir_just_fetches(monkeypatch):
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30: "vless://x")
+    assert subscriptions.fetch_cached("https://host/sub") == ("vless://x", False)
+
+
+def test_cache_file_name_is_stable_and_url_specific(tmp_path):
+    first = subscriptions._cache_file("https://a.example/sub", tmp_path)
+    again = subscriptions._cache_file("https://a.example/sub", tmp_path)
+    other = subscriptions._cache_file("https://b.example/sub", tmp_path)
+    assert first == again
+    assert first != other
+    assert first.suffix == ".txt"
+
+
+def test_load_all_uses_cache_when_source_is_down(monkeypatch, tmp_path):
+    url = "https://host.example/sub"
+    calls: list[str] = []
+
+    def flaky(url_arg, timeout=30):
+        calls.append(url_arg)
+        if len(calls) == 1:
+            return REALITY_TCP
+        raise subscriptions.SubscriptionError("connection reset")
+
+    monkeypatch.setattr(subscriptions, "fetch", flaky)
+    first = subscriptions.load_all([url], verbose=False, cache_dir=tmp_path)
+    assert len(first) == 1
+    # Второй раз источник лежит - ноды всё равно есть, из кеша.
+    second = subscriptions.load_all([url], verbose=False, cache_dir=tmp_path)
+    assert [n.server for n in second] == [n.server for n in first]
+
+
+def test_load_all_raises_when_source_down_and_no_cache(monkeypatch, tmp_path):
+    def boom(url, timeout=30):
+        raise subscriptions.SubscriptionError("down")
+
+    monkeypatch.setattr(subscriptions, "fetch", boom)
+    with pytest.raises(subscriptions.SubscriptionError, match="ни одна подписка"):
+        subscriptions.load_all(["https://host.example/sub"], verbose=False, cache_dir=tmp_path)
 
 
 def test_node_to_clash_reality_and_ws():

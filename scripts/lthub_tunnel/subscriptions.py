@@ -16,11 +16,15 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import re
 import ssl
+import time
 from collections.abc import Iterable
 from dataclasses import replace
+from pathlib import Path
 from urllib.error import URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from scripts.lthub_tunnel.nodes import Node, parse_trojan, parse_vless
@@ -33,6 +37,12 @@ USER_AGENTS = (
     "v2rayN/6.23.4",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
 )
+# Подписки живут на Vercel, а он периодически рвёт соединение на холодном
+# старте (наблюдалось как WinError 10054 / "connection reset"). Без повторов
+# одна такая вспышка молча выкидывала все ~100 нод источника, поэтому
+# источник проверяется RETRIES раз, и уже после этого считается мёртвым.
+RETRIES = 3
+RETRY_PAUSE = 1.5
 
 _LINK_RE = re.compile(r"^\s*(vless|trojan)://\S+", re.I)
 # Считаем и чужие схемы (vmess, ss, hy2) - они попадают в «мусор» честно.
@@ -45,19 +55,28 @@ class SubscriptionError(RuntimeError):
 
 
 def fetch(url: str, timeout: int = 30, user_agent: str = USER_AGENTS[0]) -> str:
-    """Скачать подписку, при неудаче перебирая User-Agent."""
+    """Скачать подписку, перебирая User-Agent и повторяя при сетевых сбоях.
+
+    Повторы делаются и по смене User-Agent, и по ретраям: источник может
+    отдавать мусор вместо конфига, а может просто мигнуть. Ошибка TLS
+    (например, сертификат не на тот хост) повторами не лечится, но и не
+    мешает - попробуем остальные агенты и вернём последнюю ошибку.
+    """
     last_error: Exception | None = None
     agents = (user_agent,) if user_agent != USER_AGENTS[0] else USER_AGENTS
-    for agent in agents:
-        request = Request(
-            url,
-            headers={"User-Agent": agent, "Accept": "*/*", "Accept-Encoding": "identity"},
-        )
-        try:
-            with urlopen(request, timeout=timeout, context=ssl.create_default_context()) as response:
-                return response.read().decode("utf-8", "replace")
-        except (URLError, OSError, ValueError) as exc:
-            last_error = exc
+    for attempt in range(RETRIES):
+        for agent in agents:
+            request = Request(
+                url,
+                headers={"User-Agent": agent, "Accept": "*/*", "Accept-Encoding": "identity"},
+            )
+            try:
+                with urlopen(request, timeout=timeout, context=ssl.create_default_context()) as response:
+                    return response.read().decode("utf-8", "replace")
+            except (URLError, OSError, ValueError) as exc:
+                last_error = exc
+        if attempt + 1 < RETRIES:
+            time.sleep(RETRY_PAUSE * (attempt + 1))
     raise SubscriptionError(f"{url}: {last_error}") from last_error
 
 
@@ -118,7 +137,49 @@ def merge(nodes: Iterable[Node]) -> list[Node]:
     return merged
 
 
-def load_all(urls: Iterable[str], timeout: int = 30, verbose: bool = True) -> list[Node]:
+def _cache_file(url: str, cache_dir: str | Path) -> Path:
+    """Путь кеша для источника: от URL берём хеш, токен на диск не попадает."""
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    host = urlsplit(url).netloc or "source"
+    safe = re.sub(r"[^a-zA-Z0-9.-]", "_", host)[:40]
+    return Path(cache_dir) / f"{safe}-{digest}.txt"
+
+
+def fetch_cached(url: str, timeout: int = 30, cache_dir: str | Path | None = None) -> tuple[str, bool]:
+    """Скачать подписку, при неудаче отдать последнюю удачную из кеша.
+
+    Возвращает (тело, из_кеша). Источники живут на Vercel и периодически
+    рвут соединение; без кеша такое молча теряло все ~100 нод разом, и
+    приложение оставалось вообще без рабочих вариантов. Кеш - только запасной
+    путь: пинг всё равно отсечёт ноды, которые за время простоя умерли.
+    """
+    if cache_dir is None:
+        return fetch(url, timeout=timeout), False
+    cache = _cache_file(url, cache_dir)
+    try:
+        body = fetch(url, timeout=timeout)
+    except SubscriptionError:
+        if cache.exists():
+            try:
+                return cache.read_text(encoding="utf-8"), True
+            except OSError:
+                pass
+        raise
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(body, encoding="utf-8")
+    except OSError:
+        # Кеш - необязательная роскошь: не смогли записать, не повод падать.
+        pass
+    return body, False
+
+
+def load_all(
+    urls: Iterable[str],
+    timeout: int = 30,
+    verbose: bool = True,
+    cache_dir: str | Path | None = None,
+) -> list[Node]:
     """Скачать все подписки и объединить. Недоступные источники пропускаются."""
     nodes: list[Node] = []
     for url in urls:
@@ -126,14 +187,18 @@ def load_all(urls: Iterable[str], timeout: int = 30, verbose: bool = True) -> li
         if not url:
             continue
         try:
-            body = fetch(url, timeout=timeout)
+            body, cached = fetch_cached(url, timeout=timeout, cache_dir=cache_dir)
         except SubscriptionError as exc:
             if verbose:
                 print(f"[skip] {exc}")
             continue
         parsed, stats = parse_subscription(body)
         if verbose:
-            print(f"[ok]   {url} -> ссылок {stats['total']}, разобрано {stats['parsed']}, мусор {stats['skipped']}")
+            mark = " (из кеша)" if cached else ""
+            print(
+                f"[ok]   {url} -> ссылок {stats['total']}, "
+                f"разобрано {stats['parsed']}, мусор {stats['skipped']}{mark}"
+            )
         nodes.extend(parsed)
     merged = merge(nodes)
     if not merged:
