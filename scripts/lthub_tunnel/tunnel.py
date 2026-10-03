@@ -1,6 +1,7 @@
 """CLI туннеля: поднять локальный прокси sing-box и открыть сайт через него.
 
     python -m scripts.lthub_tunnel.tunnel install
+    python -m scripts.lthub_tunnel.tunnel ping
     python -m scripts.lthub_tunnel.tunnel build
     python -m scripts.lthub_tunnel.tunnel check
     python -m scripts.lthub_tunnel.tunnel up --open
@@ -33,6 +34,15 @@ from urllib.request import ProxyHandler, Request, urlopen
 
 from scripts.lthub_tunnel.clash import build_clash, dump_clash
 from scripts.lthub_tunnel.nodes import Node
+from scripts.lthub_tunnel.probe import (
+    DEFAULT_TIMEOUT as DEFAULT_PING_TIMEOUT,
+)
+from scripts.lthub_tunnel.probe import (
+    DEFAULT_TOP,
+    format_ping_table,
+    probe_nodes,
+    select_fastest,
+)
 from scripts.lthub_tunnel.sbconfig import (
     DEFAULT_LISTEN,
     DEFAULT_PORT,
@@ -170,7 +180,13 @@ def collect_nodes(args: argparse.Namespace) -> tuple[list[Node], str, int]:
         )
         raise SystemExit(2)
     try:
-        nodes = load_all(urls, timeout=args.timeout, verbose=not args.quiet)
+        nodes = load_all(
+            urls,
+            timeout=args.timeout,
+            verbose=not args.quiet,
+            # Последняя удачная подписка - запасной путь, когда источник моргает.
+            cache_dir=state_dir(args.state_dir) / "subs",
+        )
     except SubscriptionError as exc:
         print(f"Подписки недоступны: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -184,6 +200,36 @@ def collect_nodes(args: argparse.Namespace) -> tuple[list[Node], str, int]:
             raise SystemExit(2)
         nodes = picked
     return nodes, probe_url, port
+
+
+def pick_fastest(
+    args: argparse.Namespace, nodes: list[Node]
+) -> tuple[list[Node], dict[str, object]]:
+    """Отсечь мёртвые ноды пингом и оставить самые быстрые.
+
+    Пинг - только фильтр: окончательный выбор делает ``urltest`` внутри
+    sing-box, уже по сквозной задержке. Поэтому ``--only`` (явно выбранная
+    нода) и ``--no-ping`` пинг пропускают, а если не ответил никто - конфиг
+    собирается из всех нод, чтобы чужая сеть не ломала запуск.
+    """
+    if args.only or args.no_ping or len(nodes) <= 1:
+        return nodes, {}
+    print(f"Пингую {len(nodes)} нод (таймаут {args.ping_timeout:.1f} с)...")
+    results = probe_nodes(nodes, timeout=args.ping_timeout)
+    alive, dead = select_fastest(nodes, results, top=args.top)
+    alive_count = len(nodes) - len(dead)
+    if not dead:
+        print(f"  ответили все {alive_count}")
+        return alive, results
+    if not alive_count:
+        print(f"  не ответил никто - пинг пропущен, беру все {len(nodes)}")
+        return nodes, results
+    print(f"  живых {alive_count} из {len(nodes)}, мёртвых {len(dead)}, в конфиг беру {len(alive)}")
+    for result in dead[:5]:
+        print(f"  - {result.tag}: {result.error[:90]}")
+    if len(dead) > 5:
+        print(f"  - ... ещё {len(dead) - 5}")
+    return alive, results
 
 
 def sing_box_check(config_path: Path) -> str | None:
@@ -207,6 +253,7 @@ def sing_box_check(config_path: Path) -> str | None:
 def cmd_build(args: argparse.Namespace) -> int:
     """Собрать config.json и показать статистику по нодам."""
     nodes, probe_url, port = collect_nodes(args)
+    nodes, pings = pick_fastest(args, nodes)
     home = state_dir(args.state_dir)
     config, rejected = build_config(
         nodes,
@@ -224,7 +271,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         print(f"Конфиг не собрался: {exc}", file=sys.stderr)
         return 1
     dump_config(config, config_path)
-    report = write_nodes_report(nodes, home / "nodes.tsv")
+    report = write_nodes_report(nodes, home / "nodes.tsv", pings or None)
 
     usable = len(config["outbounds"][0]["outbounds"])
     print(f"Нод разобрано: {len(nodes)}, в urltest: {usable}, отброшено: {len(rejected)}")
@@ -236,10 +283,25 @@ def cmd_build(args: argparse.Namespace) -> int:
         print(f"  * выкинул {line}")
     if len(pruned) > 10:
         print(f"  * ... ещё {len(pruned) - 10}")
+    _report_best(nodes, pings, config["outbounds"][0].get("outbounds", []))
     print(f"Конфиг:  {config_path}")
     print(f"Отчёт:   {report}")
     print(f"Проба:   {probe_url}")
     return 0
+
+
+def _report_best(nodes: list[Node], pings: dict, kept_tags: list[str]) -> None:
+    """Сказать, какая нода быстрее всего ответила на пинг."""
+    if not pings:
+        return
+    by_tag = {node.tag: node for node in nodes}
+    ranked = sorted((r for r in pings.values() if r.ok), key=lambda r: r.latency_ms)
+    best = next((r for r in ranked if r.tag in kept_tags), None)
+    if best is None:
+        print("Ни одна нода не ответила на пинг - выбор сделает urltest.")
+        return
+    print(f"Быстрее всего ответила {by_tag[best.tag].label} ({best.latency_ms:.0f} мс)")
+    print(f"  Окончательный выбор делает urltest по сквозной задержке ({len(kept_tags)} нод в группе).")
 
 
 def _dump_tmp(config: dict, config_path: Path) -> Path:
@@ -402,20 +464,61 @@ def cmd_up(args: argparse.Namespace) -> int:
 # --- export ----------------------------------------------------------------
 
 def cmd_export(args: argparse.Namespace) -> int:
-    """Выгрузить конфиги для раздачи пользователям (sing-box + Clash)."""
+    """Выгрузить конфиги для раздачи пользователям (sing-box + Clash).
+
+    Пинг обязателен: раздавать телефон десятки заведомо мёртвых нод бессмысленно,
+    клиент всё равно не отличит их друг от друга. В конфиг попадают только
+    живые и самые быстрые - их на телефоне уже не так много.
+    """
     nodes, probe_url, port = collect_nodes(args)
+    nodes, pings = pick_fastest(args, nodes)
     out = Path(args.out)
     home = state_dir(args.state_dir)
     sb_config, sb_rejected = build_config(
         nodes, port=port, probe_url=probe_url, cache_file=home / "cache.db"
     )
+    config_path = out / ".sing-box-check.json"
+    dump_config(sb_config, config_path)
+    try:
+        sb_config, pruned = prune_config(
+            sb_config, lambda cfg: sing_box_check(_dump_tmp(cfg, config_path))
+        )
+    except ValueError as exc:
+        config_path.unlink(missing_ok=True)
+        print(f"Конфиг не собрался: {exc}", file=sys.stderr)
+        return 1
+    config_path.unlink(missing_ok=True)
+
     dump_config(sb_config, out / "lthub-sing-box.json")
     clash_config, clash_rejected = build_clash(nodes, probe_url=probe_url)
     dump_clash(clash_config, out / "lthub-clash.yaml")
-    write_nodes_report(nodes, out / "lthub-nodes.tsv")
+    write_nodes_report(nodes, out / "lthub-nodes.tsv", pings or None)
+    _report_best(nodes, pings, sb_config["outbounds"][0].get("outbounds", []))
+    for line in pruned[:5]:
+        print(f"  * выкинул {line}")
     print(f"sing-box: {out / 'lthub-sing-box.json'} (отброшено {len(sb_rejected)})")
     print(f"Clash:    {out / 'lthub-clash.yaml'} (отброшено {len(clash_rejected)})")
     print(f"Ноды TSV: {out / 'lthub-nodes.tsv'}")
+    return 0
+
+
+def cmd_ping(args: argparse.Namespace) -> int:
+    """Показать, кто отвечает и с какой задержкой - без сборки конфига."""
+    nodes, _, _ = collect_nodes(args)
+    if args.limit and args.limit < len(nodes):
+        nodes = nodes[: args.limit]
+    print(f"Пингую {len(nodes)} нод (таймаут {args.ping_timeout:.1f} с)...")
+    results = probe_nodes(nodes, timeout=args.ping_timeout)
+    alive, _dead = select_fastest(nodes, results, top=args.top)
+    print(format_ping_table(alive, results, limit=args.limit or 0))
+    if alive:
+        by_tag = {node.tag: node for node in nodes}
+        best = min(alive, key=lambda node: results[node.tag].latency_ms)
+        print(f"Лучшая по пингу: {by_tag[best.tag].label} ({results[best.tag].latency_ms:.0f} мс)")
+        print("Это TCP/TLS-пинг. Сквозную задержку меряет urltest при запуске прокси.")
+    else:
+        print("Ни одна нода не ответила.", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -443,6 +546,23 @@ def _common_options() -> argparse.ArgumentParser:
         help="оставить одну ноду (тег n7 или часть имени) - для отладки конкретной",
     )
     parser.add_argument(
+        "--ping-timeout",
+        type=float,
+        default=DEFAULT_PING_TIMEOUT,
+        help="таймаут пинга одной ноды в секундах",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=DEFAULT_TOP,
+        help=f"сколько самых быстрых нод оставить в конфиге (0 - всех живых, по умолчанию {DEFAULT_TOP})",
+    )
+    parser.add_argument(
+        "--no-ping",
+        action="store_true",
+        help="не пинговать, собрать конфиг из всех нод",
+    )
+    parser.add_argument(
         "--log-level",
         default="warn",
         choices=["trace", "debug", "info", "warn", "error"],
@@ -461,6 +581,7 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--force", action="store_true")
     install.set_defaults(func=cmd_install)
 
+    sub.add_parser("ping", parents=[common], help="замерить пинг всех нод").set_defaults(func=cmd_ping)
     sub.add_parser("build", parents=[common], help="собрать config.json").set_defaults(func=cmd_build)
     sub.add_parser("check", parents=[common], help="собрать и проверить конфиг").set_defaults(
         func=cmd_check

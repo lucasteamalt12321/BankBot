@@ -147,26 +147,43 @@ def dump_config(config: dict, path: str | Path) -> Path:
     return target
 
 
-def write_nodes_report(nodes: Sequence[Node], path: str | Path) -> Path:
-    """Выгрузить разобранные ноды в TSV - чтобы глазами видеть, что нашлось."""
+def write_nodes_report(
+    nodes: Sequence[Node],
+    path: str | Path,
+    pings: dict | None = None,
+) -> Path:
+    """Выгрузить разобранные ноды в TSV - чтобы глазами видеть, что нашлось.
+
+    Если передан ``pings`` (результаты ``probe.py``), добавляются колонки
+    ``ping_ms``/``ping_error`` - иначе в отчёте не видно, кого замерили.
+    """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    has_ping = bool(pings)
     lines = ["tag\tprotocol\tserver\tport\tnetwork\tsecurity\tsni\tname"]
+    if has_ping:
+        lines[0] += "\tping_ms\tping_error"
     for node in nodes:
         reason = unsupported_reason(node)
-        lines.append(
-            "\t".join(
-                [
-                    node.tag,
-                    node.protocol,
-                    node.server,
-                    str(node.port),
-                    node.network,
-                    "skip:" + reason if reason else node.security,
-                    node.sni,
-                    node.label,
+        cells = [
+            node.tag,
+            node.protocol,
+            node.server,
+            str(node.port),
+            node.network,
+            "skip:" + reason if reason else node.security,
+            node.sni,
+            node.label,
+        ]
+        if has_ping:
+            result = pings.get(node.tag)
+            if result is None:
+                cells += ["", "нет пинга"]
+            else:
+                cells += [
+                    f"{result.latency_ms:.0f}" if result.ok else "",
+                    result.error[:120],
                 ]
-            )
-        )
+        lines.append("\t".join(cells))
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return target
