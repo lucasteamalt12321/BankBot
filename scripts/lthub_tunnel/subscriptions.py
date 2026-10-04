@@ -54,13 +54,29 @@ class SubscriptionError(RuntimeError):
     """Подписка недоступна или ответ не похож на список нод."""
 
 
-def fetch(url: str, timeout: int = 30, user_agent: str = USER_AGENTS[0]) -> str:
-    """Скачать подписку, перебирая User-Agent и повторяя при сетевых сбоях.
+def _is_fatal(exc: Exception) -> bool:
+    """Ошибки, которые повторами и сменой агента не лечатся.
 
-    Повторы делаются и по смене User-Agent, и по ретраям: источник может
-    отдавать мусор вместо конфига, а может просто мигнуть. Ошибка TLS
-    (например, сертификат не на тот хост) повторами не лечится, но и не
-    мешает - попробуем остальные агенты и вернём последнюю ошибку.
+    Сертификат, выданный не на тот хост, - это не вспышка: пока DNS/сервер
+    не починят, повтор вернёт ровно то же самое. Такие случаи надо отсекать
+    сразу, иначе мёртвый источник съедает минуты ожидания на ровном месте.
+    """
+    text = str(exc).lower()
+    return "certificate_verify_failed" in text or "certificate verify failed" in text
+
+
+def fetch(url: str, timeout: int = 15, user_agent: str = USER_AGENTS[0]) -> str:
+    """Скачать подписку, повторяя при сетевых сбоях и меняя User-Agent вслепую.
+
+    Повторы и смена User-Agent - разные инструменты, и раньше они были
+    склеены в один вложенный цикл во что-то дорогое: 3 попытки × 4 агента ×
+    30 секунд = до 6 минут молчаливого ожидания. Разделено так:
+
+    * сетевой сбой (reset, таймаут) лечится повтором того же запроса - менять
+      User-Agent после ``WinError 10054`` бессмысленно;
+    * смена агента имеет смысл только когда ответ пришёл, но оказался не
+      подпиской (некоторые хосты отдают HTML-заглушку вместо конфига);
+    * ошибка сертификата - сразу финальная, см. ``_is_fatal``.
     """
     last_error: Exception | None = None
     agents = (user_agent,) if user_agent != USER_AGENTS[0] else USER_AGENTS
@@ -72,9 +88,15 @@ def fetch(url: str, timeout: int = 30, user_agent: str = USER_AGENTS[0]) -> str:
             )
             try:
                 with urlopen(request, timeout=timeout, context=ssl.create_default_context()) as response:
-                    return response.read().decode("utf-8", "replace")
+                    text = response.read().decode("utf-8", "replace")
             except (URLError, OSError, ValueError) as exc:
                 last_error = exc
+                if _is_fatal(exc):
+                    raise SubscriptionError(f"{url}: {exc}") from exc
+                break
+            if "://" in decode_body(text):
+                return text
+            last_error = SubscriptionError("ответ не похож на подписку")
         if attempt + 1 < RETRIES:
             time.sleep(RETRY_PAUSE * (attempt + 1))
     raise SubscriptionError(f"{url}: {last_error}") from last_error
@@ -145,7 +167,7 @@ def _cache_file(url: str, cache_dir: str | Path) -> Path:
     return Path(cache_dir) / f"{safe}-{digest}.txt"
 
 
-def fetch_cached(url: str, timeout: int = 30, cache_dir: str | Path | None = None) -> tuple[str, bool]:
+def fetch_cached(url: str, timeout: int = 15, cache_dir: str | Path | None = None) -> tuple[str, bool]:
     """Скачать подписку, при неудаче отдать последнюю удачную из кеша.
 
     Возвращает (тело, из_кеша). Источники живут на Vercel и периодически
@@ -176,7 +198,7 @@ def fetch_cached(url: str, timeout: int = 30, cache_dir: str | Path | None = Non
 
 def load_all(
     urls: Iterable[str],
-    timeout: int = 30,
+    timeout: int = 15,
     verbose: bool = True,
     cache_dir: str | Path | None = None,
 ) -> list[Node]:
