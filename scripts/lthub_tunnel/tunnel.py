@@ -538,7 +538,7 @@ def _common_options() -> argparse.ArgumentParser:
         help="где хранить config.json/логи (по умолчанию %%LOCALAPPDATA%%\\lthub-tunnel)",
     )
     parser.add_argument("--source", action="append", help="URL подписки (можно дважды)")
-    parser.add_argument("--timeout", type=int, default=30, help="таймаут скачивания подписки")
+    parser.add_argument("--timeout", type=int, default=15, help="таймаут скачивания подписки")
     parser.add_argument("--limit", type=int, default=0, help="взять только N нод")
     parser.add_argument(
         "--only",
@@ -604,6 +604,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Без этого прогресс не виден, пока процесс не доедет до конца: при
+    # перенаправлении вывода в файл или лог stdout блокируется буфером на
+    # несколько килобайт, и запуск выглядит как «думает», хотя он давно идёт.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     args = build_parser().parse_args(argv)
     return int(args.func(args) or 0)
 

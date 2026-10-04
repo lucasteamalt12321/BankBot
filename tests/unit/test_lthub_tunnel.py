@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import base64
+import ssl
 
 import pytest
 
@@ -518,16 +519,74 @@ def test_fetch_retries_transient_reset(monkeypatch):
     calls: list[str] = []
 
     def fake_urlopen(request, timeout=None, context=None):
-        agent = request.get_header("User-agent")
-        calls.append(agent)
-        if len(calls) <= 4:  # два агента по два прохода
+        calls.append(request.get_header("User-agent"))
+        if len(calls) <= 2:
             raise OSError(10054, "connection reset by peer")
         return _FakeResponse(b"vless://x")
 
     monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
     monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
     assert fetch("https://example.org/sub", timeout=1) == "vless://x"
-    assert len(calls) == 5
+    # Сетевой сбой лечится повтором того же агента, а не перебором всех.
+    assert calls[:2] == calls[2:3] * 2
+
+
+def test_fetch_does_not_try_other_agents_on_network_error(monkeypatch):
+    """После reset менять User-Agent бессмысленно.
+
+    Старая реализация гоняла 3 попытки × 4 агента × 30 секунд, и мёртвый
+    источник держал запуск на 6 минутах молча. Теперь на сетевой сбок уходит
+    ровно RETRIES запросов.
+    """
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout=None, context=None):
+        calls.append(request.get_header("User-agent"))
+        raise OSError(10054, "connection reset by peer")
+
+    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(subscriptions, "RETRIES", 3)
+    with pytest.raises(SubscriptionError, match="10054"):
+        fetch("https://example.org/sub", timeout=1)
+    assert len(calls) == 3
+    assert len(set(calls)) == 1
+
+
+def test_fetch_switches_agent_on_non_subscription_response(monkeypatch):
+    """А вот тут смена User-Agent оправдана: ответ пришёл, но это не подписка."""
+    agents: list[str] = []
+
+    def fake_urlopen(request, timeout=None, context=None):
+        agent = request.get_header("User-agent")
+        agents.append(agent)
+        if agent == subscriptions.USER_AGENTS[0]:
+            return _FakeResponse(b"<html>404</html>")
+        return _FakeResponse(b"vless://x")
+
+    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
+    assert fetch("https://example.org/sub", timeout=1) == "vless://x"
+    assert len(agents) == 2
+    assert agents[0] != agents[1]
+
+
+def test_fetch_gives_up_immediately_on_certificate_error(monkeypatch):
+    """Сертификат не на тот хост - это не вспышка, повторы не помогут."""
+    calls: list[int] = []
+
+    def fake_urlopen(request, timeout=None, context=None):
+        calls.append(1)
+        raise ssl.SSLCertVerificationError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed certificate"
+        )
+
+    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(subscriptions, "RETRIES", 3)
+    with pytest.raises(SubscriptionError, match="CERTIFICATE_VERIFY_FAILED"):
+        fetch("https://example.org/sub", timeout=1)
+    assert len(calls) == 1
 
 
 def test_fetch_gives_up_after_retries(monkeypatch):
@@ -542,8 +601,8 @@ def test_fetch_gives_up_after_retries(monkeypatch):
     monkeypatch.setattr(subscriptions, "RETRIES", 2)
     with pytest.raises(SubscriptionError, match="down"):
         fetch("https://example.org/sub", timeout=1)
-    # 2 попытки × 4 User-Agent
-    assert len(calls) == 8
+    # Ровно RETRIES попыток: сетевой сбок не умножается на число агентов.
+    assert len(calls) == 2
 
 
 def test_fetch_skips_agent_loop_for_explicit_user_agent(monkeypatch):
