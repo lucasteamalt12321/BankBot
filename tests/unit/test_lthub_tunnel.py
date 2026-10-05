@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import ssl
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -27,7 +30,7 @@ from scripts.lthub_tunnel.probe import (
     select_fastest,
 )
 from scripts.lthub_tunnel.sbconfig import build_config, prune_config, write_nodes_report
-from scripts.lthub_tunnel import subscriptions
+from scripts.lthub_tunnel import runner, subscriptions
 from scripts.lthub_tunnel.subscriptions import (
     SubscriptionError,
     decode_body,
@@ -35,6 +38,7 @@ from scripts.lthub_tunnel.subscriptions import (
     merge,
     parse_subscription,
 )
+from scripts.lthub_tunnel import tunnel
 from scripts.lthub_tunnel.tunnel import pick_fastest
 
 # reality + tcp, без fp (sing-box требует uTLS для reality) и с мусором в host
@@ -803,3 +807,232 @@ def test_node_label_falls_back_to_server():
     assert Node(tag="n0", protocol="vless", name="", server="1.2.3.4", port=443).label == (
         "vless://1.2.3.4:443"
     )
+
+
+# --- runner.py: логика окна без Tk -----------------------------------------
+
+
+def _vless_uri(index: int) -> str:
+    """Уникальная нода на основе заготовки REALITY_TCP.
+
+    Готовая константа используется потому, что для reality нужен валидный
+    base64 ``pbk``: с выдуманным ``pbk=k`` sing-box отвергает outbound, и тест
+    проверял бы не то.
+    """
+    return REALITY_TCP.replace(
+        "11111111-1111-1111-1111-111111111111",
+        f"1111111{index}-1111-1111-1111-111111111111",
+    )
+
+
+def _tagged_nodes(count: int) -> list[Node]:
+    """Ноды с уникальными тегами - как их делает загрузчик подписок.
+
+    Теги проставляет ``subscriptions._with_tag``; в тестах сеть подменена, поэтому
+    проставить их нужно руками, иначе все outbound получат один тег и sing-box
+    откажется на duplicate tag.
+    """
+    return [replace(parse_vless(_vless_uri(i)), tag=f"n{i}") for i in range(count)]
+
+
+def _fake_network(monkeypatch, nodes):
+    """Подменить сеть: отдать готовые ноды и пинг по умолчанию «всё ответило»."""
+    monkeypatch.setattr(runner, "load_all", lambda *a, **k: list(nodes))
+    monkeypatch.setattr(runner, "probe_nodes", lambda *a, **k: {})
+    monkeypatch.setattr(
+        runner, "load_sources", lambda *a, **k: (["https://example.org"], "https://probe", 2080)
+    )
+
+
+def test_runner_build_collects_nodes_and_writes_config(tmp_path, monkeypatch):
+    nodes = _tagged_nodes(3)
+    _fake_network(monkeypatch, nodes)
+    session = runner.TunnelSession(state_root=tmp_path)
+
+    config_path = session.build()
+
+    assert config_path.exists()
+    assert session.total_count == 3
+    assert session.port == 2080
+    assert (tmp_path / "nodes.tsv").exists()
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["outbounds"][0]["outbounds"]
+
+
+def test_runner_build_falls_back_to_all_nodes_when_ping_silent(tmp_path, monkeypatch):
+    """Ни одна нода не ответила - это может быть чужая сеть, а не мёртвые ноды."""
+    nodes = _tagged_nodes(3)
+    _fake_network(monkeypatch, nodes)
+    monkeypatch.setattr(
+        runner,
+        "probe_nodes",
+        lambda *a, **k: {n.tag: PingResult(tag=n.tag, error="таймаут") for n in nodes},
+    )
+    session = runner.TunnelSession(state_root=tmp_path)
+
+    session.build()
+
+    assert session.alive_count == 0
+    # Все три ноды остались: пинг - фильтр, а не приговор.
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert len(config["outbounds"][0]["outbounds"]) == 3
+
+
+def test_runner_build_keeps_fastest_alive(tmp_path, monkeypatch):
+    nodes = _tagged_nodes(4)
+    _fake_network(monkeypatch, nodes)
+    monkeypatch.setattr(
+        runner,
+        "probe_nodes",
+        lambda *a, **k: {
+            n.tag: PingResult(
+                tag=n.tag,
+                latency_ms=10.0 + 10 * i,
+                error="" if i != 3 else "таймаут",
+            )
+            for i, n in enumerate(nodes)
+        },
+    )
+    session = runner.TunnelSession(state_root=tmp_path, top=2)
+
+    session.build()
+
+    assert session.alive_count == 3
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert len(config["outbounds"][0]["outbounds"]) == 2
+
+
+def test_runner_build_reports_log(tmp_path, monkeypatch):
+    nodes = _tagged_nodes(1)
+    _fake_network(monkeypatch, nodes)
+    lines: list[str] = []
+    session = runner.TunnelSession(state_root=tmp_path, log=lines.append)
+
+    session.build()
+
+    assert any("Скачиваю подписки" in line for line in lines)
+    assert any("Готово" in line for line in lines)
+
+
+def test_runner_build_without_sources_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "load_sources", lambda *a, **k: ([], "https://probe", 2080))
+    session = runner.TunnelSession(state_root=tmp_path)
+    with pytest.raises(RuntimeError, match="Нет источников"):
+        session.build()
+
+
+def test_runner_stop_is_safe_when_not_started(tmp_path):
+    session = runner.TunnelSession(state_root=tmp_path)
+    assert session.running is False
+    session.stop()  # не должно бросать
+    assert session.running is False
+
+
+def test_runner_start_requires_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "sing_box_path", lambda: tmp_path / "sing-box.exe")
+    (tmp_path / "sing-box.exe").write_bytes(b"stub")
+    session = runner.TunnelSession(state_root=tmp_path)
+    session.port = 2080
+    with pytest.raises(RuntimeError, match="Сначала собери конфиг"):
+        session.start(settle=0)
+
+
+def test_runner_install_flag_follows_binary(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "sing_box_path", lambda: tmp_path / "sing-box.exe")
+    session = runner.TunnelSession(state_root=tmp_path)
+    assert session.sing_box_installed is False
+    (tmp_path / "sing-box.exe").write_bytes(b"stub")
+    assert session.sing_box_installed is True
+
+
+def test_gui_module_imports_without_display():
+    """Импорт окна не должен требовать графической среды.
+
+    Само окно на headless-машине не откроется, а вот упасть на ``import tkinter``
+    можно и в текстовом окружении - это и ловим.
+    """
+    import scripts.lthub_tunnel.gui as gui
+
+    assert hasattr(gui, "TunnelApp")
+    assert gui.READY == "Подключено"
+
+
+# --- сборка .exe: пути внутри frozen-приложения ---------------------------
+
+
+def test_frozen_bundle_dir_uses_meipass(monkeypatch):
+    """В сборке ресурсы лежат во временной _MEI*, а не рядом с исходниками.
+
+    Если искать каталог пакета обычным ``Path(__file__).parent``, приложение
+    из .exe не найдёт ни sing-box, ни подписки: папка удаляется при выходе.
+    """
+    monkeypatch.setattr(tunnel.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(tunnel.sys, "_MEIPASS", "/tmp/_MEI42", raising=False)
+    assert tunnel._bundle_dir() == Path("/tmp/_MEI42")
+
+
+def test_frozen_writes_beside_exe(monkeypatch, tmp_path):
+    """Скачанный sing-box обязан попасть рядом с .exe, а не в _MEI*."""
+    monkeypatch.setattr(tunnel.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(tunnel.sys, "executable", str(tmp_path / "LthubTunnel.exe"), raising=False)
+    assert tunnel.writable_bin_dir() == tmp_path / "bin"
+
+
+def test_frozen_prefers_sources_next_to_exe(monkeypatch, tmp_path):
+    """Пользователь может дописать подписки в файл рядом с .exe."""
+    exe = tmp_path / "LthubTunnel.exe"
+    exe.write_bytes(b"stub")
+    beside = tmp_path / "sources.local.json"
+    beside.write_text('{"urls": ["https://example.org"]}', encoding="utf-8")
+    monkeypatch.setattr(tunnel.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(tunnel.sys, "executable", str(exe), raising=False)
+
+    assert tunnel.sources_file() == beside
+    urls, _probe, _port = tunnel.load_sources(None)
+    assert urls == ["https://example.org"]
+
+
+def test_frozen_sing_box_prefers_bundled(monkeypatch, tmp_path):
+    """Встроенный в сборку бинарник важнее того, что лежит рядом с .exe."""
+    monkeypatch.setattr(tunnel, "BIN_DIR", tmp_path / "_MEI" / "bin")
+    monkeypatch.setattr(tunnel.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(tunnel.sys, "executable", str(tmp_path / "LthubTunnel.exe"), raising=False)
+    (tmp_path / "_MEI" / "bin").mkdir(parents=True)
+    (tmp_path / "_MEI" / "bin" / "sing-box.exe").write_bytes(b"stub")
+
+    assert tunnel.sing_box_path() == tmp_path / "_MEI" / "bin" / "sing-box.exe"
+
+
+def test_unreadable_sources_gives_actionable_error(monkeypatch, tmp_path):
+    """Вместо сырого PermissionError пользователь должен видеть, что делать."""
+    broken = tmp_path / "sources.local.json"
+    broken.write_bytes(b"\xff\xfe not json at all")
+
+    def boom(*_a, **_k):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "read_text", boom)
+    with pytest.raises(RuntimeError, match="Проверь, что файл не открыт"):
+        tunnel.load_sources(None)
+
+
+def test_sources_fall_back_to_bundled_when_no_file(monkeypatch, tmp_path):
+    """Нет файла рядом с .exe - берём подписки, зашитые в сборку.
+
+    Так и работает первый запуск готового приложения: файла ещё нет, а
+    подписки должны быть.
+    """
+    exe = tmp_path / "LthubTunnel.exe"
+    exe.write_bytes(b"stub")
+    monkeypatch.setattr(tunnel.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(tunnel.sys, "executable", str(exe), raising=False)
+    monkeypatch.setattr(
+        tunnel,
+        "bundled_sources",
+        lambda: {"urls": ["https://bundled.example"], "port": 2080},
+    )
+
+    urls, _probe, port = tunnel.load_sources(None)
+
+    assert urls == ["https://bundled.example"]
+    assert port == 2080
