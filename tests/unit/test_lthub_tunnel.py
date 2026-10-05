@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import base64
 import json
+import queue
 import ssl
+import time
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1014,6 +1017,59 @@ def test_unreadable_sources_gives_actionable_error(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "read_text", boom)
     with pytest.raises(RuntimeError, match="Проверь, что файл не открыт"):
         tunnel.load_sources(None)
+
+
+def test_busy_flag_only_clears_when_thread_reports_done():
+    """Кнопка не отпускается, пока поток реально работает.
+
+    Раньше ``_drain`` сбрасывал ``busy`` по таймеру каждые 100 мс, и второй
+    клик успевал запустить ещё один sing-box на занятый порт.
+    """
+    from scripts.lthub_tunnel import gui
+
+    app = object.__new__(gui.TunnelApp)
+    app.queue = queue.Queue()
+    app.busy = True
+    app.pending = "Подключение..."
+    app._refresh_button = lambda: None  # type: ignore[method-assign]
+    app.root = SimpleNamespace(after=lambda *_a: None)
+    app._append = lambda _m: None  # type: ignore[method-assign]
+
+    app._drain()
+
+    assert app.busy is True, "busy сброшен, хотя поток ещё работает"
+
+    app.queue.put(("done", None))
+    app._drain()
+
+    assert app.busy is False
+
+
+def test_work_thread_always_reports_done_on_error():
+    """После ошибки поток всё равно докладывает о завершении.
+
+    Иначе кнопка осталась бы заблокированной навсегда и окно нельзя было бы
+    перезапустить без перезапуска программы.
+    """
+    from scripts.lthub_tunnel import gui
+
+    app = object.__new__(gui.TunnelApp)
+    app.queue = queue.Queue()
+
+    def boom() -> None:
+        raise RuntimeError("подписки не скачались")
+
+    app._work(boom)
+
+    # Ждём именно два сообщения, а не queue.join(): task_done() в приложении
+    # не зовётся, и join() ждал бы вечно.
+    deadline = time.monotonic() + 5
+    while app.queue.qsize() < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    kinds = [app.queue.get_nowait()[0] for _ in range(app.queue.qsize())]
+    assert "error" in kinds
+    assert "done" in kinds
 
 
 def test_sources_fall_back_to_bundled_when_no_file(monkeypatch, tmp_path):
