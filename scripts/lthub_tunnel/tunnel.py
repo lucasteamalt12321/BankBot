@@ -54,13 +54,98 @@ from scripts.lthub_tunnel.sbconfig import (
 )
 from scripts.lthub_tunnel.subscriptions import SubscriptionError, load_all
 
-TOOL_DIR = Path(__file__).resolve().parent
+def _bundle_dir() -> Path:
+    """Корень, где лежат ресурсы пакета.
+
+    В обычном запуске это каталог ``scripts/lthub_tunnel``. В сборке PyInstaller
+    (``LthubTunnel.exe``) исходники лежат во временной папке ``_MEI*``, и искать
+    рядом с ними бессмысленно: папка удаляется при выходе и недоступна для
+    записи. Поэтому в собранном приложении берём корень самой сборки.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent
+
+
+TOOL_DIR = _bundle_dir()
 BIN_DIR = TOOL_DIR / "bin"
 SOURCES_FILE = TOOL_DIR / "sources.local.json"
 
 DEFAULT_SITE = "https://lthub.vercel.app"
 FALLBACK_VERSION = "1.14.2"
 RELEASE_URL = "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
+
+
+def writable_bin_dir() -> Path:
+    """Каталог для sing-box, куда реально можно записать.
+
+    В сборке ``_MEI*`` — временная папка, поэтому скачанный бинарник кладём
+    рядом с ``.exe``: он переживает перезапуск приложения.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "bin"
+    return BIN_DIR
+
+
+def sources_file() -> Path:
+    """Файл с подписками.
+
+    В сборке приоритет у копии рядом с ``.exe``: её можно править руками.
+    Встроенный вариант - не файл, а код (см. ``bundled_sources``): файлы из
+    временной папки ``_MEI*`` читать нельзя, на них ловится ``PermissionError``.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().with_name(SOURCES_FILE.name)
+    return SOURCES_FILE
+
+
+def bundled_sources() -> dict | None:
+    """Подписки, зашитые в ``.exe`` при сборке.
+
+    Хранятся модулем, а не файлом намеренно: PyInstaller распаковывает данные в
+    временную папку ``_MEI*``, и её содержимое недоступно для чтения (на этой
+    машине - ``PermissionError``, как правило, из-за антивируса). Код же лежит
+    внутри самого ``.exe`` и читается всегда.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    try:
+        from scripts.lthub_tunnel import _bundled
+    except ImportError:
+        return None
+    try:
+        return json.loads(_bundled.PAYLOAD)
+    except (AttributeError, ValueError):
+        return None
+
+
+def load_sources(explicit: list[str] | None) -> tuple[list[str], str, int]:
+    """Источники подписок и пробный URL. Приоритет: CLI > файл > встроенные."""
+    urls = [u for u in (explicit or []) if u.strip()]
+    probe_url = DEFAULT_PROBE_URL
+    port = DEFAULT_PORT
+    if urls:
+        return urls, probe_url, port
+    path = sources_file()
+    data: dict | None = None
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RuntimeError(
+                f"Не читается {path}: {exc}. Проверь, что файл не открыт другой программой."
+            ) from exc
+        except ValueError as exc:
+            raise RuntimeError(f"В {path} битый JSON: {exc}") from exc
+    if data is None:
+        data = bundled_sources()
+    if not data:
+        return urls, probe_url, port
+    return (
+        list(data.get("urls", [])),
+        data.get("probe_url") or probe_url,
+        int(data.get("port") or port),
+    )
 
 
 def state_dir(override: str | Path | None = None) -> Path:
@@ -81,21 +166,12 @@ def state_dir(override: str | Path | None = None) -> Path:
 
 
 def sing_box_path() -> Path:
+    """Путь к sing-box: сначала встроенный в сборку, иначе рядом с .exe."""
     name = "sing-box.exe" if os.name == "nt" else "sing-box"
-    return BIN_DIR / name
-
-
-def load_sources(explicit: list[str] | None) -> tuple[list[str], str, int]:
-    """Источники подписок и пробный URL. Приоритет: CLI > sources.local.json."""
-    urls = [u for u in (explicit or []) if u.strip()]
-    probe_url = DEFAULT_PROBE_URL
-    port = DEFAULT_PORT
-    if not urls and SOURCES_FILE.exists():
-        data = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
-        urls = list(data.get("urls", []))
-        probe_url = data.get("probe_url") or probe_url
-        port = int(data.get("port") or port)
-    return urls, probe_url, port
+    bundled = BIN_DIR / name
+    if bundled.exists():
+        return bundled
+    return writable_bin_dir() / name
 
 
 # --- install ---------------------------------------------------------------
@@ -118,28 +194,44 @@ def _latest_version() -> str:
         return FALLBACK_VERSION
 
 
+def install_sing_box(version: str | None = None, force: bool = False, log=print) -> Path:
+    """Скачать sing-box в BIN_DIR и вернуть путь к исполняемому файлу.
+
+    Вынесено отдельно от ``cmd_install``, потому что установкой занимается не
+    только CLI: окно приложения зовёт её же, когда бинарника ещё нет.
+    """
+    target = sing_box_path()
+    if target.exists() and not force:
+        log(f"Уже установлен: {target}")
+        return target
+    version = version or _latest_version()
+    asset, is_zip = _platform_asset(version)
+    url = f"https://github.com/SagerNet/sing-box/releases/download/v{version}/{asset}"
+    log(f"Качаю sing-box {version} ({asset})...")
+    try:
+        with urlopen(Request(url, headers={"User-Agent": "lthub-tunnel"}), timeout=300) as response:
+            blob = response.read()
+    except (URLError, OSError) as exc:
+        raise RuntimeError(
+            f"Не скачалось: {exc}. Скачай вручную и положи в {writable_bin_dir()}"
+        ) from exc
+    target_dir = writable_bin_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    archive = state_dir() / asset
+    archive.write_bytes(blob)
+    _extract(archive, target_dir, is_zip)
+    archive.unlink(missing_ok=True)
+    return target
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     """Скачать sing-box в scripts/lthub_tunnel/bin (нужен один раз)."""
-    if sing_box_path().exists() and not args.force:
-        print(f"Уже установлен: {sing_box_path()}")
-    else:
-        version = args.version or _latest_version()
-        asset, is_zip = _platform_asset(version)
-        url = f"https://github.com/SagerNet/sing-box/releases/download/v{version}/{asset}"
-        print(f"Качаю {version} -> {asset}")
-        try:
-            with urlopen(Request(url, headers={"User-Agent": "lthub-tunnel"}), timeout=300) as response:
-                blob = response.read()
-        except (URLError, OSError) as exc:
-            print(f"Не скачалось: {exc}", file=sys.stderr)
-            print("Скачай вручную и положи в", BIN_DIR, file=sys.stderr)
-            return 1
-        BIN_DIR.mkdir(parents=True, exist_ok=True)
-        archive = state_dir(args.state_dir) / asset
-        archive.write_bytes(blob)
-        _extract(archive, BIN_DIR, is_zip)
-        archive.unlink(missing_ok=True)
-    print(subprocess.run([str(sing_box_path()), "version"], capture_output=True, text=True).stdout.strip())
+    try:
+        binary = install_sing_box(args.version, args.force)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print(subprocess.run([str(binary), "version"], capture_output=True, text=True).stdout.strip())
     return 0
 
 
