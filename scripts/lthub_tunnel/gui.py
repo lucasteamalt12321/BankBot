@@ -45,6 +45,7 @@ class TunnelApp:
         self.root = root
         self.queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy = False
+        self.pending = ""
         self.session = TunnelSession(
             state_root=state_root, site=DEFAULT_SITE, log=self._log
         )
@@ -115,6 +116,10 @@ class TunnelApp:
                 target()
             except Exception as exc:  # noqa: BLE001 - окно должно показать любую ошибку
                 self.queue.put(("error", str(exc)))
+            finally:
+                # Поток обязан сам доложить о конце: иначе после ошибки кнопка
+                # осталась бы заблокированной навсегда.
+                self.queue.put(("done", None))
 
         threading.Thread(target=runner, daemon=True).start()
 
@@ -122,15 +127,15 @@ class TunnelApp:
         if self.busy:
             return
         if self.session.running:
-            self.busy = True
+            self.busy, self.pending = True, "Отключение..."
             self._set_status("Отключение...", bg=BG_BUSY)
-            self.button.config(state="disabled", text="Отключение...")
-            self._work(self._disconnect)
-            return
-        self.busy = True
-        self._set_status(CONNECTING, "Скачиваю подписки и меряю задержку нод", BG_BUSY)
-        self.button.config(state="disabled", text="Подключение...")
-        self._work(self._connect)
+            target = self._disconnect
+        else:
+            self.busy, self.pending = True, "Подключение..."
+            self._set_status(CONNECTING, "Скачиваю подписки и меряю задержку нод", BG_BUSY)
+            target = self._connect
+        self._refresh_button()
+        self._work(target)
 
     def _connect(self) -> None:
         if not self.session.sing_box_installed:
@@ -177,14 +182,26 @@ class TunnelApp:
                 elif kind == "error":
                     self._render_status("Ошибка", str(payload), "#5c1f1f")
                     self._append(f"Ошибка: {payload}")
+                elif kind == "done":
+                    # Поток закончил: только теперь кнопку можно отпустить.
+                    # Раньше она разблокировалась по таймеру, и второй клик
+                    # успевал запустить ещё один sing-box на занятый порт.
+                    self.busy = False
+                    self.pending = ""
+                    self._refresh_button()
         except queue.Empty:
             pass
-        self.busy = False
-        self.button.config(
-            state="normal",
-            text="Отключить" if self.session.running else "Подключить",
-        )
         self.root.after(100, self._drain)
+
+    def _refresh_button(self) -> None:
+        """Пока поток занят - кнопка заблокирована, иначе смотрит на прокси."""
+        if self.busy:
+            self.button.config(state="disabled", text=self.pending)
+        else:
+            self.button.config(
+                state="normal",
+                text="Отключить" if self.session.running else "Подключить",
+            )
 
     def _render_status(self, text: str, detail: str, bg: str) -> None:
         self.status.config(text=text, bg=bg)
@@ -211,6 +228,7 @@ def selftest(log_path: str) -> int:
     """
     lines: list[str] = []
     session = TunnelSession(log=lines.append)
+    code = 1
     try:
         if not session.sing_box_installed:
             session.install()
@@ -218,12 +236,14 @@ def selftest(log_path: str) -> int:
         session.start(settle=8)
         ok, detail = session.check_site(attempts=2)
         lines.append(f"САЙТ: {'ДОСТУПЕН' if ok else 'НЕДОСТУПЕН'} ({detail})")
+        code = 0 if ok else 1
     except Exception as exc:  # noqa: BLE001 - сюда пишем всё, что пошло не так
         lines.append(f"ОШИБКА: {type(exc).__name__}: {exc}")
+        code = 1
     finally:
         session.stop()
     Path(log_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return 0
+    return code
 
 
 def main() -> int:
