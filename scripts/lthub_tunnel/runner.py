@@ -28,7 +28,13 @@ from scripts.lthub_tunnel.probe import (
     probe_nodes,
     select_fastest,
 )
-from scripts.lthub_tunnel.sbconfig import DEFAULT_LISTEN, build_config, dump_config, prune_config
+from scripts.lthub_tunnel.sbconfig import (
+    DEFAULT_LISTEN,
+    DEFAULT_PROBE_URL,
+    build_config,
+    dump_config,
+    prune_config,
+)
 from scripts.lthub_tunnel.subscriptions import load_all
 from scripts.lthub_tunnel.tunnel import (
     DEFAULT_SITE,
@@ -77,6 +83,8 @@ class TunnelSession:
         self.alive_count = 0
         self.total_count = 0
         self.port = 0
+        # Ставится в build() из конфига, пока - значение по умолчанию.
+        self.probe_url = DEFAULT_PROBE_URL
 
     # --- состояние ---------------------------------------------------------
 
@@ -108,6 +116,7 @@ class TunnelSession:
                 "Нет источников подписок: создай sources.local.json или передай --source"
             )
         self.port = port
+        self.probe_url = probe_url
         self.log("Скачиваю подписки...")
         nodes = load_all(urls, timeout=15, cache_dir=self.home / "subs")
         self.total_count = len(nodes)
@@ -189,8 +198,13 @@ class TunnelSession:
             time.sleep(settle)
 
     def check_site(self, attempts: int = 4) -> tuple[bool, str]:
-        """Открыть ли сайт через прокси."""
-        return probe(self.site, self.port, attempts=attempts, timeout=20, delay=2.0)
+        """Проверить, что туннель реально пропускает трафик до нашего приложения.
+
+        Проверяется тот же ``probe_url``, по которому urltest выбирает ноду:
+        204 без тела отвечает за доли секунды и не зависит от тяжести главной
+        страницы. Сам сайт в ``self.site`` остаётся целью для браузера.
+        """
+        return probe(self.probe_url, self.port, attempts=attempts, timeout=20, delay=2.0)
 
     def browse(self) -> None:
         """Открыть сайт в браузере, направленном через прокси."""

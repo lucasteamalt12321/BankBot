@@ -61,7 +61,7 @@ python -m scripts.lthub_tunnel.tunnel install
 ```json
 {
   "urls": ["https://.../subscription/..."],
-  "probe_url": "https://cp.cloudflare.com/generate_204",
+  "probe_url": "https://lthub.vercel.app/api/ping",
   "port": 2080
 }
 ```
@@ -175,7 +175,7 @@ Start-Process python -ArgumentList "-m","scripts.lthub_tunnel.tunnel","up","--op
 ```json
 {
   "urls": ["https://host/feed1", "https://host/feed2"],
-  "probe_url": "https://cp.cloudflare.com/generate_204",
+  "probe_url": "https://lthub.vercel.app/api/ping",
   "port": 2080
 }
 ```

@@ -9659,6 +9659,12 @@ def health():
     return jsonify({"status": "healthy", "platform": "vercel"})
 
 
+@app.route("/api/ping")
+def api_ping():
+    """Замер задержки для клиента туннеля."""
+    return "", 204, {"Cache-Control": "no-store, no-cache, must-revalidate"}
+
+
 @app.route("/debug_puzzle")
 def debug_puzzle():
     """Debug endpoint to test puzzle system."""
