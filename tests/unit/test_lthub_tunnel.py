@@ -32,7 +32,12 @@ from scripts.lthub_tunnel.probe import (
     probe_nodes,
     select_fastest,
 )
-from scripts.lthub_tunnel.sbconfig import build_config, prune_config, write_nodes_report
+from scripts.lthub_tunnel.sbconfig import (
+    DEFAULT_PROBE_URL,
+    build_config,
+    prune_config,
+    write_nodes_report,
+)
 from scripts.lthub_tunnel import runner, subscriptions
 from scripts.lthub_tunnel.subscriptions import (
     SubscriptionError,
@@ -273,6 +278,19 @@ def test_build_config_shape_and_probe_url():
     assert group["outbounds"] == ["n0", "n1"]
     assert [r[0].name for r in rejected] == [""]
     assert config["outbounds"][-1] == {"type": "direct", "tag": "direct"}
+
+
+def test_default_probe_targets_own_app():
+    """Проба идёт в наше приложение, а не на чужой хост.
+
+    Так urltest меряет задержку ровно до сервиса, ради которого поднимают
+    туннель, и не зависит от доступности cloudflare из РФ. sbconfig и clash
+    обязаны использовать один и тот же URL, иначе замер разъедется.
+    """
+    from scripts.lthub_tunnel import clash
+
+    assert DEFAULT_PROBE_URL == "https://lthub.vercel.app/api/ping"
+    assert clash.DEFAULT_PROBE_URL == DEFAULT_PROBE_URL
 
 
 def test_build_config_without_usable_nodes_raises():
@@ -786,7 +804,7 @@ def test_build_clash_groups_and_rules():
     config, rejected = build_clash(nodes)
     assert len(config["proxies"]) == 2
     assert config["proxy-groups"][0]["type"] == "url-test"
-    assert config["proxy-groups"][0]["url"].endswith("generate_204")
+    assert config["proxy-groups"][0]["url"] == DEFAULT_PROBE_URL
     assert config["proxy-groups"][1]["proxies"][0] == "auto"
     assert config["rules"] == ["MATCH,auto"]
     assert len(rejected) == 1
@@ -922,6 +940,24 @@ def test_runner_build_without_sources_raises(tmp_path, monkeypatch):
     session = runner.TunnelSession(state_root=tmp_path)
     with pytest.raises(RuntimeError, match="Нет источников"):
         session.build()
+
+
+def test_runner_check_site_uses_probe_url(tmp_path, monkeypatch):
+    """Проверка туннеля идёт по тому же URL, по которому urltest меряет ноды."""
+    nodes = _tagged_nodes(1)
+    _fake_network(monkeypatch, nodes)
+    session = runner.TunnelSession(state_root=tmp_path)
+    session.build()
+
+    seen: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "probe",
+        lambda url, port, **kw: seen.append(url) or (True, "HTTP 204 за 1 мс"),
+    )
+
+    assert session.check_site() == (True, "HTTP 204 за 1 мс")
+    assert seen == ["https://probe"]
 
 
 def test_runner_stop_is_safe_when_not_started(tmp_path):

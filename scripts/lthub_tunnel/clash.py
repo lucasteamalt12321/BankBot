@@ -15,8 +15,7 @@ from pathlib import Path
 import yaml
 
 from scripts.lthub_tunnel.nodes import Node, unsupported_reason
-
-DEFAULT_PROBE_URL = "https://cp.cloudflare.com/generate_204"
+from scripts.lthub_tunnel.sbconfig import DEFAULT_PROBE_URL
 
 
 def node_to_clash(node: Node) -> dict | None:
