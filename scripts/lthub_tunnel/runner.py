@@ -118,7 +118,7 @@ class TunnelSession:
         self.port = port
         self.probe_url = probe_url
         self.log("Скачиваю подписки...")
-        nodes = load_all(urls, timeout=15, cache_dir=self.home / "subs")
+        nodes = load_all(urls, timeout=15, cache_dir=self.home / "subs", log=self.log)
         self.total_count = len(nodes)
         self.log(f"Нод в подписках: {len(nodes)}")
 

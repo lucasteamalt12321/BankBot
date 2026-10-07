@@ -20,7 +20,8 @@ import hashlib
 import re
 import ssl
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from urllib.error import URLError
@@ -65,7 +66,12 @@ def _is_fatal(exc: Exception) -> bool:
     return "certificate_verify_failed" in text or "certificate verify failed" in text
 
 
-def fetch(url: str, timeout: int = 15, user_agent: str = USER_AGENTS[0]) -> str:
+def fetch(
+    url: str,
+    timeout: int = 15,
+    user_agent: str = USER_AGENTS[0],
+    retries: int | None = None,
+) -> str:
     """Скачать подписку, повторяя при сетевых сбоях и меняя User-Agent вслепую.
 
     Повторы и смена User-Agent - разные инструменты, и раньше они были
@@ -77,10 +83,14 @@ def fetch(url: str, timeout: int = 15, user_agent: str = USER_AGENTS[0]) -> str:
     * смена агента имеет смысл только когда ответ пришёл, но оказался не
       подпиской (некоторые хосты отдают HTML-заглушку вместо конфига);
     * ошибка сертификата - сразу финальная, см. ``_is_fatal``.
+
+    ``retries`` позволяет сузить бюджет: с сохранённой копией на диске
+    бессмысленно ждать полного цикла повторов, если сеть легла.
     """
+    attempts = RETRIES if retries is None else retries
     last_error: Exception | None = None
     agents = (user_agent,) if user_agent != USER_AGENTS[0] else USER_AGENTS
-    for attempt in range(RETRIES):
+    for attempt in range(max(1, attempts)):
         for agent in agents:
             request = Request(
                 url,
@@ -174,14 +184,20 @@ def fetch_cached(url: str, timeout: int = 15, cache_dir: str | Path | None = Non
     рвут соединение; без кеша такое молча теряло все ~100 нод разом, и
     приложение оставалось вообще без рабочих вариантов. Кеш - только запасной
     путь: пинг всё равно отсечёт ноды, которые за время простоя умерли.
+
+    Пока есть кеш, бюджет на сеть - одна попытка. Полный цикл повторов
+    (до ~48 секунд на источник) имел смысл только когда свежей копии нет:
+    иначе мёртвая сеть держала запуск минутами, а в окне при этом не было
+    ни одной новой строки.
     """
     if cache_dir is None:
         return fetch(url, timeout=timeout), False
     cache = _cache_file(url, cache_dir)
+    cached_exists = cache.exists()
     try:
-        body = fetch(url, timeout=timeout)
+        body = fetch(url, timeout=timeout, retries=1 if cached_exists else None)
     except SubscriptionError:
-        if cache.exists():
+        if cached_exists:
             try:
                 return cache.read_text(encoding="utf-8"), True
             except OSError:
@@ -201,27 +217,48 @@ def load_all(
     timeout: int = 15,
     verbose: bool = True,
     cache_dir: str | Path | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> list[Node]:
-    """Скачать все подписки и объединить. Недоступные источники пропускаются."""
-    nodes: list[Node] = []
-    for url in urls:
-        url = url.strip()
-        if not url:
-            continue
+    """Скачать все подписки и объединить. Недоступные источники пропускаются.
+
+    Источники независимы, поэтому качаются параллельно: суммарное время -
+    это теперь самый долгий из них, а не сумма всех. Прогресс идёт в ``log``
+    (его видно в окне) либо в stdout, если лог не передан.
+    """
+    sources = [url.strip() for url in urls if url and url.strip()]
+    if not sources:
+        raise SubscriptionError("нет источников подписок")
+
+    def emit(message: str) -> None:
+        if log is not None:
+            log(message)
+        elif verbose:
+            print(message)
+
+    def load_one(position: int, url: str) -> list[Node] | SubscriptionError:
+        label = f"[{position + 1}/{len(sources)}]"
+        emit(f"{label} Скачиваю {url}")
         try:
             body, cached = fetch_cached(url, timeout=timeout, cache_dir=cache_dir)
         except SubscriptionError as exc:
-            if verbose:
-                print(f"[skip] {exc}")
-            continue
+            emit(f"{label} пропущен: {exc}")
+            return exc
         parsed, stats = parse_subscription(body)
-        if verbose:
-            mark = " (из кеша)" if cached else ""
-            print(
-                f"[ok]   {url} -> ссылок {stats['total']}, "
-                f"разобрано {stats['parsed']}, мусор {stats['skipped']}{mark}"
-            )
-        nodes.extend(parsed)
+        mark = " (из кеша)" if cached else ""
+        emit(
+            f"{label} ok{mark} -> ссылок {stats['total']}, "
+            f"разобрано {stats['parsed']}, мусор {stats['skipped']}"
+        )
+        return parsed
+
+    # Пул не больше числа источников и не раздут: их обычно 2-3.
+    with ThreadPoolExecutor(max_workers=min(len(sources), 4)) as pool:
+        loaded = list(pool.map(lambda item: load_one(*item), enumerate(sources)))
+
+    nodes: list[Node] = []
+    for item in loaded:
+        if isinstance(item, list):
+            nodes.extend(item)
     merged = merge(nodes)
     if not merged:
         raise SubscriptionError("ни одна подписка не вернула ни одной ноды")

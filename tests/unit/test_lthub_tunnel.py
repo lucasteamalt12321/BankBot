@@ -741,7 +741,7 @@ def test_pick_fastest_drops_dead_and_caps(monkeypatch):
 
 
 def test_fetch_cached_writes_cache_on_success(monkeypatch, tmp_path):
-    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30: "vless://fresh")
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None: "vless://fresh")
     body, cached = subscriptions.fetch_cached("https://host/sub?token=secret", cache_dir=tmp_path)
     assert (body, cached) == ("vless://fresh", False)
     files = list(tmp_path.iterdir())
@@ -752,7 +752,7 @@ def test_fetch_cached_writes_cache_on_success(monkeypatch, tmp_path):
 
 
 def test_fetch_cached_falls_back_to_cache(monkeypatch, tmp_path):
-    def boom(url, timeout=30):
+    def boom(url, timeout=30, retries=None):
         raise subscriptions.SubscriptionError("connection reset")
 
     monkeypatch.setattr(subscriptions, "fetch", boom)
@@ -767,8 +767,62 @@ def test_fetch_cached_falls_back_to_cache(monkeypatch, tmp_path):
 
 
 def test_fetch_cached_without_cache_dir_just_fetches(monkeypatch):
-    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30: "vless://x")
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None: "vless://x")
     assert subscriptions.fetch_cached("https://host/sub") == ("vless://x", False)
+
+
+def test_fetch_cached_gives_up_after_one_try_when_cache_exists(monkeypatch, tmp_path):
+    """Свежая копия на диске - не повод держать запуск полными ретраями.
+
+    Мёртвая сеть раньше отрабатывала до ~48 секунд на источник, и в окне
+    при этом не появлялось ни одной новой строки.
+    """
+    calls: list[int | None] = []
+
+    def flaky(url, timeout=30, retries=None):
+        calls.append(retries)
+        raise subscriptions.SubscriptionError("connection reset")
+
+    monkeypatch.setattr(subscriptions, "fetch", flaky)
+    cache = subscriptions._cache_file("https://host/sub", tmp_path)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text("vless://stale", encoding="utf-8")
+
+    body, cached = subscriptions.fetch_cached("https://host/sub", cache_dir=tmp_path)
+
+    assert (body, cached) == ("vless://stale", True)
+    assert calls == [1]
+
+
+def test_fetch_cached_uses_full_budget_without_cache(monkeypatch, tmp_path):
+    calls: list[int | None] = []
+
+    def flaky(url, timeout=30, retries=None):
+        calls.append(retries)
+        raise subscriptions.SubscriptionError("connection reset")
+
+    monkeypatch.setattr(subscriptions, "fetch", flaky)
+
+    with pytest.raises(subscriptions.SubscriptionError):
+        subscriptions.fetch_cached("https://host/sub", cache_dir=tmp_path)
+
+    # Без кеша полный цикл повторов остался прежним: ловить вспышки надо.
+    assert calls == [None]
+
+
+def test_fetch_retries_parameter_limits_requests(monkeypatch):
+    calls: list[int] = []
+
+    def fake_urlopen(request, timeout=None, context=None):
+        calls.append(1)
+        raise OSError(10054, "connection reset by peer")
+
+    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
+
+    with pytest.raises(SubscriptionError, match="10054"):
+        fetch("https://example.org/sub", timeout=1, retries=2)
+    assert len(calls) == 2
 
 
 def test_cache_file_name_is_stable_and_url_specific(tmp_path):
@@ -784,7 +838,7 @@ def test_load_all_uses_cache_when_source_is_down(monkeypatch, tmp_path):
     url = "https://host.example/sub"
     calls: list[str] = []
 
-    def flaky(url_arg, timeout=30):
+    def flaky(url_arg, timeout=30, retries=None):
         calls.append(url_arg)
         if len(calls) == 1:
             return REALITY_TCP
@@ -799,12 +853,65 @@ def test_load_all_uses_cache_when_source_is_down(monkeypatch, tmp_path):
 
 
 def test_load_all_raises_when_source_down_and_no_cache(monkeypatch, tmp_path):
-    def boom(url, timeout=30):
+    def boom(url, timeout=30, retries=None):
         raise subscriptions.SubscriptionError("down")
 
     monkeypatch.setattr(subscriptions, "fetch", boom)
     with pytest.raises(subscriptions.SubscriptionError, match="ни одна подписка"):
         subscriptions.load_all(["https://host.example/sub"], verbose=False, cache_dir=tmp_path)
+
+
+def test_load_all_reports_progress_to_log(monkeypatch, tmp_path):
+    """В окне иначе не видно, что именно сейчас качается.
+
+    Раньше прогресс шёл в stdout, а собранное окно stdout не имеет: после
+    строки «Скачиваю подписки...» в логе не появлялось ничего минутами.
+    """
+    lines: list[str] = []
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None: REALITY_TCP)
+
+    subscriptions.load_all(
+        ["https://a.example/sub", "https://b.example/sub"],
+        cache_dir=tmp_path,
+        log=lines.append,
+    )
+
+    started = [line for line in lines if "Скачиваю" in line]
+    finished = [line for line in lines if "ok" in line and "->" in line]
+    assert len(started) == 2
+    assert len(finished) == 2
+    assert {line.split()[0] for line in started} == {"[1/2]", "[2/2]"}
+
+
+def test_load_all_fetches_sources_in_parallel(monkeypatch, tmp_path):
+    """Источники независимы - ждать их по очереди значит складывать таймауты."""
+    import threading
+    import time as _time
+
+    active = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def slow(url, timeout=30, retries=None):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        _time.sleep(0.3)
+        with lock:
+            active -= 1
+        return REALITY_TCP
+
+    monkeypatch.setattr(subscriptions, "fetch", slow)
+
+    nodes = subscriptions.load_all(
+        [f"https://src{i}.example/sub" for i in range(3)],
+        verbose=False,
+        cache_dir=tmp_path,
+    )
+
+    assert nodes
+    assert peak > 1, "источники загрузились последовательно"
 
 
 def test_node_to_clash_reality_and_ws():
