@@ -12,6 +12,12 @@ on:
 permissions:
   contents: write
 
+env:
+  # Консоль раннера - cp1252, без этого русские строки в print падают
+  # с UnicodeEncodeError. Код туннеля это и так чинит, но на уровне
+  # воркфлоу фиксируем UTF-8 и для сообщений PyInstaller.
+  PYTHONUTF8: '1'
+
 jobs:
   build:
     name: Build LthubTunnel.exe

@@ -54,6 +54,32 @@ from scripts.lthub_tunnel.sbconfig import (
 )
 from scripts.lthub_tunnel.subscriptions import SubscriptionError, load_all
 
+
+def _make_streams_safe() -> None:
+    """Не падать на консоли, которая не умеет кириллицу.
+
+    В пайпе (CI, перенаправление в файл) и на западной локали Windows stdout
+    кодируется в cp1252, и обычный ``print("Качаю sing-box ...")`` бросает
+    ``UnicodeEncodeError`` - процесс падал на первом же русском слове, хотя
+    сетевая часть была исправна. Меняем кодировку на UTF-8 и гасим ошибки
+    кодирования, чтобы вывод был worst-case нечитаемым, но никогда не ронял
+    приложение.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            encoding = (stream.encoding or "").lower().replace("-", "")
+            if encoding in {"utf8", "utf_8"}:
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
+_make_streams_safe()
+
 def _bundle_dir() -> Path:
     """Корень, где лежат ресурсы пакета.
 
