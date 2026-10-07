@@ -5324,6 +5324,36 @@ def _gd_persona_display_name(cands: list[tuple[str, str]]) -> str:
     return cands[0][0] or "Игрок"
 
 
+def _gd_coop_leaderboard_rows(conn) -> list[dict]:
+    """Approved co-op submissions: the partner has no level_completions row.
+
+    Pure co-op partners are credited only at read time (see get_gd_players),
+    so this query powers the leaderboard. The account is resolved by the
+    partner's OWN nick — joining on s.user_id would attach the submitter's
+    profile link to the partner's card.
+    """
+    try:
+        return [
+            dict(r)
+            for r in conn.execute(text("""
+                SELECT NULLIF(TRIM(s.partner_nick), '') AS pname, lv.id AS level_id,
+                       lv.position, lv.name, lv.difficulty,
+                       NULLIF(TRIM(s.username), '') AS other_name,
+                       pwu.login AS web_login, pwu.gd_nickname AS web_gd_nick
+                FROM submissions s
+                JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+                LEFT JOIN web_users pwu
+                       ON LOWER(TRIM(pwu.gd_nickname)) = LOWER(TRIM(s.partner_nick))
+                WHERE s.status = 'approved'
+                  AND s.partner_nick IS NOT NULL AND TRIM(s.partner_nick) <> ''
+                  AND LOWER(TRIM(s.partner_nick)) <> LOWER(TRIM(s.username))
+            """)).mappings().all()
+        ]
+    except Exception as exc:
+        print(f"_gd_coop_leaderboard_rows error: {exc}")
+        return []
+
+
 def get_gd_players(limit: int = 20) -> list[dict]:
     """Global player leaderboard by points (per-completion nick from the approved submission)."""
     try:
@@ -5332,6 +5362,7 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                 SELECT COALESCE(NULLIF(TRIM(lc.player_name), ''),
                                 NULLIF(wu.gd_nickname, ''), wu.display_name,
                                 NULLIF(tu.first_name, ''), tu.username, wu.login, 'Игрок') AS pname,
+                       l.id AS level_id,
                        l.position, l.name, l.difficulty, wu.login AS web_login,
                        wu.gd_nickname AS web_gd_nick
                 FROM level_completions lc
@@ -5347,8 +5378,36 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                     key,
                     {"points": 0, "demons_count": 0, "total_approved": 0,
                      "hardest_pos": None, "hardest_name": None, "web_login": None,
-                     "_cands": []},
+                     "_cands": [], "_levels": set()},
                 )
+                g["_cands"].append((nick, (r.get("web_gd_nick") or "").strip()))
+                g["_levels"].add(r.get("level_id"))
+                pos = int(r.get("position") or 0)
+                g["points"] += _gd_level_points(pos)
+                if _gd_is_demon_tier(_gd_norm_difficulty(r.get("difficulty"), pos)):
+                    g["demons_count"] += 1
+                g["total_approved"] += 1
+                if not g["web_login"]:
+                    g["web_login"] = r.get("web_login")
+                if pos and (g["hardest_pos"] is None or pos < g["hardest_pos"]):
+                    g["hardest_pos"], g["hardest_name"] = pos, r.get("name")
+            # Co-op partners are absent from level_completions by design, so the
+            # top would show them with 0 points (or hide them). Credit them here.
+            for r in _gd_coop_leaderboard_rows(conn):
+                nick = (r.get("pname") or "").strip()
+                if not nick:
+                    continue
+                key = nick.casefold()
+                g = groups.setdefault(
+                    key,
+                    {"points": 0, "demons_count": 0, "total_approved": 0,
+                     "hardest_pos": None, "hardest_name": None, "web_login": None,
+                     "_cands": [], "_levels": set()},
+                )
+                lid = r.get("level_id")
+                if lid in g["_levels"]:
+                    continue  # already counted via their own completion
+                g["_levels"].add(lid)
                 g["_cands"].append((nick, (r.get("web_gd_nick") or "").strip()))
                 pos = int(r.get("position") or 0)
                 g["points"] += _gd_level_points(pos)
@@ -5360,6 +5419,8 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                 if pos and (g["hardest_pos"] is None or pos < g["hardest_pos"]):
                     g["hardest_pos"], g["hardest_name"] = pos, r.get("name")
             merged = [dict(v, player_name=_gd_persona_display_name(v.pop("_cands"))) for v in groups.values()]
+            for v in merged:
+                v.pop("_levels", None)
             merged.sort(key=lambda x: (-x["points"], -x["demons_count"], -x["total_approved"]))
             out = []
             for i, g in enumerate(merged[:limit], 1):
@@ -5374,6 +5435,99 @@ def get_gd_players(limit: int = 20) -> list[dict]:
     except Exception as exc:
         print(f"get_gd_players error: {exc}")
         return []
+
+
+_GD_NICK_SEARCH_LIMIT = 25
+
+
+def search_gd_nicks(query: str, limit: int = _GD_NICK_SEARCH_LIMIT) -> list[dict]:
+    """Local nick picker for the co-op partner field.
+
+    Sources: approved submission owners, recorded partner nicks and account GD
+    nicks. Nicks are grouped by their casefolded form but returned with the
+    original spelling — a picker showing "neon" instead of "Neon" would not
+    match how the player sees their own nick in the game.
+    """
+    q = (query or "").strip().casefold()
+    if len(q) < 2:
+        return []
+    limit = max(1, min(int(limit or _GD_NICK_SEARCH_LIMIT), 50))
+    try:
+        with get_db_engine().connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT TRIM(s.username) AS nick, COUNT(*) AS plays,
+                           COUNT(DISTINCT lv.id) AS completed
+                    FROM submissions s
+                    JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+                    WHERE s.status = 'approved'
+                      AND s.username IS NOT NULL AND TRIM(s.username) <> ''
+                    GROUP BY LOWER(TRIM(s.username)), TRIM(s.username)
+                    UNION ALL
+                    SELECT TRIM(s.partner_nick), COUNT(*), COUNT(DISTINCT lv.id)
+                    FROM submissions s
+                    JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
+                    WHERE s.status = 'approved'
+                      AND s.partner_nick IS NOT NULL AND TRIM(s.partner_nick) <> ''
+                      AND LOWER(TRIM(s.partner_nick)) <> LOWER(TRIM(s.username))
+                    GROUP BY LOWER(TRIM(s.partner_nick)), TRIM(s.partner_nick)
+                """),
+            ).mappings().all()
+            accounts = conn.execute(
+                text("""
+                    SELECT TRIM(wu.gd_nickname) AS nick
+                    FROM web_users wu
+                    WHERE wu.gd_nickname IS NOT NULL AND TRIM(wu.gd_nickname) <> ''
+                    GROUP BY LOWER(TRIM(wu.gd_nickname)), TRIM(wu.gd_nickname)
+                """),
+            ).mappings().all()
+    except Exception as exc:
+        print(f"search_gd_nicks error: {exc}")
+        return []
+    index: dict[str, dict] = {}
+    for r in rows:
+        nick = (r["nick"] or "").strip()
+        if not nick:
+            continue
+        entry = index.setdefault(nick.casefold(), {"plays": 0, "completed": 0, "_cands": []})
+        entry["plays"] += int(r["plays"] or 0)
+        entry["completed"] += int(r["completed"] or 0)
+        entry["_cands"].append(nick)
+    for r in accounts:
+        nick = (r["nick"] or "").strip()
+        if not nick:
+            continue
+        index.setdefault(nick.casefold(), {"plays": 0, "completed": 0, "_cands": []})["_cands"].append(nick)
+    out = []
+    for key, entry in index.items():
+        if q not in key:
+            continue
+        out.append({
+            "nick": _nick_search_display(entry["_cands"]),
+            "plays": entry["plays"],
+            "completed": entry["completed"],
+        })
+    out.sort(key=lambda n: (-n["completed"], -n["plays"], n["nick"]))
+    return out[:limit]
+
+
+def _nick_search_display(cands: list[str]) -> str:
+    """Deterministic display pick for the search picker.
+
+    Prefers a normal mixed-case spelling ("Neon") over an ALL-CAPS variant
+    ("NEON") when both exist; falls back to leading capital, then any.
+    """
+    uniq = sorted({c for c in cands if c}, key=lambda s: (s.casefold(), s))
+    if not uniq:
+        return "Игрок"
+    for pred in (
+        lambda s: s[:1].isupper() and s[1:] != s[1:].upper(),
+        lambda s: s[:1].isupper(),
+    ):
+        for c in uniq:
+            if pred(c):
+                return c
+    return uniq[0]
 
 
 def _gd_resolve_player_uid(conn, nick: str) -> tuple[int | None, dict]:
@@ -7545,9 +7699,17 @@ def gd_page():
                     </select>
                     <input type="number" id="sub-attempts" min="1" placeholder="Попытки (необязательно)" onkeydown="if(event.key==='Enter')submitRecord()">
                 </div>
-                <div class="input-row" style="flex-direction:column;align-items:stretch;gap:4px">
-                    <input type="text" id="sub-partner" maxlength="50" placeholder="🤝 GD-ник напарника — если проходите на двоих (необязательно)" onkeydown="if(event.key==='Enter')submitRecord()">
-                    <span class="hint">Прохождение на двоих: укажите ник второго игрока и приложите один общий пруф — уровень засчитается обоим.</span>
+                <div class="input-row" style="align-items:center;gap:8px">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">
+                        <input type="checkbox" id="sub-coop-toggle" onchange="toggleCoopFields()"> 2p completion
+                    </label>
+                </div>
+                <div class="input-row" id="sub-coop-box" style="display:none;flex-direction:column;align-items:stretch;gap:4px">
+                    <input type="text" id="sub-partner" maxlength="50" placeholder="🔍 Введите GD-ник напарника" autocomplete="off"
+                           oninput="searchPartner(this.value)" onkeydown="partnerKeydown(event)">
+                    <input type="hidden" id="sub-partner-nick">
+                    <div id="sub-partner-list" style="display:flex;flex-direction:column;gap:4px"></div>
+                    <span class="hint" id="sub-coop-hint">Прохождение на двоих: выберите напарника из списка и приложите один общий пруф — уровень засчитается обоим.</span>
                 </div>
                 <div class="input-row" style="margin-bottom:6px">
                     <button type="button" class="tab" id="mode-file-btn" style="flex:none" onclick="setMediaMode('file')">📎 Файл</button>
@@ -7855,6 +8017,76 @@ var IS_ADMIN = false;
                 .catch(function() { out.innerHTML = '<p class="error">Ошибка загрузки.</p>'; });
         }
 
+        function toggleCoopFields() {
+            var on = document.getElementById('sub-coop-toggle').checked;
+            document.getElementById('sub-coop-box').style.display = on ? 'block' : 'none';
+            if (!on) { clearPartner(); }
+            else { var i = document.getElementById('sub-partner'); if (i) i.focus(); }
+        }
+
+        function clearPartner() {
+            var i = document.getElementById('sub-partner');
+            var h = document.getElementById('sub-partner-nick');
+            var list = document.getElementById('sub-partner-list');
+            var hint = document.getElementById('sub-coop-hint');
+            if (i) i.value = '';
+            if (h) h.value = '';
+            if (list) list.innerHTML = '';
+            if (hint) { hint.textContent = 'Прохождение на двоих: выберите напарника из списка и приложите один общий пруф — уровень засчитается обоим.'; hint.style.color = ''; }
+        }
+
+        function pickPartner(nick) {
+            var i = document.getElementById('sub-partner');
+            var h = document.getElementById('sub-partner-nick');
+            var list = document.getElementById('sub-partner-list');
+            var hint = document.getElementById('sub-coop-hint');
+            if (i) i.value = nick;
+            if (h) h.value = nick;
+            if (list) list.innerHTML = '';
+            if (hint) { hint.textContent = 'Напарник: ' + nick + '. Приложите один общий пруф — уровень засчитается обоим.'; hint.style.color = '#a855f7'; }
+        }
+
+        function partnerKeydown(ev) {
+            if (ev.key !== 'Enter') return;
+            ev.preventDefault();
+            var first = document.querySelector('#sub-partner-list button');
+            if (first) first.click();
+        }
+
+        var _partnerTimer = null;
+        function searchPartner(value) {
+            var list = document.getElementById('sub-partner-list');
+            var h = document.getElementById('sub-partner-nick');
+            var hint = document.getElementById('sub-coop-hint');
+            var q = (value || '').trim();
+            if (h) h.value = '';  // free typing alone credits nobody
+            if (hint) hint.style.color = '';
+            if (_partnerTimer) clearTimeout(_partnerTimer);
+            if (q.length < 2) { if (list) list.innerHTML = ''; return; }
+            _partnerTimer = setTimeout(function() {
+                fetch('/api/gd/players/search?q=' + encodeURIComponent(q), {
+                    headers: { 'X-Auth-Token': localStorage.getItem('web_token') || '' }
+                })
+                    .then(function(r) { return r.ok ? r.json() : { nicks: [] }; })
+                    .then(function(d) {
+                        var nicks = (d && d.nicks) || [];
+                        if (!list) return;
+                        if (!nicks.length) {
+                            list.innerHTML = '<div class="hint" style="margin:0">Ник не найден в базе. Проверьте написание или снимите чекбокс «2p completion».</div>';
+                            return;
+                        }
+                        var html = '';
+                        nicks.forEach(function(n) {
+                            var meta = n.completed ? (n.completed + ' ур.') : (n.plays ? (n.plays + ' заяв.') : 'без прохождений');
+                            html += '<button type="button" class="tab" style="text-align:left" onclick="pickPartner(' + JSON.stringify(n.nick).replace(/"/g, '&quot;') + ')">'
+                                + '<b>' + _gdEsc(n.nick) + '</b> <span style="opacity:.65;font-weight:400">' + _gdEsc(meta) + '</span></button>';
+                        });
+                        list.innerHTML = html;
+                    })
+                    .catch(function() { if (list) list.innerHTML = '<div class="hint" style="margin:0">Ошибка поиска.</div>'; });
+            }, 250);
+        }
+
         function submitRecord() {
             var level = document.getElementById('sub-level').value.trim();
             var mediaInput = document.getElementById('sub-media');
@@ -7884,8 +8116,17 @@ var IS_ADMIN = false;
                 if (difSel && difSel.value) { fd.append('difficulty', difSel.value); }
                 var attInp = document.getElementById('sub-attempts');
                 if (attInp && attInp.value && parseInt(attInp.value, 10) > 0) { fd.append('attempts', attInp.value); }
-                var partnerInp = document.getElementById('sub-partner');
-                if (partnerInp && partnerInp.value.trim()) { fd.append('partner_nick', partnerInp.value.trim()); }
+                var coopOn = document.getElementById('sub-coop-toggle');
+                var partnerNick = document.getElementById('sub-partner-nick');
+                if (coopOn && coopOn.checked) {
+                    var picked = partnerNick && partnerNick.value ? partnerNick.value.trim() : '';
+                    if (!picked) {
+                        out.innerHTML = '<p class="error">Выберите напарника из поиска по нику (или снимите чекбокс «2p completion»).</p>';
+                        btn.disabled = false;
+                        return;
+                    }
+                    fd.append('partner_nick', picked);
+                }
                 if (mediaMode === 'link') { fd.append('media_url', mediaUrl); }
                 else { fd.append('media', mediaFile, mediaFile.name); }
                 var xhr = new XMLHttpRequest();
@@ -7899,7 +8140,8 @@ var IS_ADMIN = false;
                         out.innerHTML = '<p class="hint">✅ Рекорд отправлен! Заявка #' + r.submission_id + ' ожидает модерации.</p>';
                         hubTrack('gd', 1);
                         document.getElementById('sub-level').value = '';
-                        if (partnerInp) { partnerInp.value = ''; }
+                        document.getElementById('sub-coop-toggle').checked = false;
+                        toggleCoopFields();
                         if (mediaInput) { mediaInput.value = ''; updateMediaLabel(); }
                         if (linkInput) { linkInput.value = ''; }
                         setMediaMode('file');
@@ -7986,7 +8228,7 @@ var IS_ADMIN = false;
                             + '<div style="color:var(--gh-text);font-size:15px;margin:6px 0">🎮 ' + _gdEsc(s.level_name) + '</div>'
                             + (s.partner_nick ? '<div class="hint" style="margin-top:0;color:#a855f7;font-weight:700">🤝 co-op на двоих — напарник: ' + _gdEsc(s.partner_nick) + ' (приложен один общий пруф)</div>' : '')
                             + '<div class="hint" style="margin-top:0">'
-                            + (s.difficulty ? '⭐ Сложность: ' + _gdEsc(s.difficulty) + ' · ' : '')
+                            + (s.difficulty ? '⭐ Предложенная сложность: ' + _gdEsc(s.difficulty) + ' · ' : '')
                             + (s.attempts ? '💀 Попыток: ' + _gdEsc(String(s.attempts)) + ' · ' : '')
                             + '📅 ' + _gdEsc(s.submitted_at || '—') + ' · ' + _gdEsc(s.media_type || 'без медиа') + '</div>'
                             + '<div class="hint" style="margin-top:0">'
@@ -8496,6 +8738,15 @@ def api_gd_players():
     return jsonify(get_gd_players(limit))
 
 
+@app.route("/api/gd/players/search")
+def api_gd_players_search():
+    # Nick index of all players: only for logged-in users (anti-enumeration).
+    if not _get_session_user(_auth_token_from_request() or None):
+        return jsonify({"error": "Войдите в аккаунт"}), 401
+    q = (request.args.get("q") or "").strip()
+    return jsonify({"nicks": search_gd_nicks(q)})
+
+
 @app.route("/api/gd/user/<nick>")
 def api_gd_user(nick: str):
     data = fetch_gd_user(nick)
@@ -8866,18 +9117,31 @@ def api_gd_moderate_approve():
     try:
         with get_db_engine().connect() as conn:
             row = conn.execute(
-                text("SELECT level_name FROM submissions WHERE id = :sid AND status = 'pending'"),
+                text("SELECT level_name, difficulty FROM submissions WHERE id = :sid AND status = 'pending'"),
                 {"sid": sub_id},
             ).mappings().first()
+            # A level already in the list keeps whatever the admin has set:
+            # add_gd_level overwrites difficulty, so approving another run must
+            # not reset it (it used to reset it to "Unknown" every time).
+            cur_diff = None
+            if row:
+                cur = conn.execute(
+                    text("SELECT difficulty FROM levels WHERE LOWER(TRIM(name)) = :key"),
+                    {"key": _gd_norm_name(row["level_name"])},
+                ).mappings().first()
+                cur_diff = _gd_norm_difficulty(cur["difficulty"]) if cur and cur.get("difficulty") else None
     except Exception as exc:
         print(f"approve fetch error: {exc}")
         return jsonify({"error": "Ошибка базы данных"}), 500
     if not row:
         return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
     level_name = row["level_name"]
-    # Difficulty is auto-derived from the position tier (Top X); the admin can
-    # fine-tune it from the fixed difficulty dropdown without any external call.
-    level_id = add_gd_level(level_name, position, "Unknown")
+    # The player's suggested difficulty from the submission seeds a NEW level;
+    # an existing one keeps its admin-set difficulty, "unknown" gets upgraded.
+    suggested = (row.get("difficulty") or "").strip()
+    if cur_diff and cur_diff != "unknown":
+        suggested = cur_diff
+    level_id = add_gd_level(level_name, position, suggested or "Unknown")
     if not level_id:
         return jsonify({"error": f"Ошибка при добавлении уровня {level_name} в топ"}), 500
     if approve_gd_submission_db(sub_id, admin_id):
