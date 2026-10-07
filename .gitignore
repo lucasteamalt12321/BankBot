@@ -90,4 +90,3 @@ scripts/lthub_tunnel/dist/
 scripts/lthub_tunnel/build/
 scripts/lthub_tunnel/*.spec
 scripts/lthub_tunnel/_bundled.py
-scripts/lthub_tunnel/sources.local.json

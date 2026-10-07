@@ -1,0 +1,10 @@
+{
+  "_comment": "Источники подписок и адрес пробы. Это публичные VPN-конфиги из интернета, секрета нет - файл закоммичен, чтобы .exe собирался в CI и на любой машине.",
+  "urls": [
+    "https://solovyov-jenya2004.vercel.app/random/",
+    "https://raw.githack.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt",
+    "https://botapi.mooo.com/ldvpn/subscription/abe352d9-019a-417e-a712-47cc99bf0985/"
+  ],
+  "probe_url": "https://lthub.vercel.app/api/ping",
+  "port": 2080
+}
