@@ -8,9 +8,23 @@ sing-box** из обычной VPN-подписки и открывает сай
 Никаких TUN-драйверов и прав администратора: `mixed`-инбаунд на
 `127.0.0.1:2080`, который понимает и HTTP, и SOCKS5.
 
+## Скачать
+
+Готовый `LthubTunnel.exe` лежит в **Releases** репозитория:
+
+<https://github.com/lucasteamalt12321/BankBot/releases>
+
+Скачать файл, запустить, нажать «Подключить» — Python и sing-box скачутся сами.
+
+Релиз собирает GitHub Actions по тегу `lthub-tunnel-v*`
+(`.github/workflows/release-tunnel.yml`): сборка `.exe`, самопроверка
+собранного бинарника через `--selftest` и публикация ассета. Если
+самопроверка не прошла, релиз не публикуется.
+
 ## Приложение (окно)
 
-Обычный запуск — двойной клик по готовому файлу:
+Обычный запуск — двойной клик по готовому файлу (из Releases либо после
+локальной сборки):
 
 ```
 scripts/lthub_tunnel/dist/LthubTunnel.exe
@@ -56,7 +70,8 @@ python -m scripts.lthub_tunnel.tunnel install
 
 ## Источники подписок
 
-Создать `scripts/lthub_tunnel/sources.local.json` (в git не попадает):
+Создать `scripts/lthub_tunnel/sources.local.json` (закоммичен — внутри
+публичные VPN-конфиги, секрета нет):
 
 ```json
 {
@@ -170,7 +185,8 @@ Start-Process python -ArgumentList "-m","scripts.lthub_tunnel.tunnel","up","--op
 
 Имя файла кеша — хост плюс хеш URL, так что токен подписки на диск не пишется.
 
-Источники перечислены в `sources.local.json` (в git не попадает — там токены):
+Источники перечислены в `sources.local.json` (закоммичен, это публичные
+VPN-конфиги из интернета):
 
 ```json
 {

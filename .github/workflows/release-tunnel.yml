@@ -1,0 +1,55 @@
+name: Release Tunnel
+
+# Собирает готовый .exe и кладёт его в GitHub Release.
+# Триггер - тег вида lthub-tunnel-v*, либо ручной запуск в Actions
+# (тогда ассет не публикуется, только сборка и самопроверка).
+on:
+  push:
+    tags:
+      - 'lthub-tunnel-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build LthubTunnel.exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyinstaller pyyaml
+
+      - name: Download sing-box
+        run: python -c "from scripts.lthub_tunnel.tunnel import install_sing_box; print(install_sing_box())"
+
+      - name: Build .exe
+        run: python scripts/lthub_tunnel/build_exe.py
+
+      # Самопроверка именно собранного бинарника: подписки -> пинг -> прокси ->
+      # HTTP 204 от /api/ping. Роняет релиз, если .exe не поднимает туннель.
+      - name: Self-test .exe
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "selftest.log"
+          $p = Start-Process -FilePath "scripts\lthub_tunnel\dist\LthubTunnel.exe" `
+            -ArgumentList @("--selftest", $log) -Wait -PassThru
+          if (Test-Path $log) { Get-Content $log }
+          if ($p.ExitCode -ne 0) {
+            Write-Error "selftest завершился с кодом $($p.ExitCode)"
+            exit 1
+          }
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: scripts/lthub_tunnel/dist/LthubTunnel.exe
+          generate_release_notes: true
