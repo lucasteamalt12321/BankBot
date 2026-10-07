@@ -451,15 +451,30 @@ def wait_port(host: str, port: int, timeout: float = 30.0) -> bool:
     return False
 
 
-def probe(url: str, proxy_port: int, timeout: int = 25, attempts: int = 8, delay: float = 5.0) -> tuple[bool, str]:
-    """Открыть URL через прокси с ретраями. Возвращает (ок, описание).
+def probe(
+    url: str,
+    proxy_port: int | None,
+    timeout: int = 25,
+    attempts: int = 8,
+    delay: float = 5.0,
+) -> tuple[bool, str]:
+    """Открыть URL с ретраями. Возвращает (ок, описание).
+
+    ``proxy_port`` - порт нашего локального прокси; ``None`` означает прямое
+    соединение вообще без прокси (в том числе без системного из реестра).
+    Разделяем эти два случая, чтобы при отказе было видно, виноват туннель
+    или само приложение недоступно из этой сети.
 
     Первые попытки нужны потому, что urltest ещё не закончил замер нод и
     группа может временно вести на мёртвую. Следующий цикл urltest (минута)
     уводит группу на живую ноду - поэтому повторяем заметно дольше.
     """
-    proxy = f"http://{DEFAULT_LISTEN}:{proxy_port}"
-    opener = urllib.request.build_opener(ProxyHandler({"http": proxy, "https": proxy}))
+    if proxy_port is None:
+        handlers = [ProxyHandler({})]
+    else:
+        proxy = f"http://{DEFAULT_LISTEN}:{proxy_port}"
+        handlers = [ProxyHandler({"http": proxy, "https": proxy})]
+    opener = urllib.request.build_opener(*handlers)
     last = "неизвестная ошибка"
     for attempt in range(1, attempts + 1):
         started = time.monotonic()

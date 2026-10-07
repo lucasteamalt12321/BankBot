@@ -986,6 +986,91 @@ def test_runner_check_site_uses_probe_url(tmp_path, monkeypatch):
     assert seen == ["https://probe"]
 
 
+def test_runner_check_site_forwards_delay(tmp_path, monkeypatch):
+    """Самопроверка имеет право сама выбирать паузу между попытками."""
+    seen: dict = {}
+    monkeypatch.setattr(
+        runner,
+        "probe",
+        lambda url, port, **kw: seen.update(kw) or (True, "HTTP 204 за 1 мс"),
+    )
+    session = runner.TunnelSession(state_root=tmp_path)
+    session.port = 2080
+
+    session.check_site(attempts=6, delay=3.0)
+
+    assert seen["attempts"] == 6
+    assert seen["delay"] == 3.0
+
+
+def test_probe_without_port_bypasses_every_proxy(monkeypatch):
+    """Прямая проверка не должна уходить через локальный или системный прокси."""
+    from scripts.lthub_tunnel import tunnel
+
+    captured: dict = {}
+
+    class _Resp:
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class _Opener:
+        def open(self, _url, timeout=None):
+            return _Resp()
+
+    monkeypatch.setattr(
+        tunnel.urllib.request,
+        "build_opener",
+        lambda *handlers: captured.setdefault("handlers", handlers) and _Opener(),
+    )
+
+    ok, _detail = tunnel.probe("https://probe", None, attempts=1, timeout=1, delay=0)
+
+    assert ok is True
+    handlers = captured["handlers"]
+    assert len(handlers) == 1
+    assert handlers[0].proxies == {}
+
+
+def test_probe_with_port_uses_local_proxy(monkeypatch):
+    from scripts.lthub_tunnel import tunnel
+
+    captured: dict = {}
+
+    class _Opener:
+        def open(self, _url, timeout=None):
+            raise ValueError("дальше не важно")
+
+    monkeypatch.setattr(
+        tunnel.urllib.request,
+        "build_opener",
+        lambda *handlers: captured.setdefault("handlers", handlers) and _Opener(),
+    )
+
+    tunnel.probe("https://probe", 2080, attempts=1, timeout=1, delay=0)
+
+    assert captured["handlers"][0].proxies == {
+        "http": "http://127.0.0.1:2080",
+        "https": "http://127.0.0.1:2080",
+    }
+
+
+def test_tail_reads_last_lines(tmp_path):
+    from scripts.lthub_tunnel.gui import _tail
+
+    path = tmp_path / "sing-box.log"
+    path.write_text("\n".join(f"line {i}" for i in range(1, 61)), encoding="utf-8")
+
+    tail = _tail(path, limit=3)
+
+    assert tail == ["line 58", "line 59", "line 60"]
+    assert _tail(tmp_path / "missing.log") == []
+
+
 def test_runner_stop_is_safe_when_not_started(tmp_path):
     session = runner.TunnelSession(state_root=tmp_path)
     assert session.running is False

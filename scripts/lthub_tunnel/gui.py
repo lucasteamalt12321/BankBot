@@ -25,8 +25,8 @@ from pathlib import Path
 from tkinter import scrolledtext
 
 from scripts.lthub_tunnel.runner import TunnelSession
-from scripts.lthub_tunnel.sbconfig import DEFAULT_LISTEN
-from scripts.lthub_tunnel.tunnel import DEFAULT_SITE
+from scripts.lthub_tunnel.sbconfig import DEFAULT_LISTEN, DEFAULT_PROBE_URL
+from scripts.lthub_tunnel.tunnel import DEFAULT_SITE, probe
 
 IDLE = "Отключено"
 CONNECTING = "Подключение..."
@@ -219,22 +219,38 @@ class TunnelApp:
         self.root.destroy()
 
 
+def _tail(path: Path, limit: int = 40) -> list[str]:
+    """Последние строки лога sing-box для врезки в отчёт самопроверки."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return text.splitlines()[-limit:]
+
+
 def selftest(log_path: str) -> int:
     """Прогнать путь подключения без окна и записать результат в файл.
 
     Нужно для проверки именно собранного ``.exe``: там по-другому находятся
     подписки и sing-box, и ошибка видна только внутри бинарника. Окно в этом
     режиме не создаётся, поэтому работает и без кликов.
+
+    Сначала идёт прямая проверка нашего эндпоинта без прокси. На код возврата
+    она не влияет: из части сетей наше приложение напрямую не отвечает, но
+    через туннель проходит нормое. Роль строки - дать контекст: если упала и
+    прямая, и туннельная, дело скорее в сети, а не в .exe.
     """
     lines: list[str] = []
     session = TunnelSession(log=lines.append)
     code = 1
     try:
+        direct_ok, direct_detail = probe(DEFAULT_PROBE_URL, None, attempts=2, timeout=15, delay=1.0)
+        lines.append(f"НАПРЯМУЮ: {'ДОСТУПЕН' if direct_ok else 'НЕДОСТУПЕН'} ({direct_detail})")
         if not session.sing_box_installed:
             session.install()
         session.build()
-        session.start(settle=8)
-        ok, detail = session.check_site(attempts=2)
+        session.start(settle=15)
+        ok, detail = session.check_site(attempts=6, delay=3.0)
         lines.append(f"САЙТ: {'ДОСТУПЕН' if ok else 'НЕДОСТУПЕН'} ({detail})")
         code = 0 if ok else 1
     except Exception as exc:  # noqa: BLE001 - сюда пишем всё, что пошло не так
@@ -242,6 +258,11 @@ def selftest(log_path: str) -> int:
         code = 1
     finally:
         session.stop()
+        if code != 0:
+            tail = _tail(session.home / "sing-box.log")
+            if tail:
+                lines.append("---- лог sing-box (хвост) ----")
+                lines.extend(tail)
     Path(log_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     return code
 
