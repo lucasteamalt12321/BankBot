@@ -197,14 +197,18 @@ class TunnelSession:
             self.log(f"Даю urltest {settle:.0f} с на замер нод...")
             time.sleep(settle)
 
-    def check_site(self, attempts: int = 4) -> tuple[bool, str]:
+    def check_site(self, attempts: int = 4, delay: float = 2.0) -> tuple[bool, str]:
         """Проверить, что туннель реально пропускает трафик до нашего приложения.
 
         Проверяется тот же ``probe_url``, по которому urltest выбирает ноду:
         204 без тела отвечает за доли секунды и не зависит от тяжести главной
         страницы. Сам сайт в ``self.site`` остаётся целью для браузера.
+
+        ``delay`` между попытками: на медленной сети urltest не успевает
+        доделать первый замер, и пара слишком коротких попыток даёт ложный
+        отказ - поэтому самопроверка имеет право ждать подольше.
         """
-        return probe(self.probe_url, self.port, attempts=attempts, timeout=20, delay=2.0)
+        return probe(self.probe_url, self.port, attempts=attempts, timeout=20, delay=delay)
 
     def browse(self) -> None:
         """Открыть сайт в браузере, направленном через прокси."""

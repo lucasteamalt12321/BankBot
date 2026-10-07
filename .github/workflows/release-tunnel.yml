@@ -39,15 +39,20 @@ jobs:
       - name: Build .exe
         run: python scripts/lthub_tunnel/build_exe.py
 
-      # Самопроверка именно собранного бинарника: подписки -> пинг -> прокси ->
-      # HTTP 204 от /api/ping. Роняет релиз, если .exe не поднимает туннель.
+      # Самопроверка именно собранного бинарника: прямой доступ к /api/ping,
+      # подписки -> пинг -> прокси -> HTTP 204 через туннель. Роняет релиз,
+      # если .exe не поднимает туннель; при отказе в отчёт попадает хвост
+      # лога sing-box, иначе причину на раннере не видно.
       - name: Self-test .exe
         shell: pwsh
         run: |
+          # Консоль раннера отдаёт байты в OEM-кодировке, и весь кириллический
+          # отчёт самопроверки превращался в "???". Читаем и пишем в UTF-8.
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
           $log = Join-Path $env:RUNNER_TEMP "selftest.log"
           $p = Start-Process -FilePath "scripts\lthub_tunnel\dist\LthubTunnel.exe" `
             -ArgumentList @("--selftest", $log) -Wait -PassThru
-          if (Test-Path $log) { Get-Content $log }
+          if (Test-Path $log) { Get-Content -Encoding UTF8 $log }
           if ($p.ExitCode -ne 0) {
             Write-Error "selftest завершился с кодом $($p.ExitCode)"
             exit 1
