@@ -293,6 +293,32 @@ def test_default_probe_targets_own_app():
     assert clash.DEFAULT_PROBE_URL == DEFAULT_PROBE_URL
 
 
+def test_make_streams_safe_reencodes_legacy_console(monkeypatch):
+    """Консоль cp1252 (пайп на CI, западная локаль) не должна ронять print.
+
+    Ровно так сборка падала на ``UnicodeEncodeError`` внутри install_sing_box.
+    """
+    from scripts.lthub_tunnel import tunnel
+
+    class FakeStream:
+        encoding = "cp1252"
+
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def reconfigure(self, **kwargs) -> None:
+            self.calls.append(kwargs)
+
+    out, err = FakeStream(), FakeStream()
+    monkeypatch.setattr(tunnel.sys, "stdout", out)
+    monkeypatch.setattr(tunnel.sys, "stderr", err)
+
+    tunnel._make_streams_safe()
+
+    assert out.calls == [{"encoding": "utf-8", "errors": "replace"}]
+    assert err.calls == [{"encoding": "utf-8", "errors": "replace"}]
+
+
 def test_build_config_without_usable_nodes_raises():
     node = parse_vless(XHTTP_NODE)
     with pytest.raises(ValueError, match="не осталось"):
