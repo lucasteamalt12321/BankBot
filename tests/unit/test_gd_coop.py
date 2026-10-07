@@ -14,16 +14,18 @@ import pytest
 from sqlalchemy import text
 
 from api.index import app
-from tests.unit.test_web_portal_e2e import _auth_headers, _make_engine
+from tests.unit.test_web_portal_e2e import _auth_headers, _make_engine, _promote_admin
 
 
-def _submit(c, headers, level_name="Tartarus", partner=None, gd_nick=None):
+def _submit(c, headers, level_name="Tartarus", partner=None, gd_nick=None, difficulty=None):
     data = {"level_name": level_name}
     data["media"] = (io.BytesIO(b"\x00\x01\x02fake-video"), "run.mp4")
     if partner is not None:
         data["partner_nick"] = partner
     if gd_nick is not None:
         data["gd_nickname"] = gd_nick
+    if difficulty is not None:
+        data["difficulty"] = difficulty
     return c.post("/api/gd/submit", data=data, headers=headers, content_type="multipart/form-data")
 
 
@@ -283,6 +285,153 @@ def test_gd_coop_partner_seen_by_moderator(mock_engine):
 
 
 @patch("api.index.get_db_engine")
+def test_gd_coop_partner_appears_in_top_players(mock_engine):
+    """Regression: a pure co-op partner used to be missing from the leaderboard.
+
+    ``get_gd_players`` aggregates ``level_completions``, where co-op partners have
+    no row by design, so the partner scored 0 and did not appear at all — the
+    level was visible only on the submitter's side.
+    """
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+    index_api.add_gd_level("Tartarus", 1, "Hard")
+    token = index_api._create_session(1)
+    sub_id = _submit(c, _auth_headers(token), partner="Neon").get_json()["submission_id"]
+
+    # Before approval nobody is on the board from this run.
+    names_before = {p["player_name"] for p in c.get("/api/gd/players?limit=200").get_json()}
+    assert "Neon" not in names_before
+
+    assert index_api.approve_gd_submission_db(sub_id, 1) is True
+
+    board = {p["player_name"]: p for p in c.get("/api/gd/players?limit=200").get_json()}
+    assert "Riot" in board and "Neon" in board
+    assert board["Neon"]["points"] == board["Riot"]["points"] > 0
+    assert board["Neon"]["total_approved"] == 1
+    assert board["Neon"]["web_login"] is None, "co-op partner is not the submitter's account"
+
+
+@patch("api.index.get_db_engine")
+def test_gd_coop_top_players_dedup_vs_own_completion(mock_engine):
+    """Co-op and a solo completion of the same level count once in the top."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+        _seed_user(conn, 2, "second", "Neon")
+    index_api.add_gd_level("Tartarus", 1, "Hard")
+    solo = _submit(c, _auth_headers(index_api._create_session(2))).get_json()["submission_id"]
+    coop = _submit(c, _auth_headers(index_api._create_session(1)), partner="Neon").get_json()["submission_id"]
+    assert index_api.approve_gd_submission_db(solo, 1) is True
+    assert index_api.approve_gd_submission_db(coop, 1) is True
+
+    board = {p["player_name"]: p for p in c.get("/api/gd/players?limit=200").get_json()}
+    neon = board["Neon"]
+    solo_points = index_api._gd_level_points(1)
+    assert neon["points"] == solo_points, "one level must be worth points once"
+    assert neon["total_approved"] == 1
+
+
+@patch("api.index.get_db_engine")
+def test_gd_coop_top_players_ignores_rejected(mock_engine):
+    """A rejected co-op run puts nobody on the leaderboard."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+    index_api.add_gd_level("Tartarus", 1, "Hard")
+    sub_id = _submit(c, _auth_headers(index_api._create_session(1)), partner="Neon").get_json()["submission_id"]
+    assert index_api.reject_gd_submission_db(sub_id, 1) is True
+
+    assert c.get("/api/gd/players?limit=200").get_json() == []
+
+
+@patch("api.index.get_db_engine")
+def test_gd_partner_search_finds_known_nicks(mock_engine):
+    """The co-op partner picker searches locally known nicks."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+        _seed_user(conn, 2, "second", "hikiktosik")
+        _seed_user(conn, 3, "third", "NeonBlade")
+    index_api.add_gd_level("Tartarus", 1, "Hard")
+    sub_id = _submit(c, _auth_headers(index_api._create_session(1)), partner="Neon").get_json()["submission_id"]
+    assert index_api.approve_gd_submission_db(sub_id, 1) is True
+
+    headers = _auth_headers(index_api._create_session(1))
+
+    # Submission owners, recorded partners and account nicks are all searchable.
+    found = [n["nick"] for n in c.get("/api/gd/players/search?q=ne", headers=headers).get_json()["nicks"]]
+    # substring match also reaches NeonBlade, but the credited Neon comes first
+    assert found[:1] == ["Neon"] and "NeonBlade" in found
+    assert [n["nick"] for n in c.get("/api/gd/players/search?q=hik", headers=headers).get_json()["nicks"]] == ["hikiktosik"]
+    assert "NeonBlade" in [n["nick"] for n in c.get("/api/gd/players/search?q=blade", headers=headers).get_json()["nicks"]]
+    # Riot submitted this level, so the search reports his completions.
+    riot = [n for n in c.get("/api/gd/players/search?q=riot", headers=headers).get_json()["nicks"] if n["nick"] == "Riot"]
+    assert riot and riot[0]["completed"] == 1
+    # One character is not enough to scan the whole nick index.
+    assert c.get("/api/gd/players/search?q=r", headers=headers).get_json()["nicks"] == []
+    assert c.get("/api/gd/players/search?q=zzzz", headers=headers).get_json()["nicks"] == []
+
+
+@patch("api.index.get_db_engine")
+def test_gd_partner_search_requires_login(mock_engine):
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+
+    assert c.get("/api/gd/players/search?q=ne").status_code == 401
+
+
+@patch("api.index.get_db_engine")
+def test_gd_partner_search_dedupes_case_variants(mock_engine):
+    """The same nick in different spellings is one search result."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+    index_api.add_gd_level("Tartarus", 1, "Hard")
+    h = _auth_headers(index_api._create_session(1))
+    s1 = _submit(c, h, partner="Neon").get_json()["submission_id"]
+    s2 = _submit(c, h, partner="NEON").get_json()["submission_id"]
+    assert index_api.approve_gd_submission_db(s1, 1) is True
+    assert index_api.approve_gd_submission_db(s2, 1) is True
+
+    nicks = c.get("/api/gd/players/search?q=neon", headers=h).get_json()["nicks"]
+    assert [n["nick"] for n in nicks].count("Neon") == 1
+
+
+@patch("api.index.get_db_engine")
+def test_gd_coop_form_uses_checkbox_and_search(mock_engine):
+    """The submit form drives co-op through a checkbox plus a nick picker."""
+    mock_engine.return_value = _make_engine()
+    c = app.test_client()
+    body = c.get("/gd").get_data(as_text=True)
+    assert 'id="sub-coop-toggle"' in body
+    assert "2p completion" in body
+    assert 'id="sub-partner-nick"' in body, "the sent nick must come from the picked value"
+    assert "searchPartner" in body and "pickPartner" in body
+
+
+@patch("api.index.get_db_engine")
 def test_gd_solo_flow_stays_solo(mock_engine):
     """Regression: an ordinary submission has no partner and no co-op flags."""
     from api import index as index_api
@@ -375,3 +524,111 @@ def test_gd_coop_partner_self_rejected(partner):
     value, error = _gd_norm_coop_partner(partner, "Riot")
     assert value is None
     assert error
+
+
+def _approve_via_api(c, index_api, sub_id, position=1):
+    """Promote the owner to admin and approve through the real HTTP endpoint."""
+    _promote_admin(1)
+    resp = c.post(
+        "/api/gd/moderate/approve",
+        json={"submission_id": sub_id, "position": position},
+        headers=_auth_headers(index_api._create_session(1)),
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()
+
+
+@patch("api.index.get_db_engine")
+def test_gd_suggested_difficulty_seeds_new_level(mock_engine):
+    """The difficulty picked in the submit form seeds the level list on approve."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+    sub_id = _submit(c, _auth_headers(index_api._create_session(1)), difficulty="hard_demon")
+    sub_id = sub_id.get_json()["submission_id"]
+
+    # The suggestion is stored on the submission as a human label.
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT difficulty FROM submissions WHERE id = :sid"), {"sid": sub_id}
+        ).mappings().first()
+    assert row["difficulty"] == "Hard Demon"
+
+    result = _approve_via_api(c, index_api, sub_id, position=1)
+
+    with engine.begin() as conn:
+        lv = conn.execute(text("SELECT id, difficulty FROM levels")).mappings().first()
+    assert lv["id"] == result["level_id"]
+    assert lv["difficulty"] == "hard_demon", "suggested difficulty must reach the list"
+
+
+@patch("api.index.get_db_engine")
+def test_gd_approve_keeps_admin_set_difficulty(mock_engine):
+    """Approving another run must not reset a difficulty the admin has set."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+    index_api.add_gd_level("Tartarus", 1, "Extreme Demon")
+
+    h = _auth_headers(index_api._create_session(1))
+    first = _submit(c, h, difficulty="easy").get_json()["submission_id"]
+    second = _submit(c, h, difficulty="easy").get_json()["submission_id"]
+    _approve_via_api(c, index_api, first, position=1)
+    _approve_via_api(c, index_api, second, position=1)
+
+    with engine.begin() as conn:
+        lv = conn.execute(text("SELECT difficulty FROM levels")).mappings().first()
+    assert lv["difficulty"] == "extreme_demon", "the admin's choice wins over a player suggestion"
+
+
+@patch("api.index.get_db_engine")
+def test_gd_approve_without_suggestion_stays_unknown(mock_engine):
+    """No suggestion in the submission -> the list still gets the neutral value."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+    sub_id = _submit(c, _auth_headers(index_api._create_session(1))).get_json()["submission_id"]
+    _approve_via_api(c, index_api, sub_id, position=1)
+
+    with engine.begin() as conn:
+        lv = conn.execute(text("SELECT difficulty FROM levels")).mappings().first()
+    assert lv["difficulty"] == "unknown"
+
+
+@patch("api.index.get_db_engine")
+def test_gd_moderation_card_labels_suggested_difficulty(mock_engine):
+    """The moderation card presents the submission difficulty as a suggestion."""
+    from api import index as index_api
+    mock_engine.return_value = _make_engine()
+    engine = mock_engine.return_value
+    c = app.test_client()
+
+    with engine.begin() as conn:
+        _seed_user(conn, 1, "owner", "Riot")
+        _seed_user(conn, 3, "boss", "Admin")
+        conn.execute(text("UPDATE web_users SET is_admin = 1 WHERE id = 3"))
+    sub_id = _submit(
+        c, _auth_headers(index_api._create_session(1)), difficulty="insane_demon"
+    ).get_json()["submission_id"]
+
+    body = c.get("/gd").get_data(as_text=True)
+    assert "Предложенная сложность" in body
+    assert "'⭐ Сложность: '" not in body, "old unqualified label must be gone"
+
+    rows = c.get(
+        "/api/gd/moderate", headers=_auth_headers(index_api._create_session(3))
+    ).get_json()["submissions"]
+    assert [r["id"] for r in rows] == [sub_id]
+    assert rows[0]["difficulty"] == "Insane Demon"
