@@ -48,6 +48,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+          # аудио-стек модуля «Музыка»: без него core.music не импортируется
+          # (numpy/librosa/soundfile) и падают test_music/test_freemium_gates
+          pip install -r requirements-audio.txt
+          # бинарник sing-box нужен тестам сборки конфига (runner.build)
+          python -m scripts.lthub_tunnel.tunnel install
 
       - name: Run unit tests
         run: |
@@ -88,6 +93,8 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+          pip install -r requirements-audio.txt
+          python -m scripts.lthub_tunnel.tunnel install
 
       - name: Run tests with coverage
         run: |

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import queue
 import ssl
 import time
@@ -1251,13 +1252,16 @@ def test_frozen_prefers_sources_next_to_exe(monkeypatch, tmp_path):
 
 def test_frozen_sing_box_prefers_bundled(monkeypatch, tmp_path):
     """Встроенный в сборку бинарник важнее того, что лежит рядом с .exe."""
+    # Имя бинарника платформозависимое (tunnel.sing_box_path: .exe только на nt) —
+    # иначе тест проходит лишь на Windows и роняет CI на Linux.
+    name = "sing-box.exe" if os.name == "nt" else "sing-box"
     monkeypatch.setattr(tunnel, "BIN_DIR", tmp_path / "_MEI" / "bin")
     monkeypatch.setattr(tunnel.sys, "frozen", True, raising=False)
     monkeypatch.setattr(tunnel.sys, "executable", str(tmp_path / "LthubTunnel.exe"), raising=False)
     (tmp_path / "_MEI" / "bin").mkdir(parents=True)
-    (tmp_path / "_MEI" / "bin" / "sing-box.exe").write_bytes(b"stub")
+    (tmp_path / "_MEI" / "bin" / name).write_bytes(b"stub")
 
-    assert tunnel.sing_box_path() == tmp_path / "_MEI" / "bin" / "sing-box.exe"
+    assert tunnel.sing_box_path() == tmp_path / "_MEI" / "bin" / name
 
 
 def test_unreadable_sources_gives_actionable_error(monkeypatch, tmp_path):
