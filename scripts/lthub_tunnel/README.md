@@ -14,6 +14,8 @@ sing-box** из обычной VPN-подписки и открывает сай
 
 <https://github.com/lucasteamalt12321/BankBot/releases>
 
+Прямая ссылка на файл: <https://github.com/lucasteamalt12321/BankBot/releases/download/lthub-tunnel-v1/LthubTunnel.exe>
+
 Скачать файл, запустить, нажать «Подключить» — Python и sing-box скачутся сами.
 
 Релиз собирает GitHub Actions по тегу `lthub-tunnel-v*`
