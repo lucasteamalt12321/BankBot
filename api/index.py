@@ -6606,6 +6606,10 @@ def _get_ai_recommendation(module: str, error_type: str, message: str, context: 
     except Exception:
         pass
 
+    # Собирается отдельной переменной: backslash внутри {выражения} f-строки —
+    # это синтаксическая ошибка на Python 3.11 (PEP 701 пришёл в 3.12), а CI
+    # на 3.11 ронял сбор тестов прямо на импорте файла.
+    traceback_block = f"- Traceback код:\n{code_snippet}\n" if code_snippet else ""
     prompt = (
         f"Ты — Python DevOps инженер. Кратко (1-2 предложения) на русском языке порекомендуй "
         f"как исправить ошибку в production Telegram-боте на Vercel.\n"
@@ -6613,7 +6617,7 @@ def _get_ai_recommendation(module: str, error_type: str, message: str, context: 
         f"- Тип ошибки: {error_type}\n"
         f"- Сообщение об ошибке: {message}\n"
         f"- Контекст: {context or 'нет'}\n"
-        f"{'- Traceback код:\\n' + code_snippet + '\\n' if code_snippet else ''}"
+        f"{traceback_block}"
         f"Ответ ТОЛЬКО текст рекомендации, без приветствий и пояснений."
     )
     response = _ai_chat(

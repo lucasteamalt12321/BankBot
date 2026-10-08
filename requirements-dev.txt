@@ -8,7 +8,9 @@ pytest-mock==3.14.0
 hypothesis==6.122.3
 
 # Code Quality & Linting
-ruff==0.8.4
+# Версия должна совпадать с .github/workflows/ci.yml (job lint) и с локально
+# установленной: свежий ruff даёт ~1477 ошибок на коде, чистом для 0.15.15.
+ruff==0.15.15
 mypy==1.13.0
 bandit==1.8.0
 

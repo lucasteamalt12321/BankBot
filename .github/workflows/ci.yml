@@ -16,11 +16,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
+      # Версия обязана совпадать с requirements-dev.txt и с локально
+      # установленной: свежий ruff (0.16.x) включил новые правила по умолчанию
+      # и давал ~1477 ошибок на коде, который проходит 0.15.15.
       - name: Install dependencies
         run: |
-          pip install ruff
+          pip install ruff==0.15.15
 
       - name: Run ruff
         run: |
@@ -35,7 +38,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
@@ -55,7 +58,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
@@ -75,7 +78,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
