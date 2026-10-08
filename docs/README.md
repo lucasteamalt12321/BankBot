@@ -301,7 +301,7 @@ LTHub/
 
 Подробности, команды и ограничения: `scripts/lthub_tunnel/README.md`. Список источников — `scripts/lthub_tunnel/sources.local.json`: он в git, потому что внутри публичные VPN-конфиги из интернета, секрета нет (закоммичен, чтобы `.exe` собирался в CI и на любой машине). `bin/` с бинарником sing-box, `dist/` с экспортами и сгенерированный `_bundled.py` в git не попадают.
 
-Готовый `LthubTunnel.exe` раздаётся через **GitHub Releases**: тег `lthub-tunnel-v*` запускает `.github/workflows/release-tunnel.yml`, который скачивает sing-box, собирает бинарник, прогоняет `--selftest` собранного `.exe` и только при успехе публикует ассет.
+Готовый `LthubTunnel.exe` раздаётся через **GitHub Releases**: тег `lthub-tunnel-v*` запускает `.github/workflows/release-tunnel.yml`, который скачивает sing-box, собирает бинарник, прогоняет `--selftest` собранного `.exe` и только при успехе публикует ассет. Прямая ссылка на файл: <https://github.com/lucasteamalt12321/BankBot/releases/download/lthub-tunnel-v1/LthubTunnel.exe>
 
 ## Запуск и проверка
 

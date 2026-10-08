@@ -31,6 +31,8 @@ pinned: false
 
 **<https://github.com/lucasteamalt12321/BankBot/releases>**
 
+Прямая ссылка на файл: **<https://github.com/lucasteamalt12321/BankBot/releases/download/lthub-tunnel-v1/LthubTunnel.exe>**
+
 Там лежит `LthubTunnel.exe`: скачать, запустить, нажать «Подключить» — локальный прокси sing-box поднимется на `127.0.0.1:2080`, а сайт откроется через него.
 
 Релиз собирается автоматически: тег `lthub-tunnel-v*` запускает `.github/workflows/release-tunnel.yml`, который собирает `.exe`, прогоняет `--selftest` собранного бинарника и публикует ассет — если самопроверка не прошла, релиз не создаётся.
