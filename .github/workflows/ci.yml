@@ -25,9 +25,13 @@ jobs:
         run: |
           pip install ruff==0.15.15
 
+      # Команда как у разработчика локально: `ruff check .` со всеми правилами
+      # из ruff.toml. Явный список каталогов пришлось убрать — bridge_bot/ и
+      # vk_bot/ не отслеживаются git (локальные только), на CI их нет и ruff
+      # падал с E902 No such file or directory.
       - name: Run ruff
         run: |
-          ruff check bot/ bridge_bot/ common/ core/ database/ src/ utils/ vk_bot/
+          ruff check .
 
   test:
     name: Test

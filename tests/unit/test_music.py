@@ -1,8 +1,11 @@
 """Тесты модуля музыки: MIDI (mido) и аудио (librosa/soundfile)."""
 import os
-import numpy as np
+
 import pytest
 
+# numpy/audio-стек не входит в базовый requirements.txt (он в requirements-audio),
+# поэтому на CI без них модуль должен скипнуться, а не уронить collection.
+np = pytest.importorskip("numpy")
 mido = pytest.importorskip("mido")
 librosa = pytest.importorskip("librosa")
 pytest.importorskip("soundfile")
