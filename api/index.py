@@ -363,6 +363,34 @@ def _ddl_session(engine):
         conn.close()
 
 
+# Ключи advisory-блокировок для холодного старта. Vercel поднимает несколько
+# инстансов одновременно, и два параллельных ``_ensure_*`` на одной таблице
+# уходят в DeadlockDetected. Порядок взятия фиксирован порядком вызовов в
+# блоке инициализации (universe до dnd), поэтому каскадных взломов нет.
+_LOCK_UNIVERSE = 729102
+_LOCK_DND = 729103
+
+
+def _pg_advisory_lock(conn, engine, key: int) -> None:
+    """Занять межпроцессную блокировку ДО первого обращения к таблице.
+
+    Порядок критичен: ``CREATE``/``DELETE`` берут локи на саму таблицу, и если
+    второй инстанс успел взять таблицу первым, картина получается ровно как в
+    проде — один ждёт лок relation, другой ждёт advisory lock
+    (DeadlockDetected · 17:43: ``DELETE ... RowExclusiveLock`` против
+    ``advisory lock [5,0,729102,1]``).
+
+    ``xact``-вариант снимается сам при commit/rollback и при возврате
+    соединения в пул, поэтому не течёт на следующего потребителя. После
+    ``rollback`` защита слабеет (лок снят), но это лучше, чем её отсутствие,
+    а блокировку можно пережить ``rollback`` только сессионным локом, который
+    в пул протекает гарантированно.
+    """
+    if engine is None or engine.dialect.name == "sqlite":
+        return
+    conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key}).first()
+
+
 _WEB_USER_OPTIONAL_COLUMNS = (
     "is_admin BOOLEAN DEFAULT FALSE",
     "email VARCHAR(255) UNIQUE",
@@ -1186,6 +1214,10 @@ def _ensure_universe_tables(engine):
     """Create Universe Module tables if they don't exist."""
     try:
         with engine.connect() as conn:
+            # Блокировка строго ПЕРВОЙ командой: сами CREATE/DELETE ниже уже
+            # берут локи на daily_prayer_log, и второй холодный старт, успевший
+            # взять таблицу раньше, вис в deadlock (см. _pg_advisory_lock).
+            _pg_advisory_lock(conn, engine, _LOCK_UNIVERSE)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS infection_status (
                     user_id BIGINT PRIMARY KEY,
@@ -1203,17 +1235,19 @@ def _ensure_universe_tables(engine):
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"))
             try:
-                # Serialize concurrent cold starts: two instances deduping the
-                # same rows deadlock each other (DeadlockDetected · 19:51 prod).
-                if engine.dialect.name != "sqlite":
-                    conn.execute(text("SELECT pg_advisory_xact_lock(729102)")).first()
                 # Dedup existing rows so the unique index can be created.
                 # Use a dialect-appropriate system row identifier: SQLite uses
-                # `rowid`, Postgres uses `ctid`.
+                # `rowid`, Postgres uses `ctid`. The MIN()-per-group form is
+                # written exactly like the D&D dedup below and, unlike
+                # ``DELETE ... a USING b`` (Postgres-only), it parses on SQLite
+                # too - там старая форма падала с syntax error, и уникальный
+                # индекс на SQLite вообще не создавался.
                 _rid = "rowid" if engine.dialect.name == "sqlite" else "ctid"
                 conn.execute(text(
-                    f"DELETE FROM daily_prayer_log a USING daily_prayer_log b "
-                    f"WHERE a.user_id = b.user_id AND a.prayer_date = b.prayer_date AND a.{_rid} > b.{_rid}"
+                    f"DELETE FROM daily_prayer_log "
+                    f"WHERE {_rid} NOT IN ("
+                    f"SELECT MIN({_rid}) FROM daily_prayer_log "
+                    f"GROUP BY user_id, prayer_date)"
                 ))
                 conn.execute(text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_prayer_log_user_date ON daily_prayer_log(user_id, prayer_date)"
@@ -1241,6 +1275,10 @@ def _ensure_dnd_tables(engine):
     """
     try:
         with _ddl_session(engine) as conn:
+            # Две параллельные инициализации рвались на DELETE-дедупе и
+            # CREATE UNIQUE INDEX одной и той же dnd_characters
+            # (DeadlockDetected · 16:57 prod) — сериализуем их до первого DDL.
+            _pg_advisory_lock(conn, engine, _LOCK_DND)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS dnd_sessions (
                     id SERIAL PRIMARY KEY,
