@@ -72,10 +72,13 @@
 - AI unit tests - `tests/unit/test_ai_lite.py` при изменениях AI-lite
 
 ### CI/CD
+- **GitHub Actions (`.github/workflows/ci.yml`)** — 4 джобы: Lint (`ruff check bot/ bridge_bot/ common/ core/ database/ src/ utils/ vk_bot/`), Test, Integration, Coverage. **Python 3.12** (2026-10-08: было 3.11 — на нём `api/index.py` падал при импорте с `SyntaxError: f-string expression part cannot include a backslash`, 15 ошибок сбора; прод и локально тоже 3.12). **`ruff==0.15.15`** — пин в `ci.yml` и в `requirements-dev.txt` обязан совпадать: свежий `pip install ruff` (0.16.x) включил новые правила по умолчанию и выдавал ~1477 ошибок на коде, чистом для 0.15.15.
 - Локальная разработка с автоматической проверкой линтером
 - Docker контейнеризация (`Dockerfile` на `python:3.12-slim`, `docker-compose.yml`)
 - Автоматические миграции БД
-- **Vercel (production веб/бот):** проект переименован `bank-bot` → **`lthub`** (2026-09-21, Vercel API). Канонический прод-домен: **`lthub.vercel.app`**; легаси-алиас `bank-bot-ruby.vercel.app` оставлен (на него зарегистрирован Telegram-webhook `/telegram/webhook/{secret}`). CLI-связка не пострадала (`.vercel/project.json` хранит `projectId`/`orgId`). Деплой: `vercel --prod --yes`.
+- **Vercel (production веб/бот):** проект переименован `bank-bot` → **`lthub`** (2026-09-21, Vercel API). Канонический прод-домен: **`lthub.vercel.app`**; легаси-алиас `bank-bot-ruby.vercel.app` оставлен (на него зарегистрирован Telegram-webhook `/telegram/webhook/{secret}`).
+- **Связка с проектом:** локальные метаданные Vercel живут в `.vercel/repo.json` (современный CLI, формат репозитория) и **не трекаются** (в `.gitignore` добавлен `.vercel`; старый `.vercel/project.json` удалён из индекса 2026-10-08). Проверено: `vercel project ls` / `vercel ls` / `vercel inspect` без него работают.
+- **Как реально деплоится прод:** Git-интеграция Vercel сама поднимает сборку на каждый push в `main` (в логе видно `Cloning … Commit: <sha>`) — ручной `vercel --prod --yes` сейчас отвечает `Error: Not authorized` (устаревшая OIDC-сессия CLI), но он и не нужен: правка доходит до `lthub.vercel.app` после обычного пуша.
 
 ## Окружение разработки
 
