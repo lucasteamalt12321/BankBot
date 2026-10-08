@@ -46,6 +46,9 @@ pytesseract>=0.3.10
 # Security
 bcrypt>=4.0.0
 
+# WSGI server for long-running hosts (RelaxDev/gunicorn)
+gunicorn==23.0.0
+
 # Music Module - MIDI processing (light, включено в прод)
 mido>=1.3.0
 # Тяжёлые аудио-зависимости (librosa/soundfile) вынесены в requirements-audio.txt,

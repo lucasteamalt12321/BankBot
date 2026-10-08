@@ -1,4 +1,5 @@
-"""WSGI entry point for Render (gunicorn)."""
-from app import create_app
+"""WSGI entry point for long-running hosts (RelaxDev/gunicorn)."""
 
-app = create_app()
+from api.index import app
+
+__all__ = ["app"]
