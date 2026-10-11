@@ -137,6 +137,12 @@ def test_md2pdf_has_font_size_control():
     assert "printCss" in body
 
 
+def test_md2pdf_format_sends_auth_token():
+    body = _get_page().get_data(as_text=True)
+    assert "/api/md2pdf/format" in body
+    assert "X-Auth-Token" in body
+
+
 def test_md2pdf_format_requires_auth():
     engine, _ = _fixture()
     client = app.test_client()
