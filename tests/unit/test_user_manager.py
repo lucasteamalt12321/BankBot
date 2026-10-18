@@ -23,8 +23,12 @@ class TestUserManager(unittest.TestCase):
         create_tables()
 
         # Ensure alias column exists (for databases created before migration)
-        db_gen = get_db()
-        self.db = next(db_gen)
+        # NB: keep the generator alive for the whole test. If it is dropped here
+        # it gets garbage-collected, its ``finally: db.close()`` fires and
+        # closes ``self.db`` — every later query then raises
+        # ``ResourceClosedError: This Connection is closed``.
+        self._db_gen = get_db()
+        self.db = next(self._db_gen)
         try:
             self.db.execute(text("ALTER TABLE users ADD COLUMN alias VARCHAR(32) DEFAULT NULL"))
             self.db.commit()
@@ -41,6 +45,7 @@ class TestUserManager(unittest.TestCase):
         self.db.query(User).delete()
         self.db.commit()
         self.db.close()
+        self._db_gen.close()
 
     def test_user_identification_new_user(self):
         """Test identifying a new user (should create automatically)"""

@@ -1265,7 +1265,9 @@ def test_register_rate_limits():
         r = client.post("/api/auth/register", json={"login": "spam", "password": "secret123"})
         assert r.status_code == 429
 
-    # суточный лимит: rate_limits заполнена → 429 даже с чистым burst-счётчиком
+    # суточный лимит: rate_limits заполнена → 429 даже с чистым burst-счётчиком.
+    # in-memory burst-счётчик задаём явно патчем, чтобы часть 2 не зависела от
+    # состояния _AI_RATE_LIMITS, оставшегося от предыдущих тестов в полном прогоне.
     _AI_RATE_LIMITS.clear()  # сбросить in-memory burst от 30 регистраций выше
     engine = _make_engine()
     with engine.begin() as conn:
@@ -1276,7 +1278,10 @@ def test_register_rate_limits():
             conn.execute(text(
                 "INSERT INTO rate_limits (key, ts) VALUES ('reg_day:127.0.0.1', :ts)"),
                 {"ts": time.time()})
-    with patch("api.index.get_db_engine", return_value=engine):
+    with (
+        patch("api.index._check_ai_rate", return_value=False),
+        patch("api.index.get_db_engine", return_value=engine),
+    ):
         client = app.test_client()
         r = client.post("/api/auth/register", json={"login": "spam2", "password": "secret123"})
         assert r.status_code == 429

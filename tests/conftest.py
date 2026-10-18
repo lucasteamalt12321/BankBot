@@ -54,6 +54,11 @@ def _no_telegram_network(request, monkeypatch):
     except Exception:
         yield
         return
+    # Startup-поиск BOT_ID делает реальный getMe-запрос в api.telegram.org:
+    # без сети он висит 10с и через log_error зовёт send_telegram_message,
+    # из-за чего ломаются тесты, проверяющие отсутствие исходящих сообщений.
+    # В тестах токен фиктивный, BOT_ID и так остаётся None — просто глушим сеть.
+    monkeypatch.setattr(api, "_load_bot_id", lambda *a, **k: None, raising=False)
     if request.node.get_closest_marker("allow_telegram"):
         for _name in ("log_error", "notify_admin"):
             if hasattr(api, _name):
