@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from telegram import Update, Message, User, Chat
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler
 
 from bot.commands.gd_commands_ptb import (
     submit_command_start,
@@ -229,7 +229,32 @@ class TestGetGdHandlers:
         handlers = get_gd_handlers()
 
         assert isinstance(handlers, list)
-        assert len(handlers) == 3
         assert handlers[0].entry_points[0].callback.__name__ == "submit_command_start"
         assert handlers[1].callback.__name__ == "gd_user_command"
         assert handlers[2].callback.__name__ == "gd_level_command"
+
+        command_names: set[str] = set()
+        for handler in handlers:
+            command_names.update(getattr(handler, "commands", ()) or ())
+            for entry_point in getattr(handler, "entry_points", ()) or ():
+                command_names.update(getattr(entry_point, "commands", ()) or ())
+
+        # GD-03 / GD-05: раньше get_moderate_handler()/get_stats_handlers() были
+        # определены, но нигде не зарегистрированы — команды не работали в
+        # локальном (polling) рантайме.
+        assert {
+            "submit",
+            "gd_user",
+            "gd_level",
+            "moderate",
+            "leaderboard",
+            "my_stats",
+            "player_stats",
+        } <= command_names
+
+        assert any(
+            isinstance(handler, CallbackQueryHandler)
+            and getattr(handler, "pattern", None) is not None
+            and handler.pattern.match("gd_moderate_approve_1")
+            for handler in handlers
+        )

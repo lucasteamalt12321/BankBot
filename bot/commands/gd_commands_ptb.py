@@ -157,7 +157,9 @@ async def submit_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 def get_gd_handlers():
     """Return handlers for GD module commands."""
+    from bot.commands.gd_admin_commands_ptb import get_moderate_handler
     from bot.commands.gd_api_commands_ptb import gd_user_command, gd_level_command
+    from bot.commands.gd_stats_commands_ptb import get_stats_handlers
     
     submit_handler = ConversationHandler(
         entry_points=[CommandHandler("submit", submit_command_start)],
@@ -184,4 +186,10 @@ def get_gd_handlers():
         submit_handler,
         CommandHandler("gd_user", gd_user_command),
         CommandHandler("gd_level", gd_level_command),
+        # GD-03 / GD-05: /moderate + /leaderboard,/my_stats,/player_stats
+        # раньше были «осиротевшими» — функции хендлеров существовали,
+        # но нигде не регистрировались, поэтому в local-polling режиме
+        # команды не работали (в HF-webhook их обслуживает api/index.py).
+        *get_moderate_handler(),
+        *get_stats_handlers(),
     ]
