@@ -478,6 +478,50 @@ def wait_port(host: str, port: int, timeout: float = 30.0) -> bool:
     return False
 
 
+def listening_pids(host: str, port: int) -> set[int] | None:
+    """PID-ы процессов, слушающих ``port`` (``None`` - определить не удалось).
+
+    Возврат ``None`` означает «нет данных»: нет psutil, нет прав или гонка.
+    На Linux без root psutil видит сокеты, но не всегда их владельцев -
+    сокеты без pid тоже дают ``None``, чтобы не пугать ложной тревогой.
+    """
+    try:
+        import psutil
+    except ImportError:  # pragma: no cover - psutil есть в requirements.txt
+        return None
+    try:
+        connections = psutil.net_connections(kind="tcp")
+    except (psutil.Error, OSError):  # AccessDenied и прочие запреты ОС
+        return None
+    listeners = [
+        conn
+        for conn in connections
+        if conn.status == psutil.CONN_LISTEN and conn.laddr and conn.laddr.port == port
+    ]
+    if not listeners:
+        return set()
+    pids = {conn.pid for conn in listeners if conn.pid is not None}
+    return pids or None
+
+
+def own_tunnel_problem(process: subprocess.Popen, host: str, port: int) -> str | None:
+    """Почему наш sing-box не обслуживает порт (``None`` - всё в порядке).
+
+    Порт может занять кто угодно: sing-box от прошлого запуска, чужое
+    приложение, осиротевший процесс. Проверка «порт открыт» этого не видит и
+    рапортует об успехе, хотя наш sing-box уже умер или трафик идёт через
+    чужой туннель.
+    """
+    exit_code = process.poll()
+    if exit_code is not None:
+        return f"sing-box завершился сразу после старта (код {exit_code})"
+    pids = listening_pids(host, port)
+    if pids and process.pid not in pids:
+        owners = ", ".join(str(pid) for pid in sorted(pids))
+        return f"порт {host}:{port} слушает другой процесс (pid {owners}), а не наш sing-box"
+    return None
+
+
 def probe(
     url: str,
     proxy_port: int | None,
@@ -589,10 +633,20 @@ def cmd_up(args: argparse.Namespace) -> int:
             print("Прокси не поднялся, лог:", file=sys.stderr)
             print(log_path.read_text(encoding="utf-8", errors="replace")[-2000:], file=sys.stderr)
             return 1
+        problem = own_tunnel_problem(process, DEFAULT_LISTEN, port)
+        if problem is not None:
+            print(problem, file=sys.stderr)
+            print("Лог sing-box:", file=sys.stderr)
+            print(log_path.read_text(encoding="utf-8", errors="replace")[-2000:], file=sys.stderr)
+            return 1
         print(f"Прокси слушает {DEFAULT_LISTEN}:{port} (лог: {log_path})")
         if args.settle:
             print(f"Даю urltest {args.settle} с на замер нод...")
             time.sleep(args.settle)
+            problem = own_tunnel_problem(process, DEFAULT_LISTEN, port)
+            if problem is not None:
+                print(problem, file=sys.stderr)
+                return 1
         ok, detail = probe(args.site, port)
         print(f"{args.site} -> {'ДОСТУПЕН' if ok else 'НЕДОСТУПЕН'} ({detail})")
         if not ok:

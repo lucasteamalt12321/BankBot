@@ -44,6 +44,7 @@ from scripts.lthub_tunnel.tunnel import (
     load_proxy,
     load_sources,
     open_site,
+    own_tunnel_problem,
     probe,
     sing_box_check,
     sing_box_path,
@@ -229,10 +230,18 @@ class TunnelSession:
         if not wait_port(DEFAULT_LISTEN, self.port, timeout=40):
             self.stop()
             raise RuntimeError("Прокси не поднялся, смотри лог sing-box.log")
+        problem = own_tunnel_problem(self.process, DEFAULT_LISTEN, self.port)
+        if problem is not None:
+            self.stop()
+            raise RuntimeError(problem)
         self.log(f"Прокси слушает {DEFAULT_LISTEN}:{self.port}")
         if settle > 0:
             self.log(f"Даю urltest {settle:.0f} с на замер нод...")
             time.sleep(settle)
+            problem = own_tunnel_problem(self.process, DEFAULT_LISTEN, self.port)
+            if problem is not None:
+                self.stop()
+                raise RuntimeError(problem)
 
     def check_site(self, attempts: int = 4, delay: float = 2.0) -> tuple[bool, str]:
         """Проверить, что туннель реально пропускает трафик до нашего приложения.

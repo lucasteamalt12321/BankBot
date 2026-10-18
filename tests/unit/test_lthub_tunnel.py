@@ -13,6 +13,7 @@ import os
 import queue
 import socket
 import ssl
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -1254,6 +1255,139 @@ def test_runner_install_flag_follows_binary(tmp_path, monkeypatch):
     assert session.sing_box_installed is False
     (tmp_path / "sing-box.exe").write_bytes(b"stub")
     assert session.sing_box_installed is True
+
+
+# --- живость: порт может слушать чужой процесс -----------------------------
+
+
+class _FakeProcess:
+    """Заглушка Popen: важны только ``pid`` и ``poll``."""
+
+    def __init__(self, exit_code: int | None = None, pid: int = 4242):
+        self.pid = pid
+        self._exit_code = exit_code
+
+    def poll(self):
+        return self._exit_code
+
+    def terminate(self):
+        pass
+
+    def kill(self):
+        pass
+
+    def wait(self, timeout=None):  # noqa: ARG002
+        return 0
+
+
+class _FakeConn:
+    """Соединение в формате ``psutil.net_connections()``."""
+
+    def __init__(self, port: int, pid: int | None, status: str = "LISTEN"):
+        self.laddr = SimpleNamespace(ip="127.0.0.1", port=port)
+        self.pid = pid
+        self.status = status
+
+
+class _FakePsutilError(Exception):
+    pass
+
+
+def _stub_psutil(monkeypatch, connections=None, *, error=None):
+    """Подменить psutil: у чужого сокета pid может быть не виден.
+
+    На Linux без root psutil показывает соединение, но без владельца - это
+    штатная ситуация, а не повод падать.
+    """
+
+    def net_connections(kind="tcp"):  # noqa: ARG001
+        if error is not None:
+            raise error
+        return connections if connections is not None else []
+
+    module = SimpleNamespace(
+        CONN_LISTEN="LISTEN",
+        Error=_FakePsutilError,
+        net_connections=net_connections,
+    )
+    monkeypatch.setitem(sys.modules, "psutil", module)
+
+
+def test_listening_pids_returns_port_owner(monkeypatch):
+    _stub_psutil(monkeypatch, [_FakeConn(2080, 4242), _FakeConn(2081, 777)])
+    assert tunnel.listening_pids("127.0.0.1", 2080) == {4242}
+
+
+def test_listening_pids_skips_other_states(monkeypatch):
+    _stub_psutil(monkeypatch, [_FakeConn(2080, 4242, status="ESTABLISHED")])
+    assert tunnel.listening_pids("127.0.0.1", 2080) == set()
+
+
+def test_listening_pids_without_owner_is_unknown(monkeypatch):
+    _stub_psutil(monkeypatch, [_FakeConn(2080, None)])
+    assert tunnel.listening_pids("127.0.0.1", 2080) is None
+
+
+def test_listening_pids_access_denied_is_unknown(monkeypatch):
+    _stub_psutil(monkeypatch, error=_FakePsutilError("AccessDenied"))
+    assert tunnel.listening_pids("127.0.0.1", 2080) is None
+
+
+def test_own_tunnel_problem_detects_dead_sing_box(monkeypatch):
+    _stub_psutil(monkeypatch, [_FakeConn(2080, 777)])
+    problem = tunnel.own_tunnel_problem(_FakeProcess(exit_code=3), "127.0.0.1", 2080)
+    assert problem is not None
+    assert "код 3" in problem
+
+
+def test_own_tunnel_problem_detects_foreign_listener(monkeypatch):
+    _stub_psutil(monkeypatch, [_FakeConn(2080, 777)])
+    problem = tunnel.own_tunnel_problem(_FakeProcess(), "127.0.0.1", 2080)
+    assert problem is not None
+    assert "777" in problem
+
+
+def test_own_tunnel_problem_is_quiet_when_our_process_listens(monkeypatch):
+    process = _FakeProcess()
+    _stub_psutil(monkeypatch, [_FakeConn(2080, process.pid)])
+    assert tunnel.own_tunnel_problem(process, "127.0.0.1", 2080) is None
+
+
+def test_own_tunnel_problem_ignores_unknown_owner(monkeypatch):
+    _stub_psutil(monkeypatch, error=_FakePsutilError("AccessDenied"))
+    assert tunnel.own_tunnel_problem(_FakeProcess(), "127.0.0.1", 2080) is None
+
+
+def test_cmd_up_reports_foreign_listener(tmp_path, monkeypatch, capsys):
+    """Порт слушает чужой процесс - `up` обязан сказать это, а не «ДОСТУПЕН»."""
+    monkeypatch.setattr(tunnel, "sing_box_path", lambda: tmp_path / "sing-box")
+    (tmp_path / "sing-box").write_bytes(b"stub")
+    monkeypatch.setattr(tunnel, "cmd_build", lambda args: 0)
+    monkeypatch.setattr(tunnel, "wait_port", lambda *a, **k: True)
+    monkeypatch.setattr(tunnel, "load_sources", lambda _source: ([], "", 2080))
+    monkeypatch.setattr(tunnel.subprocess, "Popen", lambda *a, **k: _FakeProcess(pid=4242))
+    _stub_psutil(monkeypatch, [_FakeConn(2080, 777)])
+
+    args = tunnel.build_parser().parse_args(
+        ["up", "--state-dir", str(tmp_path), "--settle", "0"]
+    )
+
+    assert tunnel.cmd_up(args) == 1
+    assert "777" in capsys.readouterr().err
+
+
+def test_runner_start_fails_when_sing_box_dies(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "sing_box_path", lambda: tmp_path / "sing-box")
+    (tmp_path / "sing-box").write_bytes(b"stub")
+    monkeypatch.setattr(runner, "wait_port", lambda *a, **k: True)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: _FakeProcess(exit_code=9))
+    session = runner.TunnelSession(state_root=tmp_path)
+    session.port = 2080
+    session.config_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="код 9"):
+        session.start(settle=0)
+    assert session.running is False
 
 
 def test_gui_module_imports_without_display():
