@@ -11,7 +11,9 @@ import base64
 import json
 import os
 import queue
+import socket
 import ssl
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -40,6 +42,7 @@ from scripts.lthub_tunnel.sbconfig import (
     write_nodes_report,
 )
 from scripts.lthub_tunnel import runner, subscriptions
+from scripts.lthub_tunnel import proxy as proxy_module
 from scripts.lthub_tunnel.subscriptions import (
     SubscriptionError,
     decode_body,
@@ -486,6 +489,31 @@ def test_probe_nodes_measures_local_listener():
     assert results["local"].latency_ms >= 0
 
 
+def test_probe_nodes_reports_progress_once_per_node():
+    """На сотне нод проба идёт секундами - окну нужен счётчик done/total."""
+    nodes = [
+        Node(tag=f"n{i}", protocol="vless", name=f"n{i}", server="127.0.0.1", port=1, uuid="u")
+        for i in range(3)
+    ]
+    seen: list[tuple[int, int]] = []
+
+    probe_nodes(nodes, timeout=0.2, workers=2, progress_cb=lambda done, total: seen.append((done, total)))
+
+    assert [done for done, _total in seen] == [1, 2, 3]
+    assert {total for _done, total in seen} == {3}
+
+
+def test_probe_nodes_without_callback_stays_quiet():
+    nodes = [
+        Node(tag=f"n{i}", protocol="vless", name=f"n{i}", server="127.0.0.1", port=1, uuid="u")
+        for i in range(2)
+    ]
+
+    results = probe_nodes(nodes, timeout=0.2, workers=2)
+
+    assert set(results) == {"n0", "n1"}
+
+
 def test_probe_nodes_reports_unreachable_port():
     import socket
 
@@ -570,13 +598,13 @@ def test_fetch_retries_transient_reset(monkeypatch):
     выкидывать все ~100 нод источника."""
     calls: list[str] = []
 
-    def fake_urlopen(request, timeout=None, context=None):
-        calls.append(request.get_header("User-agent"))
+    def fake_open(url, *, proxy=None, timeout=None, headers=None):
+        calls.append(headers.get("User-Agent"))
         if len(calls) <= 2:
             raise OSError(10054, "connection reset by peer")
         return _FakeResponse(b"vless://x")
 
-    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions, "open_url", fake_open)
     monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
     assert fetch("https://example.org/sub", timeout=1) == "vless://x"
     # Сетевой сбой лечится повтором того же агента, а не перебором всех.
@@ -587,16 +615,16 @@ def test_fetch_does_not_try_other_agents_on_network_error(monkeypatch):
     """После reset менять User-Agent бессмысленно.
 
     Старая реализация гоняла 3 попытки × 4 агента × 30 секунд, и мёртвый
-    источник держал запуск на 6 минутах молча. Теперь на сетевой сбок уходит
+    источник держал запуск на 6 минутах молча. Теперь на сетевой сбой уходит
     ровно RETRIES запросов.
     """
     calls: list[str] = []
 
-    def fake_urlopen(request, timeout=None, context=None):
-        calls.append(request.get_header("User-agent"))
+    def fake_open(url, *, proxy=None, timeout=None, headers=None):
+        calls.append(headers.get("User-Agent"))
         raise OSError(10054, "connection reset by peer")
 
-    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions, "open_url", fake_open)
     monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
     monkeypatch.setattr(subscriptions, "RETRIES", 3)
     with pytest.raises(SubscriptionError, match="10054"):
@@ -609,14 +637,14 @@ def test_fetch_switches_agent_on_non_subscription_response(monkeypatch):
     """А вот тут смена User-Agent оправдана: ответ пришёл, но это не подписка."""
     agents: list[str] = []
 
-    def fake_urlopen(request, timeout=None, context=None):
-        agent = request.get_header("User-agent")
+    def fake_open(url, *, proxy=None, timeout=None, headers=None):
+        agent = headers.get("User-Agent")
         agents.append(agent)
         if agent == subscriptions.USER_AGENTS[0]:
             return _FakeResponse(b"<html>404</html>")
         return _FakeResponse(b"vless://x")
 
-    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions, "open_url", fake_open)
     monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
     assert fetch("https://example.org/sub", timeout=1) == "vless://x"
     assert len(agents) == 2
@@ -627,13 +655,13 @@ def test_fetch_gives_up_immediately_on_certificate_error(monkeypatch):
     """Сертификат не на тот хост - это не вспышка, повторы не помогут."""
     calls: list[int] = []
 
-    def fake_urlopen(request, timeout=None, context=None):
+    def fake_open(url, *, proxy=None, timeout=None, headers=None):
         calls.append(1)
         raise ssl.SSLCertVerificationError(
             "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed certificate"
         )
 
-    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions, "open_url", fake_open)
     monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
     monkeypatch.setattr(subscriptions, "RETRIES", 3)
     with pytest.raises(SubscriptionError, match="CERTIFICATE_VERIFY_FAILED"):
@@ -644,11 +672,11 @@ def test_fetch_gives_up_immediately_on_certificate_error(monkeypatch):
 def test_fetch_gives_up_after_retries(monkeypatch):
     calls: list[int] = []
 
-    def fake_urlopen(request, timeout=None, context=None):
+    def fake_open(url, *, proxy=None, timeout=None, headers=None):
         calls.append(1)
         raise OSError("down")
 
-    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions, "open_url", fake_open)
     monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
     monkeypatch.setattr(subscriptions, "RETRIES", 2)
     with pytest.raises(SubscriptionError, match="down"):
@@ -660,11 +688,11 @@ def test_fetch_gives_up_after_retries(monkeypatch):
 def test_fetch_skips_agent_loop_for_explicit_user_agent(monkeypatch):
     calls: list[int] = []
 
-    def fake_urlopen(request, timeout=None, context=None):
+    def fake_open(url, *, proxy=None, timeout=None, headers=None):
         calls.append(1)
         return _FakeResponse(b"vless://x")
 
-    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions, "open_url", fake_open)
     fetch("https://example.org/sub", timeout=1, user_agent="my-client")
     assert len(calls) == 1
 
@@ -742,7 +770,7 @@ def test_pick_fastest_drops_dead_and_caps(monkeypatch):
 
 
 def test_fetch_cached_writes_cache_on_success(monkeypatch, tmp_path):
-    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None: "vless://fresh")
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None, proxy=None: "vless://fresh")
     body, cached = subscriptions.fetch_cached("https://host/sub?token=secret", cache_dir=tmp_path)
     assert (body, cached) == ("vless://fresh", False)
     files = list(tmp_path.iterdir())
@@ -753,7 +781,7 @@ def test_fetch_cached_writes_cache_on_success(monkeypatch, tmp_path):
 
 
 def test_fetch_cached_falls_back_to_cache(monkeypatch, tmp_path):
-    def boom(url, timeout=30, retries=None):
+    def boom(url, timeout=30, retries=None, proxy=None):
         raise subscriptions.SubscriptionError("connection reset")
 
     monkeypatch.setattr(subscriptions, "fetch", boom)
@@ -768,7 +796,7 @@ def test_fetch_cached_falls_back_to_cache(monkeypatch, tmp_path):
 
 
 def test_fetch_cached_without_cache_dir_just_fetches(monkeypatch):
-    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None: "vless://x")
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None, proxy=None: "vless://x")
     assert subscriptions.fetch_cached("https://host/sub") == ("vless://x", False)
 
 
@@ -780,7 +808,7 @@ def test_fetch_cached_gives_up_after_one_try_when_cache_exists(monkeypatch, tmp_
     """
     calls: list[int | None] = []
 
-    def flaky(url, timeout=30, retries=None):
+    def flaky(url, timeout=30, retries=None, proxy=None):
         calls.append(retries)
         raise subscriptions.SubscriptionError("connection reset")
 
@@ -798,7 +826,7 @@ def test_fetch_cached_gives_up_after_one_try_when_cache_exists(monkeypatch, tmp_
 def test_fetch_cached_uses_full_budget_without_cache(monkeypatch, tmp_path):
     calls: list[int | None] = []
 
-    def flaky(url, timeout=30, retries=None):
+    def flaky(url, timeout=30, retries=None, proxy=None):
         calls.append(retries)
         raise subscriptions.SubscriptionError("connection reset")
 
@@ -814,11 +842,11 @@ def test_fetch_cached_uses_full_budget_without_cache(monkeypatch, tmp_path):
 def test_fetch_retries_parameter_limits_requests(monkeypatch):
     calls: list[int] = []
 
-    def fake_urlopen(request, timeout=None, context=None):
+    def fake_open(url, *, proxy=None, timeout=None, headers=None):
         calls.append(1)
         raise OSError(10054, "connection reset by peer")
 
-    monkeypatch.setattr(subscriptions, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subscriptions, "open_url", fake_open)
     monkeypatch.setattr(subscriptions.time, "sleep", lambda _s: None)
 
     with pytest.raises(SubscriptionError, match="10054"):
@@ -839,7 +867,7 @@ def test_load_all_uses_cache_when_source_is_down(monkeypatch, tmp_path):
     url = "https://host.example/sub"
     calls: list[str] = []
 
-    def flaky(url_arg, timeout=30, retries=None):
+    def flaky(url_arg, timeout=30, retries=None, proxy=None):
         calls.append(url_arg)
         if len(calls) == 1:
             return REALITY_TCP
@@ -854,7 +882,7 @@ def test_load_all_uses_cache_when_source_is_down(monkeypatch, tmp_path):
 
 
 def test_load_all_raises_when_source_down_and_no_cache(monkeypatch, tmp_path):
-    def boom(url, timeout=30, retries=None):
+    def boom(url, timeout=30, retries=None, proxy=None):
         raise subscriptions.SubscriptionError("down")
 
     monkeypatch.setattr(subscriptions, "fetch", boom)
@@ -869,7 +897,7 @@ def test_load_all_reports_progress_to_log(monkeypatch, tmp_path):
     строки «Скачиваю подписки...» в логе не появлялось ничего минутами.
     """
     lines: list[str] = []
-    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None: REALITY_TCP)
+    monkeypatch.setattr(subscriptions, "fetch", lambda url, timeout=30, retries=None, proxy=None: REALITY_TCP)
 
     subscriptions.load_all(
         ["https://a.example/sub", "https://b.example/sub"],
@@ -893,7 +921,7 @@ def test_load_all_fetches_sources_in_parallel(monkeypatch, tmp_path):
     peak = 0
     lock = threading.Lock()
 
-    def slow(url, timeout=30, retries=None):
+    def slow(url, timeout=30, retries=None, proxy=None):
         nonlocal active, peak
         with lock:
             active += 1
@@ -994,6 +1022,8 @@ def _fake_network(monkeypatch, nodes):
     """Подменить сеть: отдать готовые ноды и пинг по умолчанию «всё ответило»."""
     monkeypatch.setattr(runner, "load_all", lambda *a, **k: list(nodes))
     monkeypatch.setattr(runner, "probe_nodes", lambda *a, **k: {})
+    # Прокси не трогаем: тесты не должны зависеть от реестра/env машины.
+    monkeypatch.setattr(runner, "load_proxy", lambda *a, **k: None)
     monkeypatch.setattr(
         runner, "load_sources", lambda *a, **k: (["https://example.org"], "https://probe", 2080)
     )
@@ -1069,6 +1099,27 @@ def test_runner_build_reports_log(tmp_path, monkeypatch):
     assert any("Готово" in line for line in lines)
 
 
+def test_runner_build_logs_ping_progress(tmp_path, monkeypatch):
+    """В окне должно быть видно, как проба нод идёт, а не просто «ждите»."""
+    nodes = _tagged_nodes(4)
+    _fake_network(monkeypatch, nodes)
+
+    def fake_probe(nodes, *, timeout=0.0, workers=0, progress_cb=None, proxy=None):
+        for done in range(1, len(nodes) + 1):
+            progress_cb(done, len(nodes))
+        return {node.tag: PingResult(node.tag, latency_ms=10.0) for node in nodes}
+
+    monkeypatch.setattr(runner, "probe_nodes", fake_probe)
+    lines: list[str] = []
+    session = runner.TunnelSession(state_root=tmp_path, log=lines.append)
+
+    session.build()
+
+    progress = [line for line in lines if line.startswith("Проверяю ноды:")]
+    assert "Проверяю ноды: 1/4" in progress
+    assert "Проверяю ноды: 4/4" in progress
+
+
 def test_runner_build_without_sources_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "load_sources", lambda *a, **k: ([], "https://probe", 2080))
     session = runner.TunnelSession(state_root=tmp_path)
@@ -1113,6 +1164,7 @@ def test_runner_check_site_forwards_delay(tmp_path, monkeypatch):
 
 def test_probe_without_port_bypasses_every_proxy(monkeypatch):
     """Прямая проверка не должна уходить через локальный или системный прокси."""
+    from scripts.lthub_tunnel import proxy as proxy_module
     from scripts.lthub_tunnel import tunnel
 
     captured: dict = {}
@@ -1131,7 +1183,7 @@ def test_probe_without_port_bypasses_every_proxy(monkeypatch):
             return _Resp()
 
     monkeypatch.setattr(
-        tunnel.urllib.request,
+        proxy_module.urllib.request,
         "build_opener",
         lambda *handlers: captured.setdefault("handlers", handlers) and _Opener(),
     )
@@ -1145,6 +1197,7 @@ def test_probe_without_port_bypasses_every_proxy(monkeypatch):
 
 
 def test_probe_with_port_uses_local_proxy(monkeypatch):
+    from scripts.lthub_tunnel import proxy as proxy_module
     from scripts.lthub_tunnel import tunnel
 
     captured: dict = {}
@@ -1154,7 +1207,7 @@ def test_probe_with_port_uses_local_proxy(monkeypatch):
             raise ValueError("дальше не важно")
 
     monkeypatch.setattr(
-        tunnel.urllib.request,
+        proxy_module.urllib.request,
         "build_opener",
         lambda *handlers: captured.setdefault("handlers", handlers) and _Opener(),
     )
@@ -1350,3 +1403,263 @@ def test_sources_fall_back_to_bundled_when_no_file(monkeypatch, tmp_path):
 
     assert urls == ["https://bundled.example"]
     assert port == 2080
+
+
+# --- proxy.py: внешний http/socks5-прокси ----------------------------------
+
+
+def test_parse_proxy_none_and_blank_mean_direct():
+    assert proxy_module.parse_proxy(None) is None
+    assert proxy_module.parse_proxy("") is None
+    assert proxy_module.parse_proxy("   ") is None
+
+
+def test_parse_proxy_defaults_scheme_to_http_and_ports():
+    bare = proxy_module.parse_proxy("127.0.0.1:2080")
+    assert (bare.scheme, bare.host, bare.port) == ("http", "127.0.0.1", 2080)
+    assert bare.is_socks is False
+
+    http = proxy_module.parse_proxy("http://proxy.example")
+    assert http.port == 8080
+    socks = proxy_module.parse_proxy("socks5h://proxy.example")
+    assert (socks.scheme, socks.port, socks.is_socks) == ("socks5h", 1080, True)
+
+
+def test_parse_proxy_keeps_credentials_and_builds_url():
+    spec = proxy_module.parse_proxy("socks5h://user:secret@proxy.example:1080")
+    assert (spec.username, spec.password) == ("user", "secret")
+    assert spec.url == "socks5h://user:secret@proxy.example:1080"
+    assert proxy_module.parse_proxy("http://127.0.0.1:2080").url == "http://127.0.0.1:2080"
+
+
+def test_parse_proxy_rejects_bad_scheme_and_missing_host():
+    with pytest.raises(ValueError, match="схема"):
+        proxy_module.parse_proxy("ftp://proxy.example:21")
+    with pytest.raises(ValueError, match="хост"):
+        proxy_module.parse_proxy("http://:8080")
+
+
+def test_resolve_proxy_priority_cli_env_config():
+    env = {proxy_module.ENV_VAR: "socks5h://env.example:1080"}
+    cli = proxy_module.resolve_proxy("http://cli.example:9999", config_value="http://cfg.example", env=env)
+    assert (cli.scheme, cli.host) == ("http", "cli.example")
+
+    from_env = proxy_module.resolve_proxy(None, config_value="http://cfg.example", env=env)
+    assert (from_env.scheme, from_env.host) == ("socks5h", "env.example")
+
+    from_config = proxy_module.resolve_proxy(None, config_value="http://cfg.example:8080", env={})
+    assert (from_config.scheme, from_config.host) == ("http", "cfg.example")
+
+    assert proxy_module.resolve_proxy(None, config_value=None, env={}) is None
+    assert proxy_module.resolve_proxy("  ", config_value="  ", env={proxy_module.ENV_VAR: " "}) is None
+
+
+def test_is_tcp_capable_only_socks():
+    assert proxy_module.is_tcp_capable(proxy_module.parse_proxy("socks5://h:1")) is True
+    assert proxy_module.is_tcp_capable(proxy_module.parse_proxy("http://h:1")) is False
+    assert proxy_module.is_tcp_capable(None) is False
+
+
+def test_load_proxy_reads_config_field(monkeypatch):
+    monkeypatch.setattr(
+        tunnel, "_sources_payload", lambda: {"proxy": "socks5h://127.0.0.1:1080"}
+    )
+    monkeypatch.delenv(proxy_module.ENV_VAR, raising=False)
+    spec = tunnel.load_proxy(None)
+    assert spec is not None
+    assert (spec.scheme, spec.port) == ("socks5h", 1080)
+
+
+def test_load_proxy_cli_overrides_config(monkeypatch):
+    monkeypatch.setattr(
+        tunnel, "_sources_payload", lambda: {"proxy": "socks5h://127.0.0.1:1080"}
+    )
+    monkeypatch.delenv(proxy_module.ENV_VAR, raising=False)
+    spec = tunnel.load_proxy("http://127.0.0.1:9999")
+    assert (spec.scheme, spec.port) == ("http", 9999)
+
+
+def test_load_proxy_env_var_used_when_no_cli(monkeypatch):
+    monkeypatch.setattr(tunnel, "_sources_payload", lambda: {"proxy": "http://cfg.example"})
+    monkeypatch.setenv(proxy_module.ENV_VAR, "socks5://env.example:1080")
+    spec = tunnel.load_proxy(None)
+    assert (spec.scheme, spec.host) == ("socks5", "env.example")
+
+
+def _capture_opener(monkeypatch):
+    """Перехватить обработчики, которые ``_opener`` отдаёт в build_opener."""
+    captured: dict = {}
+    monkeypatch.setattr(
+        proxy_module.urllib.request,
+        "build_opener",
+        lambda *handlers: captured.setdefault("handlers", handlers) or object(),
+    )
+    return captured
+
+
+def test_opener_direct_suppresses_system_proxy(monkeypatch):
+    captured = _capture_opener(monkeypatch)
+    proxy_module._opener(None)
+    handlers = captured["handlers"]
+    assert len(handlers) == 1
+    assert isinstance(handlers[0], proxy_module.urllib.request.ProxyHandler)
+    assert handlers[0].proxies == {}
+
+
+def test_opener_http_routes_through_proxy(monkeypatch):
+    captured = _capture_opener(monkeypatch)
+    proxy_module._opener(proxy_module.parse_proxy("http://127.0.0.1:2080"))
+    handlers = captured["handlers"]
+    assert len(handlers) == 1
+    assert handlers[0].proxies == {
+        "http": "http://127.0.0.1:2080",
+        "https": "http://127.0.0.1:2080",
+    }
+
+
+def test_opener_socks_uses_custom_handler(monkeypatch):
+    captured = _capture_opener(monkeypatch)
+    proxy_module._opener(proxy_module.parse_proxy("socks5h://127.0.0.1:1080"))
+    handlers = captured["handlers"]
+    assert len(handlers) == 2
+    # Пустой ProxyHandler подавляет системный прокси, а не проксирует SOCKS.
+    assert isinstance(handlers[0], proxy_module.urllib.request.ProxyHandler)
+    assert handlers[0].proxies == {}
+    assert isinstance(handlers[1], proxy_module._Socks5Handler)
+
+
+def test_open_url_passes_headers_and_timeout(monkeypatch):
+    captured: dict = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class _Opener:
+        def open(self, request, timeout=None):
+            captured["url"] = request.full_url
+            captured["headers"] = dict(request.headers)
+            captured["timeout"] = timeout
+            return _Resp()
+
+    monkeypatch.setattr(proxy_module, "_opener", lambda _proxy: _Opener())
+    response = proxy_module.open_url(
+        "https://example.org/sub", timeout=5, headers={"User-Agent": "probe"}
+    )
+
+    assert isinstance(response, _Resp)
+    assert captured["url"] == "https://example.org/sub"
+    assert captured["headers"].get("User-agent") == "probe"
+    assert captured["timeout"] == 5
+
+
+def test_socks_address_encodes_ipv4_and_domain():
+    ipv4 = proxy_module._socks_address("127.0.0.1", remote_dns=True)
+    assert ipv4 == b"\x01\x7f\x00\x00\x01"
+
+    domain = proxy_module._socks_address("example.com", remote_dns=True)
+    assert domain[0] == 0x03
+    assert domain[1] == len("example.com")
+    assert domain[2:] == b"example.com"
+
+
+def _fake_socks5_server(
+    seen: dict,
+    *,
+    require_auth: bool = False,
+    reply: bytes = b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00",
+):
+    """Мини-SOCKS5-сервер на 127.0.0.1. Возвращает (порт, поток)."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    server.settimeout(5)
+
+    def serve():
+        try:
+            conn, _addr = server.accept()
+        except OSError:
+            return
+        with conn:
+            conn.settimeout(5)
+            head = proxy_module._recv_exact(conn, 2)
+            methods = proxy_module._recv_exact(conn, head[1])
+            seen["greeting"] = head + methods
+            if require_auth:
+                conn.sendall(b"\x05\x02")
+                ver_ulen = proxy_module._recv_exact(conn, 2)
+                user = proxy_module._recv_exact(conn, ver_ulen[1])
+                plen = proxy_module._recv_exact(conn, 1)[0]
+                password = proxy_module._recv_exact(conn, plen)
+                seen["auth"] = ver_ulen + user + bytes([plen]) + password
+                conn.sendall(b"\x01\x00")
+            else:
+                conn.sendall(b"\x05\x00")
+            request_head = proxy_module._recv_exact(conn, 4)
+            seen["head"] = request_head
+            atyp = request_head[3]
+            if atyp == 0x03:
+                length = proxy_module._recv_exact(conn, 1)[0]
+                seen["host"] = proxy_module._recv_exact(conn, length)
+            elif atyp == 0x01:
+                seen["host"] = proxy_module._recv_exact(conn, 4)
+            elif atyp == 0x04:
+                seen["host"] = proxy_module._recv_exact(conn, 16)
+            seen["port"] = proxy_module._recv_exact(conn, 2)
+            conn.sendall(reply)
+        server.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return server.getsockname()[1], thread
+
+
+def test_socks5_connect_sends_domain_and_port():
+    seen: dict = {}
+    port, thread = _fake_socks5_server(seen)
+    spec = proxy_module.parse_proxy(f"socks5h://127.0.0.1:{port}")
+
+    sock = proxy_module.socks5_connect(spec, "example.com", 443, timeout=3)
+    sock.close()
+    thread.join(timeout=5)
+
+    assert seen["greeting"] == b"\x05\x01\x00"
+    assert seen["head"] == b"\x05\x01\x00\x03"
+    assert seen["host"] == b"example.com"
+    assert seen["port"] == (443).to_bytes(2, "big")
+    assert "auth" not in seen
+
+
+def test_socks5_connect_uses_credentials_and_local_ip():
+    seen: dict = {}
+    port, thread = _fake_socks5_server(seen, require_auth=True)
+    spec = proxy_module.parse_proxy(f"socks5://user:secret@127.0.0.1:{port}")
+
+    # Обычный socks5 (не socks5h) резолвит имя локально, поэтому берём IP.
+    sock = proxy_module.socks5_connect(spec, "203.0.113.7", 80, timeout=3)
+    sock.close()
+    thread.join(timeout=5)
+
+    assert seen["greeting"] == b"\x05\x02\x00\x02"
+    assert seen["auth"] == b"\x01\x04user\x06secret"
+    assert seen["host"] == socket.inet_aton("203.0.113.7")
+    assert seen["port"] == (80).to_bytes(2, "big")
+
+
+def test_socks5_connect_reports_rejection():
+    seen: dict = {}
+    port, thread = _fake_socks5_server(seen, reply=b"\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00")
+    spec = proxy_module.parse_proxy(f"socks5h://127.0.0.1:{port}")
+
+    with pytest.raises(OSError, match="CONNECT отклонён"):
+        proxy_module.socks5_connect(spec, "example.com", 443, timeout=3)
+    thread.join(timeout=5)
+
+
+def test_socks5_connect_rejects_http_proxy():
+    spec = proxy_module.parse_proxy("http://127.0.0.1:8080")
+    with pytest.raises(ValueError):
+        proxy_module.socks5_connect(spec, "example.com", 443, timeout=1)

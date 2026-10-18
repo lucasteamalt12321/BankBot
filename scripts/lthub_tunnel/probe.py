@@ -23,11 +23,16 @@ import ipaddress
 import socket
 import ssl
 import time
-from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 from scripts.lthub_tunnel.nodes import Node
+from scripts.lthub_tunnel.proxy import ProxySpec, socks5_connect
+
+# ``progress_cb(done, total)`` - счётчик для окна: на сотне адресов пинг идёт
+# секундами, и без него в логе не видно, что процесс жив.
+ProgressCb = Callable[[int, int], None]
 
 # Мёртвые ноды надо отсеивать быстро: 32 потока на ~100 нод - это пара секунд.
 DEFAULT_WORKERS = 32
@@ -69,21 +74,31 @@ def _tls_context(verify: bool) -> ssl.SSLContext:
     return context
 
 
-def ping_node(node: Node, *, timeout: float = DEFAULT_TIMEOUT) -> PingResult:
+def ping_node(
+    node: Node,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    proxy: ProxySpec | None = None,
+) -> PingResult:
     """Замерить задержку до ``server:port``. Ошибка - в ``PingResult.error``.
 
     Замеряется коннект и TLS-хендшейк; резолв DNS вынесен за скобки, потому
-    что системный кеш делает его время почти случайным.
+    что системный кеш делает его время почти случайным. Если задан SOCKS5-
+    прокси, TCP-коннект идёт через него (тогда в замер входит и хендшейк с
+    прокси) - так можно померить ноды из сети, где напрямую они недоступны.
     """
-    try:
-        infos = socket.getaddrinfo(node.server, node.port, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        return PingResult(node.tag, error=f"DNS: {exc.strerror or exc}")
-
     server_name = node.sni or node.server
     # TLS без SNI не бывает: для адреса-IP хендшейк не проверяем, только коннект.
     use_tls = node.security in {"tls", "reality"} and not _is_ip(server_name)
     verify = not node.allow_insecure
+
+    if proxy is not None and proxy.is_socks:
+        return _ping_through_socks(node, proxy, timeout, use_tls, server_name, verify)
+
+    try:
+        infos = socket.getaddrinfo(node.server, node.port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        return PingResult(node.tag, error=f"DNS: {exc.strerror or exc}")
 
     last = "неизвестная ошибка"
     for family, socktype, proto, _canon, address in infos:
@@ -106,19 +121,63 @@ def ping_node(node: Node, *, timeout: float = DEFAULT_TIMEOUT) -> PingResult:
     return PingResult(node.tag, error=last)
 
 
+def _ping_through_socks(
+    node: Node,
+    proxy: ProxySpec,
+    timeout: float,
+    use_tls: bool,
+    server_name: str,
+    verify: bool,
+) -> PingResult:
+    """TCP/TLS-коннект к ноде через SOCKS5. Сокет уже подключён прокси."""
+    started = time.monotonic()
+    try:
+        sock = socks5_connect(proxy, node.server, node.port, timeout)
+    except (OSError, ValueError) as exc:
+        return PingResult(node.tag, error=f"SOCKS5: {exc}")
+    try:
+        if use_tls:
+            with _tls_context(verify).wrap_socket(sock, server_hostname=server_name):
+                pass
+        return PingResult(node.tag, latency_ms=(time.monotonic() - started) * 1000)
+    except (OSError, ssl.SSLError, ValueError) as exc:
+        return PingResult(node.tag, error=f"{type(exc).__name__}: {exc}")
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
 def probe_nodes(
     nodes: Sequence[Node],
     *,
     timeout: float = DEFAULT_TIMEOUT,
     workers: int = DEFAULT_WORKERS,
+    progress_cb: ProgressCb | None = None,
+    proxy: ProxySpec | None = None,
 ) -> dict[str, PingResult]:
-    """Запинговать ноды параллельно. Ключ - тег ноды."""
+    """Запинговать ноды параллельно. Ключ - тег ноды.
+
+    ``progress_cb(done, total)`` вызывается после каждой ответившей (или
+    отвалившейся) ноды - ровно один раз на ноду, включая последнюю.
+    ``proxy`` (SOCKS5) уводит коннекты через внешний прокси; ``None`` - напрямую.
+    """
     if not nodes:
         return {}
-    pool = max(1, min(workers, len(nodes)))
+    total = len(nodes)
+    pool = max(1, min(workers, total))
+    results: dict[str, PingResult] = {}
     with ThreadPoolExecutor(max_workers=pool) as executor:
-        results = executor.map(lambda node: ping_node(node, timeout=timeout), nodes)
-        return {result.tag: result for result in results}
+        futures = [
+            executor.submit(ping_node, node, timeout=timeout, proxy=proxy) for node in nodes
+        ]
+        for done, future in enumerate(as_completed(futures), start=1):
+            result = future.result()
+            results[result.tag] = result
+            if progress_cb is not None:
+                progress_cb(done, total)
+    return results
 
 
 def select_fastest(

@@ -26,11 +26,9 @@ import subprocess
 import sys
 import tarfile
 import time
-import urllib.request
 import zipfile
 from pathlib import Path
 from urllib.error import URLError
-from urllib.request import ProxyHandler, Request, urlopen
 
 from scripts.lthub_tunnel.clash import build_clash, dump_clash
 from scripts.lthub_tunnel.nodes import Node
@@ -43,6 +41,7 @@ from scripts.lthub_tunnel.probe import (
     probe_nodes,
     select_fastest,
 )
+from scripts.lthub_tunnel.proxy import ProxySpec, open_url, resolve_proxy
 from scripts.lthub_tunnel.sbconfig import (
     DEFAULT_LISTEN,
     DEFAULT_PORT,
@@ -145,13 +144,8 @@ def bundled_sources() -> dict | None:
         return None
 
 
-def load_sources(explicit: list[str] | None) -> tuple[list[str], str, int]:
-    """Источники подписок и пробный URL. Приоритет: CLI > файл > встроенные."""
-    urls = [u for u in (explicit or []) if u.strip()]
-    probe_url = DEFAULT_PROBE_URL
-    port = DEFAULT_PORT
-    if urls:
-        return urls, probe_url, port
+def _sources_payload() -> dict | None:
+    """Содержимое ``sources.local.json`` (или встроенный вариант в .exe)."""
     path = sources_file()
     data: dict | None = None
     if path.exists():
@@ -165,6 +159,17 @@ def load_sources(explicit: list[str] | None) -> tuple[list[str], str, int]:
             raise RuntimeError(f"В {path} битый JSON: {exc}") from exc
     if data is None:
         data = bundled_sources()
+    return data
+
+
+def load_sources(explicit: list[str] | None) -> tuple[list[str], str, int]:
+    """Источники подписок и пробный URL. Приоритет: CLI > файл > встроенные."""
+    urls = [u for u in (explicit or []) if u.strip()]
+    probe_url = DEFAULT_PROBE_URL
+    port = DEFAULT_PORT
+    if urls:
+        return urls, probe_url, port
+    data = _sources_payload()
     if not data:
         return urls, probe_url, port
     return (
@@ -172,6 +177,16 @@ def load_sources(explicit: list[str] | None) -> tuple[list[str], str, int]:
         data.get("probe_url") or probe_url,
         int(data.get("port") or port),
     )
+
+
+def load_proxy(explicit: str | None = None) -> ProxySpec | None:
+    """Внешний прокси запросов туннеля. Приоритет: CLI > ENV > файл.
+
+    ``None`` (по умолчанию) означает «идти напрямую», игнорируя системный и
+    env-прокси: иначе мёртвый или ещё не поднятый прокси вешает запуск.
+    """
+    data = _sources_payload() or {}
+    return resolve_proxy(explicit, config_value=data.get("proxy"))
 
 
 def state_dir(override: str | Path | None = None) -> Path:
@@ -211,16 +226,22 @@ def _platform_asset(version: str) -> tuple[str, bool]:
     return f"sing-box-{version}-linux-amd64.tar.gz", False
 
 
-def _latest_version() -> str:
+def _latest_version(proxy: ProxySpec | None = None) -> str:
     try:
-        request = Request(RELEASE_URL, headers={"User-Agent": "lthub-tunnel"})
-        with urlopen(request, timeout=20) as response:
+        with open_url(
+            RELEASE_URL, proxy=proxy, timeout=20, headers={"User-Agent": "lthub-tunnel"}
+        ) as response:
             return json.loads(response.read())["tag_name"].lstrip("v")
     except (URLError, OSError, ValueError, KeyError):
         return FALLBACK_VERSION
 
 
-def install_sing_box(version: str | None = None, force: bool = False, log=print) -> Path:
+def install_sing_box(
+    version: str | None = None,
+    force: bool = False,
+    log=print,
+    proxy: ProxySpec | None = None,
+) -> Path:
     """Скачать sing-box в BIN_DIR и вернуть путь к исполняемому файлу.
 
     Вынесено отдельно от ``cmd_install``, потому что установкой занимается не
@@ -230,12 +251,14 @@ def install_sing_box(version: str | None = None, force: bool = False, log=print)
     if target.exists() and not force:
         log(f"Уже установлен: {target}")
         return target
-    version = version or _latest_version()
+    version = version or _latest_version(proxy)
     asset, is_zip = _platform_asset(version)
     url = f"https://github.com/SagerNet/sing-box/releases/download/v{version}/{asset}"
     log(f"Качаю sing-box {version} ({asset})...")
     try:
-        with urlopen(Request(url, headers={"User-Agent": "lthub-tunnel"}), timeout=300) as response:
+        with open_url(
+            url, proxy=proxy, timeout=300, headers={"User-Agent": "lthub-tunnel"}
+        ) as response:
             blob = response.read()
     except (URLError, OSError) as exc:
         raise RuntimeError(
@@ -253,7 +276,7 @@ def install_sing_box(version: str | None = None, force: bool = False, log=print)
 def cmd_install(args: argparse.Namespace) -> int:
     """Скачать sing-box в scripts/lthub_tunnel/bin (нужен один раз)."""
     try:
-        binary = install_sing_box(args.version, args.force)
+        binary = install_sing_box(args.version, args.force, proxy=load_proxy(args.proxy))
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -287,7 +310,9 @@ def _extract(archive: Path, target: Path, is_zip: bool) -> None:
 
 # --- build / check ---------------------------------------------------------
 
-def collect_nodes(args: argparse.Namespace) -> tuple[list[Node], str, int]:
+def collect_nodes(
+    args: argparse.Namespace, proxy: ProxySpec | None = None
+) -> tuple[list[Node], str, int]:
     """Скачать подписки и вернуть ноды, пробный URL и порт."""
     urls, probe_url, port = load_sources(args.source)
     if not urls:
@@ -304,6 +329,7 @@ def collect_nodes(args: argparse.Namespace) -> tuple[list[Node], str, int]:
             verbose=not args.quiet,
             # Последняя удачная подписка - запасной путь, когда источник моргает.
             cache_dir=state_dir(args.state_dir) / "subs",
+            proxy=proxy,
         )
     except SubscriptionError as exc:
         print(f"Подписки недоступны: {exc}", file=sys.stderr)
@@ -321,7 +347,7 @@ def collect_nodes(args: argparse.Namespace) -> tuple[list[Node], str, int]:
 
 
 def pick_fastest(
-    args: argparse.Namespace, nodes: list[Node]
+    args: argparse.Namespace, nodes: list[Node], proxy: ProxySpec | None = None
 ) -> tuple[list[Node], dict[str, object]]:
     """Отсечь мёртвые ноды пингом и оставить самые быстрые.
 
@@ -333,7 +359,7 @@ def pick_fastest(
     if args.only or args.no_ping or len(nodes) <= 1:
         return nodes, {}
     print(f"Пингую {len(nodes)} нод (таймаут {args.ping_timeout:.1f} с)...")
-    results = probe_nodes(nodes, timeout=args.ping_timeout)
+    results = probe_nodes(nodes, timeout=args.ping_timeout, proxy=proxy)
     alive, dead = select_fastest(nodes, results, top=args.top)
     alive_count = len(nodes) - len(dead)
     if not dead:
@@ -370,8 +396,9 @@ def sing_box_check(config_path: Path) -> str | None:
 
 def cmd_build(args: argparse.Namespace) -> int:
     """Собрать config.json и показать статистику по нодам."""
-    nodes, probe_url, port = collect_nodes(args)
-    nodes, pings = pick_fastest(args, nodes)
+    proxy = load_proxy(args.proxy)
+    nodes, probe_url, port = collect_nodes(args, proxy)
+    nodes, pings = pick_fastest(args, nodes, proxy)
     home = state_dir(args.state_dir)
     config, rejected = build_config(
         nodes,
@@ -457,29 +484,30 @@ def probe(
     timeout: int = 25,
     attempts: int = 8,
     delay: float = 5.0,
+    proxy: ProxySpec | None = None,
 ) -> tuple[bool, str]:
     """Открыть URL с ретраями. Возвращает (ок, описание).
 
     ``proxy_port`` - порт нашего локального прокси; ``None`` означает прямое
-    соединение вообще без прокси (в том числе без системного из реестра).
-    Разделяем эти два случая, чтобы при отказе было видно, виноват туннель
-    или само приложение недоступно из этой сети.
+    соединение. При ``proxy_port=None`` учитывается явный внешний ``proxy``
+    (если задан), иначе соединение идёт напрямую - в том числе без системного
+    прокси из реестра. Разделяем эти случаи, чтобы при отказе было видно,
+    виноват туннель или само приложение недоступно из этой сети.
 
     Первые попытки нужны потому, что urltest ещё не закончил замер нод и
     группа может временно вести на мёртвую. Следующий цикл urltest (минута)
     уводит группу на живую ноду - поэтому повторяем заметно дольше.
     """
-    if proxy_port is None:
-        handlers = [ProxyHandler({})]
+    if proxy_port is not None:
+        # Наш локальный прокси - всегда обычный HTTP на 127.0.0.1.
+        target = ProxySpec(scheme="http", host=DEFAULT_LISTEN, port=proxy_port)
     else:
-        proxy = f"http://{DEFAULT_LISTEN}:{proxy_port}"
-        handlers = [ProxyHandler({"http": proxy, "https": proxy})]
-    opener = urllib.request.build_opener(*handlers)
+        target = proxy
     last = "неизвестная ошибка"
     for attempt in range(1, attempts + 1):
         started = time.monotonic()
         try:
-            with opener.open(url, timeout=timeout) as response:
+            with open_url(url, proxy=target, timeout=timeout) as response:
                 elapsed = (time.monotonic() - started) * 1000
                 return response.status < 400, f"HTTP {response.status} за {elapsed:.0f} мс"
         except (URLError, OSError, ValueError) as exc:
@@ -603,8 +631,9 @@ def cmd_export(args: argparse.Namespace) -> int:
     клиент всё равно не отличит их друг от друга. В конфиг попадают только
     живые и самые быстрые - их на телефоне уже не так много.
     """
-    nodes, probe_url, port = collect_nodes(args)
-    nodes, pings = pick_fastest(args, nodes)
+    proxy = load_proxy(args.proxy)
+    nodes, probe_url, port = collect_nodes(args, proxy)
+    nodes, pings = pick_fastest(args, nodes, proxy)
     out = Path(args.out)
     home = state_dir(args.state_dir)
     sb_config, sb_rejected = build_config(
@@ -637,11 +666,12 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def cmd_ping(args: argparse.Namespace) -> int:
     """Показать, кто отвечает и с какой задержкой - без сборки конфига."""
-    nodes, _, _ = collect_nodes(args)
+    proxy = load_proxy(args.proxy)
+    nodes, _, _ = collect_nodes(args, proxy)
     if args.limit and args.limit < len(nodes):
         nodes = nodes[: args.limit]
     print(f"Пингую {len(nodes)} нод (таймаут {args.ping_timeout:.1f} с)...")
-    results = probe_nodes(nodes, timeout=args.ping_timeout)
+    results = probe_nodes(nodes, timeout=args.ping_timeout, proxy=proxy)
     alive, _dead = select_fastest(nodes, results, top=args.top)
     print(format_ping_table(alive, results, limit=args.limit or 0))
     if alive:
@@ -694,6 +724,16 @@ def _common_options() -> argparse.ArgumentParser:
         "--no-ping",
         action="store_true",
         help="не пинговать, собрать конфиг из всех нод",
+    )
+    parser.add_argument(
+        "--proxy",
+        default=None,
+        help=(
+            "внешний прокси для запросов туннеля: http://host:port или "
+            "socks5h://host:port (по умолчанию напрямую, игнорируя системный прокси; "
+            "то же можно задать переменной LTHUB_TUNNEL_PROXY или полем proxy в "
+            "sources.local.json)"
+        ),
     )
     parser.add_argument(
         "--log-level",

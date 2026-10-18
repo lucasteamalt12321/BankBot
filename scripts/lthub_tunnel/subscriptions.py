@@ -18,7 +18,6 @@ import base64
 import binascii
 import hashlib
 import re
-import ssl
 import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -26,9 +25,9 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
 
 from scripts.lthub_tunnel.nodes import Node, parse_trojan, parse_vless
+from scripts.lthub_tunnel.proxy import ProxySpec, open_url
 
 # Подписки отдают разное содержимое в зависимости от User-Agent.
 # Первым идёт sing-box: у него самый чистый base64-ответ.
@@ -71,6 +70,7 @@ def fetch(
     timeout: int = 15,
     user_agent: str = USER_AGENTS[0],
     retries: int | None = None,
+    proxy: ProxySpec | None = None,
 ) -> str:
     """Скачать подписку, повторяя при сетевых сбоях и меняя User-Agent вслепую.
 
@@ -92,12 +92,13 @@ def fetch(
     agents = (user_agent,) if user_agent != USER_AGENTS[0] else USER_AGENTS
     for attempt in range(max(1, attempts)):
         for agent in agents:
-            request = Request(
-                url,
-                headers={"User-Agent": agent, "Accept": "*/*", "Accept-Encoding": "identity"},
-            )
+            request_headers = {
+                "User-Agent": agent,
+                "Accept": "*/*",
+                "Accept-Encoding": "identity",
+            }
             try:
-                with urlopen(request, timeout=timeout, context=ssl.create_default_context()) as response:
+                with open_url(url, proxy=proxy, timeout=timeout, headers=request_headers) as response:
                     text = response.read().decode("utf-8", "replace")
             except (URLError, OSError, ValueError) as exc:
                 last_error = exc
@@ -177,7 +178,12 @@ def _cache_file(url: str, cache_dir: str | Path) -> Path:
     return Path(cache_dir) / f"{safe}-{digest}.txt"
 
 
-def fetch_cached(url: str, timeout: int = 15, cache_dir: str | Path | None = None) -> tuple[str, bool]:
+def fetch_cached(
+    url: str,
+    timeout: int = 15,
+    cache_dir: str | Path | None = None,
+    proxy: ProxySpec | None = None,
+) -> tuple[str, bool]:
     """Скачать подписку, при неудаче отдать последнюю удачную из кеша.
 
     Возвращает (тело, из_кеша). Источники живут на Vercel и периодически
@@ -191,11 +197,13 @@ def fetch_cached(url: str, timeout: int = 15, cache_dir: str | Path | None = Non
     ни одной новой строки.
     """
     if cache_dir is None:
-        return fetch(url, timeout=timeout), False
+        return fetch(url, timeout=timeout, proxy=proxy), False
     cache = _cache_file(url, cache_dir)
     cached_exists = cache.exists()
     try:
-        body = fetch(url, timeout=timeout, retries=1 if cached_exists else None)
+        body = fetch(
+            url, timeout=timeout, retries=1 if cached_exists else None, proxy=proxy
+        )
     except SubscriptionError:
         if cached_exists:
             try:
@@ -218,6 +226,7 @@ def load_all(
     verbose: bool = True,
     cache_dir: str | Path | None = None,
     log: Callable[[str], None] | None = None,
+    proxy: ProxySpec | None = None,
 ) -> list[Node]:
     """Скачать все подписки и объединить. Недоступные источники пропускаются.
 
@@ -239,7 +248,9 @@ def load_all(
         label = f"[{position + 1}/{len(sources)}]"
         emit(f"{label} Скачиваю {url}")
         try:
-            body, cached = fetch_cached(url, timeout=timeout, cache_dir=cache_dir)
+            body, cached = fetch_cached(
+                url, timeout=timeout, cache_dir=cache_dir, proxy=proxy
+            )
         except SubscriptionError as exc:
             emit(f"{label} пропущен: {exc}")
             return exc

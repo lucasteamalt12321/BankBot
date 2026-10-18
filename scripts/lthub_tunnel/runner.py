@@ -28,6 +28,7 @@ from scripts.lthub_tunnel.probe import (
     probe_nodes,
     select_fastest,
 )
+from scripts.lthub_tunnel.proxy import ProxySpec
 from scripts.lthub_tunnel.sbconfig import (
     DEFAULT_LISTEN,
     DEFAULT_PROBE_URL,
@@ -40,6 +41,7 @@ from scripts.lthub_tunnel.tunnel import (
     DEFAULT_SITE,
     _dump_tmp,
     install_sing_box,
+    load_proxy,
     load_sources,
     open_site,
     probe,
@@ -68,6 +70,7 @@ class TunnelSession:
         top: int = DEFAULT_TOP,
         ping_timeout: float = DEFAULT_PING_TIMEOUT,
         log: LogFn = _noop,
+        proxy: str | None = None,
     ) -> None:
         self.home = state_dir(state_root)
         self.sources = sources
@@ -75,6 +78,9 @@ class TunnelSession:
         self.top = top
         self.ping_timeout = ping_timeout
         self.log = log
+        self.proxy_arg = proxy
+        # Резолвится в build(): None - идти напрямую, без системного прокси.
+        self.proxy: ProxySpec | None = None
         self.config_path = self.home / "config.json"
         self.process: subprocess.Popen | None = None
         self._log_file = None
@@ -99,7 +105,7 @@ class TunnelSession:
 
     def install(self) -> None:
         """Скачать sing-box, если его ещё нет."""
-        install_sing_box(log=self.log)
+        install_sing_box(log=self.log, proxy=load_proxy(self.proxy_arg))
 
     # --- сборка ------------------------------------------------------------
 
@@ -117,12 +123,26 @@ class TunnelSession:
             )
         self.port = port
         self.probe_url = probe_url
+        self.proxy = load_proxy(self.proxy_arg)
+        if self.proxy is not None:
+            self.log(f"Запросы туннеля через прокси: {self.proxy.url}")
         self.log("Скачиваю подписки...")
-        nodes = load_all(urls, timeout=15, cache_dir=self.home / "subs", log=self.log)
+        nodes = load_all(
+            urls, timeout=15, cache_dir=self.home / "subs", log=self.log, proxy=self.proxy
+        )
         self.total_count = len(nodes)
         self.log(f"Нод в подписках: {len(nodes)}")
 
-        results = probe_nodes(nodes, timeout=self.ping_timeout) if len(nodes) > 1 else {}
+        results = (
+            probe_nodes(
+                nodes,
+                timeout=self.ping_timeout,
+                progress_cb=self._ping_progress(len(nodes)),
+                proxy=self.proxy,
+            )
+            if len(nodes) > 1
+            else {}
+        )
         if results:
             alive, dead = select_fastest(nodes, results, top=self.top)
             self.alive_count = len(nodes) - len(dead)
@@ -157,6 +177,23 @@ class TunnelSession:
             self.log(f"Лучшая нода: {self.best_label}")
         self.log(f"Готово. Прокси {DEFAULT_LISTEN}:{port}")
         return self.config_path
+
+    def _ping_progress(self, total: int) -> Callable[[int, int], None]:
+        """Редкий колбэк прогресса пинга: не заливать окно сотней строк.
+
+        Строка появляется на первой ноде, затем примерно раз на десятую часть
+        списка и обязательно на последней - чтобы в логе остался финальный итог.
+        """
+        step = max(1, total // 10)
+        last = 0
+
+        def report(done: int, _total: int) -> None:
+            nonlocal last
+            if done == 1 or done == total or done - last >= step:
+                last = done
+                self.log(f"Проверяю ноды: {done}/{total}")
+
+        return report
 
     def _best_label(self, nodes: list[Node], results: dict) -> str:
         """Нода с наименьшей задержкой среди тех, что попали в конфиг.
