@@ -4,6 +4,19 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### ✅ Закрыто (2026-10-18): study-chat WIP, долги баг-ханта и школьный проект SCH-03…SCH-05
+
+> Запрос: «Продолжай разработку» → «всё это». Порядок: сначала зелёный `main`, затем долги, затем школьный проект. Коммиты: `3796fa4` (study-chat), `c5ef315` (детерминизм тестов), `39f3f02` (GD-03/05), `856fc30` (CH-TEST), `1998022` (SCH-03/04) + memory-коммит.
+
+- **WIP study-chat:** переименование `api_study_chat_send` → `api_study_chat_post` (WIP автора) убрало из ответа `prompt`/`ok`/`actions` → 5 падений (`test_curator`, `test_freemium_gates`). В `api_study_chat_post` возвращена прежняя реализация; база `/api/study/today` и `GET /api/study/chat` — открыты анонимам, персонализированные `POST /api/study/chat` и `GET /api/study/hint` — под авторизацией (согласовано с `test_freemium_gates.py`).
+- **Детерминизм:** `tests/conftest.py` патчит `api.index._load_bot_id` (нет реальных `getMe`); `test_user_manager` держит генератор `get_db()` живым (`self._db_gen`); `test_register_rate_limits` патчит `api.index._check_ai_rate`.
+- **GD-03/GD-05:** сироты `get_moderate_handler()` / `get_stats_handlers()` включены в `get_gd_handlers()` (правка `bot/bot.py` не потребовалась).
+- **CH-TEST:** `tests/unit/test_chess_web.py` — puzzle/check (награда +5 только владельцу, решение не утекает) и stats (401) — 11 passed.
+- **SCH-03/04:** `school_project/` (8 файлов: README, паспорт, timeline, глоссарий, презентация, речь, демо, чек-лист) + разделы «Школа» в `README.md` и `docs/README.md`.
+- **SCH-05:** `projectbrief.md` — B06/B13 → completed, пересчёт **74.0 → 77.5 %**; GD-02…GD-07, CH-05/CH-06 → completed; путь SCH-01 исправлен на `/informatics` (`core/informatics/tasks.py`).
+- **Проверки:** `pytest tests/unit` — 1470 passed / 11 skipped / 0 failed; `ruff` чист. Чужие файлы (`AGENTS.md`, `test_freemium_gates.py`, корневые `dbg*/fchat*/t*/fix*/dchat.py`) не тронуты.
+- **Открыто:** переписывание истории git (PII `data/chat_export/`) + `force-push`; TUN-08; проверка CI на `main`.
+
 ### ✅ Закрыто (2026-10-15): BUGHUNT Phase 11 — BUG-04…BUG-10 (закоммичено `3d4e3fd`, запушено 2026-10-18)
 
 > Запрос пользователя: продолжение `memory_bank/todo.md`; на выбор объёма — **«Всё подряд BUG-04..BUG-10»**. Каждый баг закрыт с целевым регрессом. Подробности — `progress.md` → `## Changelog 2026-10-15`.

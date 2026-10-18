@@ -1,16 +1,59 @@
 # Progress
 
-**Текущая фаза:** Phase 6 OGE Center — **Максимальная прокачка OGE-системы** (SM-2 стандартный алгоритм, тренажёр инфо с самооценкой, физика в экзамене, аналитика, серверный квиз-движок, due-cards, хаб-прогрессбары)
+**Текущая фаза:** Phase 6 OGE Center — подготовка к ОГЭ по 5 предметам. Школьный проект (SCH-01…SCH-05) закрыт 2026-10-18: база, README/docs и `school_project/` готовы; канонический прогресс **77.5 / 100**.
 
 ## last_checked_commit
 
-**`3d4e3fd`** — fix(security): BUGHUNT phase 11 — BUG-04..BUG-10 (закоммичено и **запушено в `origin/main`** 2026-10-18). До него: `92c8df3` (feat(lthub-tunnel): прогресс пробы нод + прокси http/socks5h), `e0476b4` (chore: add relaxdev.yml config hint), `dd19fa6` (Amvera mirror guide), `8b3f876` (amvera.yml), `1b00082` (md2pdf X-Auth-Token), `d2d2dcc` (CI аудио/sing-box), `4ee006f` (RelaxDev gunicorn), `c461a29` (CI ruff check .), `b356c28` (ссылка на LthubTunnel.exe в README), `e56307f` (не трекать .vercel), `cf2d3a1` (CI python 3.12 + пин ruff), `5d1acc4` (Changelog 2026-10-08), `3b4832d` (advisory-lock до первого DDL), `67ec039` (подписки не держат запуск), `53ae24e` (GD-08).
+**`1998022`** — docs(school-project): SCH-03 материалы + SCH-04 README/docs (2026-10-18). До него: `856fc30` (test(chess): CH-TEST), `39f3f02` (fix(gd): GD-03/GD-05), `c5ef315` (fix(tests): детерминизм), `3796fa4` (fix: study-chat WIP + открытая анонимам база), `638745b` (memory_bank sync), `3d4e3fd` (BUGHUNT BUG-04..BUG-10), `92c8df3` (туннель), `92c8df3` (feat(lthub-tunnel): прогресс пробы нод + прокси http/socks5h), `e0476b4` (chore: add relaxdev.yml config hint), `dd19fa6` (Amvera mirror guide), `8b3f876` (amvera.yml), `1b00082` (md2pdf X-Auth-Token), `d2d2dcc` (CI аудио/sing-box), `4ee006f` (RelaxDev gunicorn), `c461a29` (CI ruff check .), `b356c28` (ссылка на LthubTunnel.exe в README), `e56307f` (не трекать .vercel), `cf2d3a1` (CI python 3.12 + пин ruff), `5d1acc4` (Changelog 2026-10-08), `3b4832d` (advisory-lock до первого DDL), `67ec039` (подписки не держат запуск), `53ae24e` (GD-08).
 
 > ✅ На 2026-10-18 изменения туннеля и BUGHUNT (BUG-04…BUG-10) закоммичены и **запушены в `origin/main`** (`92c8df3`, `3d4e3fd`). В рабочем дереве остались только чужие/черновые файлы, которые я не трогал: `AGENTS.md` (правка автора), `tests/unit/test_freemium_gates.py` (WIP-тест) и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
 
 > ✅ Чужая работа (canon, туннель) автором закоммичена — предупреждение снято 2026-10-07. В дереве только мои файлы.
+
+## Changelog 2026-10-18 — study-chat WIP, долги баг-ханта (GD-03/05, CH-TEST), школьный проект SCH-03…SCH-05
+
+**Задача пользователя:** «Продолжай разработку» → «всё это» (закрыть оставшиеся направления). Порядок: сначала зелёный `main`, затем долги баг-ханта, затем школьный проект.
+
+### 1. WIP study-chat → `main` снова зелёный (`3796fa4`)
+
+- **Причина 5 падений:** незакоммиченный WIP автора переименовал `api_study_chat_send` → `api_study_chat_post`, из-за чего из ответа пропали ключи `prompt` / `ok` / `actions`, на которые опирались `tests/unit/test_curator.py` и `test_freemium_gates.py`.
+- **Фикс:** в `api/index.py` рядом с новым POST-хендлером восстановлена прежняя реализация `api_study_chat_post`; базовые `/api/study/today` и `GET /api/study/chat` оставлены **открытыми анонимам** (политика «база открыта» согласована с `tests/unit/test_freemium_gates.py`), под авторизацией — только персонализированные `POST /api/study/chat` / `GET /api/study/hint` и действия куратора.
+
+### 2. Детерминизм тестов (`c5ef315`)
+
+- `tests/conftest.py`: autouse-заглушка сети патчит `api.index._load_bot_id` — реальный `getMe` больше не вызывается (был сетевой таймаут).
+- `tests/unit/test_user_manager.py`: генератор `get_db()` удерживается живым (`self._db_gen`) и закрывается в `tearDown` — устранён `ResourceClosedError` (предсуществующий баг изоляции, закрывал сессию под тестом).
+- `tests/unit/test_web_portal_e2e.py::test_register_rate_limits`: часть 2 патчит `api.index._check_ai_rate` — проверяется дневной лимит БД, кросс-тестовое глобальное состояние больше не влияет.
+
+### 3. Долги баг-ханта: GD-03/GD-05 (`39f3f02`) и CH-TEST (`856fc30`)
+
+- **GD-03/GD-05:** `get_moderate_handler()` и `get_stats_handlers()` были «сиротами» (не регистрировались). Включены в `get_gd_handlers()` — единственная точка регистрации, правки `bot/bot.py` не потребовалось; `tests/unit/test_gd_commands.py` обновлён.
+- **CH-TEST:** новый `tests/unit/test_chess_web.py` (**11 passed**): `/api/chess/puzzle` (TTL-кулдаун `_PENDING_PUZZLE_TTL = 1800`), `/api/chess/puzzle/check` (награда `update_user_coins(uid, 5, …)` + `log_chess_game` только для владельца при `pending["web"]` и `logged_uid == uid == auth_uid`; решение не утекает), `/api/chess/stats` (401 без авторизации).
+
+### 4. Школьный проект SCH-03…SCH-05 (`1998022` + memory-коммит)
+
+- **SCH-03:** создана папка `school_project/` — `README.md`, `passport.md`, `timeline.md`, `glossary.md`, `presentation.md` (12 слайдов), `speech.md` (речь 5–7 мин + Q&A), `demo_script.md` (демо на 5 и 3 минуты), `checklist.md`.
+- **SCH-04:** `README.md` — раздел «Школьный проект: подготовка к ОГЭ» + строки `school_project/` в таблицах каталогов/документации; `docs/README.md` — подраздел `### School / OGE Module (Школа)` (предметы, доступ, геймификация, тесты) + `school_project/` в дереве и таблице.
+- **SCH-05:** memory_bank приведён к коду — см. п. 5.
+
+### 5. Сверка memory_bank и пересчёт прогресса
+
+- `projectbrief.md`: `B06` Chess — **completed** (CH-TEST закрыт), `B13` School Project — **completed** (SCH-01…SCH-05); детальная таблица чесс-модуля `18/21 → 21/21 (100%)`; `SCH: 40/100 → 100/100`; в «Additional Tasks» GD-02…GD-07 и CH-05/CH-06 переведены `pending → completed`; у SCH-01 исправлен устаревший путь (`core/math/tasks.py` + `/math` → `core/informatics/tasks.py` + `/informatics`).
+- **Канонический прогресс: 74.0 → 77.5 / 100 (77.5%).** Остаются `in_progress` (22.5 веса): B07 Universe, B08 AI, B10 Mom, B11 Family Budget, B12 VK Mini App, B16 Code Explainer, B21 Tunnel.
+
+### Верификация
+
+- Полный `pytest tests/unit` — **1470 passed, 11 skipped, 0 failed** (≈110 с); после CH-TEST и школьных правок — финальный перепрогон.
+- `ruff check` — чисто по всем изменённым путям.
+- Чужие файлы не тронуты: `AGENTS.md`, `tests/unit/test_freemium_gates.py`, корневые `dbg*.py` / `fchat*.py` / `t*.py` / `f2.py` / `f3.py` / `fix*.py` / `dchat.py`.
+
+### Открыто
+
+- **Переписывание истории git** для удаления PII `data/chat_export/` (274 файла убраны из индекса, но остаются в истории) + `force-push` — требует решения пользователя.
+- **TUN-08** — серверная раздача конфигов (не согласовано).
+- Проверка зелёного CI на `main` после пуша.
 
 ## Changelog 2026-10-15 — BUGHUNT Phase 11: BUG-04…BUG-10 закрыты (закоммичено `3d4e3fd`, запушено 2026-10-18)
 

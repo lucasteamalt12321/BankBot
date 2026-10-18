@@ -38,14 +38,14 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B03 | Canon Module (CANON01/02/03: `core/canon`, заявки, аудио) | completed | 7 |
 | B04 | Emperors Module (EM-01…EM-TEST) | completed | 3 |
 | B05 | GD Module (GD-01…GD-08, GD-TEST) | completed | 6 |
-| B06 | Chess Module (CH-01…CH-06; CH-TEST открыт) | in_progress | 2 |
+| B06 | Chess Module (CH-01…CH-06, CH-TEST) | completed | 2 |
 | B07 | Universe Module (UN-01…UN-03; UN-TEST открыт) | in_progress | 2 |
 | B08 | AI Module (AI-01…AI-05; AI-TEST открыт) | in_progress | 3 |
 | B09 | AI Chat — reply/mention (AIC-01…AIC-08) | completed | 2 |
 | B10 | Mom Module (MOM-01…MOM-05; MOM-TEST открыт) | in_progress | 3 |
 | B11 | Family Budget Module (BGT-01…BGT-10; BGT-TEST открыт) | in_progress | 6 |
 | B12 | VK Mini App — Budget UI (альтернатива Vercel) | in_progress | 1.5 |
-| B13 | School Project (SCH-01…SCH-05) | in_progress | 1.5 |
+| B13 | School Project (SCH-01…SCH-05) | completed | 1.5 |
 | B14 | OGE Center — подготовка к ОГЭ по 5 предметам (OGE-00…OGE-12, OGE-FULL) | completed | 11 |
 | B15 | General Statistics Module (STAT-01…STAT-04) | completed | 3.5 |
 | B16 | Code Explainer (CODE-01…CODE-TEST) | in_progress | 3.5 |
@@ -57,9 +57,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B22 | Post-Review Cleanup (T01…T07) | completed | 1 |
 | — | **Итого** | | **100** |
 
-**Канонический прогресс проекта: 74.0 / 100 (74.0%).**
+**Канонический прогресс проекта: 77.5 / 100 (77.5%).**
 
-Остальные `26.0` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (CH-TEST, UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, School Project, VK Mini App). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
+Остальные `22.5` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, VK Mini App). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
 
 ---
 
@@ -126,9 +126,9 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | CH-04 | /puzzle и /chess_puzzle (задача с изображением доски) | completed | 5 |
 | CH-05 | Puzzle rewards: награды монетами за решение задач | completed | 3 |
 | CH-06 | History: история решённых задач | completed | 2 |
-| CH-TEST | Тестирование Chess Module (manual + integration) | pending | 2 |
+| CH-TEST | Тестирование Chess Module (manual + integration) | completed | 2 |
 
-**Chess Module: 18/21 (86%)**
+**Chess Module: 21/21 (100%)**
 
 ---
 
@@ -567,13 +567,13 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
-| SCH-01 | Модуль «Информатика — ОГЭ» `/math` (core/math/tasks.py + страница в api/index.py, теория из D:\ITlessons) | completed | 25 |
+| SCH-01 | Модуль «Информатика — ОГЭ» `/informatics` (`core/informatics/tasks.py` + страница в `api/index.py`, теория из `D:\ITlessons`) | completed | 25 |
 | SCH-02 | Карточка «Информатика — ОГЭ» в бета-разделе хаба `/` | completed | 15 |
-| SCH-03 | Папка `school_project/` (паспорт, презентация, речь, демо-сценарий, глоссарий) | pending | 25 |
-| SCH-04 | Обновление README.md + docs/README.md под актуальное состояние (источник — memory_bank/) | pending | 20 |
-| SCH-05 | Обновление memory_bank (productContext, activeContext, progress) | in_progress | 15 |
+| SCH-03 | Папка `school_project/` (паспорт, презентация, речь, демо-сценарий, глоссарий, чек-лист) | completed | 25 |
+| SCH-04 | Обновление README.md + docs/README.md под актуальное состояние (источник — memory_bank/) | completed | 20 |
+| SCH-05 | Обновление memory_bank (productContext, activeContext, progress) | completed | 15 |
 
-**SCH: 40/100 (SCH-01, SCH-02 завершены 2026-08-20)**
+**SCH: 100/100 (SCH-01, SCH-02 — 2026-08-20; SCH-03, SCH-04 — 2026-10-18; SCH-05 — 2026-10-18)**
 
 ---
 
@@ -741,17 +741,17 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 |----|------|----------|--------|
 | PARSE01 | Production E2E парсинг игровых сообщений по ответам | completed | P0 |
 | TRIVIA01 | Мини-игра: Брейн-Ринг по Канону Олеговируса | completed | P0 |
-| GD-02 | Команда /submit (заявка на прохождение) | pending | 4 |
-| GD-03 | Админ-панель /moderate (модерация заявок) | pending | 5 |
-| GD-04 | Логика сложности (хардест и топ-100) | pending | 4 |
-| GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | pending | 5 |
-| GD-06 | Админ-команды (/add_level, /set_level_position) | pending | 4 |
-| GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | pending | 3 |
+| GD-02 | Команда /submit (заявка на прохождение) | completed | 4 |
+| GD-03 | Админ-панель /moderate (модерация заявок) | completed | 5 |
+| GD-04 | Логика сложности (хардест и топ-100) | completed | 4 |
+| GD-05 | Команды статистики (/leaderboard, /my_stats, /player_stats) | completed | 5 |
+| GD-06 | Админ-команды (/add_level, /set_level_position) | completed | 4 |
+| GD-07 | Интеграция с GD API (gd.py, /gd_user, /gd_level) | completed | 3 |
 | CH-02 | Команда /chess_link <ник> (привязка Lichess аккаунта) | completed | 3 |
 | CH-03 | /chess_rating и /chess_stats (базовые версии) | completed | 4 |
 | CH-04 | /puzzle и /chess_puzzle (задача с изображением доски) | completed | 5 |
-| CH-05 | Puzzle rewards: награды монетами за решение задач | pending | 3 |
-| CH-06 | History: история решённых задач | pending | 2 |
+| CH-05 | Puzzle rewards: награды монетами за решение задач | completed | 3 |
+| CH-06 | History: история решённых задач | completed | 2 |
 | UN-03 | /generate_prayer — генерация молитв через AI (уже реализовано в AI Module) | completed | 4 |
 | MOM-05 | Дополнительные улучшения (озвучивание, статистика, подсказка) | completed | 1 |
 
