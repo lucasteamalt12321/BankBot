@@ -4,15 +4,15 @@
 
 ## last_checked_commit
 
-**`e0476b4`** — chore: add relaxdev.yml config hint (последний коммит `main`; проверено 2026-10-14 — новых коммитов нет). До него: `dd19fa6` (Amvera mirror guide), `8b3f876` (amvera.yml), `1b00082` (md2pdf X-Auth-Token), `d2d2dcc` (CI аудио/sing-box), `4ee006f` (RelaxDev gunicorn), `c461a29` (CI ruff check .), `b356c28` (ссылка на LthubTunnel.exe в README), `e56307f` (не трекать .vercel), `cf2d3a1` (CI python 3.12 + пин ruff), `5d1acc4` (Changelog 2026-10-08), `3b4832d` (advisory-lock до первого DDL), `67ec039` (подписки не держат запуск), `53ae24e` (GD-08).
+**`3d4e3fd`** — fix(security): BUGHUNT phase 11 — BUG-04..BUG-10 (закоммичено и **запушено в `origin/main`** 2026-10-18). До него: `92c8df3` (feat(lthub-tunnel): прогресс пробы нод + прокси http/socks5h), `e0476b4` (chore: add relaxdev.yml config hint), `dd19fa6` (Amvera mirror guide), `8b3f876` (amvera.yml), `1b00082` (md2pdf X-Auth-Token), `d2d2dcc` (CI аудио/sing-box), `4ee006f` (RelaxDev gunicorn), `c461a29` (CI ruff check .), `b356c28` (ссылка на LthubTunnel.exe в README), `e56307f` (не трекать .vercel), `cf2d3a1` (CI python 3.12 + пин ruff), `5d1acc4` (Changelog 2026-10-08), `3b4832d` (advisory-lock до первого DDL), `67ec039` (подписки не держат запуск), `53ae24e` (GD-08).
 
-> ⚠️ В рабочем дереве на 2026-10-15 незакоммичено: (а) задача туннеля — `scripts/lthub_tunnel/*` (+`proxy.py`), `scripts/lthub_tunnel/README.md`, `tests/unit/test_lthub_tunnel.py`; (б) **BUGHUNT Phase 11, BUG-04…BUG-10** — `api/index.py`, `api/reading_trainer.py`, `bot/handlers/dnd_message_handler.py`, `bot/handlers/parsing_handler.py`, `core/managers/shop_manager.py`, `core/systems/motivation_system.py`, `core/services/*` (balance/broadcast + 5 shim'ов), `bank_bot/services/{balance,broadcast}_service.py`, `bank_bot/repositories/{balance,user}_repository.py`, `src/webhook_secret.py` (новый), `src/config.py`, `run_bot.py`, `.github/workflows/hf-watchdog.yml`, `config/.env.shared`, `config/requirements-dev.txt`, `requirements.txt`, `.vercelignore`, `.gitignore`, `.gitattributes` (новый), новые тесты `tests/unit/test_xss_hardening.py`, `tests/unit/test_webhook_secret.py`, `tests/unit/test_money_races.py`; **staged-удаления из индекса** (не из диска): `data/chat_export/*` (274 файла PII), `desktop.ini`, `src/repository.py`; (в) чужие/черновые `tests/unit/test_freemium_gates.py` и `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`) — не трогал. Перед коммитом памяти прогнать `ruff` + `pytest`.
+> ✅ На 2026-10-18 изменения туннеля и BUGHUNT (BUG-04…BUG-10) закоммичены и **запушены в `origin/main`** (`92c8df3`, `3d4e3fd`). В рабочем дереве остались только чужие/черновые файлы, которые я не трогал: `AGENTS.md` (правка автора), `tests/unit/test_freemium_gates.py` (WIP-тест) и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
 
 > ✅ Чужая работа (canon, туннель) автором закоммичена — предупреждение снято 2026-10-07. В дереве только мои файлы.
 
-## Changelog 2026-10-15 — BUGHUNT Phase 11: BUG-04…BUG-10 закрыты (в рабочей копии, не закоммичено)
+## Changelog 2026-10-15 — BUGHUNT Phase 11: BUG-04…BUG-10 закрыты (закоммичено `3d4e3fd`, запушено 2026-10-18)
 
 **Задача пользователя:** «продолжай todo» + выбор «Всё подряд BUG-04..BUG-10». Каждый баг делался отдельно, с адресными регрессионными тестами.
 
