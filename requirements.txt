@@ -6,6 +6,11 @@ python-telegram-bot==21.0
 aiogram~=3.4
 aiohttp==3.9.1
 
+# HTTP client. Прямая зависимость api/index.py и api/dnd_runtime.py.
+# До чистки зависимостей приходила транзитивно через vk_api — без явного
+# пина установка «с нуля» (CI, деплой) падает с ModuleNotFoundError.
+requests==2.34.2
+
 # Forced rebuild marker: 1.0.2-diag
 
 # Database & ORM
