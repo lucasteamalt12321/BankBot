@@ -19,7 +19,7 @@ hypothesis==6.122.3
 # ============================================================================
 # Code Quality & Linting
 # ============================================================================
-ruff==0.8.4
+ruff==0.15.15  # совпадает с версией в CI (.github/workflows/ci.yml)
 # Fast Python linter and formatter - replaces flake8, black, isort
 mypy==1.13.0
 # Static type checker - validates type hints
@@ -37,10 +37,6 @@ ipdb==0.13.13
 # ============================================================================
 # Type Stubs
 # ============================================================================
-types-python-dateutil==2.8.19.14
-# Type stubs for python-dateutil
-types-pytz==2024.1.0.20240203
-# Type stubs for pytz
 types-PyYAML==6.0.12.12
 # Type stubs for PyYAML
 

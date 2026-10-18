@@ -120,6 +120,15 @@ def test_md2pdf_uses_marked_and_highlight():
     assert "marked.parse" in body
 
 
+def test_md2pdf_sanitizes_preview_html():
+    """BUG-04: markdown (в т.ч. от LLM) обязан чиститься DOMPurify до вставки в DOM."""
+    body = _get_page().get_data(as_text=True)
+    assert "dompurify" in body.lower()
+    assert "DOMPurify.sanitize" in body
+    assert "sanitizeHtml(out)" in body
+    assert "page.innerHTML = out" not in body
+
+
 def test_md2pdf_has_ai_format_button():
     body = _get_page().get_data(as_text=True)
     assert "Улучшить форматирование" in body

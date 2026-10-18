@@ -40,6 +40,7 @@ config/.env.*.local
 *.db
 *.sqlite3
 data/ai_knowledge_cache.json
+data/chat_export/
 
 # IDE
 .idea/
@@ -73,6 +74,7 @@ test_results*.txt
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Vercel env files
 .env.vercel
@@ -90,5 +92,9 @@ scripts/lthub_tunnel/dist/
 scripts/lthub_tunnel/build/
 scripts/lthub_tunnel/*.spec
 scripts/lthub_tunnel/_bundled.py
+
+# Local-only варианты бота (не деплоятся, отсутствуют на CI)
+bridge_bot/
+vk_bot/
 
 .vercel

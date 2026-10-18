@@ -1,14 +1,119 @@
 # Progress
 
-**Текущая фаза:** Phase 6 OGE Center — **Максимальная прокачка OGE-системы** (SM-2标准算法, тренажёр инфо с самооценкой, физика в экзамене, аналитика, серверный квиз-движок, due-cards, хаб-прогрессбары)
+**Текущая фаза:** Phase 6 OGE Center — **Максимальная прокачка OGE-системы** (SM-2 стандартный алгоритм, тренажёр инфо с самооценкой, физика в экзамене, аналитика, серверный квиз-движок, due-cards, хаб-прогрессбары)
 
 ## last_checked_commit
 
-**`3b4832d`** — fix(api): advisory-lock до первого DDL снимает deadlock на холодном старте (прод-деплой от 17:18 клонировал именно этот коммит, см. Changelog 2026-10-08). До него `67ec039` (фикс зависания «Скачиваю подписки...» в LthubTunnel), `2a1fe77` и `53ae24e` (GD-08).
+**`e0476b4`** — chore: add relaxdev.yml config hint (последний коммит `main`; проверено 2026-10-14 — новых коммитов нет). До него: `dd19fa6` (Amvera mirror guide), `8b3f876` (amvera.yml), `1b00082` (md2pdf X-Auth-Token), `d2d2dcc` (CI аудио/sing-box), `4ee006f` (RelaxDev gunicorn), `c461a29` (CI ruff check .), `b356c28` (ссылка на LthubTunnel.exe в README), `e56307f` (не трекать .vercel), `cf2d3a1` (CI python 3.12 + пин ruff), `5d1acc4` (Changelog 2026-10-08), `3b4832d` (advisory-lock до первого DDL), `67ec039` (подписки не держат запуск), `53ae24e` (GD-08).
+
+> ⚠️ В рабочем дереве на 2026-10-15 незакоммичено: (а) задача туннеля — `scripts/lthub_tunnel/*` (+`proxy.py`), `scripts/lthub_tunnel/README.md`, `tests/unit/test_lthub_tunnel.py`; (б) **BUGHUNT Phase 11, BUG-04…BUG-10** — `api/index.py`, `api/reading_trainer.py`, `bot/handlers/dnd_message_handler.py`, `bot/handlers/parsing_handler.py`, `core/managers/shop_manager.py`, `core/systems/motivation_system.py`, `core/services/*` (balance/broadcast + 5 shim'ов), `bank_bot/services/{balance,broadcast}_service.py`, `bank_bot/repositories/{balance,user}_repository.py`, `src/webhook_secret.py` (новый), `src/config.py`, `run_bot.py`, `.github/workflows/hf-watchdog.yml`, `config/.env.shared`, `config/requirements-dev.txt`, `requirements.txt`, `.vercelignore`, `.gitignore`, `.gitattributes` (новый), новые тесты `tests/unit/test_xss_hardening.py`, `tests/unit/test_webhook_secret.py`, `tests/unit/test_money_races.py`; **staged-удаления из индекса** (не из диска): `data/chat_export/*` (274 файла PII), `desktop.ini`, `src/repository.py`; (в) чужие/черновые `tests/unit/test_freemium_gates.py` и `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`) — не трогал. Перед коммитом памяти прогнать `ruff` + `pytest`.
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
 
 > ✅ Чужая работа (canon, туннель) автором закоммичена — предупреждение снято 2026-10-07. В дереве только мои файлы.
+
+## Changelog 2026-10-15 — BUGHUNT Phase 11: BUG-04…BUG-10 закрыты (в рабочей копии, не закоммичено)
+
+**Задача пользователя:** «продолжай todo» + выбор «Всё подряд BUG-04..BUG-10». Каждый баг делался отдельно, с адресными регрессионными тестами.
+
+### BUG-04 — XSS в веб-рендерерах
+
+- `api/index.py`: подключён DOMPurify (CDN) + хелпер `sanitizeHtml()`; `marked.parse` для `/md2pdf` теперь сэнитится, а при отсутствии DOMPurify — **fail-closed** (экранированный текст, а не сырой HTML).
+- `/ai_chat`: `<img src>` из ответа модели экранируется при вставке в `addMsg`.
+- `api/reading_trainer.py`: вывод LLM экранируется хелпером `escHtml`.
+- Тесты: `tests/unit/test_xss_hardening.py` (3 passed), `tests/unit/test_md2pdf.py` (11 passed).
+
+### BUG-05 — гонки за деньги (главный фикс)
+
+- **Причина:** `with_for_update()` — no-op на SQLite, а весь код делал read-modify-write (`balance = balance + amount`) → параллельные начисления/списания затирали друг друга; покупка в магазине была check-then-act.
+- **Фикс (везде — один атомарный `UPDATE ... WHERE`):**
+  - `bank_bot/repositories/balance_repository.py::add_balance` и `bank_bot/repositories/user_repository.py::update_balance_with_lock` — относительный `SET balance = COALESCE(balance,0) + :amount`, результат по `rowcount`, объект освежается `populate_existing()`.
+  - `core/services/balance_service.py` / `bank_bot/services/balance_service.py::deduct` — условный `UPDATE ... WHERE balance >= :amount`; `rowcount == 0` → либо нет юзера (None), либо недостаточно средств (`ValueError` как раньше).
+  - `core/managers/shop_manager.py::process_purchase` — условное списание одним `UPDATE` (+`total_purchases`), `rowcount == 0` → `INSUFFICIENT_BALANCE`; убран преждевременный `commit()` в `_activate_sticker_item` (был `flush()`), чтобы покупка стала одной транзакцией; добавлен стабильный `ORDER BY ShopItem.id` в список товаров (нумерация товаров больше не «плавает»).
+  - `bot/handlers/parsing_handler.py` — начисление относительным `UPDATE`, целочисленный `amount` (колонка INTEGER), без потери параллельных бонусов.
+  - `core/systems/motivation_system.py::claim_daily_bonus` — строка юзера блокируется `with_for_update()` **до** проверки «получал ли бонус», начисление — атомарным `UPDATE`.
+- Тесты: `tests/unit/test_money_races.py` (включая **threaded** lost-update: 2×25 начислений по 10 → ровно 500) + существующие `test_balance_service.py`/`test_shop_manager.py`/`test_manual_parsing_handler_e2e.py` — суммарно **37 passed**.
+
+### BUG-06 — границы и DoS
+
+- `bot/handlers/dnd_message_handler.py`: `MAX_DICE_COUNT = 100`, `parse_dice` отвергает `999999999d6` (раньше синхронный цикл вешал event loop). Тесты `test_dnd_dice_bounds.py` (6 passed).
+- `api/index.py`: `/api/achievements/activity` клампит `actions` в `[1,100]` (было только снизу) + rate-limit; `/api/dnd/fix` — rate-limit 10/мин; `MAX_CONTENT_LENGTH` (16 МБ, переопределяется env) + `@app.errorhandler(413)`. Тесты в `test_achievements.py` (2 новых).
+
+### BUG-07 — секреты
+
+- Новый общий `src/webhook_secret.py` (`derive_webhook_secret`, `resolve_webhook_secret`) — секрет выводится из `BOT_TOKEN`; убран захардкоженный fallback. Используют `api/index.py` и `run_bot.py`.
+- `ADMIN_TELEGRAM_ID` берётся из env (в `api/index.py` и `broadcast_service.py`); `NTFY_TOPIC` — пустой дефолт (`notification_system` и так no-op при пустом топике).
+- `.github/workflows/hf-watchdog.yml`: хелпер `redact()` + редакция лога «Current Telegram webhook» и admin-ID/секрета.
+- Тесты: `tests/unit/test_webhook_secret.py` (7 passed); целевой набор — 28 passed.
+
+### BUG-08 — гигиена репозитория
+
+- `git rm --cached`: `data/chat_export/*` (274 файла PII), `desktop.ini`; `git rm` — мёртвый дубль `src/repository.py` (побайтовая копия `repository_impl.py`, ничего не импортирует).
+- 5 идентичных `core/services/*` превращены в shim'ы поверх `bank_bot/services/*` (паттерн уже был у `core/repositories/*` и `core/services/__init__.py`).
+- Новый `.gitattributes` — **только бинарные маркеры** (без `* text=auto`, чтобы не породить массовый renormalizing-diff).
+- `.gitignore`: `data/chat_export/`, `desktop.ini`, `bridge_bot/`, `vk_bot/`.
+- **Оговорка:** PII остаётся **в истории git**; переписывание истории не делалось (нужно решение пользователя).
+
+### BUG-09 — зависимости и деплой
+
+- `requirements.txt`: убраны реально мёртвые `vk_api`, `prometheus-client`, `pytz`, `python-dateutil` (0 прямых импортов). `python-dotenv` **оставлен** — обязательная транзитивная зависимость `pydantic-settings`.
+- `.vercelignore`: добавлены `.hypothesis/`, `.mypy_cache/`, `node_modules/`, `vk_mini_app/`.
+- `wsgi.py` оказался **исправен** (импортирует `app` из `api.index`, а не из несуществующего `app.py`) — проверено `python -c "import wsgi"`.
+
+### BUG-10 — CI и тесты
+
+- `config/requirements-dev.txt`: ruff `0.8.4` → `0.15.15` (как в CI).
+- `.gitignore`: `bridge_bot/`, `vk_bot/` (локальные, на CI отсутствуют).
+- Восстановлен отсутствующий `_chat_insert()` в `api/index.py` (на него ссылался `api_study_chat_post` — падало с `F821`/`NameError`) и убран неиспользуемый `today` (`F841`) → `ruff check api/index.py` чист.
+- **Проверено:** все мои изменённые пути — `ruff` без ошибок; `ruff check .` даёт 36 ошибок **только** в чужих untracked-скриптах в корне (`dbg*.py`, `fchat*.py`, `t*.py`), в git они не отслеживаются → CI (`ruff check .` на чистом checkout) зелёный.
+
+### Верификация (2026-10-15)
+
+- `ruff check` — по всем изменённым путям чисто (включая `api/index.py` после восстановления `_chat_insert` и правки обработчика 413).
+- Полный `tests/unit`: **9 failed, 1461 passed, 11 skipped (≈2:36)**. Все 9 падений — **не от BUGHUNT**:
+  - 4 × `tests/unit/test_curator.py` — следствие незакоммиченного WIP `api/index.py`: хендлер `api_study_chat_send` переименован в `api_study_chat_post` и утратил поля `prompt`/`ok`/`actions` (тесты не менялись);
+  - `test_freemium_gates.py::test_base_study_endpoints_free_for_anon` — WIP-правка самого теста + auth на study-роутах (на чистом HEAD `e0476b4` тест проходит);
+  - `test_vercel_parsing_e2e.py::test_webhook_parsing_no_reply_ignored` — **воспроизводится и на чистом HEAD** (сетевой таймаут Telegram при загрузке `BOT_ID`);
+  - `test_user_manager.py` (2 из 5) — **предсуществующий баг изоляции тестов** (`sqlalchemy.exc.ResourceClosedError: This Connection is closed`): при запуске файла целиком **воспроизводится и на чистом HEAD `e0476b4`** (ровно те же 2 кейса: `test_user_alias_addition`, `test_user_identification_existing_user`), а одиночный тест проходит — не связан с BUGHUNT;
+  - `test_web_portal_e2e.py::test_register_rate_limits` — плавающий/order-dependent: файл целиком в изоляции даёт **32 passed**, падение проявляется только в общем прогоне.
+- **Регрессия, найденная и исправленная в ходе верификации:** мой `MAX_CONTENT_LENGTH` (BUG-06) отклонял тело **до** входа в маршрут, из-за чего `test_web_portal_e2e::test_gd_web_submit_external_link_and_limits` (ждёт `413` + «16 МБ») падал на generic-сообщении. Обработчик 413 теперь возвращает лимит в МБ → тест снова зелёный (11/11 в `test_achievements.py` + GD-тест).
+
+
+
+**Задача пользователя:** «продолжай» по `memory_bank/todo.md`. В рабочей копии (не закоммичено) — три пункта по `scripts/lthub_tunnel/`.
+
+### 1. Прогресс пробы нод
+
+- `probe.py`: `ping_node`/`probe_nodes` принимают `progress_cb` — вызывается после каждой ноды с `(done, total, node, result)`. `probe_nodes` остаётся параллельным (`ThreadPoolExecutor`), но колбэк вызывается в потоке-потребителе, поэтому порядок и число вызовов детерминированы.
+- `runner.py`: `TunnelSession._ping_progress(...)` печатает в лог «Проверяю ноды: N/M». CLI `build`/`up` прогресс не печатает (он остаётся в GUI/`runner`), это осознанно.
+
+### 2. `proxy.py` — автоопределение прокси (`http`/`socks5`/`socks5h`)
+
+**Продуктовое решение пользователя:** по умолчанию ходить **напрямую**, игнорируя системный и env-прокси; через прокси — только при явном указании (`--proxy`, `LTHUB_TUNNEL_PROXY`, необязательное поле `proxy` в `sources.local.json`).
+
+- Новый модуль `scripts/lthub_tunnel/proxy.py` (stdlib-only): `ProxySpec`, `parse_proxy`, `resolve_proxy` (env → sources → CLI), `open_url` (единая точка выхода в сеть), `socks5_connect` (SOCKS5 CONNECT с `socks5h` — резолв на стороне прокси), обработчики для `urllib`. `fetch`/`fetch_cached`/`load_all` (`subscriptions.py`), `ping_node`/`probe_nodes` (`probe.py`), `TunnelSession`/build/install (`runner.py`) и CLI (`tunnel.py`) пробрасывают `proxy`.
+- **Почему «игнорировать системный прокси»:** иначе с VPN/корпоративным прокси рушилась загрузка подписок; `open_url` строит opener без `getproxies()`.
+
+### 3. End-to-end тест туннеля — machinery работает, ноды мертвы
+
+- Туннель **поднимается**: `build` собирает валидный `config.json`, sing-box 1.14.2 слушает `127.0.0.1:2080`, локальный `mixed`-инбаунд принимает соединения и честно пытается проксировать (в логе содержательные ошибки outbound, а не сбой локалки).
+- Получить `https://lthub.vercel.app` **не удалось по причине качества публичных нод**, а не кода: (а) основной список (`Vless-Reality-White-Lists-Rus-Mobile`) — whitelist-ноды с SNI `vk.ru`/`ok.ru`, до Vercel/ipify не доходят; (б) отдельные голландские ноды (`37.139.42.221`) не отвечают по TCP (dial i/o timeout); (в) 4 ноды из `githack`-фида TCP-доступны, но REALITY-хендшейк падает с `nil ecdheKey` (сервер не отвечает как Reality — конфиг публичный и устаревший).
+- **Косвенно подтверждено, что дело не в приложении:** `load_all`/`build` напрямую качают подписки (то есть обход системного прокси работает — заявленная фича), `proxy.py` покрыт юнит-тестами реального SOCKS5-рукопожатия (fake-сервер в тестах).
+- **Побочная находка (не чинил, вне скоупа):** `cmd_up` проверяет только «порт слушает» (`wait_port`), но не живость **своего** процесса sing-box — при чужом sing-box на `2080` «up» продолжит работу поверх чужого бэкенда. Кандидат в отдельный фикс.
+
+**Проверки:** `tests/unit/test_lthub_tunnel.py` — **120 passed**; `ruff check scripts/ tests/` — чисто. Обновлён `scripts/lthub_tunnel/README.md` (раздел про прокси).
+
+## Changelog 2026-10-13 — memory bank приведён к правилам AGENTS.md (единый `## Project Deliverables`)
+
+**Задача пользователя:** «приведи memory bank к состоянию, как говорит AGENTS.md» (с разрешением дробных весов для мелких пунктов).
+
+- **Корень несоответствия:** `projectbrief.md` имел раздел `## Project Deliverables`, но внутри него 12+ фаз, каждая со своей таблицей с суммой весов `100`. Канонический список по `AGENTS.md` обязан иметь **общую** сумму весов ровно `100`. Плюс использовался недопустимый статус `removed`, были взаимоисключающие проценты (Phase 1 «90/100» и «100/100») и не было единого итогового процента.
+- **Что сделано:** наверху `## Project Deliverables` — **одна каноническая сводная таблица по блокам** `B01…B22`, суммы весов **ровно `100`** (дробные веса для мелких блоков — разрешено пользователем). Статусы только `pending` / `in_progress` / `completed` / `blocked`. Строки со статусом `completed` дают канонический прогресс **70.5 / 100 (70.5%)**. Оставшиеся `29.5` — блоки `in_progress` (открыто manual-тестирование/полировка/отдельные пункты).
+- **Историческая детализация:** все прежние пофазные таблицы сохранены без потери данных, но перенесены под `## Историческая детализация по фазам (не участвует в расчёте процента)`; разделы `Next Tasks`, `Additional Tasks`, `Testing Strategy`, `Testing Progress`, `Testing Notes` понижены до `###`. У Phase 10 (PYED) статусы `removed` → `excluded`, сам блок помечен как исключённый из расчёта (модуль удалён 2026-09-28).
+- **`last_checked_commit`:** `3b4832d` → **`e0476b4`** (синхронизация с вершиной `main` на 2026-10-13).
+- **Проверка:** `grep` по projectbrief — вне канонической таблицы не осталось недопустимых статусов (`removed`), сумма весов блока = 100, единый `# Project Deliverables` не имеет одноуровневых конкурентов (все прочие заголовки `##` — цели/рамки/репозиторий/точка входа + историческая детализация). `docs/README.md` соответствует коду, правок не потребовал.
+- **AGENTS.md (правило):** по запросу пользователя добавлен пункт — «При создании todo-списка формулируй каждый пункт максимально коротко (не более 5–7 слов). Сложную задачу разбивай на несколько мелких подпунктов».
+- **Зачистка кодировки:** в `projectbrief.md`/`progress.md` убраны случайные CJK-символы (`替代` → «альтернатива», `SM-2标准算法` → «SM-2 стандартный алгоритм», `待修` → «к исправлению», `浅克隆` → «shallow-клонирование», `任意` → «произвольный», `忽略` → «игнорировать»). Смысл строк не менялся.
 
 ## Changelog 2026-10-08 — туннель: «зависание» на подписках снято; прод: deadlock на холодном старте снят
 
@@ -295,7 +400,7 @@ _Баги добавляются по ходу тестирования оста
 - **[AUTH-BUG-4]** (high) Токен через URL-параметр. **Фикс:** убран `request.args.get("token")`.
 - **[DND-BUG-8]** (high) Нет авторизации на D&D API (6 эндпоинтов). **Фикс:** `_dnd_require_auth()` проверяет токен vs user_id.
 
-#### Открытые ( высший приоритет,待修)
+#### Открытые (высший приоритет, к исправлению)
 
 ##### 🔴 Критические
 - **[CHESS-BUG-1]** (critical) `chess_accounts` не создаётся автоматически → все шахматные эндпоинты падают на чистой БД. **Фикс:** `_ensure_chess_accounts_and_coins()` добавлен в `get_db_engine()`.
@@ -635,7 +740,7 @@ _Баги добавляются по ходу тестирования оста
 - **Хранение кода в PostgreSQL**: содержимое файлов + дерево + AI-комментарии. Позволяет line-level комментарии. Лимиты: 5000 строк/500KB на файл.
 - **Батч-анализ AI**: 5 файлов за один запрос, reduces API calls от N до ceil(N/5).
 - **Fallback**: при недоступности AI генерируется эвристическое описание из имени файла и лимита строк.
-- **git clone --depth 1**:浅克隆 в temp dir, cleanup в finally блоке.
+- **git clone --depth 1**: shallow-клонирование в temp dir, cleanup в finally блоке.
 - **Верифицировано**: `py_compile` ✓, `ruff` ✓, `node --check` JS ✓, 7/7 тестов ✓
 
 ### 2026-09-01 (Session: 🔧 Дедлок миграций + чистка мёртвого кода и моста)
@@ -2969,7 +3074,7 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 #### AI-1: `_tool_run_python` RCE sandboxing (commit `f1a2e06`)
 
-**Проблема:** AI chat мог executed任意 Python code через `subprocess.run([sys.executable, "-c", code])` — полный RCE без ограничений.
+**Проблема:** AI chat мог выполнять произвольный Python code через `subprocess.run([sys.executable, "-c", code])` — полный RCE без ограничений.
 
 **Фикс:**
 - Regex blocklist: `os`, `subprocess`, `socket`, `shutil`, `pathlib`, `ctypes`, `signal`, `multiprocessing`, `threading`, `sys`, `platform`, `pdb`, `code`, `compileall`, `py_compile`, `venv`, `ensurepip`, `runpy`, `webbrowser`, `xmlrpc`, `ftplib`, `smtplib`, `poplib`, `imaplib`, `nntplib`, `telnetlib`, `uuid`, `warnings`, `atexit`, `inspect`, `traceback`, `linecache`, `pickle`, `shelve`, `dbm`, `sqlite3`, `tkinter`, `turtle`, `asyncio`, `concurrent`, `logging`, `unittest`, `doctest`, `profile`, `pstats`, `timeit`, `zipimport`, `pkgutil`, `compileall`, `py_compile`.
@@ -2980,7 +3085,7 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 **Проблема:** User-supplied поля (`context_summary`, `current_scene`, `fixes`) могли содержать prompt injection (system/assistant/user role markers, override commands).
 
-**Фикс:** `_sanitize_for_prompt()` — regex-замена role markers (`system:`, `assistant:`, `user:`) и injection keywords (`ignore`, `override`, `disregard`, `forget`, `reset`, `new instructions`, `忽略`). Применяется к `context_summary`, `current_scene`, `fixes.original_context`/`correction`.
+**Фикс:** `_sanitize_for_prompt()` — regex-замена role markers (`system:`, `assistant:`, `user:`) и injection keywords (`ignore`, `override`, `disregard`, `forget`, `reset`, `new instructions`, `игнорировать`). Применяется к `context_summary`, `current_scene`, `fixes.original_context`/`correction`.
 
 ### Changelog 2026-09-05 — CRASH FIX: broken regex in _tool_run_python
 

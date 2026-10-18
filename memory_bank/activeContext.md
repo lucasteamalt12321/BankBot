@@ -4,6 +4,41 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### ✅ Закрыто (2026-10-15): BUGHUNT Phase 11 — BUG-04…BUG-10 (в рабочей копии, не закоммичено)
+
+> Запрос пользователя: продолжение `memory_bank/todo.md`; на выбор объёма — **«Всё подряд BUG-04..BUG-10»**. Каждый баг закрыт с целевым регрессом. Подробности — `progress.md` → `## Changelog 2026-10-15`.
+
+- **BUG-04 (XSS):** DOMPurify + `sanitizeHtml()` в `api/index.py` (`/md2pdf`, fail-closed при отсутствии CDN), esc для `img src` в `/ai_chat`, `escHtml` в `api/reading_trainer.py`.
+- **BUG-05 (гонки за деньги, главный):** причина — `with_for_update()` no-op на SQLite + read-modify-write. Фикс — везде один **атомарный относительный `UPDATE`**: `bank_bot/repositories/balance_repository.py`, `bank_bot/repositories/user_repository.py`, `core|bank_bot/services/balance_service.py::deduct` (условный `WHERE balance >= :amount`), `core/managers/shop_manager.py::process_purchase` (атомарное списание + `flush` вместо частичного `commit` в `_activate_sticker_item`), `bot/handlers/parsing_handler.py`, `core/systems/motivation_system.py` (блокировка до проверки). Новый `tests/unit/test_money_races.py` (+ потоковый lost-update тест) — **37 passed**.
+- **BUG-06 (границы/DoS):** `MAX_DICE_COUNT=100` + валидация `999999999d6`; клампинг `actions`, rate-limit `/api/dnd/fix`, `MAX_CONTENT_LENGTH`+413.
+- **BUG-07 (секреты):** новый общий `src/webhook_secret.py` (секрет из `BOT_TOKEN`), `ADMIN_TELEGRAM_ID` из env, пустой дефолт `NTFY_TOPIC`, редакция логов `hf-watchdog.yml`.
+- **BUG-08 (гигиена):** `data/chat_export/*` (274 PII) + `desktop.ini` убраны из индекса (`--cached`), удалён мёртвый `src/repository.py`, 5 дублей `core/services/*` → shim'ы, добавлен `.gitattributes` (только бинарные маркеры). **PII остаётся в истории git** — переписывание требует отдельного решения.
+- **BUG-09 (зависимости/деплой):** убраны мёртвые `vk_api`/`prometheus-client`/`pytz`/`python-dateutil` (НЕ `python-dotenv` — он нужен `pydantic-settings`), `.vercelignore` дополнен. `wsgi.py` оказался исправен.
+- **BUG-10 (CI):** ruff в `requirements-dev` → `0.15.15`; `bridge_bot/`/`vk_bot/` в `.gitignore`; восстановлен отсутствующий `_chat_insert()` в `api/index.py` (был `NameError`/`F821`).
+- **Проверки:** `ruff` по изменённым путям чист; `ruff check .` даёт ошибки **только** в чужих untracked-скриптах корня (не в git → CI зелёный); `tests/unit` — **1461 passed, 9 failed**; из 9 падений: 4 `test_curator` + 1 `test_freemium_gates` — от **незакоммиченного WIP пользователя в `api/index.py`** (переименование `api_study_chat_send`→`api_study_chat_post` убрало ключи `prompt`/`ok`/`actions`; тесты `test_curator.py` не правились), `test_vercel_parsing_e2e::test_webhook_parsing_no_reply_ignored` воспроизводится и на чистом HEAD (сетевой таймаут Telegram); `test_user_manager` (2 из 5) — предсуществующий баг изоляции (`ResourceClosedError`, те же 2 кейса падают и на HEAD `e0476b4`); `test_web_portal_e2e::test_register_rate_limits` — флейк (файл в изоляции: 32 passed)
+- **Осталось (предложено пользователю):** коммит блока туннеля + BUGHUNT; решение по переписыванию истории git для `data/chat_export/`; разбор WIP `api/index.py` (study-chat) — он ломает 5 тестов.
+
+
+
+> Запрос пользователя: «продолжай» (к `memory_bank/todo.md`). Пункты 1–3 выполнены в рабочей копии (не закоммичено).
+
+- **Прогресс пробы нод:** `probe.py` — `ping_node`/`probe_nodes` принимают `progress_cb`; `runner.TunnelSession` печатает «Проверяю ноды: N/M». CLI прогресс не печатает (он в GUI) — осознанно.
+- **`proxy.py` (новый, stdlib-only):** по умолчанию напрямую (системный/env-прокси игнорируется), через прокси — только по `--proxy` / `LTHUB_TUNNEL_PROXY` / полю `proxy` в `sources.local.json`; поддержаны `http`, `socks5`, `socks5h`. Загрузка подписок, пинги, build/install и CLI пробрасывают `proxy` через `open_url`.
+- **E2E-тест 127.0.0.1:2080:** туннель поднимается и локально проксирует (в логе ошибки outbound), но `lthub.vercel.app` недоступен из-за публичных нод: whitelist-ноды (SNI `vk.ru`/`ok.ru`) до Vercel не доходят, голландская `37.139.42.221` не отвечает по TCP, а доступные по TCP ноды `githack` падают на REALITY (`nil ecdheKey`). Это свойство подписок, не кода.
+- **Проверки:** `test_lthub_tunnel.py` **120 passed**, `ruff` чист; `README.md` дополнен разделом про прокси. Косвенно подтверждена заявленная фича: `load_all`/`build` ходят напрямую, минуя системный прокси.
+- **Побочная находка (вне скоупа):** `cmd_up` проверяет только «порт слушает», а не живость своего sing-box — при чужом процессе на `2080` работает поверх чужого бэкенда. Кандидат в отдельный фикс.
+- **Дальше (нужен план/одобрение):** BUGHUNT Phase 11 — BUG-04..BUG-10 (web-XSS/PII, гонки в банке, DoS, секреты, гигиена репо, CI) — крупная рискованная задача, Режим А; и решение по зеркалу RelaxDev.
+
+### ✅ Закрыто (2026-10-13): memory bank приведён к правилам AGENTS.md (в рабочей копии, не закоммичено)
+
+> Запрос пользователя: «приведи memory bank к состоянию, как говорит AGENTS.md»; уточнение — «разрешим дробные deliverables для мелких пунктов». Согласованный подход: **сводная таблица по блокам** (пользователь выбрал из трёх вариантов).
+
+- **Проблема:** `projectbrief.md` содержал `## Project Deliverables`, но внутри — 12+ фаз, каждая со своей таблицей на `100` весов; канонический список обязан иметь общую сумму `100`. Также были недопустимый статус `removed`, противоречие «Phase 1: 90/100» vs «100/100» и отсутствие единого процента.
+- **Решение:** канонический `## Project Deliverables` = одна сводная таблица блоков `B01…B22`, сумма весов ровно `100` (дробные веса у мелких блоков), статусы только `pending`/`in_progress`/`completed`/`blocked`, канонический прогресс **70.5/100 (70.5%)** (сумма только `completed`). Прежние пофазные таблицы сохранены как `## Историческая детализация по фазам` и в расчёт не входят. Модуль `/editor` (Phase 10) исключён из расчёта.
+- **Прочие правки памяти:** `progress.md` — `last_checked_commit` → `e0476b4` + Changelog 2026-10-13; `activeContext.md` — эта запись; `todo.md` — отметка о синхронизации. `docs/README.md` уже соответствовал коду, не менялся.
+- **Открытый вопрос:** в дереве остались чужие/черновые файлы (`fchat*.py`, `t*.py`, `dbg*.py` в корне) и незакоммиченные правки `scripts/lthub_tunnel/`, `api/index.py` — это НЕ трогалось.
+- **Дальше:** по указанию пользователя — предложить коммит памяти (само задание коммит не запускает).
+
 ### ✅ Закрыто (2026-10-08): туннель «зависал на подписках» + прод-DeadlockDetected (запушено `67ec039`, `3b4832d`)
 
 **Обращения пользователя:** (1) «продолжай» к фиксу окна, которое показывало последней строкой `Скачиваю подписки...` и стояло; (2) паста из TG с двумя падениями — `DND Table init error: DeadlockDetected` (16:57) и `UNIVERSE daily_prayer_log unique index warn: DeadlockDetected` (17:43), с просьбой «но сначала пересобери exe».

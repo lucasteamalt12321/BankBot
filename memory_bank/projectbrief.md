@@ -27,9 +27,45 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ## Project Deliverables
 
-### Phase 1: Core Infrastructure (canonical = 90/100)
+> Канонический источник процента выполнения (правило `AGENTS.md`). Раздел содержит **единственный** список deliverables с суммой весов ровно `100`. Допустимые статусы: `pending` / `in_progress` / `completed` / `blocked`; процент считается только по строкам со статусом `completed`. Всё, что находится **ниже** этого раздела (детализация по фазам, `Additional Tasks`, `Next Tasks`, `Testing Strategy`), — историческая детализация и в расчёте процента не участвует.
+>
+> Веса дробные намеренно: мелкие блоки получают доли процента, чтобы сумма блока была ровно `100` без искусственного округления.
 
-Этот раздел является каноническим источником процента выполнения по правилу `AGENTS.md`. Сумма весов ровно `100`; процент считается только по строкам со статусом `completed`.
+| ID | Deliverable | Status | Weight |
+|----|-------------|--------|--------|
+| B01 | Ядро инфраструктуры (конфиг, слои, БД/PostgreSQL, HF webhook runtime, парсинг E2E) | completed | 15 |
+| B02 | Web Portal — перенос функций бота в веб (WEB-00…WEB-11) | completed | 13 |
+| B03 | Canon Module (CANON01/02/03: `core/canon`, заявки, аудио) | completed | 7 |
+| B04 | Emperors Module (EM-01…EM-TEST) | completed | 3 |
+| B05 | GD Module (GD-01…GD-08, GD-TEST) | completed | 6 |
+| B06 | Chess Module (CH-01…CH-06; CH-TEST открыт) | in_progress | 2 |
+| B07 | Universe Module (UN-01…UN-03; UN-TEST открыт) | in_progress | 2 |
+| B08 | AI Module (AI-01…AI-05; AI-TEST открыт) | in_progress | 3 |
+| B09 | AI Chat — reply/mention (AIC-01…AIC-08) | completed | 2 |
+| B10 | Mom Module (MOM-01…MOM-05; MOM-TEST открыт) | in_progress | 3 |
+| B11 | Family Budget Module (BGT-01…BGT-10; BGT-TEST открыт) | in_progress | 6 |
+| B12 | VK Mini App — Budget UI (альтернатива Vercel) | in_progress | 1.5 |
+| B13 | School Project (SCH-01…SCH-05) | in_progress | 1.5 |
+| B14 | OGE Center — подготовка к ОГЭ по 5 предметам (OGE-00…OGE-12, OGE-FULL) | completed | 11 |
+| B15 | General Statistics Module (STAT-01…STAT-04) | completed | 3.5 |
+| B16 | Code Explainer (CODE-01…CODE-TEST) | in_progress | 3.5 |
+| B17 | Bug Hunt & Hardening (BH-01…BH-08) | completed | 3 |
+| B18 | Profiles & Friends (FND-01…FND-03) | completed | 3 |
+| B19 | Freemium-гейтинг 67/33 (FRE-01…FRE-09) | completed | 3 |
+| B20 | BUGHUNT Phase 11 — баг-хант + закрытие долгов (BUG-01…BUG-12) | completed | 3.5 |
+| B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 3.5 |
+| B22 | Post-Review Cleanup (T01…T07) | completed | 1 |
+| — | **Итого** | | **100** |
+
+**Канонический прогресс проекта: 74.0 / 100 (74.0%).**
+
+Остальные `26.0` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (CH-TEST, UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, School Project, VK Mini App). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
+
+---
+
+## Историческая детализация по фазам (не участвует в расчёте процента)
+
+### Phase 1: Core Infrastructure (историческая детализация; внутри фазы 100/100)
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
@@ -318,7 +354,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-#### 🔗 VK Mini App — Budget UI (替代 Vercel)
+#### 🔗 VK Mini App — Budget UI (альтернатива Vercel)
 
 **Цель:** Альтернативный UI для бюджет модуля во VK Mini App для пользователей без доступа к Vercel (ограничения мобильного интернета в РФ, белые списки).
 
@@ -370,6 +406,8 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
+> ⚠️ **Историческая пофазная сводка** (только для контекста). Канонический процент проекта — в начале файла, в `## Project Deliverables`. Строки ниже источником процента не являются.
+
 **Phase 1 (Core): 100/100 completed**  
 **Phase 2 (Features): 97/100 completed** (GD-01-07: 27%, CH-01-06: 18%, UN-01-03: 14%, AI-01-05: 15%, MOM-01-05: 20%, AIC-01-08: 8%, BGT-01-10: 98%, GD-TEST/CH-TEST/UN-TEST/AI-TEST/MOM-TEST/BGT-TEST: 0%)  
 **Phase 3 (Web Portal): 123/123 completed**  
@@ -377,7 +415,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 **Phase 6.5 (General Statistics): 100/100 completed**  
 **Phase 7 (Code Explainer): 90/100 completed**  
 **Phase 8 (Bug Hunt & Hardening): 100/100 completed**  
-**Общий прогресс проекта: 100% (Phases 1,3,6,6.5,8) + 97% (Phase 2) + 90% (Phase 7)**
+**Сводка по фазам (историческая): Phase 1 100/100 · Phase 2 97/100 · Phase 3 123/123 · Phase 6 100/100 · Phase 6.5 100/100 · Phase 7 90/100 · Phase 8 100/100.**  
 
 **Важное уточнение:** Phase 1 отражает текущую готовность базовой инфраструктуры (90%). Phase 2 добавляет новые игровые и ИИ-модули. Парсинг (D10, D18) остаётся главной целью и будет завершён параллельно с Phase 2. Миграция 009 успешно применена к Supabase — все таблицы Phase 2 созданы. 
 
@@ -510,7 +548,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-## Next Tasks (Post-Review Cleanup)
+### Next Tasks (Post-Review Cleanup) — историческая детализация
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
@@ -636,18 +674,20 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-### Phase 10: Модуль «Редактор Python» (PYED) (2026-09-27)
+### Phase 10: Модуль «Редактор Python» (PYED) (2026-09-27) — исключён из расчёта
+
+> ⚠️ Модуль удалён из проекта 2026-09-28. Его deliverables исключены из канонического списка, поэтому колонка статуса здесь не применяется (веса — исторические).
 
 **Контекст:** запрос пользователя «добавь модуль — редактор python. интерфейс схожий с vs code: тоже с подсказками». Согласовано: CodeMirror 6 (не Monaco — 300 КБ против ~3 МБ, школьный класс с телефонов), настоящий language server, кнопка «Запустить» с выводом, хранение в аккаунте. План: `memory_bank/python_editor_module.md`.
 
 | ID | Deliverable | Status | Weight |
 |----|-------------|--------|--------|
-| PYED-01 | Бэкенд: `_ensure_pyed_tables` (`pyed_documents`, `user_id INTEGER` → подхватывается админ-удалением + FK cascade) + LSP-слой на jedi `POST /api/pyed/complete|signature|hover|lint` (ленивый импорт, деградация без jedi, лимит 150 КБ, `_check_db_rate` 300/мин) | removed | 30 |
-| PYED-02 | Файлы в аккаунте: `GET/POST /api/pyed/documents`, `GET/PUT/DELETE /api/pyed/documents/<id>` (санитизация имени, конфликт переименования 409, лимит 50 файлов, изоляция между пользователями, автосейв 1.5 с на клиенте) | removed | 15 |
-| PYED-03 | Запуск кода: `POST /api/pyed/run` + `_run_python_sandbox` (AST-блок-лист, чистый env, таймаут 8 с, обрезка 8000 симв.) + `_sandbox_preexec` (`RLIMIT_CPU/AS/FSIZE/NOFILE/CORE`, POSIX). AI-чат-контракт `_tool_run_python` сохранён без изменений | removed | 20 |
-| PYED-04 | Страница `/editor`: VS Code-look на CodeMirror 6, вкладки файлов, консоль, статусбар, hover, lint, откат на `<textarea>` | removed | 25 |
-| PYED-05 | Хаб `/`: карточка «🐍 Редактор Python» + `HUB_KEY['/editor']` | removed | 5 |
-| PYED-TEST | `tests/unit/test_python_editor.py` (34 теста в финальной версии) — файл удалён вместе с модулем | removed | 5 |
+| PYED-01 | Бэкенд: `_ensure_pyed_tables` (`pyed_documents`, `user_id INTEGER` → подхватывается админ-удалением + FK cascade) + LSP-слой на jedi `POST /api/pyed/complete|signature|hover|lint` (ленивый импорт, деградация без jedi, лимит 150 КБ, `_check_db_rate` 300/мин) | excluded | 30 |
+| PYED-02 | Файлы в аккаунте: `GET/POST /api/pyed/documents`, `GET/PUT/DELETE /api/pyed/documents/<id>` (санитизация имени, конфликт переименования 409, лимит 50 файлов, изоляция между пользователями, автосейв 1.5 с на клиенте) | excluded | 15 |
+| PYED-03 | Запуск кода: `POST /api/pyed/run` + `_run_python_sandbox` (AST-блок-лист, чистый env, таймаут 8 с, обрезка 8000 симв.) + `_sandbox_preexec` (`RLIMIT_CPU/AS/FSIZE/NOFILE/CORE`, POSIX). AI-чат-контракт `_tool_run_python` сохранён без изменений | excluded | 20 |
+| PYED-04 | Страница `/editor`: VS Code-look на CodeMirror 6, вкладки файлов, консоль, статусбар, hover, lint, откат на `<textarea>` | excluded | 25 |
+| PYED-05 | Хаб `/`: карточка «🐍 Редактор Python» + `HUB_KEY['/editor']` | excluded | 5 |
+| PYED-TEST | `tests/unit/test_python_editor.py` (34 теста в финальной версии) — файл удалён вместе с модулем | excluded | 5 |
 
 **PYED: удалён по решению пользователя 2026-09-28** («ладно, удаляй python модуль»). Вес фазы 10 (10 %) исключён из расчёта готовности; таблица `pyed_documents` в проде оставлена как есть, DDL больше не создаётся. Ценность фазы — backend-паттерны песочницы (`_run_python_sandbox`, `_sandbox_preexec`), которые остаются в проекте и используются AI-чатом.
 
@@ -662,17 +702,17 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | BUG-01 | **P0-безопасность веб-бэкенда:** `_admin_require()` на `/api/set_webhook` (утечка `WEBHOOK_SECRET` в ответе = захват бота), `/api/debug_webhook`, `/api/test_telegram`, `/debug_puzzle`; IDOR `/test_puzzle/<int:user_id>` (баланс монет любого юзера) | completed | 13 |
 | BUG-02 | **P0-неограниченный LLM/DoS:** `/api/endings_process` (нет auth, нет rate-limit, нет верхней границы текста), `/api/verbs/generate` (rate-limit ключуется по клиентскому `user_id` + бесконечный рост `VERB_GEN_LOCK`), `/api/music/analyze\|change_tempo\|change_key` (нет auth, librosa/ffmpeg на файлах до 8 МБ) | completed | 11 |
 | BUG-03 | **Мёртвые скрипты страниц (SyntaxError в отрендеренном JS):** `/chess` (`api/index.py:11545` — `\'` рвёт JS-литерал) и `/endings_trainer.html` (`api/index.py:10025` — `\n` превращается в реальный перевод строки внутри regex). Обе страницы нефункциональны полностью. Вернуть регресс-тест с `node --check` по отрендеренному HTML | completed | 11 |
-| BUG-04 | **XSS:** `/md2pdf` — `marked.parse` без DOMPurify → HTML попадает в `iframe.srcdoc` в origin с `web_token`; `api/reading_trainer.py` — текст из LLM в `innerHTML` без esc; `/ai_chat` — `img src` из ответа модели без esc | pending | 10 |
-| BUG-05 | **Гонки в боте (деньги):** `with_for_update()` — no-op на SQLite (`bank_bot/repositories/balance_repository.py:90`), read-modify-write баланса; покупка в `core/managers/shop_manager.py:72` (двойное списание / бесплатный товар); `bot/handlers/parsing_handler.py:468` (потеря начислений + `float` для денег); двойной ежедневный бонус (TOCTOU) в `core/systems/motivation_system.py:44`; нестабильный `ORDER BY` в магазине | pending | 13 |
-| BUG-06 | **DoS и лимиты:** неограниченный бросок кубиков `999999999d6` (`bot/handlers/dnd_message_handler.py:39`) — синхронный цикл блокирует event loop; `/api/achievements/activity` — `actions` без верхней границы (накрутка лидерборда); `/api/dnd/fix` без rate-limit; отсутствует `MAX_CONTENT_LENGTH` | pending | 8 |
-| BUG-07 | **Секреты и конфиг:** `WEBHOOK_SECRET` с захардкоженным fallback `"fallback_not_configured"` + три несовместимых способа вычислить HMAC (`run_bot.py:80` vs `api/index.py:623` vs `hf-watchdog.yml`) → при отсутствии env все апдейты отбрасываются; `ADMIN_TELEGRAM_ID = 2091908459` в коде (`api/index.py:704`, `core/services/broadcast_service.py:107`); `NTFY_TOPIC` с ID владельца в `config/.env.shared:14`; webhook-секрет печатается в лог `.github/workflows/hf-watchdog.yml` | pending | 9 |
-| BUG-08 | **Гигиена репозитория:** `data/chat_export/` (274 файла, 14,6 МБ, персональные данные) в индексе git; `src/repository_impl.py` — побайтовая копия `src/repository.py`; 5 идентичных пар `bank_bot/services/*` ↔ `core/services/*`; нет `.gitattributes` при 540 CRLF-файлах; `desktop.ini`, `.hypothesis/` (0,9 МБ) в репозитории | pending | 7 |
-| BUG-09 | **Зависимости и деплой:** 6 мёртвых пакетов в `requirements.txt` (`vk_api`, `prometheus-client`, `python-dotenv`, `pytz`, `python-dateutil`); 4 конфликтующих requirements-файла; нерабочий `wsgi.py` (импортирует несуществующий `app.py`) + `Procfile` без gunicorn; `.hypothesis`, `vk_mini_app` не исключены из `.vercelignore`; расхождение Python 3.11/3.12 | pending | 5 |
-| BUG-10 | **CI и тесты:** ruff в CI не проверяет `api/` (31 356 строк) и `bank_bot/`; линтингуются несуществующие `bridge_bot/` `vk_bot/`; `node --check` не покрыт ни одним тестом (единственный тест удалён в `1c6530c`); классификация 275 падений (env mismatch vs реальные баги) и починка дешёвых | pending | 4 |
+| BUG-04 | **XSS:** `/md2pdf` — `marked.parse` без DOMPurify → HTML попадает в `iframe.srcdoc` в origin с `web_token`; `api/reading_trainer.py` — текст из LLM в `innerHTML` без esc; `/ai_chat` — `img src` из ответа модели без esc | completed | 10 |
+| BUG-05 | **Гонки в боте (деньги):** `with_for_update()` — no-op на SQLite (`bank_bot/repositories/balance_repository.py:90`), read-modify-write баланса; покупка в `core/managers/shop_manager.py:72` (двойное списание / бесплатный товар); `bot/handlers/parsing_handler.py:468` (потеря начислений + `float` для денег); двойной ежедневный бонус (TOCTOU) в `core/systems/motivation_system.py:44`; нестабильный `ORDER BY` в магазине | completed | 13 |
+| BUG-06 | **DoS и лимиты:** неограниченный бросок кубиков `999999999d6` (`bot/handlers/dnd_message_handler.py:39`) — синхронный цикл блокирует event loop; `/api/achievements/activity` — `actions` без верхней границы (накрутка лидерборда); `/api/dnd/fix` без rate-limit; отсутствует `MAX_CONTENT_LENGTH` | completed | 8 |
+| BUG-07 | **Секреты и конфиг:** `WEBHOOK_SECRET` с захардкоженным fallback `"fallback_not_configured"` + три несовместимых способа вычислить HMAC (`run_bot.py:80` vs `api/index.py:623` vs `hf-watchdog.yml`) → при отсутствии env все апдейты отбрасываются; `ADMIN_TELEGRAM_ID = 2091908459` в коде (`api/index.py:704`, `core/services/broadcast_service.py:107`); `NTFY_TOPIC` с ID владельца в `config/.env.shared:14`; webhook-секрет печатается в лог `.github/workflows/hf-watchdog.yml` | completed | 9 |
+| BUG-08 | **Гигиена репозитория:** `data/chat_export/` (274 файла, 14,6 МБ, персональные данные) в индексе git; `src/repository_impl.py` — побайтовая копия `src/repository.py`; 5 идентичных пар `bank_bot/services/*` ↔ `core/services/*`; нет `.gitattributes` при 540 CRLF-файлах; `desktop.ini`, `.hypothesis/` (0,9 МБ) в репозитории | completed | 7 |
+| BUG-09 | **Зависимости и деплой:** 6 мёртвых пакетов в `requirements.txt` (`vk_api`, `prometheus-client`, `python-dotenv`, `pytz`, `python-dateutil`); 4 конфликтующих requirements-файла; нерабочий `wsgi.py` (импортирует несуществующий `app.py`) + `Procfile` без gunicorn; `.hypothesis`, `vk_mini_app` не исключены из `.vercelignore`; расхождение Python 3.11/3.12 | completed | 5 |
+| BUG-10 | **CI и тесты:** ruff в CI не проверяет `api/` (31 356 строк) и `bank_bot/`; линтингуются несуществующие `bridge_bot/` `vk_bot/`; `node --check` не покрыт ни одним тестом (единственный тест удалён в `1c6530c`); классификация 275 падений (env mismatch vs реальные баги) и починка дешёвых | completed | 4 |
 | BUG-11 | **D&D: 500 на холодной БД (кнопка «Новая сессия»):** `_ensure_dnd_tables` слала сырой PostgreSQL DDL (`SERIAL`/`TIMESTAMPTZ`/`NOW()` + много-колоночный `ALTER ... ADD COLUMN IF NOT EXISTS`), что SQLite отвергает → функция падала сразу после `CREATE TABLE`, `dnd_sessions` оставался без `share_code`, `POST /api/dnd/start` отвечал 500. Фикс: `_ddl_session`/`_DdlConn` (нормализация через `_ddl()` + глотка «уже применено») + `_ensure_ddl_column` по одной колонке; регрессия `test_dnd_start_creates_schema_on_fresh_db` (проверена: падает на старом коде) | completed | 6 |
 | BUG-12 | **Тестовая инфраструктура:** отсутствующий `pytest-asyncio` ронял 5 async-тестов; autouse-фикстура `_no_telegram_network` глушила `send_telegram_message`, из-за чего 3 теста `test_vercel_webhook_start.py` не могли пройти в принципе. Фикс: маркер `@pytest.mark.allow_telegram` (зарегистрирован в `tests/pytest.ini`), для помеченных тестов глушатся только `log_error`/`notify_admin` | completed | 3 |
 
-**BUGHUNT: 44/100** — исправлены BUG-11 (холодная БД в D&D), BUG-12 (тестовая инфраструктура), BUG-01 (P0-безопасность веб-бэкенда), BUG-02 (неограниченный LLM/DoS) и BUG-03 (мёртвые страницы), всё с регрессиями. План: P0-безопасность и мёртвые страницы сначала (BUG-01..04), затем гонки в боте (BUG-05), дальше долги (BUG-08..10).
+**BUGHUNT: 100/100 (2026-10-15)** — закрыты все 12 пунктов. Второй проход (2026-10-15) закрыл BUG-04 (XSS: DOMPurify в `/md2pdf`, esc в `/ai_chat` и `reading_trainer`), BUG-05 (гонки за деньги: атомарные относительные `UPDATE` вместо read-modify-write, условное списание в магазине, детерминированный `ORDER BY`), BUG-06 (жёсткая граница `MAX_DICE_COUNT=100`, клампинг `actions`, rate-limit `/api/dnd/fix`, `MAX_CONTENT_LENGTH`+413), BUG-07 (секрет выводится из `BOT_TOKEN` через общий `src/webhook_secret.py`, `ADMIN_TELEGRAM_ID` из env, пустой дефолт `NTFY_TOPIC`, редакция логов watchdog), BUG-08 (гигиена репозитория), BUG-09 (мёртвые зависимости, `.vercelignore`), BUG-10 (CI/ruff). Оговорки: `data/chat_export/` (274 файла PII) убран из индекса, но **остаётся в истории git** — переписывание истории требует отдельного решения пользователя; `wsgi.py` оказался исправен (импортирует `api.index`, а не несуществующий `app.py`); полная нормализация EOL намеренно не включена — `.gitattributes` содержит только бинарные маркеры (иначе массовый diff).
 
 ---
 
@@ -695,7 +735,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-## Additional Tasks (2026-04-03)
+### Additional Tasks (2026-04-03) — историческая детализация
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
@@ -745,7 +785,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-## Testing Strategy — Phase 2 Modules
+### Testing Strategy — Phase 2 Modules (историческая детализация)
 
 ### Общие принципы тестирования
 
@@ -952,7 +992,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-## Testing Progress
+### Testing Progress (историческая детализация)
 
 | Module | Commands Tested | Edge Cases | DB Checks | Status |
 |--------|----------------|------------|-----------|--------|
@@ -989,7 +1029,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 ---
 
-## Testing Notes
+### Testing Notes (историческая детализация)
 
 - Тестирование проводится вручную через Telegram клиент
 - Для локального тестирования: `py -3.12 bot/main.py`

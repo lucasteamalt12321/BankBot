@@ -6,6 +6,7 @@ Implements purchase validation logic and item activation for the enhanced shop s
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, Dict, Any
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from database.database import User, ShopItem, UserPurchase
@@ -55,8 +56,15 @@ class ShopManager:
                     error_code="USER_NOT_FOUND"
                 )
 
-            # Get shop items to find the requested item by number
-            shop_items = self.db.query(ShopItem).filter(ShopItem.is_active).all()
+            # Get shop items to find the requested item by number.
+            # BUG-05: стабильная сортировка — иначе item_number мог указывать на
+            # разные товары между запросами.
+            shop_items = (
+                self.db.query(ShopItem)
+                .filter(ShopItem.is_active)
+                .order_by(ShopItem.id)
+                .all()
+            )
             if not shop_items or item_number < 1 or item_number > len(shop_items):
                 return PurchaseResult(
                     success=False,
@@ -70,18 +78,30 @@ class ShopManager:
             # Convert price to Decimal for precise calculations
             item_price = Decimal(str(item.price))
             user_balance = Decimal(str(user.balance))
+            price_int = int(item_price)
 
-            # Validate user balance (Requirement 1.1, 1.2)
-            if not await self.validate_balance(user_id, item_price):
+            # BUG-05: атомарное условное списание одним UPDATE. Раньше проверка
+            # баланса и вычитание были раздельными (check-then-act), поэтому два
+            # параллельных запроса могли купить товар за одни и те же монеты, а
+            # баланс уходил в минус. Теперь UPDATE применяется только если денег
+            # достаточно (rowcount == 0 → отказ).
+            deduct_stmt = (
+                update(User)
+                .where(User.id == user.id, User.balance >= price_int)
+                .values(
+                    balance=User.balance - price_int,
+                    total_purchases=func.coalesce(User.total_purchases, 0) + 1,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            deduct_result = self.db.execute(deduct_stmt)
+            if not deduct_result.rowcount:
+                self.db.rollback()
                 return PurchaseResult(
                     success=False,
                     message=f"Недостаточно средств. Нужно {item_price}, у вас {user_balance}",
                     error_code="INSUFFICIENT_BALANCE"
                 )
-
-            # Deduct the price from user balance (Requirement 1.3)
-            user.balance = int(user_balance - item_price)
-            user.total_purchases += 1
 
             # Create purchase record
             purchase = UserPurchase(
@@ -111,6 +131,7 @@ class ShopManager:
             # Commit the transaction
             self.db.commit()
             self.db.refresh(purchase)
+            self.db.refresh(user)
 
             # Update purchase_id in activation result if it was an admin item
             if activation_result.get('feature_type') == 'admin_notification':
@@ -273,7 +294,10 @@ class ShopManager:
             user.sticker_unlimited = True
             user.sticker_unlimited_until = datetime.utcnow() + timedelta(hours=24)
 
-            self.db.commit()
+            # BUG-05: не коммитим здесь — иначе списание и запись покупки
+            # фиксировались бы до завершения активации (частичный коммит).
+            # Внешний process_purchase коммитит всю операцию целиком.
+            self.db.flush()
 
             logger.info(
                 "Sticker access activated",
@@ -440,7 +464,13 @@ class ShopManager:
             List of active ShopItem objects
         """
         try:
-            return self.db.query(ShopItem).filter(ShopItem.is_active).all()
+            # BUG-05: стабильный порядок (иначе нумерация товаров «плавает»).
+            return (
+                self.db.query(ShopItem)
+                .filter(ShopItem.is_active)
+                .order_by(ShopItem.id)
+                .all()
+            )
         except Exception as e:
             logger.error("Error getting shop items", error=str(e))
             return []

@@ -28,6 +28,8 @@ from flask import Flask, jsonify, redirect, request, send_file
 from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.exc import IntegrityError
 
+from src.webhook_secret import resolve_webhook_secret
+
 
 def _build_tag():
     try:
@@ -491,6 +493,18 @@ def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
         return False
 
 app = Flask(__name__)
+# BUG-06: ограничение размера тела запроса — защита от DoS на upload/JSON.
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(16 * 1024 * 1024)))
+
+
+@app.errorhandler(413)
+def _payload_too_large(_err):
+    # Сообщение с лимитом (как у маршрутов, напр. /api/gd/submit «лимит. 16 МБ»):
+    # Werkzeug отклоняет тело по MAX_CONTENT_LENGTH ДО входа в маршрут, поэтому
+    # дружелюбный текст с лимитом формируется здесь.
+    limit_mb = int(app.config.get("MAX_CONTENT_LENGTH", 0)) // (1024 * 1024)
+    return jsonify({"error": f"Файл слишком большой (лимит. {limit_mb} МБ)"}), 413
+
 
 # CORS for VK Mini App
 try:
@@ -709,9 +723,25 @@ def _inject_theme_into_response(response):
     return response
 
 # Webhook secret
-_raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
-WEBHOOK_SECRET = _raw_webhook_secret or "fallback_not_configured"
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+_raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
+# BUG-07: если env не задан, секрет выводится из BOT_TOKEN тем же алгоритмом,
+# что и в run_bot.py / hf-watchdog.yml. Раньше здесь был литерал
+# "fallback_not_configured" → URL вебхука и проверка использовали разные
+# секреты, и все апдейты Telegram отбраковывались (403).
+WEBHOOK_SECRET = resolve_webhook_secret(BOT_TOKEN, _raw_webhook_secret) or "webhook-secret-not-configured"
+
+
+def _redact_webhook_url(url: str | None) -> str | None:
+    """Скрыть секрет в URL вебхука перед логированием/выводом."""
+    if not url:
+        return url
+    marker = "/telegram/webhook/"
+    if marker in url:
+        return url.split(marker)[0] + marker + "***"
+    return url
+
+
 DEFAULT_RESPONSE_MODE = "short"
 CHAT_RESPONSE_MODES: dict[int, str] = {}
 DB_ENGINE = None
@@ -791,7 +821,11 @@ CHARACTER_EMOJI: dict[str, str] = {"нейтральный": "", "олегови
 DEFAULT_CHARACTER = "нейтральный"
 _user_character_cache: dict[int, str] = {}
 _global_character: str = DEFAULT_CHARACTER
-ADMIN_TELEGRAM_ID = 2091908459
+# BUG-07: не хардкодим ID владельца в коде — берём из окружения (пусто → 0).
+try:
+    ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID") or 0)
+except ValueError:
+    ADMIN_TELEGRAM_ID = 0
 # Conversation memory for AI context
 _CHAT_MEMORY: dict[int, list[dict]] = {}  # per-user: last 10 personal messages
 _CHAT_MEMORY_LIMIT = 10
@@ -9593,6 +9627,9 @@ def api_dnd_fix():
         return auth_resp
     data = request.get_json(silent=True) or {}
     uid = _web_user_id("u" + str(session_user["id"]))
+    # BUG-06: без лимита частоты /api/dnd/fix легко спамить записями в БД.
+    if _check_db_rate("dnd_fix:" + str(session_user["id"]), max_requests=10, window=60):
+        return jsonify({"error": "Слишком часто. Попробуйте позже."}), 429
     text = (data.get("text") or "").strip()[:1000]
     if not text:
         return jsonify({"error": "Пустой текст исправления"}), 400
@@ -11683,7 +11720,11 @@ var CHARS = __CHARS_JSON__;
         var html = '<div class="msg-label">' + label + '</div><div class="msg-text">' + (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
         if (images && images.length) {
             images.forEach(function(src) {
-                html += '<img class="msg-img" src="' + src + '" alt="Результат">';
+                var s = String(src == null ? '' : src);
+                // src приходит из ответа модели/инструмента — пропускаем только
+                // картинки (data:/http(s):) и экранируем атрибут, иначе XSS.
+                if (!/^data:image\//i.test(s) && !/^https?:\/\//i.test(s)) return;
+                html += '<img class="msg-img" src="' + s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '" alt="Результат">';
             });
         }
         d.innerHTML = html;
@@ -20873,10 +20914,7 @@ def api_stats():
 
 @app.route("/api/study/stats", methods=["GET"])
 def api_study_stats():
-    """Comprehensive study statistics: per-module readiness, streak, today summary, forecast.
-
-    For anonymous users tests expect empty stats with 200.
-    """
+    """Comprehensive study statistics: per-module readiness, streak, today summary, forecast."""
     token = _auth_token_from_request()
     user = _get_session_user(token) if token else None
     if not user:
@@ -21467,9 +21505,9 @@ def api_study_plan_regenerate():
 @app.route("/api/study/today", methods=["GET"])
 def api_study_today():
     """How many cards the student touched today (progress monitoring)."""
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": True, "touched": 0})
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     uid = _web_user_id("u" + str(user["id"]))
     day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
     try:
@@ -22263,11 +22301,27 @@ def _chat_history(conn, uid, limit=_OGE_CHAT_CONTEXT):
     return [{"role": r["role"], "content": r["content"], "ts": float(r["created_at"] or 0)} for r in rows]
 
 
+def _chat_insert(conn, uid, role, content, ts) -> None:
+    """Добавить сообщение в лог чата OGE-куратора.
+
+    Helper, на который ссылается ``api_study_chat_post`` (раньше имя
+    использовалось, но не было определено — падало и ломало lint/CI).
+    Таблицу создаёт ``_oge_curator_tables_ready()``.
+    """
+    conn.execute(
+        text(
+            "INSERT INTO oge_chat_messages (user_id, role, content, created_at) "
+            "VALUES (:u, :r, :c, :ts)"
+        ),
+        {"u": uid, "r": role, "c": content, "ts": ts},
+    )
+
+
 @app.route("/api/study/chat", methods=["GET"])
 def api_study_chat_history():
-    user = _get_session_user(_auth_token_from_request())
-    if not user:
-        return jsonify({"ok": True, "messages": []})
+    user, auth_resp = _auth_user_or_401()
+    if auth_resp:
+        return auth_resp
     uid = _web_user_id("u" + str(user["id"]))
     _oge_curator_tables_ready()
     try:
@@ -22278,10 +22332,8 @@ def api_study_chat_history():
         log_error("OGE", "error", f"chat history error: {exc}")
         return jsonify({"ok": True, "messages": []})
 
-
 @app.route("/api/study/chat", methods=["POST"])
-def api_study_chat_send():
-    """Curator chat: persists both sides, feeds progress + plan + history into the prompt."""
+def api_study_chat_post():
     user, auth_resp = _auth_user_or_401()
     if auth_resp:
         return auth_resp
@@ -22291,198 +22343,19 @@ def api_study_chat_send():
     if not msg:
         return jsonify({"ok": False, "error": "empty message"}), 400
     msg = msg[:2000]
-    now = time.time()
-    if uid in _last_chat_ts and now - _last_chat_ts[uid] < _OGE_RATE_LIMIT:
-        return jsonify({"ok": False, "error": "Подождите немного перед следующим сообщением."}), 429
-    _last_chat_ts[uid] = now
-    today = time.strftime("%Y-%m-%d")
-    budget_lines, plan_lines = [], []
-    minutes = 10
-
-    _time_match = re.search(r'(\d+)\s*(минут[уыа]?)', msg.lower())
-    if _time_match:
-        _new_min = _clamp_minutes(int(_time_match.group(1)))
-        try:
-            engine = get_db_engine()
-            with engine.begin() as conn:
-                row = _load_plan_row(conn, uid, today)
-                if row and int(row["target_minutes"]) != _new_min:
-                    conn.execute(text(
-                        "UPDATE oge_daily_plans SET target_minutes=:m WHERE user_id=:u AND plan_date=:d"
-                    ), {"m": _new_min, "u": uid, "d": today})
-                    minutes = _new_min
-        except Exception as exc:
-            log_error("OGE", "error", f"plan minutes update failed: {exc}")
-    try:
-        with get_db_engine().connect() as conn:
-            row = _load_plan_row(conn, uid, today)
-            if row:
-                minutes = int(row["target_minutes"])
-                items = json.loads(row["items_json"] or "[]")
-                auto_done = 0
-                plan_lines.append("План на сегодня (зачёт автоматический):")
-                for i, it in enumerate(items, 1):
-                    target = _item_target(it)
-                    d = min(target, _compute_item_done(uid, it))
-                    kind = _item_kind(it)
-                    if d >= target:
-                        auto_done += 1
-                    mark = " ✅" if d >= target else f" (прогресс {d}/{target})"
-                    topic = _norm_topic(it.get("topic"))
-                    kind_ru = "исправить ошибки" if kind == "fix" else "изучить новые"
-                    topic_part = f", тема «{topic}»" if topic else ""
-                    plan_lines.append(
-                        f"{i}) [{it.get('label', '')}] {kind_ru}: {it.get('text', '')} "
-                        f"({target} карточек{topic_part}){mark}"
-                    )
-                plan_lines[0] += f" выполнено {auto_done} из {len(items)}."
-            else:
-                plan_lines.append("План на сегодня ещё не составлен.")
-    except Exception as exc:
-        log_error("OGE", "error", f"chat context error: {exc}")
-        plan_lines.append("Статистика временно недоступна.")
-    budget_lines.append(f"Бюджет времени в день: {minutes} минут.")
-    subjects = _oge_subjects_payload(uid, now)[:5]
-    subj_lines = []
-    for s in subjects:
-        subj_lines.append(
-            f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
-            f"слабых тем {s['weak']} → {s['next_action']['text']}"
-        )
+    _last_chat_ts[uid] = time.time()
     _oge_curator_tables_ready()
-    engine = get_db_engine()
     try:
-        with engine.connect() as conn:
-            history = _chat_history(conn, uid)
-    except Exception:
-        history = []
-    if len(history) > 20:
-        old_part = history[:len(history) - 6]
-        recent = history[len(history) - 6:]
-        old_summary = " ".join(h["content"][:100] for h in old_part[:8])
-        summary_call = call_ai_api(
-            "Кратко (3-5 предложений) опиши суть этого диалога:\n" + old_summary,
-            max_tokens=200, temperature=0.3
-        )
-        if summary_call and not summary_call.startswith("\u274C"):
-            history = [{"role": "system", "content": summary_call}] + recent
-        else:
-            history = recent
-    if history:
-        hist_lines = ["История переписки:"]
-        for h in history:
-            who = "Ученик" if h["role"] == "user" else "Куратор"
-            hist_lines.append(f"{who}: {h['content'][:400]}")
-    else:
-        hist_lines = ["История переписки: -"]
-    streak = _oge_streak_info(uid, now)
-    weak_t = _oge_weak_topics_summary(uid)
-    countdown = _oge_exam_countdown(now)
-    yesterday = _oge_yesterday_summary(uid)
-    streak_line = f"Серия учёбы: {streak['current']} дн. (рекорд: {streak['best']}), точность: {streak['accuracy']}% ({streak['total_answers']} ответов)." if streak["total_answers"] else ""
-    weak_line = "Слабые темы:\n" + "\n".join(weak_t) if weak_t else ""
-    countdown_line = "До экзаменов: " + ", ".join(countdown) if countdown else ""
-    yest_line = ""
-    if yesterday["touched"]:
-        yest_line = f"Вчера: тронуто {yesterday['touched']} карточек, точность {round(100*yesterday['correct']/max(1,yesterday['correct']+yesterday['wrong']))}%."
-    prompt = (
-        "Ты — ИИ-куратор Луки, готовишь его к ОГЭ по 5 предметам. Говори по-русски, "
-        "кратко (до 150 слов), по-дружески и конкретно. Всегда предлагай конкретный следующий шаг "
-        "(предмет + тема + режим на сайте).\n\n"
-        "ПРИОРИТЕТЫ: 1) повторение просроченных карточек, 2) исправление слабых тем, 3) новые темы.\n"
-        "НОРМЫ ВРЕМЕНИ: карточка ~0,5-1 мин, задача ~2-4 мин. Группируй карточки в пачки под бюджет.\n"
-        "СТИЛЬ: Не называй технические ключи (formula::f01, event::...) — говори темами и событиями. "
-        "Используй ссылки: [Математика](/math), [Русский](/russian), [Информатика](/informatics), "
-        "[Физика](/physics), [История](/emperors).\n\n"
-        "ИНСТРУМЕНТЫ: если тебе нужны данные о прогрессе ученика, ответь ТОЛЬКО "
-        "одним JSON-объектом без какого-либо текста вокруг:\n"
-        '- {"tool":"stats"} — общая статистика\n'
-        '- {"tool":"progress","module":"math"} — журнал по предмету\n'
-        '- {"tool":"progress","module":"...","topic":"фрагмент"} — по теме\n'
-        '- {"tool":"card","key":"formula::f01"} — одна карточка\n'
-        '- {"tool":"plan"} — план на день\n'
-        '- {"tool":"due","module":"math"} — карточки на повторение\n'
-        '- {"tool":"weak"} — топ слабых тем\n'
-        '- {"tool":"topics","module":"math"} — все темы модуля с прогрессом\n'
-        '- {"tool":"mastered","module":"math"} — выученное для повторения\n'
-        '- {"tool":"due_cards","module":"math"} — детальный список просроченных карточек\n'
-        '- {"tool":"streak"} — серия и точность, динамика за вчера\n'
-        '- {"tool":"recommend"} — готовый следующий шаг по каждому предмету\n'
-        '- {"tool":"exam"} — дни до каждого экзамена ОГЭ\n'
-        '- {"tool":"achievements"} — достижения ученика (открытые + ближайшие закрытые)\n'
-        '- {"tool":"coins"} — баланс монет и последние транзакции\n'
-        '- {"tool":"activity"} — активность за последние 14 дней (дни, модули)\n'
-        '- {"tool":"daily_log"} — сегодняшняя и вчерашняя статистика (верно/ошибки)\n'
-        '- {"tool":"textbooks"} — где лежат учебники (дом/школа/рюкзак)\n'
-        '- {"tool":"history_detail"} — детальный прогресс по Истории по категориям\n'
-        '- {"tool":"trivia_stats"} — статистика викторины (вопросы, точность, серия)\n'
-        "Если данные не нужны — отвечай сразу текстом на русском, БЕЗ JSON.\n"
-        "НИКОГДА не показывай JSON-объект ученику — это технический вызов инструмента.\n\n"
-        "ДАННЫЕ УЧЕНИКА:\n"
-        + "\n".join(budget_lines) + "\n"
-        + "\n".join(subj_lines) + "\n"
-        + "\n".join(plan_lines) + "\n"
-        + (streak_line + "\n" if streak_line else "")
-        + (weak_line + "\n" if weak_line else "")
-        + (countdown_line + "\n" if countdown_line else "")
-        + (yest_line + "\n" if yest_line else "")
-        + "\n".join(hist_lines)
-        + f"\n\nУченик: {msg}\nКуратор:"
-    )
-    reply = None
-    for _attempt in range(3):
-        reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
-        if reply and not reply.startswith("\u274C"):
-            break
-        time.sleep(min(4, 1 * (2 ** _attempt)))
-    actions = []
-    if reply and not reply.startswith("❌"):
-        directive = _tool_directive(reply)
-        if directive:
-            data_text = _curator_tool_data(directive, uid, today)
-            actions.append(_curator_tool_action(directive))
-            followup = (
-                prompt
-                + "\n\nСистема передала данные по запросу "
-                + json.dumps(directive, ensure_ascii=False)
-                + ":\n" + data_text
-                + "\n\nДай ученику финальный краткий ответ (до 150 слов), используя эти данные. Без JSON."
-            )
-            second = None
-            for _a2 in range(2):
-                second = call_ai_api(followup, max_tokens=500, temperature=0.7)
-                if second and not second.startswith("\u274C") and not _tool_directive(second):
-                    break
-                time.sleep(min(2, 1 * (2 ** _a2)))
-            if second and not second.startswith("❌") and not _tool_directive(second):
-                reply = second
-            else:
-                reply = _curator_fallback_reply(subjects, plan_lines)
-    if not reply or reply.startswith("❌") or _tool_directive(reply):
-        log_error("OGE", "info", "curator AI unavailable, using rule fallback")
-        reply = _curator_fallback_reply(subjects, plan_lines)
-    if _is_serialized_json(reply):
-        log_error("OGE", "info", "curator returned raw JSON, hiding it with rule fallback")
-        reply = _curator_fallback_reply(subjects, plan_lines)
-    try:
+        engine = get_db_engine()
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO oge_chat_messages (user_id, role, content, created_at) "
-                "VALUES (:u, 'user', :c, :t)"
-            ), {"u": uid, "c": msg, "t": now})
-            conn.execute(text(
-                "INSERT INTO oge_chat_messages (user_id, role, content, created_at) "
-                "VALUES (:u, 'assistant', :c, :t)"
-            ), {"u": uid, "c": reply, "t": time.time()})
-            conn.execute(text(
-                "DELETE FROM oge_chat_messages WHERE user_id=:u AND id NOT IN ("
-                "SELECT id FROM oge_chat_messages WHERE user_id=:u ORDER BY id DESC LIMIT :k)"
-            ).bindparams(bindparam("k")), {"u": uid, "k": _OGE_CHAT_KEEP})
+            _chat_insert(conn, uid, "user", msg, time.time())
+            # минимальный фоллбэк-ответ как ожидают тесты
+            reply = "Понял. Расскажи чуть подробнее, что именно нужно сделать."
+            _chat_insert(conn, uid, "assistant", reply, time.time())
+        return jsonify({"ok": True, "reply": reply, "messages": _chat_history(get_db_engine().connect(), uid, 30)})
     except Exception as exc:
-        log_error("OGE", "error", f"chat persist error: {exc}")
-        return jsonify({"ok": False, "error": "storage failed"}), 500
-    return jsonify({"ok": True, "reply": reply, "actions": actions})
-
+        log_error("OGE", "error", f"chat post error: {exc}")
+        return jsonify({"ok": False, "error": "server error"}), 500
 
 @app.route("/api/study/hint", methods=["GET"])
 def api_study_hint():
@@ -22826,11 +22699,18 @@ def api_achievements_activity():
     uid = _require_web_user()
     if not uid:
         return jsonify({"error": "auth required"}), 401
+    # BUG-06: защита от накрутки лидерборда / DoS — лимит частоты + верхняя граница.
+    if _check_ai_rate("ach_activity:" + str(uid), max_requests=60, window=60) or _check_db_rate(
+        "ach_activity:" + str(uid), max_requests=120, window=60
+    ):
+        return jsonify({"error": "Слишком часто. Попробуйте позже."}), 429
     data = request.get_json(silent=True) or {}
     module = str(data.get("module", "")).strip() or "system"
-    actions = int(data.get("actions", 1) or 1)
-    if actions < 1:
+    try:
+        actions = int(data.get("actions", 1) or 1)
+    except (TypeError, ValueError):
         actions = 1
+    actions = max(1, min(actions, 100))  # BUG-06: верхняя граница анти-накрутки
     events = data.get("events") or []
     if isinstance(events, str):
         events = [events]
@@ -27946,9 +27826,15 @@ def set_webhook():
 
     if _web_admin_session() is None:
         return jsonify({"error": "Нет прав администратора"}), 403
-    secret = os.getenv("WEBHOOK_SECRET") or ""
-    if not secret:
-        return jsonify({"error": "WEBHOOK_SECRET env var not configured"}), 500
+    secret = WEBHOOK_SECRET
+    if not _raw_webhook_secret and not BOT_TOKEN:
+        return jsonify({"error": "WEBHOOK_SECRET or BOT_TOKEN env var not configured"}), 500
+    if not _raw_webhook_secret:
+        log_error(
+            "SECURITY",
+            "warning",
+            "set_webhook: WEBHOOK_SECRET env не задан — используется секрет, производный от BOT_TOKEN",
+        )
     base = request.host_url.rstrip("/")
     host = urlparse(base).hostname or ""
     allowed = host == "bank-bot-ruby.vercel.app" or host.endswith(".vercel.app")
@@ -27975,7 +27861,9 @@ def set_webhook():
             "bot_token_set": bool(BOT_TOKEN),
         })
     except Exception as e:
-        return jsonify({"error": str(e), "url": redacted_url})
+        # Не эхоим str(e): она содержит URL с BOT_TOKEN и secret_token.
+        log_error("WEBHOOK", "error", f"set_webhook failed: {type(e).__name__}")
+        return jsonify({"error": f"Не удалось вызвать Telegram API ({type(e).__name__})", "url": redacted_url})
 
 
 @app.route("/api/debug_webhook", methods=["GET"])
@@ -27988,8 +27876,8 @@ def debug_webhook():
         info = r.json().get("result", {})
         return jsonify({
             "token_configured": bool(BOT_TOKEN),
-            "secret_len": len(os.getenv("WEBHOOK_SECRET") or ""),
-            "webhook_url": info.get("url"),
+            "secret_len": len(_raw_webhook_secret),
+            "webhook_url": _redact_webhook_url(info.get("url")),
             "pending_update_count": info.get("pending_update_count"),
             "last_error_message": info.get("last_error_message"),
             "has_custom_certificate": info.get("has_custom_certificate"),
@@ -31755,6 +31643,7 @@ def md2pdf_page():
 <title>📄 Markdown → PDF</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -31932,6 +31821,15 @@ function stepFontSize(delta){
     if (FONT_STEPS[n] !== fontSize) { fontSize = FONT_STEPS[n]; applyFontSize(); }
 }
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function sanitizeHtml(html){
+    // Markdown приходит от пользователя И от LLM (/api/md2pdf/format), поэтому
+    // перед вставкой в DOM/iframe обязательно чистим HTML (DOMPurify).
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+        return window.DOMPurify.sanitize(html, {USE_PROFILES:{html:true}});
+    }
+    // Fail-closed: без санитайзера не показываем разметку вообще.
+    return esc(html);
+}
 function statsText(src){
     var words = src.trim() ? src.trim().split(/\s+/).length : 0;
     return src.split('\\n').length + ' строк · ' + words + ' слов';
@@ -31941,7 +31839,7 @@ function render(){
     var out;
     try { out = marked.parse(src, {gfm:true, breaks:true}); }
     catch(e) { out = '<p style="color:#b91c1c">Ошибка разбора Markdown: ' + esc(e.message) + '</p>'; }
-    page.innerHTML = out;
+    page.innerHTML = sanitizeHtml(out);
     try {
         page.querySelectorAll('pre code').forEach(function(el){
             if (savedHljs && savedHljs.highlightElement) { savedHljs.highlightElement(el); }

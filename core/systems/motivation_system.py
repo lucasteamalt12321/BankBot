@@ -1,4 +1,5 @@
 # motivation_system.py
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 from database.database import User, Transaction
 from typing import Dict, Optional
@@ -36,11 +37,20 @@ class MotivationSystem:
 
     def claim_daily_bonus(self, user_id: int) -> Dict:
         """Выдача ежедневного бонуса"""
-        user = self.db.query(User).filter(User.id == user_id).first()
+        # BUG-05: строку пользователя блокируем ДО проверки «получал ли бонус»,
+        # чтобы два параллельных запроса не выдали бонус дважды. На Postgres
+        # with_for_update сериализует выдачу; на SQLite запись сериализуется
+        # самой СУБД.
+        user = (
+            self.db.query(User)
+            .filter(User.id == user_id)
+            .with_for_update()
+            .first()
+        )
         if not user:
             return {"success": False, "reason": "Пользователь не найден"}
 
-        # Проверяем, получал ли уже бонус сегодня
+        # Проверяем, получал ли уже бонус сегодня (уже под блокировкой)
         today = datetime.utcnow().date()
         last_bonus_date = self.get_last_bonus_date(user_id)
 
@@ -54,8 +64,17 @@ class MotivationSystem:
         new_streak = streak + 1
         bonus_amount = self.calculate_bonus_amount(new_streak)
 
-        # Начисляем бонус
-        user.balance += bonus_amount
+        # Начисляем бонус атомарным UPDATE (вместо user.balance += amount,
+        # который затирал параллельные начисления).
+        self.db.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                balance=func.coalesce(User.balance, 0) + bonus_amount,
+                last_activity=datetime.utcnow(),
+            )
+            .execution_options(synchronize_session=False)
+        )
 
         # Создаем транзакцию
         transaction = Transaction(
@@ -74,9 +93,12 @@ class MotivationSystem:
         self.db.add(transaction)
         self.db.commit()
 
-        # Обновляем последнюю активность
-        user.last_activity = datetime.utcnow()
-        self.db.commit()
+        logger.info(
+            "Daily bonus claimed",
+            user_id=user_id,
+            streak=new_streak,
+            amount=bonus_amount
+        )
 
         logger.info(
             "Daily bonus claimed",

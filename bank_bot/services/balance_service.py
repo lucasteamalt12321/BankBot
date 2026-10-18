@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from bank_bot.repositories.balance_repository import BalanceRepository
@@ -84,15 +85,22 @@ class BalanceService:
         """
         if amount <= 0:
             raise ValueError(f"Deduction amount must be positive, got {amount}")
-        user = self._balance_repo.get_balance_with_lock(user_id)
-        if user is None:
-            return None
-        if user.balance < amount:
+        # BUG-05: атомарное списание одним условным UPDATE (см. core-версию).
+        stmt = (
+            update(User)
+            .where(User.id == user_id, User.balance >= amount)
+            .values(balance=User.balance - amount)
+            .execution_options(synchronize_session=False)
+        )
+        result = self._session.execute(stmt)
+        if not result.rowcount:
+            user = self._balance_repo.get(user_id)
+            if user is None:
+                return None
             raise ValueError(
                 f"Insufficient balance: user {user_id} has {user.balance}, "
                 f"needs {amount}"
             )
-        user.balance -= amount
         self._tx_repo.log_transaction(
             user_id=user_id,
             amount=-amount,
@@ -100,7 +108,12 @@ class BalanceService:
             description=description,
             source_game=source_game,
         )
-        return user
+        return (
+            self._session.query(User)
+            .populate_existing()
+            .filter(User.id == user_id)
+            .first()
+        )
 
     def get_balance(self, user_id: int) -> Optional[int]:
         """Get current balance for a user.

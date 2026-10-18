@@ -120,9 +120,16 @@ jobs:
                   return False, str(e)
 
 
+          def redact(url: str) -> str:
+              """Скрыть секрет вебхука перед логированием (BUG-07)."""
+              marker = "/telegram/webhook/"
+              return (url.split(marker)[0] + marker + "***") if marker in url else url
+
+
           def tg_set_webhook(target_url: str) -> tuple[bool, str]:
               """Set Telegram webhook to target_url via Bot API."""
-              # Derive secret the same way run_bot.py does
+              # Derive secret the same way as src/webhook_secret.py
+              # (HMAC-SHA256(BOT_TOKEN, b"bankbot-hf-webhook")).
               secret = hmac.new(
                   BOT_TOKEN.encode(),
                   b"bankbot-hf-webhook",
@@ -140,7 +147,7 @@ jobs:
                       ok = data.get("ok", False)
                       return ok, body[:500]
               except Exception as e:
-                  return False, str(e)
+                  return False, redact(str(e)).replace(BOT_TOKEN, "***")
 
 
           def tg_get_webhook_info() -> dict:
@@ -210,7 +217,7 @@ jobs:
           # Check current Telegram webhook
           tg_info = tg_get_webhook_info()
           current_url = (tg_info.get("result") or {}).get("url", "")
-          print(f"Current Telegram webhook: {current_url}")
+          print(f"Current Telegram webhook: {redact(current_url)}")
 
           # Determine target URL
           if desired_platform == "render" and RENDER_WEBHOOK_URL:

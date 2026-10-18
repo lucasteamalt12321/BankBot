@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 QUESTION_RU = r"^(что|как|где|кто|почему|зачем|сколько|может|можна|можно|есть\s+ли|когда)\b"
 QUESTION_EN = r"^(what|how|where|who|why|which|can|could|is\s+there|when)\b"
 DICE_PATTERN = r"\b(\d*)[dк](\d+)([+-]\d+)?\b"
+# Верхняя граница количества кубиков в одном броске. Без неё `999999999d6`
+# крутит синхронный цикл `random.randint` в event loop и вешает бота.
+MAX_DICE_COUNT = 100
 
 
 def classify_message(text: str) -> str:
@@ -43,6 +46,8 @@ def parse_dice(text: str) -> Optional[dict]:
     modifier = int(mod_str) if mod_str else 0
     valid_sides = {4, 6, 8, 10, 12, 20, 100}
     if sides not in valid_sides:
+        return None
+    if count < 1 or count > MAX_DICE_COUNT:
         return None
     return {"count": count, "sides": sides, "modifier": modifier}
 

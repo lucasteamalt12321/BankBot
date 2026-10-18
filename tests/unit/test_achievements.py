@@ -328,3 +328,42 @@ def test_general_stats_endpoint():
         assert isinstance(d["oge"], dict)
         assert "modules" in d["oge"]
         assert "overall_readiness" in d["oge"]
+
+
+def test_activity_actions_capped():
+    """BUG-06: actions ограничивается сверху — лидерборд нельзя накрутить."""
+    from api.index import app
+
+    engine = _make_engine()
+    c, auth, p, p2, p3 = _register(engine)
+    with p, p2, p3:
+        r = c.post(
+            "/api/achievements/activity",
+            headers=auth,
+            json={"module": "trivia", "actions": 999999999},
+        )
+        assert r.status_code == 200
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT SUM(actions) FROM web_activity_log")).scalar()
+    assert total == 100
+
+
+def test_oversized_body_rejected_with_413():
+    """BUG-06: MAX_CONTENT_LENGTH + обработчик 413 отсекают гигантские тела."""
+    from api.index import app
+
+    engine = _make_engine()
+    c, auth, p, p2, p3 = _register(engine)
+    original = app.config.get("MAX_CONTENT_LENGTH")
+    app.config["MAX_CONTENT_LENGTH"] = 1024
+    try:
+        with p, p2, p3:
+            resp = c.post(
+                "/api/achievements/activity",
+                headers={**auth, "Content-Type": "application/json"},
+                data=b"x" * 4096,
+            )
+    finally:
+        app.config["MAX_CONTENT_LENGTH"] = original
+    assert resp.status_code == 413
+

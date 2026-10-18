@@ -103,7 +103,10 @@ class BroadcastService:
                 User.telegram_id.isnot(None)
             ).all()
 
-            fallback_admin_ids = [2091908459]
+            from src.config import settings
+
+            # BUG-07: без хардкода ID владельца — администратор берётся из конфига.
+            fallback_admin_ids = [settings.ADMIN_TELEGRAM_ID] if settings.ADMIN_TELEGRAM_ID else []
 
             if not admin_users:
                 admin_users = self.db.query(User).filter(

@@ -40,6 +40,8 @@ LTHub следует многослойной архитектуре с четк
 - **Runtime/legacy contract** - активные shim/legacy слои не удаляются без отдельной миграции; канон описан в `docs/README.md`
 - **Response Mode Patch** - planned production scope keeps only `short`/`long`; `watch` is to be disabled from runtime
 - **HF Webhook Runtime (planned)** - Telegram sends updates to Flask webhook endpoint; LTHub calls `Application.process_update(update)`; polling is local/dev fallback only
+- **Atomic money mutations** — балансы и покупки меняются только относительным условным `UPDATE` под контролем `rowcount`; `with_for_update()` не считается достаточным (см. раздел ниже)
+- **Secrets from env** - webhook-секрет выводится из `BOT_TOKEN`, owner-ID и прочие секреты — только из env (см. раздел ниже)
 
 ### Поток данных
 
@@ -92,6 +94,35 @@ Text message → parse_all_messages()
   **всю** функцию сразу после `CREATE TABLE`, поэтому таблица создавалась, но без новых
   колонок, и падал уже следующий запрос. Ловить такие бабы можно только тестом на
   **холодной** БД — на прогретой схеме и на Postgres всё работает.
+
+### Денежные операции: атомарные условные `UPDATE` (BUG-05, 2026-10-15)
+
+Балансы и покупки нельзя менять схемой read-modify-write (`obj.balance = obj.balance + delta; commit()`):
+на SQLite `with_for_update()` — no-op, а на Postgres блокировка строки без явного перечитывания объекта
+всё равно теряет конкурентные начисления. Канон:
+
+- Начисление/списание — **одним относительным** `UPDATE ... SET balance = COALESCE(balance,0) + :delta`
+  (или `- :delta`); результат проверяется по `rowcount` (0 = нет строки либо недостаточно средств),
+  объект освежается (`populate_existing()`) или перечитывается.
+- Проверка «хватает ли денег» — в самом `WHERE` (`WHERE balance >= :amount`), а не отдельным `SELECT`,
+  иначе остаётся окно гонки check-then-act.
+- Покупка в магазине — списание одним условным `UPDATE`; `rowcount == 0` → `INSUFFICIENT_BALANCE`.
+  Под-операции (`_activate_sticker_item`) не коммитят до успеха основной — только `flush()`.
+- Списки товаров/сущностей — всегда `ORDER BY <id>`, чтобы нумерация не «плавала» между запросами.
+- `with_for_update()` допустим как дополнительная сериализация на Postgres (например, проверка «получал ли
+  ежедневный бонус»), но НЕ заменяет атомарный относительный `UPDATE`.
+- Регресс: `tests/unit/test_money_races.py` (включая потоковый lost-update тест).
+
+### Секреты и лимиты входа (BUG-06/BUG-07, 2026-10-15)
+
+- Webhook-секрет не хранится отдельной переменной: выводится из `BOT_TOKEN` общим `src/webhook_secret.py`
+  (`derive_webhook_secret`); используют `api/index.py` и `run_bot.py`. Owner-ID (`ADMIN_TELEGRAM_ID`)
+  берётся только из env, без захардкоженных значений; в логах секреты и owner-ID редактируются.
+- Размер тела запроса ограничен `MAX_CONTENT_LENGTH` (по умолчанию 16 МБ, env-переопределяемо) +
+  обработчик 413. Werkzeug отсекает тело **до** входа в маршрут, поэтому дружелюбный текст с лимитом
+  формируется в обработчике 413, а маршруты (напр. `/api/gd/submit`) сохраняют свои сообщения «лимит. 16 МБ».
+- Пользовательские входы-счётчики (напр. `actions` в достижениях, число кубиков `NdM`) жёстко клампятся
+  сверху; тяжёлые синхронные циклы по пользовательскому числу недопустимы (вешают event loop).
 
 ### Planned runtime removals for webhook migration
 

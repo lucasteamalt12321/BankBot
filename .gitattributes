@@ -1,0 +1,53 @@
+# .gitattributes — как git обрабатывает файлы.
+#
+# Здесь объявлены только бинарные типы: git не должен пытаться применять
+# EOL-конвертацию и текстовый diff/merge к ним. Полная нормализация EOL
+# текстовых файлов (``* text=auto``) намеренно НЕ включена, чтобы не породить
+# массовый renormalizing-diff в существующем репозитории.
+
+# Изображения
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.webp binary
+*.svg text
+
+# Документы
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+
+# Архивы
+*.zip binary
+*.gz binary
+*.7z binary
+*.rar binary
+
+# Исполняемые и нативные библиотеки
+*.exe binary
+*.dll binary
+*.so binary
+*.pyd binary
+
+# Базы данных
+*.db binary
+*.sqlite3 binary
+
+# Шрифты
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+
+# Медиа
+*.mp3 binary
+*.wav binary
+*.ogg binary
+*.mp4 binary
+*.mov binary
+*.psd binary

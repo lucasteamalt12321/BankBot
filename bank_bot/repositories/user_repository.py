@@ -2,7 +2,7 @@
 
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, update
 
 from database.database import User, BotBalance
 from .base import BaseRepository
@@ -60,27 +60,37 @@ class UserRepository(BaseRepository[User]):
         return user
 
     def update_balance_with_lock(self, user_id: int, amount: int) -> Optional[User]:
-        """
-        Update user balance with row-level locking to prevent race conditions.
-        
+        """Atomically add ``amount`` to the user's balance.
+
+        BUG-05: заменяет read-modify-write под ``with_for_update()`` (на SQLite
+        блокировка — no-op) на один условный ``UPDATE``, поэтому параллельные
+        начисления больше не затирают друг друга.
+
         Args:
-            user_id: User ID
-            amount: Amount to add to balance (can be negative)
-            
+            user_id: User primary key.
+            amount: Amount to add (negative to deduct).
+
         Returns:
-            Updated user or None if user not found
+            Updated User or None if not found.
         """
-        # Use SELECT FOR UPDATE to lock the row
-        user = self.session.query(self.model).filter(
-            self.model.id == user_id
-        ).with_for_update().first()
-
-        if user:
-            user.balance += amount
-            user.total_earned += max(0, amount)  # Only count positive amounts
-            return user
-
-        return None
+        stmt = (
+            update(self.model)
+            .where(self.model.id == user_id)
+            .values(
+                balance=func.coalesce(self.model.balance, 0) + amount,
+                total_earned=func.coalesce(self.model.total_earned, 0) + max(0, amount),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(stmt)
+        if not result.rowcount:
+            return None
+        return (
+            self.session.query(self.model)
+            .populate_existing()
+            .filter(self.model.id == user_id)
+            .first()
+        )
 
     def get_bot_balance(self, user_id: int, game: str) -> Optional[BotBalance]:
         """Get bot balance for user and game."""

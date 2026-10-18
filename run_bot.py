@@ -79,17 +79,10 @@ def _is_authorized_feedback_request() -> bool:
 
 def _get_webhook_secret() -> str:
     """Return configured webhook secret or derive a stable fallback from BOT_TOKEN."""
-    explicit_secret = os.environ.get("WEBHOOK_SECRET", "").strip()
-    if explicit_secret:
-        return explicit_secret
-
     from src.config import settings
+    from src.webhook_secret import resolve_webhook_secret
 
-    return hmac.new(
-        settings.BOT_TOKEN.strip().encode(),
-        b"bankbot-hf-webhook",
-        "sha256",
-    ).hexdigest()
+    return resolve_webhook_secret(settings.BOT_TOKEN, os.environ.get("WEBHOOK_SECRET"))
 
 
 def _get_public_webhook_base_url() -> str:

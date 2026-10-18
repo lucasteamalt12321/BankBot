@@ -46,6 +46,13 @@ HTML_CONTENT = """<!DOCTYPE html>
     <script>
         let currentData = null;
 
+        function escHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         async function loadNewText() {
             try {
                 const response = await fetch('/api/reading_generate', { method: 'POST' });
@@ -58,14 +65,14 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         function displayReading() {
             document.getElementById('sentences').innerHTML = currentData.sentences
-                .map(s => '<div class="sentence">' + s + '</div>').join('');
+                .map(s => '<div class="sentence">' + escHtml(s) + '</div>').join('');
             document.getElementById('reading-screen').style.display = 'block';
             document.getElementById('questions-screen').style.display = 'none';
         }
 
         function goToQuestions() {
             document.getElementById('questions-container').innerHTML = currentData.questions.map((q, i) => 
-                '<div class="question"><div>' + (i+1) + '. ' + q.question + '</div>' +
+                '<div class="question"><div>' + (i+1) + '. ' + escHtml(q.question) + '</div>' +
                 '<input type="text" id="answer-' + i + '"><div class="result" id="result-' + i + '" style="display:none;"></div></div>'
             ).join('');
             document.getElementById('reading-screen').style.display = 'none';

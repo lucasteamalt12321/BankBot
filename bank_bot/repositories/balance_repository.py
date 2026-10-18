@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from database.database import User
@@ -95,7 +96,13 @@ class BalanceRepository(BaseRepository[User]):
         )
 
     def add_balance(self, user_id: int, amount: int) -> Optional[User]:
-        """Add amount to user balance atomically (uses row lock).
+        """Add amount to user balance atomically.
+
+        BUG-05: раньше это был read-modify-write под ``with_for_update()``,
+        который на SQLite является no-op — параллельные начисления (игры,
+        парсинг, бонусы) перезаписывали друг друга, теряя монеты. Теперь
+        баланс меняется одной атомарной SQL-операцией; корректность
+        обеспечивает само СУБД (работает и на SQLite, и на Postgres).
 
         Args:
             user_id: User primary key.
@@ -104,10 +111,21 @@ class BalanceRepository(BaseRepository[User]):
         Returns:
             Updated User or None if not found.
         """
-        user = self.get_balance_with_lock(user_id)
-        if user is None:
+        stmt = (
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                balance=func.coalesce(User.balance, 0) + amount,
+                total_earned=func.coalesce(User.total_earned, 0) + max(0, amount),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(stmt)
+        if not result.rowcount:
             return None
-        user.balance = (user.balance or 0) + amount
-        if amount > 0:
-            user.total_earned = (user.total_earned or 0) + amount
-        return user
+        return (
+            self.session.query(User)
+            .populate_existing()
+            .filter(User.id == user_id)
+            .first()
+        )

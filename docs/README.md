@@ -108,7 +108,7 @@ High-level документация по текущей архитектуре, 
 - `bank_bot/` — публичный repository/service namespace и compatibility entrypoints. Re-export файлы (`bank_bot.bot`, `bank_bot.main`, `bank_bot.di`, `bank_bot.middleware`) являются контрактом для тестов и внешних импортов.
 - `core/systems/`, `core/managers/`, `core/parsers/` — активный runtime-контур; не удалять как legacy без отдельной миграции импортов и полного тестового прогона.
 - `core/repositories/*` и `core/services/__init__.py` — shim namespace над `bank_bot.*`; новый код предпочтительно писать в согласованный `bank_bot.*` слой или явно используемый runtime-модуль.
-- `src/config.py`, `src/startup_validator.py`, `src/process_manager.py` — инфраструктурный startup слой; `src/parsers.py` остаётся compatibility façade над `core.parsers`.
+- `src/config.py`, `src/startup_validator.py`, `src/process_manager.py` — инфраструктурный startup слой; `src/parsers.py` остаётся compatibility façade над `core.parsers`; `src/webhook_secret.py` — единый вывод webhook-секрета из `BOT_TOKEN` (используют `api/index.py` и `run_bot.py`, отдельный секрет в конфиге не хранится).
 - `utils/simple_db.py`, `utils/admin_system.py`, `utils/compat.py` — frozen deprecated shims: не расширять, не удалять без отдельного migration PR.
 - `bot/commands/shop_commands.py` — aiogram legacy candidate; текущий runtime использует `shop_commands_ptb.py`.
 
@@ -156,7 +156,7 @@ Runtime endpoints:
 
 Для HF есть специальные runtime-решения:
 
-- webhook регистрируется при старте через `set_webhook(..., secret_token=WEBHOOK_SECRET)`;
+- webhook регистрируется при старте через `set_webhook(..., secret_token=WEBHOOK_SECRET)`; сам `WEBHOOK_SECRET` не хранится отдельно, а выводится из `BOT_TOKEN` хелпером `src/webhook_secret.py` (в логах секрет и owner-ID редактируются);
 - endpoint проверяет secret path и `X-Telegram-Bot-Api-Secret-Token`;
 - фоновые periodic tasks не стартуют в webhook runtime;
 - BridgeBot/VK Bot не запускаются из HF production entrypoint;

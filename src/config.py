@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     # Notifications
     NTFY_ENABLED: bool = Field(default=True)
     NTFY_BASE_URL: str = Field(default="https://ntfy.sh")
-    NTFY_TOPIC: str = Field(default="lucasteam_bankbot_2091908459")
+    NTFY_TOPIC: str = Field(default="")
     NTFY_TAGS: str = Field(default="loud_speaker,bank")
     NTFY_TIMEOUT_SECONDS: int = Field(default=10)
     ADB_NOTIFICATIONS_ENABLED: bool = Field(default=False)
@@ -284,7 +284,7 @@ def _create_settings_with_env_file(env_file: str | list[str] | None) -> Settings
         WEBHOOK_SECRET: str = ""
         NTFY_ENABLED: bool = True
         NTFY_BASE_URL: str = "https://ntfy.sh"
-        NTFY_TOPIC: str = "lucasteam_bankbot_2091908459"
+        NTFY_TOPIC: str = ""
         NTFY_TAGS: str = "loud_speaker,bank"
         NTFY_TIMEOUT_SECONDS: int = 10
         ADB_NOTIFICATIONS_ENABLED: bool = False

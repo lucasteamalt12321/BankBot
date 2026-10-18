@@ -466,17 +466,24 @@ class ParsingHandler:
 
                 if user_data:
                     current_balance = float(user_data.get("balance", 0))
-                    new_balance = current_balance + bank_coins
+                    # BUG-05: баланс меняется относительным UPDATE прямо в БД, а
+                    # не перезаписью абсолютного значения (раньше два параллельных
+                    # начисления теряли монеты друг друга). Колонка целочисленная.
+                    amount = int(round(bank_coins))
 
                     from database.database import SessionLocal
                     db = SessionLocal()
+                    user_row = None
                     try:
                         db.execute(
-                            text("UPDATE users SET balance = :balance WHERE telegram_id = :tid"),
-                            {"balance": new_balance, "tid": user.id},
+                            text(
+                                "UPDATE users SET balance = COALESCE(balance, 0) + :amount "
+                                "WHERE telegram_id = :tid"
+                            ),
+                            {"amount": amount, "tid": user.id},
                         )
                         user_row = db.execute(
-                            text("SELECT id FROM users WHERE telegram_id = :tid"),
+                            text("SELECT id, balance FROM users WHERE telegram_id = :tid"),
                             {"tid": user.id},
                         ).mappings().first()
                         if user_row:
@@ -487,7 +494,7 @@ class ParsingHandler:
                                 ),
                                 {
                                     "uid": user_row["id"],
-                                    "amount": bank_coins,
+                                    "amount": amount,
                                     "desc": f"{result.game}: {result.__class__.__name__}",
                                     "created": datetime.now(),
                                 },
@@ -496,6 +503,9 @@ class ParsingHandler:
                     finally:
                         db.close()
 
+                    new_balance = (
+                        float(user_row["balance"]) if user_row else current_balance + amount
+                    )
                     details.append(f"\n💰 Баланс: {current_balance:.1f} → {new_balance:.1f}")
                     logger.info(f"Balance updated for user {user.id}: +{bank_coins}")
             except Exception as e:

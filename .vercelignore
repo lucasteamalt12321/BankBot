@@ -20,3 +20,7 @@ data/
 *.log
 .env
 .vercel/
+.hypothesis/
+.mypy_cache/
+node_modules/
+vk_mini_app/
