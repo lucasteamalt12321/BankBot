@@ -21504,10 +21504,13 @@ def api_study_plan_regenerate():
 
 @app.route("/api/study/today", methods=["GET"])
 def api_study_today():
-    """How many cards the student touched today (progress monitoring)."""
-    user, auth_resp = _auth_user_or_401()
-    if auth_resp:
-        return auth_resp
+    """How many cards the student touched today (progress monitoring).
+
+    База ОГЭ остаётся открытой анонимам (FRE-01): без токена отдаём нули.
+    """
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": True, "touched": 0})
     uid = _web_user_id("u" + str(user["id"]))
     day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
     try:
@@ -22319,9 +22322,10 @@ def _chat_insert(conn, uid, role, content, ts) -> None:
 
 @app.route("/api/study/chat", methods=["GET"])
 def api_study_chat_history():
-    user, auth_resp = _auth_user_or_401()
-    if auth_resp:
-        return auth_resp
+    """История чата куратора. База открыта анонимам (FRE-01) — пустой список."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"ok": True, "messages": []})
     uid = _web_user_id("u" + str(user["id"]))
     _oge_curator_tables_ready()
     try:
@@ -22334,6 +22338,7 @@ def api_study_chat_history():
 
 @app.route("/api/study/chat", methods=["POST"])
 def api_study_chat_post():
+    """Curator chat: persists both sides, feeds progress + plan + history into the prompt."""
     user, auth_resp = _auth_user_or_401()
     if auth_resp:
         return auth_resp
@@ -22343,19 +22348,191 @@ def api_study_chat_post():
     if not msg:
         return jsonify({"ok": False, "error": "empty message"}), 400
     msg = msg[:2000]
-    _last_chat_ts[uid] = time.time()
-    _oge_curator_tables_ready()
+    now = time.time()
+    if uid in _last_chat_ts and now - _last_chat_ts[uid] < _OGE_RATE_LIMIT:
+        return jsonify({"ok": False, "error": "Подождите немного перед следующим сообщением."}), 429
+    _last_chat_ts[uid] = now
+    today = time.strftime("%Y-%m-%d")
+    budget_lines, plan_lines = [], []
+    minutes = 10
+
+    _time_match = re.search(r"(\d+)\s*(минут[уыа]?)", msg.lower())
+    if _time_match:
+        _new_min = _clamp_minutes(int(_time_match.group(1)))
+        try:
+            engine = get_db_engine()
+            with engine.begin() as conn:
+                row = _load_plan_row(conn, uid, today)
+                if row and int(row["target_minutes"]) != _new_min:
+                    conn.execute(text(
+                        "UPDATE oge_daily_plans SET target_minutes=:m WHERE user_id=:u AND plan_date=:d"
+                    ), {"m": _new_min, "u": uid, "d": today})
+                    minutes = _new_min
+        except Exception as exc:
+            log_error("OGE", "error", f"plan minutes update failed: {exc}")
     try:
-        engine = get_db_engine()
-        with engine.begin() as conn:
-            _chat_insert(conn, uid, "user", msg, time.time())
-            # минимальный фоллбэк-ответ как ожидают тесты
-            reply = "Понял. Расскажи чуть подробнее, что именно нужно сделать."
-            _chat_insert(conn, uid, "assistant", reply, time.time())
-        return jsonify({"ok": True, "reply": reply, "messages": _chat_history(get_db_engine().connect(), uid, 30)})
+        with get_db_engine().connect() as conn:
+            row = _load_plan_row(conn, uid, today)
+            if row:
+                minutes = int(row["target_minutes"])
+                items = json.loads(row["items_json"] or "[]")
+                auto_done = 0
+                plan_lines.append("План на сегодня (зачёт автоматический):")
+                for i, it in enumerate(items, 1):
+                    target = _item_target(it)
+                    d = min(target, _compute_item_done(uid, it))
+                    kind = _item_kind(it)
+                    if d >= target:
+                        auto_done += 1
+                    mark = " ✅" if d >= target else f" (прогресс {d}/{target})"
+                    topic = _norm_topic(it.get("topic"))
+                    kind_ru = "исправить ошибки" if kind == "fix" else "изучить новые"
+                    topic_part = f", тема «{topic}»" if topic else ""
+                    plan_lines.append(
+                        f"{i}) [{it.get('label', '')}] {kind_ru}: {it.get('text', '')} "
+                        f"({target} карточек{topic_part}){mark}"
+                    )
+                plan_lines[0] += f" выполнено {auto_done} из {len(items)}."
+            else:
+                plan_lines.append("План на сегодня ещё не составлен.")
     except Exception as exc:
-        log_error("OGE", "error", f"chat post error: {exc}")
-        return jsonify({"ok": False, "error": "server error"}), 500
+        log_error("OGE", "error", f"chat context error: {exc}")
+        plan_lines.append("Статистика временно недоступна.")
+    budget_lines.append(f"Бюджет времени в день: {minutes} минут.")
+    subjects = _oge_subjects_payload(uid, now)[:5]
+    subj_lines = []
+    for s in subjects:
+        subj_lines.append(
+            f"- {s['label']}: начато {s['started']}/{s['total']}, к повторению {s['due']}, "
+            f"слабых тем {s['weak']} → {s['next_action']['text']}"
+        )
+    _oge_curator_tables_ready()
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            history = _chat_history(conn, uid)
+    except Exception:
+        history = []
+    if len(history) > 20:
+        old_part = history[:len(history) - 6]
+        recent = history[len(history) - 6:]
+        old_summary = " ".join(h["content"][:100] for h in old_part[:8])
+        summary_call = call_ai_api(
+            "Кратко (3-5 предложений) опиши суть этого диалога:\n" + old_summary,
+            max_tokens=200, temperature=0.3
+        )
+        if summary_call and not summary_call.startswith("\u274C"):
+            history = [{"role": "system", "content": summary_call}] + recent
+        else:
+            history = recent
+    if history:
+        hist_lines = ["История переписки:"]
+        for h in history:
+            who = "Ученик" if h["role"] == "user" else "Куратор"
+            hist_lines.append(f"{who}: {h['content'][:400]}")
+    else:
+        hist_lines = ["История переписки: -"]
+    streak = _oge_streak_info(uid, now)
+    weak_t = _oge_weak_topics_summary(uid)
+    countdown = _oge_exam_countdown(now)
+    yesterday = _oge_yesterday_summary(uid)
+    streak_line = f"Серия учёбы: {streak['current']} дн. (рекорд: {streak['best']}), точность: {streak['accuracy']}% ({streak['total_answers']} ответов)." if streak["total_answers"] else ""
+    weak_line = "Слабые темы:\n" + "\n".join(weak_t) if weak_t else ""
+    countdown_line = "До экзаменов: " + ", ".join(countdown) if countdown else ""
+    yest_line = ""
+    if yesterday["touched"]:
+        yest_line = f"Вчера: тронуто {yesterday['touched']} карточек, точность {round(100*yesterday['correct']/max(1,yesterday['correct']+yesterday['wrong']))}%."
+    prompt = (
+        "Ты — ИИ-куратор Луки, готовишь его к ОГЭ по 5 предметам. Говори по-русски, "
+        "кратко (до 150 слов), по-дружески и конкретно. Всегда предлагай конкретный следующий шаг "
+        "(предмет + тема + режим на сайте).\n\n"
+        "ПРИОРИТЕТЫ: 1) повторение просроченных карточек, 2) исправление слабых тем, 3) новые темы.\n"
+        "НОРМЫ ВРЕМЕНИ: карточка ~0,5-1 мин, задача ~2-4 мин. Группируй карточки в пачки под бюджет.\n"
+        "СТИЛЬ: Не называй технические ключи (formula::f01, event::...) — говори темами и событиями. "
+        "Используй ссылки: [Математика](/math), [Русский](/russian), [Информатика](/informatics), "
+        "[Физика](/physics), [История](/emperors).\n\n"
+        "ИНСТРУМЕНТЫ: если тебе нужны данные о прогрессе ученика, ответь ТОЛЬКО "
+        "одним JSON-объектом без какого-либо текста вокруг:\n"
+        '- {"tool":"stats"} — общая статистика\n'
+        '- {"tool":"progress","module":"math"} — журнал по предмету\n'
+        '- {"tool":"progress","module":"...","topic":"фрагмент"} — по теме\n'
+        '- {"tool":"card","key":"formula::f01"} — одна карточка\n'
+        '- {"tool":"plan"} — план на день\n'
+        '- {"tool":"due","module":"math"} — карточки на повторение\n'
+        '- {"tool":"weak"} — топ слабых тем\n'
+        '- {"tool":"topics","module":"math"} — все темы модуля с прогрессом\n'
+        '- {"tool":"mastered","module":"math"} — выученное для повторения\n'
+        '- {"tool":"due_cards","module":"math"} — детальный список просроченных карточек\n'
+        '- {"tool":"streak"} — серия и точность, динамика за вчера\n'
+        '- {"tool":"recommend"} — готовый следующий шаг по каждому предмету\n'
+        '- {"tool":"exam"} — дни до каждого экзамена ОГЭ\n'
+        '- {"tool":"achievements"} — достижения ученика (открытые + ближайшие закрытые)\n'
+        '- {"tool":"coins"} — баланс монет и последние транзакции\n'
+        '- {"tool":"activity"} — активность за последние 14 дней (дни, модули)\n'
+        '- {"tool":"daily_log"} — сегодняшняя и вчерашняя статистика (верно/ошибки)\n'
+        '- {"tool":"textbooks"} — где лежат учебники (дом/школа/рюкзак)\n'
+        '- {"tool":"history_detail"} — детальный прогресс по Истории по категориям\n'
+        '- {"tool":"trivia_stats"} — статистика викторины (вопросы, точность, серия)\n'
+        "Если данные не нужны — отвечай сразу текстом на русском, БЕЗ JSON.\n"
+        "НИКОГДА не показывай JSON-объект ученику — это технический вызов инструмента.\n\n"
+        "ДАННЫЕ УЧЕНИКА:\n"
+        + "\n".join(budget_lines) + "\n"
+        + "\n".join(subj_lines) + "\n"
+        + "\n".join(plan_lines) + "\n"
+        + (streak_line + "\n" if streak_line else "")
+        + (weak_line + "\n" if weak_line else "")
+        + (countdown_line + "\n" if countdown_line else "")
+        + (yest_line + "\n" if yest_line else "")
+        + "\n".join(hist_lines)
+        + f"\n\nУченик: {msg}\nКуратор:"
+    )
+    reply = None
+    for _attempt in range(3):
+        reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
+        if reply and not reply.startswith("\u274C"):
+            break
+        time.sleep(min(4, 1 * (2 ** _attempt)))
+    actions = []
+    if reply and not reply.startswith("❌"):
+        directive = _tool_directive(reply)
+        if directive:
+            data_text = _curator_tool_data(directive, uid, today)
+            actions.append(_curator_tool_action(directive))
+            followup = (
+                prompt
+                + "\n\nСистема передала данные по запросу "
+                + json.dumps(directive, ensure_ascii=False)
+                + ":\n" + data_text
+                + "\n\nДай ученику финальный краткий ответ (до 150 слов), используя эти данные. Без JSON."
+            )
+            second = None
+            for _a2 in range(2):
+                second = call_ai_api(followup, max_tokens=500, temperature=0.7)
+                if second and not second.startswith("\u274C") and not _tool_directive(second):
+                    break
+                time.sleep(min(2, 1 * (2 ** _a2)))
+            if second and not second.startswith("❌") and not _tool_directive(second):
+                reply = second
+            else:
+                reply = _curator_fallback_reply(subjects, plan_lines)
+    if not reply or reply.startswith("❌") or _tool_directive(reply):
+        log_error("OGE", "info", "curator AI unavailable, using rule fallback")
+        reply = _curator_fallback_reply(subjects, plan_lines)
+    if _is_serialized_json(reply):
+        log_error("OGE", "info", "curator returned raw JSON, hiding it with rule fallback")
+        reply = _curator_fallback_reply(subjects, plan_lines)
+    try:
+        with engine.begin() as conn:
+            _chat_insert(conn, uid, "user", msg, now)
+            _chat_insert(conn, uid, "assistant", reply, time.time())
+            conn.execute(text(
+                "DELETE FROM oge_chat_messages WHERE user_id=:u AND id NOT IN ("
+                "SELECT id FROM oge_chat_messages WHERE user_id=:u ORDER BY id DESC LIMIT :k)"
+            ).bindparams(bindparam("k")), {"u": uid, "k": _OGE_CHAT_KEEP})
+    except Exception as exc:
+        log_error("OGE", "error", f"chat persist error: {exc}")
+        return jsonify({"ok": False, "error": "storage failed"}), 500
+    return jsonify({"ok": True, "reply": reply, "actions": actions})
 
 @app.route("/api/study/hint", methods=["GET"])
 def api_study_hint():

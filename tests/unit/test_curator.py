@@ -54,7 +54,7 @@ def _ai_plan_json(n=3):
     ])
 
 
-def test_anon_401_on_all_curator_endpoints():
+def test_anon_401_on_curator_actions_but_base_open():
     import api.index as m
 
     engine = _make_engine()
@@ -65,12 +65,14 @@ def test_anon_401_on_all_curator_endpoints():
     p = patch("api.index.get_db_engine", return_value=engine)
     p.start()
     try:
+        # гейтятся только действия куратора (FRE-01)
         assert c.get("/api/study/plan").status_code == 401
         assert c.post("/api/study/plan", json={}).status_code == 401
         assert c.post("/api/study/plan/done", json={"delta": 1}).status_code == 404
-        assert c.get("/api/study/chat").status_code == 401
         assert c.post("/api/study/chat", json={"message": "привет"}).status_code == 401
-        assert c.get("/api/study/today").status_code == 401
+        # база ОГЭ остаётся открытой анонимам (см. test_freemium_gates)
+        assert c.get("/api/study/chat").status_code == 200
+        assert c.get("/api/study/today").status_code == 200
     finally:
         p.stop()
 
@@ -315,7 +317,7 @@ def test_today_touched_endpoint_counts_rows():
         _stop(patches)
 
 
-def test_hint_unknown_module_400_and_anon_generic():
+def test_hint_unknown_module_400_and_anon_gated():
     import api.index as m
 
     engine = _make_engine()
@@ -323,9 +325,12 @@ def test_hint_unknown_module_400_and_anon_generic():
     p = patch("api.index.get_db_engine", return_value=engine)
     p.start()
     try:
+        # неизвестный модуль -> 400 для всех
         assert c.get("/api/study/hint?module=nope").status_code == 400
-        d = c.get("/api/study/hint?module=math").get_json()
-        assert d["ok"] and "карточки" in d["text"] and d["url"] == "/math"
+        # персональные подсказки — только вошедшим (FRE-01)
+        r = c.get("/api/study/hint?module=math")
+        assert r.status_code == 401
+        assert r.get_json().get("auth_required") is True
     finally:
         p.stop()
 
