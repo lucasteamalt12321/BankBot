@@ -1,6 +1,6 @@
 # Module Plan — Редактор Python (`/editor`, PYED)
 
-> **СТАТУС: `removed` (2026-09-28).** Модуль реализован (`c4d8f99`), задеплоен, прожил в проде один день и удалён по решению пользователя («ладно, удаляй python модуль»). Удалены: секция `# ── Python Editor ──` в `api/index.py`, `_ensure_pyed_tables`, карточка хаба + `HUB_KEY['/editor']`, `tests/unit/test_python_editor.py`, `jedi` из `api/requirements.txt`, раздел в `docs/README.md`. Таблица `pyed_documents` в проде оставлена, DDL больше не создаётся.
+> **СТАТУС: `removed` (2026-09-28).** Модуль реализован (`99dbba1`), задеплоен, прожил в проде один день и удалён по решению пользователя («ладно, удаляй python модуль»). Удалены: секция `# ── Python Editor ──` в `api/index.py`, `_ensure_pyed_tables`, карточка хаба + `HUB_KEY['/editor']`, `tests/unit/test_python_editor.py`, `jedi` из `api/requirements.txt`, раздел в `docs/README.md`. Таблица `pyed_documents` в проде оставлена, DDL больше не создаётся.
 > **Документ сохраняется как источник backend-паттернов** (песочница, изоляция по `user_id`, rate-limit) и разбора граблей — чтобы при возврате модуля не повторить те же ошибки.
 
 ## Priority
@@ -51,7 +51,7 @@
 - **Fallback не должен плодить TG-ошибки:** если jedi упал, `compile()` всё равно даст красную линию — логируем `"info"`, не `"error"`.
 - **`id` в ответе `POST /api/pyed/documents` лежит на верхнем уровне** (`{"id": 1, ...}`), а не в `document`. Клиент читает `made.id` — это верно; в смоук-скриптах легко ошибиться и получить пустой `docId`, а затем 404 на PUT/DELETE.
 - **DML-таймстемпы:** `NOW()` работает в Postgres, но **не в SQLite** → в `UPDATE` используется `CURRENT_TIMESTAMP` (совместимо с обоими). `_ddl()` переписывает только DDL, не DML.
-- **Тип `user_id`:** `INTEGER`, чтобы совпадать с `web_users.id` (SERIAL) — тогда админ-эндпоинт удаления аккаунта (`8e8da1b`, скан user-колонок через `information_schema`/`PRAGMA`) удаляет и файлы редактора. Для TEXT-колонок он ищет хеш `_web_user_id("u<id>")`, поэтому «просто TEXT» здесь не сработало бы без проверки.
+- **Тип `user_id`:** `INTEGER`, чтобы совпадать с `web_users.id` (SERIAL) — тогда админ-эндпоинт удаления аккаунта (`a89704e`, скан user-колонок через `information_schema`/`PRAGMA`) удаляет и файлы редактора. Для TEXT-колонок он ищет хеш `_web_user_id("u<id>")`, поэтому «просто TEXT» здесь не сработало бы без проверки.
 - **DDL в рамках Cold Start:** каждая `_ensure_*` выполняется на каждом холодном старте; `"info"`-лог в Telegram не уходит (в `log_error` есть `if error_type != "info"`), а вот реальная ошибка DDL — уйдёт, и это правильно. Не вызывать DDL вне `_ensure_*`.
 - **`ok` в ответе `/run`** нельзя хардкодить: `ok = not stderr`. Ошибка была поймана тестом `test_run_reports_stderr`.
 - **Проверка JS:** извлекать `<script type="module">` из **отрендеренного** HTML через `app.test_client().get('/editor')`, а не из исходника `api/index.py` — в исходнике `\\s` ещё не разэкранирован и `node --check` даёт ложную ошибку.
@@ -69,7 +69,7 @@
 
 ## Статус
 
-**Закоммичено и задеплоено.** Код `c4d8f99`, два фикса прод-смоука `e94a804` (клампинг позиции) и `82bd795` (lint). 27 тестов модуля + регресс 69 passed, ruff чист, `node --check` OK. Прод-смоук на `lthub.vercel.app` пройден полностью (регистрация → create → list → complete (в т.ч. клампинг и `math.sq` → `sqrt`) → signature → lint (1 и 2 ошибки) → lint clean → hover → run stdout/stderr → блок `import os` → autosave PUT → GET → rename → reopen по имени → 401 `auth_required` → чужой файл 404 → delete → delete again 404 → пустой список).
+**Закоммичено и задеплоено.** Код `99dbba1`, два фикса прод-смоука `7c05c7a` (клампинг позиции) и `cdf25a5` (lint). 27 тестов модуля + регресс 69 passed, ruff чист, `node --check` OK. Прод-смоук на `lthub.vercel.app` пройден полностью (регистрация → create → list → complete (в т.ч. клампинг и `math.sq` → `sqrt`) → signature → lint (1 и 2 ошибки) → lint clean → hover → run stdout/stderr → блок `import os` → autosave PUT → GET → rename → reopen по имени → 401 `auth_required` → чужой файл 404 → delete → delete again 404 → пустой список).
 
 **Осталось за пользователем:** удалить тестовые аккаунты через `/admin` (кнопка «Удалить»): `smokeprobe9x` (~36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39).
 

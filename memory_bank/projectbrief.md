@@ -112,7 +112,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | GD-08 | **Co-op прохождения на 2 игроков:** ник напарника в форме `/gd`, общий пруф, атрибуция обоим по GD-нику из одобренных заявок, бейдж co-op в профиле и на странице уровня (только веб) | completed | 3 |
 | GD-TEST | Тестирование GD Module (unit + integration + manual) | completed | 3 |
 
-**GD Module: 36/36 (100%)** — co-op (GD-08) добавлен 2026-10-02 как новый пункт ТЗ и закрыт в тот же день (`f50afb4`, 21 тест). До него модуль был 33/33.
+**GD Module: 36/36 (100%)** — co-op (GD-08) добавлен 2026-10-02 как новый пункт ТЗ и закрыт в тот же день (`8565d04`, 21 тест). До него модуль был 33/33.
 
 ---
 
@@ -507,7 +507,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 
 **CANON-03: 100/100**
 
-**Факт (2026-08-09):** всё реализовано в `api/index.py`, закоммичено (`75fe269`) и задеплоено на Vercel. Полный `tests/unit` **972 passed / 10 skipped / 0 failed**, ruff clean. Прод: `/admin/canon` 200 + JS uploadAudio, `/api/canon/works` возвращает has_audio, `/canon/work/<id>` содержит audio-card, стрим 404 для трека без аудио (корректно).
+**Факт (2026-08-09):** всё реализовано в `api/index.py`, закоммичено (`e4ab69d`) и задеплоено на Vercel. Полный `tests/unit` **972 passed / 10 skipped / 0 failed**, ruff clean. Прод: `/admin/canon` 200 + JS uploadAudio, `/api/canon/works` возвращает has_audio, `/canon/work/<id>` содержит audio-card, стрим 404 для трека без аудио (корректно).
 
 ---
 
@@ -544,7 +544,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | FRE-08 | Тесты (pytest/ruff): test_md2pdf (9), test_freemium_gates (6), регресс test_code_explainer/test_achievements; conftest no-telegram фикстура | completed | 5 |
 | FRE-09 | Deploy + фикс прод-регистрации (`web_coin_log` SERIAL/CURRENT_TIMESTAMP) + prod smoke + memory bank (Changelog, last_checked_commit) | completed | 5 |
 
-**Phase 9: 100/100 completed** (деплой `lthub-hin4fiiqw-lucasteamalt12321s-projects.vercel.app`, регистрация без email → 200, монеты +100, commit `8fa39f2`)
+**Phase 9: 100/100 completed** (деплой `lthub-hin4fiiqw-lucasteamalt12321s-projects.vercel.app`, регистрация без email → 200, монеты +100, commit `7a834d6`)
 
 ---
 
@@ -656,7 +656,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | BH-07 | Хаб — сортировка карточек по популярности: `GET /api/hub/popularity` (глобальная агрегация `web_activity_log`), JS реордер main/beta-секций отдельно, fallback на дефолт | completed | 25 |
 | BH-08 | Верификация: `py_compile` + `ruff` (api/index.py, audio_service, core/di.py) + ручные вызовы (quiz 200 len=3, popularity 200) | completed | 10 |
 
-**Phase 8: 100/100 completed** (коммит `61189c4`)
+**Phase 8: 100/100 completed** (коммит `c79658f`)
 
 ---
 
@@ -670,7 +670,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | FND-02 | Страницы: `/friends` (вкладки друзья/входящие/поиск, search с debounce 300ms, кнопки действий через `data-fid`/`data-action` + делегирование, топ недели с medal-иконками + progress bars), `/u/<login>` (публичный профиль + GD-блок через `/api/gd/user/<nick>`, кнопки по relation через `data-soc`), блок «Друзья» в `/account` (список + кол-во входящих), ссылка «Друзья» с бейджем (`friend-badge` + `loadFriendBadge()`) в user-bar хаба | completed | 30 |
 | FND-03 | Тесты: `test_social.py` (3 теста — public profile + search без утечек, полный friend flow request→accept→decline→cancel→remove с 403 на чужие, weekly top), e2e DDL дополнен social/activity-таблицами, ruff + py_compile + `node --check` для JS (`\"` в HTML-атрибутах + делегирование событий вместо `onclick`-строк), прод smoke (register → search → request → accept → weekly → remove → 409 dup) | completed | 20 |
 
-**Phase 9: 100/100 completed** (коммит `dbbacc5`)
+**Phase 9: 100/100 completed** (коммит `9d1f2eb`)
 
 ---
 
@@ -708,11 +708,11 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | BUG-07 | **Секреты и конфиг:** `WEBHOOK_SECRET` с захардкоженным fallback `"fallback_not_configured"` + три несовместимых способа вычислить HMAC (`run_bot.py:80` vs `api/index.py:623` vs `hf-watchdog.yml`) → при отсутствии env все апдейты отбрасываются; `ADMIN_TELEGRAM_ID = 2091908459` в коде (`api/index.py:704`, `core/services/broadcast_service.py:107`); `NTFY_TOPIC` с ID владельца в `config/.env.shared:14`; webhook-секрет печатается в лог `.github/workflows/hf-watchdog.yml` | completed | 9 |
 | BUG-08 | **Гигиена репозитория:** `data/chat_export/` (274 файла, 14,6 МБ, персональные данные) в индексе git; `src/repository_impl.py` — побайтовая копия `src/repository.py`; 5 идентичных пар `bank_bot/services/*` ↔ `core/services/*`; нет `.gitattributes` при 540 CRLF-файлах; `desktop.ini`, `.hypothesis/` (0,9 МБ) в репозитории | completed | 7 |
 | BUG-09 | **Зависимости и деплой:** 6 мёртвых пакетов в `requirements.txt` (`vk_api`, `prometheus-client`, `python-dotenv`, `pytz`, `python-dateutil`); 4 конфликтующих requirements-файла; нерабочий `wsgi.py` (импортирует несуществующий `app.py`) + `Procfile` без gunicorn; `.hypothesis`, `vk_mini_app` не исключены из `.vercelignore`; расхождение Python 3.11/3.12 | completed | 5 |
-| BUG-10 | **CI и тесты:** ruff в CI не проверяет `api/` (31 356 строк) и `bank_bot/`; линтингуются несуществующие `bridge_bot/` `vk_bot/`; `node --check` не покрыт ни одним тестом (единственный тест удалён в `1c6530c`); классификация 275 падений (env mismatch vs реальные баги) и починка дешёвых | completed | 4 |
+| BUG-10 | **CI и тесты:** ruff в CI не проверяет `api/` (31 356 строк) и `bank_bot/`; линтингуются несуществующие `bridge_bot/` `vk_bot/`; `node --check` не покрыт ни одним тестом (единственный тест удалён в `3c9b2e5`); классификация 275 падений (env mismatch vs реальные баги) и починка дешёвых | completed | 4 |
 | BUG-11 | **D&D: 500 на холодной БД (кнопка «Новая сессия»):** `_ensure_dnd_tables` слала сырой PostgreSQL DDL (`SERIAL`/`TIMESTAMPTZ`/`NOW()` + много-колоночный `ALTER ... ADD COLUMN IF NOT EXISTS`), что SQLite отвергает → функция падала сразу после `CREATE TABLE`, `dnd_sessions` оставался без `share_code`, `POST /api/dnd/start` отвечал 500. Фикс: `_ddl_session`/`_DdlConn` (нормализация через `_ddl()` + глотка «уже применено») + `_ensure_ddl_column` по одной колонке; регрессия `test_dnd_start_creates_schema_on_fresh_db` (проверена: падает на старом коде) | completed | 6 |
 | BUG-12 | **Тестовая инфраструктура:** отсутствующий `pytest-asyncio` ронял 5 async-тестов; autouse-фикстура `_no_telegram_network` глушила `send_telegram_message`, из-за чего 3 теста `test_vercel_webhook_start.py` не могли пройти в принципе. Фикс: маркер `@pytest.mark.allow_telegram` (зарегистрирован в `tests/pytest.ini`), для помеченных тестов глушатся только `log_error`/`notify_admin` | completed | 3 |
 
-**BUGHUNT: 100/100 (2026-10-15)** — закрыты все 12 пунктов. Второй проход (2026-10-15) закрыл BUG-04 (XSS: DOMPurify в `/md2pdf`, esc в `/ai_chat` и `reading_trainer`), BUG-05 (гонки за деньги: атомарные относительные `UPDATE` вместо read-modify-write, условное списание в магазине, детерминированный `ORDER BY`), BUG-06 (жёсткая граница `MAX_DICE_COUNT=100`, клампинг `actions`, rate-limit `/api/dnd/fix`, `MAX_CONTENT_LENGTH`+413), BUG-07 (секрет выводится из `BOT_TOKEN` через общий `src/webhook_secret.py`, `ADMIN_TELEGRAM_ID` из env, пустой дефолт `NTFY_TOPIC`, редакция логов watchdog), BUG-08 (гигиена репозитория), BUG-09 (мёртвые зависимости, `.vercelignore`), BUG-10 (CI/ruff). Оговорки: `data/chat_export/` (274 файла PII) убран из индекса, но **остаётся в истории git** — переписывание истории требует отдельного решения пользователя; `wsgi.py` оказался исправен (импортирует `api.index`, а не несуществующий `app.py`); полная нормализация EOL намеренно не включена — `.gitattributes` содержит только бинарные маркеры (иначе массовый diff).
+**BUGHUNT: 100/100 (2026-10-15)** — закрыты все 12 пунктов. Второй проход (2026-10-15) закрыл BUG-04 (XSS: DOMPurify в `/md2pdf`, esc в `/ai_chat` и `reading_trainer`), BUG-05 (гонки за деньги: атомарные относительные `UPDATE` вместо read-modify-write, условное списание в магазине, детерминированный `ORDER BY`), BUG-06 (жёсткая граница `MAX_DICE_COUNT=100`, клампинг `actions`, rate-limit `/api/dnd/fix`, `MAX_CONTENT_LENGTH`+413), BUG-07 (секрет выводится из `BOT_TOKEN` через общий `src/webhook_secret.py`, `ADMIN_TELEGRAM_ID` из env, пустой дефолт `NTFY_TOPIC`, редакция логов watchdog), BUG-08 (гигиена репозитория), BUG-09 (мёртвые зависимости, `.vercelignore`), BUG-10 (CI/ruff). Оговорки: `data/chat_export/` (274 файла PII) убран из индекса, но 2026-10-18 PII удалён из истории git (`filter-repo` + force-push); `wsgi.py` оказался исправен (импортирует `api.index`, а не несуществующий `app.py`); полная нормализация EOL намеренно не включена — `.gitattributes` содержит только бинарные маркеры (иначе массовый diff).
 
 ---
 

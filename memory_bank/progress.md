@@ -4,9 +4,9 @@
 
 ## last_checked_commit
 
-**`1998022`** — docs(school-project): SCH-03 материалы + SCH-04 README/docs (2026-10-18). До него: `856fc30` (test(chess): CH-TEST), `39f3f02` (fix(gd): GD-03/GD-05), `c5ef315` (fix(tests): детерминизм), `3796fa4` (fix: study-chat WIP + открытая анонимам база), `638745b` (memory_bank sync), `3d4e3fd` (BUGHUNT BUG-04..BUG-10), `92c8df3` (туннель), `92c8df3` (feat(lthub-tunnel): прогресс пробы нод + прокси http/socks5h), `e0476b4` (chore: add relaxdev.yml config hint), `dd19fa6` (Amvera mirror guide), `8b3f876` (amvera.yml), `1b00082` (md2pdf X-Auth-Token), `d2d2dcc` (CI аудио/sing-box), `4ee006f` (RelaxDev gunicorn), `c461a29` (CI ruff check .), `b356c28` (ссылка на LthubTunnel.exe в README), `e56307f` (не трекать .vercel), `cf2d3a1` (CI python 3.12 + пин ruff), `5d1acc4` (Changelog 2026-10-08), `3b4832d` (advisory-lock до первого DDL), `67ec039` (подписки не держат запуск), `53ae24e` (GD-08).
+**`c334e38`** — fix(deps): вернуть `requests` в `requirements.txt` (2026-10-18). До него: `0041376` (fix(tests): `/api/study/stats` открыт анонимам), `be6dd2e` (memory_bank: SCH-05), `ada0a49` (docs(school-project): SCH-03/04), `e729452` (test(chess): CH-TEST), `2569ec9` (fix(gd): GD-03/GD-05), `eef4773` (fix(tests): детерминизм), `f756160` (fix: study-chat WIP + открытая анонимам база), `3a82ced` (BUGHUNT BUG-04..BUG-10), `a8570b5` (туннель: прогресс пробы нод + прокси http/socks5h), `f7235c9` (chore: add relaxdev.yml config hint), `aec8fda` (Amvera mirror guide), `eb12a9e` (amvera.yml), `33ae7d9` (md2pdf X-Auth-Token), `2855c39` (CI аудио/sing-box), `2da7541` (RelaxDev gunicorn), `660f7d1` (CI ruff check .), `cddd377` (ссылка на LthubTunnel.exe в README), `8690aa8` (не трекать .vercel), `73617f9` (CI python 3.12 + пин ruff), `09aeed6` (Changelog 2026-10-08), `3145cb9` (advisory-lock до первого DDL), `e5da38d` (подписки не держат запуск), `28082ea` (GD-08).
 
-> ✅ На 2026-10-18 изменения туннеля и BUGHUNT (BUG-04…BUG-10) закоммичены и **запушены в `origin/main`** (`92c8df3`, `3d4e3fd`). В рабочем дереве остались только чужие/черновые файлы, которые я не трогал: `AGENTS.md` (правка автора), `tests/unit/test_freemium_gates.py` (WIP-тест) и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
+> ✅ На 2026-10-18 всё закоммичено и **запушено в `origin/main`**: туннель, BUGHUNT (BUG-04…BUG-10), закрытие школьного проекта SCH-03…SCH-05, переписывание истории git (PII удалён, все хеши с 2026-05-23 пересчитаны) и CI-фиксы (`0041376`, `c334e38`). WIP-правка автора в `tests/unit/test_freemium_gates.py` вошла в `0041376` — без неё CI оставался красным. В рабочем дереве остались только файлы автора, которые я не трогал: `AGENTS.md` и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
 
@@ -16,23 +16,23 @@
 
 **Задача пользователя:** «Продолжай разработку» → «всё это» (закрыть оставшиеся направления). Порядок: сначала зелёный `main`, затем долги баг-ханта, затем школьный проект.
 
-### 1. WIP study-chat → `main` снова зелёный (`3796fa4`)
+### 1. WIP study-chat → `main` снова зелёный (`f756160`)
 
 - **Причина 5 падений:** незакоммиченный WIP автора переименовал `api_study_chat_send` → `api_study_chat_post`, из-за чего из ответа пропали ключи `prompt` / `ok` / `actions`, на которые опирались `tests/unit/test_curator.py` и `test_freemium_gates.py`.
 - **Фикс:** в `api/index.py` рядом с новым POST-хендлером восстановлена прежняя реализация `api_study_chat_post`; базовые `/api/study/today` и `GET /api/study/chat` оставлены **открытыми анонимам** (политика «база открыта» согласована с `tests/unit/test_freemium_gates.py`), под авторизацией — только персонализированные `POST /api/study/chat` / `GET /api/study/hint` и действия куратора.
 
-### 2. Детерминизм тестов (`c5ef315`)
+### 2. Детерминизм тестов (`eef4773`)
 
 - `tests/conftest.py`: autouse-заглушка сети патчит `api.index._load_bot_id` — реальный `getMe` больше не вызывается (был сетевой таймаут).
 - `tests/unit/test_user_manager.py`: генератор `get_db()` удерживается живым (`self._db_gen`) и закрывается в `tearDown` — устранён `ResourceClosedError` (предсуществующий баг изоляции, закрывал сессию под тестом).
 - `tests/unit/test_web_portal_e2e.py::test_register_rate_limits`: часть 2 патчит `api.index._check_ai_rate` — проверяется дневной лимит БД, кросс-тестовое глобальное состояние больше не влияет.
 
-### 3. Долги баг-ханта: GD-03/GD-05 (`39f3f02`) и CH-TEST (`856fc30`)
+### 3. Долги баг-ханта: GD-03/GD-05 (`2569ec9`) и CH-TEST (`e729452`)
 
 - **GD-03/GD-05:** `get_moderate_handler()` и `get_stats_handlers()` были «сиротами» (не регистрировались). Включены в `get_gd_handlers()` — единственная точка регистрации, правки `bot/bot.py` не потребовалось; `tests/unit/test_gd_commands.py` обновлён.
 - **CH-TEST:** новый `tests/unit/test_chess_web.py` (**11 passed**): `/api/chess/puzzle` (TTL-кулдаун `_PENDING_PUZZLE_TTL = 1800`), `/api/chess/puzzle/check` (награда `update_user_coins(uid, 5, …)` + `log_chess_game` только для владельца при `pending["web"]` и `logged_uid == uid == auth_uid`; решение не утекает), `/api/chess/stats` (401 без авторизации).
 
-### 4. Школьный проект SCH-03…SCH-05 (`1998022` + memory-коммит)
+### 4. Школьный проект SCH-03…SCH-05 (`ada0a49` + memory-коммит)
 
 - **SCH-03:** создана папка `school_project/` — `README.md`, `passport.md`, `timeline.md`, `glossary.md`, `presentation.md` (12 слайдов), `speech.md` (речь 5–7 мин + Q&A), `demo_script.md` (демо на 5 и 3 минуты), `checklist.md`.
 - **SCH-04:** `README.md` — раздел «Школьный проект: подготовка к ОГЭ» + строки `school_project/` в таблицах каталогов/документации; `docs/README.md` — подраздел `### School / OGE Module (Школа)` (предметы, доступ, геймификация, тесты) + `school_project/` в дереве и таблице.
@@ -45,17 +45,33 @@
 
 ### Верификация
 
-- Полный `pytest tests/unit` — **1470 passed, 11 skipped, 0 failed** (≈110 с); после CH-TEST и школьных правок — финальный перепрогон.
+- Полный `pytest tests/unit` — **1470 passed, 11 skipped, 0 failed** (≈110 с); финальный прогон после всех правок — **1470 passed** (в т.ч. `test_chess_web.py`).
+- **CI-подобная проверка в чистом venv** (`requirements.txt` + `requirements-dev.txt`, без аудио): `pytest tests/integration` — **259 passed** (после добавления `requests`; до него — `ModuleNotFoundError: No module named 'requests'` на каждом тесте).
 - `ruff check` — чисто по всем изменённым путям.
-- Чужие файлы не тронуты: `AGENTS.md`, `tests/unit/test_freemium_gates.py`, корневые `dbg*.py` / `fchat*.py` / `t*.py` / `f2.py` / `f3.py` / `fix*.py` / `dchat.py`.
+- Чужие файлы не тронуты: `AGENTS.md` и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
+
+### 6. История git переписана: PII удалён из всех коммитов
+
+- **Причина:** `data/chat_export/` (274 файла, ~14 МБ переписки канала) убран из индекса в `3d4e3fd`, но оставался в истории (`1c1dcb8` — добавление 2026-05-23, `297f6b9` — замена от 23 мая).
+- **Метод:** зеркальный клон → `git filter-repo --invert-paths --path data/chat_export` → `git push --force` (`main` + тег `lthub-tunnel-v1`). Ветка `deploy-clean` не переписывалась — в её истории PII нет.
+- **Проверки:** дерево `HEAD` до/после идентично (653 файла, `git diff` пуст), `git rev-list --objects --all | grep chat_export` — пусто; 3 коммита, ставшие пустыми, отфильтрованы.
+- **Все хеши коммитов с 2026-05-23 пересчитаны**, ссылки в `memory_bank/*.md` автоматически переразмечены по карте `memory_bank/other/commit-map-pii-rewrite.txt` (324 токена в 5 файлах; формат `old new`).
+- Бэкап старой истории: локальная ветка `backup/pre-pii-rewrite` (`245ab4f`) + `%TEMP%\bb_backup_245ab4f.bundle` (29.5 МБ) — можно удалить после проверки.
+- ⚠️ GitHub удаляет недостижимые объекты не мгновенно; если нужна гарантированная очистка на стороне GitHub — обращение в поддержку.
+
+### 7. Почему CI был красный — найдено и исправлено
+
+1. **`requests` отсутствовал в `requirements.txt`** (регресс BUG-09). `api/index.py:26` и `api/dnd_runtime.py:16` импортируют его напрямую, а раньше он приходил транзитивно через удалённый `vk_api`. В джобе «Integration Tests» (без аудио-стека) это роняло **все 259** тестов на импорте `api.index` из `tests/conftest.py`. Фикс — пин `requests==2.34.2` (`c334e38`).
+2. **Устаревший кейс в `tests/unit/test_freemium_gates.py`**: `/api/study/stats` числился как «требует авторизации», хотя эндпоинт с 2026-08 открыт анонимам (возвращает пустую статистику). Именно это и правил автор в незакоммиченном WIP — правка закоммичена как `0041376`.
+3. Проверка выполнена локально в воспроизводимом окружении (чистый venv + clean checkout) — оба дефекта воспроизведены и подтверждены исправленными.
 
 ### Открыто
 
-- **Переписывание истории git** для удаления PII `data/chat_export/` (274 файла убраны из индекса, но остаются в истории) + `force-push` — требует решения пользователя.
 - **TUN-08** — серверная раздача конфигов (не согласовано).
-- Проверка зелёного CI на `main` после пуша.
+- Мониторинг CI на `main` после `c334e38`.
+- Опционально: удалить локальный бэкап старой истории и временные каталоги `%TEMP%\bb_*`.
 
-## Changelog 2026-10-15 — BUGHUNT Phase 11: BUG-04…BUG-10 закрыты (закоммичено `3d4e3fd`, запушено 2026-10-18)
+## Changelog 2026-10-15 — BUGHUNT Phase 11: BUG-04…BUG-10 закрыты (закоммичено `1fdaa62`, запушено 2026-10-18)
 
 **Задача пользователя:** «продолжай todo» + выбор «Всё подряд BUG-04..BUG-10». Каждый баг делался отдельно, с адресными регрессионными тестами.
 
@@ -115,9 +131,9 @@
 - `ruff check` — по всем изменённым путям чисто (включая `api/index.py` после восстановления `_chat_insert` и правки обработчика 413).
 - Полный `tests/unit`: **9 failed, 1461 passed, 11 skipped (≈2:36)**. Все 9 падений — **не от BUGHUNT**:
   - 4 × `tests/unit/test_curator.py` — следствие незакоммиченного WIP `api/index.py`: хендлер `api_study_chat_send` переименован в `api_study_chat_post` и утратил поля `prompt`/`ok`/`actions` (тесты не менялись);
-  - `test_freemium_gates.py::test_base_study_endpoints_free_for_anon` — WIP-правка самого теста + auth на study-роутах (на чистом HEAD `e0476b4` тест проходит);
+  - `test_freemium_gates.py::test_base_study_endpoints_free_for_anon` — WIP-правка самого теста + auth на study-роутах (на чистом HEAD `f7235c9` тест проходит);
   - `test_vercel_parsing_e2e.py::test_webhook_parsing_no_reply_ignored` — **воспроизводится и на чистом HEAD** (сетевой таймаут Telegram при загрузке `BOT_ID`);
-  - `test_user_manager.py` (2 из 5) — **предсуществующий баг изоляции тестов** (`sqlalchemy.exc.ResourceClosedError: This Connection is closed`): при запуске файла целиком **воспроизводится и на чистом HEAD `e0476b4`** (ровно те же 2 кейса: `test_user_alias_addition`, `test_user_identification_existing_user`), а одиночный тест проходит — не связан с BUGHUNT;
+  - `test_user_manager.py` (2 из 5) — **предсуществующий баг изоляции тестов** (`sqlalchemy.exc.ResourceClosedError: This Connection is closed`): при запуске файла целиком **воспроизводится и на чистом HEAD `f7235c9`** (ровно те же 2 кейса: `test_user_alias_addition`, `test_user_identification_existing_user`), а одиночный тест проходит — не связан с BUGHUNT;
   - `test_web_portal_e2e.py::test_register_rate_limits` — плавающий/order-dependent: файл целиком в изоляции даёт **32 passed**, падение проявляется только в общем прогоне.
 - **Регрессия, найденная и исправленная в ходе верификации:** мой `MAX_CONTENT_LENGTH` (BUG-06) отклонял тело **до** входа в маршрут, из-за чего `test_web_portal_e2e::test_gd_web_submit_external_link_and_limits` (ждёт `413` + «16 МБ») падал на generic-сообщении. Обработчик 413 теперь возвращает лимит в МБ → тест снова зелёный (11/11 в `test_achievements.py` + GD-тест).
 
@@ -153,14 +169,14 @@
 - **Корень несоответствия:** `projectbrief.md` имел раздел `## Project Deliverables`, но внутри него 12+ фаз, каждая со своей таблицей с суммой весов `100`. Канонический список по `AGENTS.md` обязан иметь **общую** сумму весов ровно `100`. Плюс использовался недопустимый статус `removed`, были взаимоисключающие проценты (Phase 1 «90/100» и «100/100») и не было единого итогового процента.
 - **Что сделано:** наверху `## Project Deliverables` — **одна каноническая сводная таблица по блокам** `B01…B22`, суммы весов **ровно `100`** (дробные веса для мелких блоков — разрешено пользователем). Статусы только `pending` / `in_progress` / `completed` / `blocked`. Строки со статусом `completed` дают канонический прогресс **70.5 / 100 (70.5%)**. Оставшиеся `29.5` — блоки `in_progress` (открыто manual-тестирование/полировка/отдельные пункты).
 - **Историческая детализация:** все прежние пофазные таблицы сохранены без потери данных, но перенесены под `## Историческая детализация по фазам (не участвует в расчёте процента)`; разделы `Next Tasks`, `Additional Tasks`, `Testing Strategy`, `Testing Progress`, `Testing Notes` понижены до `###`. У Phase 10 (PYED) статусы `removed` → `excluded`, сам блок помечен как исключённый из расчёта (модуль удалён 2026-09-28).
-- **`last_checked_commit`:** `3b4832d` → **`e0476b4`** (синхронизация с вершиной `main` на 2026-10-13).
+- **`last_checked_commit`:** `3145cb9` → **`f7235c9`** (синхронизация с вершиной `main` на 2026-10-13).
 - **Проверка:** `grep` по projectbrief — вне канонической таблицы не осталось недопустимых статусов (`removed`), сумма весов блока = 100, единый `# Project Deliverables` не имеет одноуровневых конкурентов (все прочие заголовки `##` — цели/рамки/репозиторий/точка входа + историческая детализация). `docs/README.md` соответствует коду, правок не потребовал.
 - **AGENTS.md (правило):** по запросу пользователя добавлен пункт — «При создании todo-списка формулируй каждый пункт максимально коротко (не более 5–7 слов). Сложную задачу разбивай на несколько мелких подпунктов».
 - **Зачистка кодировки:** в `projectbrief.md`/`progress.md` убраны случайные CJK-символы (`替代` → «альтернатива», `SM-2标准算法` → «SM-2 стандартный алгоритм», `待修` → «к исправлению», `浅克隆` → «shallow-клонирование», `任意` → «произвольный», `忽略` → «игнорировать»). Смысл строк не менялся.
 
 ## Changelog 2026-10-08 — туннель: «зависание» на подписках снято; прод: deadlock на холодном старте снят
 
-### 1. `67ec039` — LthubTunnel висел на «Скачиваю подписки...»
+### 1. `e5da38d` — LthubTunnel висел на «Скачиваю подписки...»
 
 **Жалоба:** окно показывало последней строкой `Скачиваю подписки...` и стояло. Замер воспроизвёл: `load_all` занимал **144.9 с**.
 
@@ -177,7 +193,7 @@
 
 **Проверки:** ruff чист, регрессия **142 passed** (5 новых тестов: быстрый путь кеша, лимит ретраев, прогресс в лог, параллелизм). Перед пересборкой пришлось убить два зависших процесса `LthubTunnel` (PID 13832/15972) — они держали `dist\LthubTunnel.exe` и роняли PyInstaller с `PermissionError`.
 
-### 2. `3b4832d` — прод-спам «Table init error: DeadlockDetected»
+### 2. `3145cb9` — прод-спам «Table init error: DeadlockDetected»
 
 Пользователь принёс два падения из TG: `DND` 16:57 (`CREATE UNIQUE INDEX uq_dnd_characters_session_player`) и `UNIVERSE` 17:43 (`DELETE FROM daily_prayer_log …` против `advisory lock [5,0,729102,1]`).
 
@@ -190,7 +206,7 @@
 
 **Проверки:** `test_ddl_portability.py` 9 passed (4 старых + 5 новых: порядок лока для обеих функций, пропуск на SQLite, идемпотентность, реальный дедуп дублей из таблицы, созданной миграцией без inline UNIQUE). Полный прогон `tests/unit`: 1416 passed, 9 failed — **все 9 воспроизводятся на базовом коде** (проверено через `git stash`) и к правке отношения не имеют (curator/exam_center/study_progress/user_manager/vercel_parsing/register_rate_limits).
 
-**Прод:** деплой поднялся автоматически с пуша — `vercel inspect` показывает `Cloning github.com/lucasteamalt12321/BankBot (Branch: main, Commit: 3b4832d)`, `● Ready Production 54s`, алиас `lthub.vercel.app`. Смоук `/` → 200, `/login` → 200. Ручной `vercel --prod --yes` при этом отвечает `Error: Not authorized` (OIDC-сессия CLI) — деплой всё равно прошёл через Git-интеграцию, так что правка задеплоена.
+**Прод:** деплой поднялся автоматически с пуша — `vercel inspect` показывает `Cloning github.com/lucasteamalt12321/BankBot (Branch: main, Commit: 3145cb9)`, `● Ready Production 54s`, алиас `lthub.vercel.app`. Смоук `/` → 200, `/login` → 200. Ручной `vercel --prod --yes` при этом отвечает `Error: Not authorized` (OIDC-сессия CLI) — деплой всё равно прошёл через Git-интеграцию, так что правка задеплоена.
 
 **Открытые вопросы этой сессии:** CI красный на всех последних ~15 прогонах (`ci.yml` ставит последний ruff, `requirements-dev.txt` держит `0.8.4`, локально `0.15.15`); в дереве остались чужие незакоммиченные правки `.gitignore` (+`.vercel`) и удалённый `.vercel/project.json`; потеряны ~255 строк чужого кода в `api/index.py`; в README нет прямой ссылки на ассет `LthubTunnel.exe`.
 
@@ -332,7 +348,7 @@ _Баги добавляются по ходу тестирования оста
 
 > Запрос пользователя: «продолжай, если есть следующие шаги». Запущены 12 субагентов для аудита всех модулей. Найдено ~270 багов. Ниже — критичные/высокие, исправлены в рабочей копии.
 
-#### Исправлено (2026-08-30, коммиты `dccd956` + `3586ce7`)
+#### Исправлено (2026-08-30, коммиты `acf56d0` + `937a0d7`)
 
 **72/73 багов исправлены (массовая охота на баги, 12 субагентов).**
 
@@ -484,26 +500,26 @@ _Баги добавляются по ходу тестирования оста
 - **Запрос:** «ладно, удаляй python модуль» — через день после деплоя, после фидбека о внешнем виде.
 - **Удалено из `api/index.py`:** вся секция `# ── Python Editor ──` (около 1200 строк): константы `_PYED_*`, хелперы `_pyed_*`, 9 эндпоинтов `/api/pyed/*`, страница `pyed_editor_page()`; `_ensure_pyed_tables` + вызов из `get_db_engine()`; карточка «🐍 Редактор Python» из хаба `/`; `HUB_KEY['/editor']`. Проверено: в файле не осталось ни одного упоминания `pyed`/`jedi`, `ast.parse` — OK.
 - **Удалено из репозитория:** `tests/unit/test_python_editor.py` (34 теста), `jedi>=0.19.2` из `api/requirements.txt`, раздел модуля из `docs/README.md` (заменён на пометку об удалении с сохранением разбора граблей).
-- **Оставлено:** таблица `pyed_documents` в проде (DDL больше не создаётся, данные = 1-2 файла smoke-аккаунтов) — удаление таблицы отдельной задачей; песочница `_run_python_sandbox` / `_sandbox_preexec` (используется AI-чатом); админ-удаление пользователя `8e8da1b` (таблицы обходятся динамически, модуль ему не нужен).
+- **Оставлено:** таблица `pyed_documents` в проде (DDL больше не создаётся, данные = 1-2 файла smoke-аккаунтов) — удаление таблицы отдельной задачей; песочница `_run_python_sandbox` / `_sandbox_preexec` (используется AI-чатом); админ-удаление пользователя `a89704e` (таблицы обходятся динамически, модуль ему не нужен).
 - **Корневая причина, почему модуль «выглядел уродливо»:** мета-пакет `codemirror@6.0.1` экспортирует только `EditorView`/`basicSetup`/`minimalSetup`. Весь код вида `cm.EditorState`, `cm.lineNumbers`, `cm.autocompletion` был `undefined` → `TypeError` внутри `try` → страница **молча** показывала `<textarea>`-фолбэк. То есть CodeMirror не поднимался ни разу за время жизни в проде, а `node --check` и 34 теста были зелёными, потому что проверяют синтаксис, а не резолв ESM-импортов. Экспорты `Compartment`/`EditorState` (`@codemirror/state`) и `linter`/`lintGutter` (`@codemirror/lint`) проверены вручную по esm.sh перед удалением. Исправление (явные импорты 9 пакетов с общим `?deps=codemirror@6.0.1` + рантайм-проверка экспортов + тест-регрессия) было готово, но стало неактуальным вместе с модулем.
 - **Память обновлена:** `activeContext.md` (задача помечена как удалённая + грабли), `projectbrief.md` (все deliverables Phase 10 → `removed`, вес 10 % исключён), `python_editor_module.md` (статус `removed` + три новые грабли), `progress.md`, `docs/README.md`.
 
 ### 2026-09-27 (Session: 🐍 Редактор Python — VS Code-подобный модуль `/editor` с настоящими подсказками)
 - **Запрос:** «добавь модуль — редактор python. интерфейс схожий с vs code: тоже с подсказками». Согласовано вопросником: CodeMirror 6, настоящий language server, кнопка «Запустить» с выводом, хранение в аккаунте.
 - **[BAG-ARCH] полноценный LSP-демон на Vercel невозможен** — лямды stateless, персистентного процесса нет, лимит 60 с. Реализовано то, что достижимо: **in-process движок `jedi`** (parso) — тот же, что в IPython/Jupyter. `jedi>=0.19.2` добавлен в `api/requirements.txt` (в `requirements.txt` бота не нужен).
-- **Новый модуль** (секция `# ── Python Editor ──` в `api/index.py`): таблица `pyed_documents` (`user_id INTEGER` — совпадает с `web_users.id`, поэтому админ-эндпоинт удаления из `8e8da1b` подхватывает файлы автоматически, плюс `ON DELETE CASCADE`); LSP `complete` / `signature` / `hover` (+goto) / `lint`; CRUD документов; `POST /api/pyed/run`.
+- **Новый модуль** (секция `# ── Python Editor ──` в `api/index.py`): таблица `pyed_documents` (`user_id INTEGER` — совпадает с `web_users.id`, поэтому админ-эндпоинт удаления из `a89704e` подхватывает файлы автоматически, плюс `ON DELETE CASCADE`); LSP `complete` / `signature` / `hover` (+goto) / `lint`; CRUD документов; `POST /api/pyed/run`.
 - **Страница `/editor`:** VS Code-look (One Dark, номера строк, active line, скобки, автоотступ, folding, `Ctrl+F`, мультикурсор, `Ctrl+/`, `Ctrl+Enter` = запуск, `Ctrl+S` = сохранить), вкладки файлов, консоль вывода, статусбар, тултип по hover, полоса подсказки аргументов, красные волнистые линии из `lint`. CodeMirror с `esm.sh` (4 импорта, `?deps=codemirror@6.0.1` — один экземпляр `@codemirror/state`); **откат на `<textarea>`**, если CDN недоступен (школьная сеть) — сохранение и запуск продолжают работать.
 - **Безопасность запуска:** `_tool_run_python` → тонкая обёртка над `_run_python_sandbox(code, timeout, max_output, memory_mb)`; добавлен `_sandbox_preexec` (`RLIMIT_CPU/AS/FSIZE/NOFILE/CORE`, POSIX). Дефолты сохранены, поэтому `/api/ai_chat` не затронут. Все эндпоинты требуют входа и возвращают `auth_required: true` на 401 — срабатывает глобальная модалка входа, а не баннер.
 - **Хаб `/`:** карточка «🐍 Редактор Python» + `HUB_KEY['/editor'] = 'python_editor'`.
 - **Тесты:** `tests/unit/test_python_editor.py` — **24 passed** (CRUD, изоляция, санитизация имени, 409 при переименовании, контракт 401 на всех 9 эндпоинтах, jedi-подсказки после точки/по ключевому слову/по своему символу с докстрингом, lint, деградация без jedi через `compile()`, hover, signature, rate-limit LSP и run, stdout/stderr/блок-`os`/лимиты размера, регресс админ-удаления, регресс строкового контракта `_tool_run_python`). `node --check` по **отрендеренному** `<script type="module">` — OK. ruff чист. Регресс `test_web_portal_e2e` + `test_code_explainer` + новый файл — **66 passed**. Широкий прогон (`-k "web or canon or md2pdf or admin or auth or hub or family"`): 21 падение — **подтверждены как pre-existing** повторным прогоном на чистом HEAD через `git stash` (список идентичен).
 - **Найденный и исправленный баг по ходу:** в `api_pyed_run` поле `ok` было захардкожено `True` — программа с traceback отдавала `ok: true`. Теперь `ok = res["ok"]` (есть stderr → `false`), покрыто `test_run_reports_stderr`.
 - **Открытый вопрос для пользователя (НЕ сделано):** `/api/ai_chat` (`api/index.py:11293`) вызывает `_tool_run_python` **без авторизации** — только IP-лимит 15/мин. Существующая дыра, к новому модулю не относится; закрыть тем же rlimit + требованием входа — по решению пользователя.
-- Коммит code+tests **`c4d8f99`**. **Шаг: коммит памяти → push → деплой → прод-смоук** (включая удаление `smokeprobe9x/9y`).
+- Коммит code+tests **`99dbba1`**. **Шаг: коммит памяти → push → деплой → прод-смоук** (включая удаление `smokeprobe9x/9y`).
 
 ### 2026-09-26 (Session: 🔐 Регистрация — NAT-класс не блокируется)
 - **[BUG] лимит регистрации 5/IP за 300 с резал школьский класс за одним NAT-IP** (6-й ученик → 429). In-memory `_check_ai_rate` вдобавок обнуляется на каждом холодном старте Vercel — защиты фактически не давал.
 - **Фикс:** `_REGISTER_BURST = 30` (регистраций с IP за 5 мин, in-memory) + `_REGISTER_DAILY = 200` за 24 ч через `_check_db_rate("reg_day:<ip>", …, 86400)` — жёсткий backstop, переживает холодные старты. Уникальность login/email без изменений.
-- **Тесты:** `test_register_rate_limits` (30×200, 31-я → 429 burst; заполненный `rate_limits` → 429 «за сутки»). Регресс 64 passed; 2 падения `test_canon_requests_e2e` — **pre-existing** (подтверждены на чистом HEAD). ruff чист. Коммит code+tests `c521361`. **Шаг: push + деплой + прод-смоук.**
+- **Тесты:** `test_register_rate_limits` (30×200, 31-я → 429 burst; заполненный `rate_limits` → 429 «за сутки»). Регресс 64 passed; 2 падения `test_canon_requests_e2e` — **pre-existing** (подтверждены на чистом HEAD). ruff чист. Коммит code+tests `09060b4`. **Шаг: push + деплой + прод-смоук.**
 - **Прод:** деплой `lthub-30mv8164h` (Ready, алиас `lthub.vercel.app`). Смоук: `/`, `/login`, `/code` → 200; `POST /api/auth/register` (новый логин) → **200**, повторная регистрация → 409 «Логин уже занят» (уникальность жива).
 - 🧹 **Прод-тестовые аккаунты, требуют удаления:** `smokeprobe9x` (user_id ~36), `smokeprobe9y` (user_id 37) — созданы этим смоуком. **Админ-эндпоинта удаления пользователей в проекте НЕТ** (есть только `/api/admin/users` GET, coins/award, set_admin) → удаление возможно лишь временным guarded-эндпоинтом (как делалось в сессии 2026-09-15) либо новой фичей. Решение — за пользователем.
 
@@ -511,14 +527,14 @@ _Баги добавляются по ходу тестирования оста
 - **[BUG] «Анализировать всё» не работало (бэклог).** Два корня в `api_code_reanalyze`: (1) dict файла не содержал `ai_chunks_done`, а `done_map = f.get("ai_chunks_done") or 0` → resume вечно 0, повторы перечитывали с нуля; (2) `analyze_pool = files[:35]` всегда брал первые 35 по важности → после их покрытия прогресс замирал → JS «Прогресс не растёт (лимит ИИ?)».
   - **Фикс:** `ai_chunks_done` в dict; пул = файлы с `done < total` (`_code_chunks_total`), каждая серия продвигается дальше; `analyzed_count` — по текущему набору (учёт гостевого фильтра). Rate `code_reanalyze` 10→`_CODE_REANALYZE_RATE_LIMIT=30`/час (JS `series>=12`→`20`), чтобы серии сходились.
 - **[BUG] сводки «Файл html, 20 строк».** Новый `_code_infer_summary(lines, lang_key)`: Python def/class, JS/TS const/function/class/export, HTML `<title>` (→ заголовок сводки) или h1–h6/формы/инпуты/скрипты, JSON ключи/массив, CSS правила/селекторы, MD `.md/txt` #-заголовки, YAML/TOML разделы, GDScript как прежде. Fallback `_code_analyze_file_ai` при пустом summary → эвристика.
-- **Тесты:** `test_code_explainer.py` 16/16 (+3: `test_reanalyze_advances_past_first_35_files` — 35 готовых + 1 недокрытый → `analyzed_count==file_count==36`; `test_reanalyze_resumes_chunked_file` — 1000 строк, resume с 2/3 чанка, prompt без «фрагмент 1/3», `ai_chunks_done→3`; `test_infer_summary_languages` 6 кейсов). Регресс 29 passed; ruff чист. Коммит code+tests `c832c95`. **Шаг: push + деплой + прод-смоук.**
+- **Тесты:** `test_code_explainer.py` 16/16 (+3: `test_reanalyze_advances_past_first_35_files` — 35 готовых + 1 недокрытый → `analyzed_count==file_count==36`; `test_reanalyze_resumes_chunked_file` — 1000 строк, resume с 2/3 чанка, prompt без «фрагмент 1/3», `ai_chunks_done→3`; `test_infer_summary_languages` 6 кейсов). Регресс 29 passed; ruff чист. Коммит code+tests `dfa4b7c`. **Шаг: push + деплой + прод-смоук.**
 
 ### 2026-09-25 (Session: 🔧 Фикс TG-спама — DDL-портируемость + deadlock UNIVERSE)
 - **[BUG] TG-спам «Table init error» на каждый холодный старт закрыт двумя коммитами:**
-  - **`701f83f` — DDL-портируемость.** Корень: `_ddl()` безусловно переписывал DDL под SQLite даже для Postgres — `SERIAL PRIMARY KEY`→`INTEGER PRIMARY KEY AUTOINCREMENT` (→ `SyntaxError near "AUTOINCREMENT"` в AUTH/SOCIAL), strip `ADD COLUMN IF NOT EXISTS` (→ `DuplicateColumn` в CODE/PARSING, затем `try/except: pass` без rollback отравлял транзакцию → каскад `InFailedSqlTransaction` на `code_user_comments`/`ix_parsed_transactions_parsed_at`). Фикс: `_ddl(sql, engine=None)` отдаёт Postgres нативный SQL без изменений; новый `_ensure_ddl_column(conn, table, col_sql, engine)` (проверка наличия колонки + `conn.rollback()`) заменил сырые ALTERы (code_files×2, parsed_transactions×3, AUTH optional-cols); `engine` продет во все 11 `text(_ddl("""...""", engine)))`. **Грабли:** первый вариант дал `conn.execute(text(_ddl("""..."""))), engine)` (кортеж-выражение, engine=None — фикс молча не работал); правильное закрытие `""", engine)))`.
-  - **`373be16` — deadlock UNIVERSE (19:51 прод).** Dedupe `DELETE ... USING ... WHERE ctid > b.ctid` в `_ensure_universe_tables` дедлочился на двух параллельных холодных стартах (`DeadlockDetected`). Фикс: `pg_advisory_xact_lock(729102)` перед dedupe (Postgres-only) + `conn.rollback()` в except (не оставляет транзакцию aborted).
+  - **`7680dae` — DDL-портируемость.** Корень: `_ddl()` безусловно переписывал DDL под SQLite даже для Postgres — `SERIAL PRIMARY KEY`→`INTEGER PRIMARY KEY AUTOINCREMENT` (→ `SyntaxError near "AUTOINCREMENT"` в AUTH/SOCIAL), strip `ADD COLUMN IF NOT EXISTS` (→ `DuplicateColumn` в CODE/PARSING, затем `try/except: pass` без rollback отравлял транзакцию → каскад `InFailedSqlTransaction` на `code_user_comments`/`ix_parsed_transactions_parsed_at`). Фикс: `_ddl(sql, engine=None)` отдаёт Postgres нативный SQL без изменений; новый `_ensure_ddl_column(conn, table, col_sql, engine)` (проверка наличия колонки + `conn.rollback()`) заменил сырые ALTERы (code_files×2, parsed_transactions×3, AUTH optional-cols); `engine` продет во все 11 `text(_ddl("""...""", engine)))`. **Грабли:** первый вариант дал `conn.execute(text(_ddl("""..."""))), engine)` (кортеж-выражение, engine=None — фикс молча не работал); правильное закрытие `""", engine)))`.
+  - **`3b4237c` — deadlock UNIVERSE (19:51 прод).** Dedupe `DELETE ... USING ... WHERE ctid > b.ctid` в `_ensure_universe_tables` дедлочился на двух параллельных холодных стартах (`DeadlockDetected`). Фикс: `pg_advisory_xact_lock(729102)` перед dedupe (Postgres-only) + `conn.rollback()` в except (не оставляет транзакцию aborted).
 - **Тесты:** `tests/unit/test_ddl_portability.py` 4/4 (postgres-native-noop, sqlite-rewrites, idempotent ×2 web_auth/social/family, `_ensure_ddl_column` no-op). Регресс family_budget+family_mediator+social+code_explainer = 38 passed; emperors+parsing+web_portal+manual_parsing = 73 passed (5 падений `test_manual_parsing_handler_e2e` — pre-existing, pytest-asyncio не установлен, подтверждено на HEAD). ruff чист.
-- **Прод:** деплой `lthub-aztjqkn11` (17:47) → `lthub-l45k7k3bm` (Ready); смоук холодных стартов /login /code /family /md2pdf / → 200, в Vercel-логах ноль `Table init error`/`SyntaxError`/`DuplicateColumn`/`InFailedSqlTransaction`/`DeadlockDetected`. Спам 18:49/19:25/19:30 из пасты пользователя — от СТАРОГО деплоя (SQL в логах = реврайт-форма `TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, т.е. старый `_ddl`). Push `7fbc33e..373be16` сделан. **Ожидание: подтверждаю отсутствие нового спама через несколько холодных стартов.**
+- **Прод:** деплой `lthub-aztjqkn11` (17:47) → `lthub-l45k7k3bm` (Ready); смоук холодных стартов /login /code /family /md2pdf / → 200, в Vercel-логах ноль `Table init error`/`SyntaxError`/`DuplicateColumn`/`InFailedSqlTransaction`/`DeadlockDetected`. Спам 18:49/19:25/19:30 из пасты пользователя — от СТАРОГО деплоя (SQL в логах = реврайт-форма `TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, т.е. старый `_ddl`). Push `3f12e86..3b4237c` сделан. **Ожидание: подтверждаю отсутствие нового спама через несколько холодных стартов.**
 
 ### 2026-09-25 (Session: 🔍 Багхант Family — Circle веб/медиатор + Budget бот/веб)
 - **[BUGHUNT]** Полный багхант family-модуля (пользователь: «сделай всё, включая средне/низкое»). Код внесён в рабочую копию, тесты зелёные. **Коммит + деплой + прод-смоук (`.195`) — следующий шаг.**
@@ -535,19 +551,19 @@ _Баги добавляются по ходу тестирования оста
 - **Тесты:** `test_family_mediator.py` 9/9 (3-tuple + needs/полный паринг/валидации), новый `test_family_budget.py` 13/13 (signature verify/forge-reject, 400 amount, 403 non-member payer/for_whom, own-debt только/успех), ruff чист (4 файла), `py_compile` чист.
 
 ### 2026-09-21 (Session: 🔍 Багхант md2pdf)
-- **[BUGHUNT]** Найден и исправлен UX-баг (коммит `95d7cf2`, задеплоено): `improveMd()` при не-JSON ответе (HTML-страница ошибки Vercel при таймауте ИИ/шлюза) падало в `r.json()` и показывало «Unexpected token '<'». Теперь ответ читается как текст, JSON парсится через try/catch; ошибки 429/502/HTML → понятные русские сообщения («Слишком много запросов…», «ИИ временно недоступен…», «сервис недоступен»). `<body>` финальный сет показывается при любом исходе.
+- **[BUGHUNT]** Найден и исправлен UX-баг (коммит `5cf3b36`, задеплоено): `improveMd()` при не-JSON ответе (HTML-страница ошибки Vercel при таймауте ИИ/шлюза) падало в `r.json()` и показывало «Unexpected token '<'». Теперь ответ читается как текст, JSON парсится через try/catch; ошибки 429/502/HTML → понятные русские сообщения («Слишком много запросов…», «ИИ временно недоступен…», «сервис недоступен»). `<body>` финальный сет показывается при любом исходе.
 - **Проверено, багов НЕТ:** inline `font-size` на `#pdfPage` переживает `render()` (innerHTML заменяет только детей); restore размера из localStorage при загрузке; clamp A+/A− на границах (11/24); `printCss()` подставляет актуальный размер (`font-size:20px`); черновик сохраняется после ИИ-подстановки (render → localStorage). Server-side `/api/md2pdf/format` замечаний нет (лимит, rate, strip fences, log_error).
 - Тесты: `test_md2pdf.py` 8/8 (+assert на сообщение «ИИ временно недоступен»), ruff чист, node/jsdom OK.
 
 ### 2026-09-21 (Session: 🔤 md2pdf — изменение размера шрифта)
-- **[TASK] «добавь возможность изменить размер шрифта» (коммит `925dee5`, задеплоено).**
+- **[TASK] «добавь возможность изменить размер шрифта» (коммит `9a3fc36`, задеплоено).**
   - Тулбар `/md2pdf`: кнопки **A− / A+** (`stepFontSize(delta)`) + **селект** `#fontSize` (11–24, `applyFontSize(this.value)`), размер применяется к превью (`page.style.fontSize`) и к PDF/print (`printCss()` на базе `PRINT_CSS_SKEL`), сохраняется в `localStorage` (`md2pdf_fontsize`, дефолт 14.5).
   - Заголовки/код/таблицы превью и PRINT_CSS переведены на **em** (h1=1.8em, h2=1.45em, h3=1.17em, code=.88–.9em, table=.92–.93em) — масштабируются вместе с базовым шрифтом.
   - Фикс бага: `applyFontSize()` сперва читал глобал вместо значения селекта → перезаписывал выбор; теперь `applyFontSize(this.value)`.
   - Тесты: `test_md2pdf.py` +1 (`has_font_size_control`) → 8/8; code-explainer 10/10; ruff/node --check/jsdom (смена → 20px, LS=20, printCss `font-size:20px`, A− работает) OK.
 
 ### 2026-09-21 (Session: ✨ md2pdf — ИИ-улучшение форматирования)
-- **[TASK] «сделай в md2pdf функцию (добавить форматирование), где ии будет сам улучшать md» (коммит `624f3a3`, задеплоено).**
+- **[TASK] «сделай в md2pdf функцию (добавить форматирование), где ии будет сам улучшать md» (коммит `7eafa3c`, задеплоено).**
   - **Backend:** новый публичный POST `/api/md2pdf/format` (`api/index.py`, рядом с `md2pdf_page`): принимает `{text}`, лимит `_MD_FORMAT_MAX_CHARS=20000`, in-memory rate-limit `_check_ai_rate("md2pdf_fmt:<ip>", 8/60с)` (без `_check_db_rate` — локально висел на Supabase-handshake). Промпт `_MD_FORMAT_PROMPT`: улучшить структуру Markdown (заголовки, списки, таблицы, цитаты, код-блоки, `---`, **жирный**), не меняя смысл, ответ только Markdown. Вызывает `_ai_chat(..., timeout=30, max_tokens=4000, temperature=0.3)`, ответ чистит `_md_strip_fences` (снимает обёртку ```markdown). Ошибки: 400 (пусто/длинно), 429 (rate), 502 (ИИ недоступен/пусто), 500.
   - **Frontend (SPA `/md2pdf`):** кнопка «✨ Улучшить форматирование» (`#fmtBtn`) в тулбаре → `improveMd()`: fetch POST, состояние «✨ Обрабатываю…» (disabled), при успехе подставляет Markdown в textarea и вызывает `render()`; `alert` с сообщением об ошибке.
   - Тесты: `test_md2pdf.py` +3 (`has_ai_format_button`, `format_endpoint_rejects_empty`, `format_endpoint_rejects_too_long`) → 7/7; `test_code_explainer.py` 10/10; ruff чист; `node --check` отрендеренного JS OK.
@@ -556,18 +572,18 @@ _Баги добавляются по ходу тестирования оста
 - **Инфра:** Vercel-проект `bank-bot` переименован в **`lthub`** (Vercel API `PATCH /v9/projects/bank-bot`). Прод-домен `bank-bot-ruby.vercel.app` автоматически НЕ сменился при ренейме — вручную добавлен домен **`lthub.vercel.app`** (verified) к проекту. Легаси-алиас `bank-bot-ruby.vercel.app` оставлен (Telegram-webhook `/telegram/webhook/{secret}` привязан к нему), оба URL отдают `200`. CLI-связка сохранена (`projectId` в `.vercel/project.json`). Обновлён `techContext.md` (CI/CD). Кода не касалось.
 
 ### 2026-09-21 (Session: 📄 Markdown → PDF — упрощение дизайна)
-- **[TASK] «короче сделай там экран поделенным на 2 окна: в одно человек вставляет гипертекст, в другом в реальном времени показывается превью пдф. есть кнопки скачать pdf и печать» (коммит `e5210ed`, задеплоено).**
+- **[TASK] «короче сделай там экран поделенным на 2 окна: в одно человек вставляет гипертекст, в другом в реальном времени показывается превью пдф. есть кнопки скачать pdf и печать» (коммит `8268d4e`, задеплоено).**
   - Переработан `md2pdf_page` (`api/index.py`): убрана правая панель настроек (шрифты/цвета/формат страницы) и вслед за ней промежуточный markdowntopdf-style вариант; осталось чистое двухоконное разделение — `workspace` grid `1fr 1fr`: слева textarea `#mdInput`, справа живое превью `.pdf-page#pdfPage`.
   - Кнопки: «🖨️ Печать» (`printPage()`) и «⬇️ Скачать PDF» (`downloadPdf()`) — обе через общий `openPrintDialog()` (скрытый iframe `#printFrame` + `PRINT_CSS`, `@page A4`, page-break-правила, фолбек `window.print()`).
   - Вернул шрифт превью к Georgia/serif (был Inter), обновлён `SAMPLE` (текст про 2 панели), подпись «Markdown — слева · живое превью PDF — справа», адаптив ≤900px стекает панели.
   - Проверки: `test_md2pdf.py` 4/4 + `test_code_explainer.py` 10/10; ruff чист; `node --check` извлечённого inline-JS — EXIT 0; обязательные маркеры (mdInput/pdfPage/pdf-page/Скачать PDF/printFrame/downloadPdf/loadSample/marked/highlight.js/marked.parse) на месте.
   - Прод-смоук: `GET /md2pdf` 200; есть `id="mdInput"`, `id="pdfPage"`, «Скачать PDF», «Печать», `printFrame`, `printPage`.
-- **🐛 Фикс (коммит `0447d52`, задеплоено):** «не работает переключение светлая/тёмная тема» + «превью pdf всегда белый прямоугольник (пусто)».
+- **🐛 Фикс (коммит `9f664c4`, задеплоено):** «не работает переключение светлая/тёмная тема» + «превью pdf всегда белый прямоугольник (пусто)».
   - Причина пустого превью: `html = """..."""` — обычная (не raw) Python-строка, поэтому `join('\n')`/`split('\n')` в inline-JS превращались в РЕАЛЬНЫЙ перевод строки внутри JS-строковых литералов → `SyntaxError` (весь `<script>` не выполнялся). Исправлено экранированием в Python-исходнике: `'].join('\\n')'`, `"src.split('\\n')"`. Проверка: извлечение отрендеренной страницы через `app.test_client()` + `node --check` (раньше падал, теперь EXIT 0).
   - Причина неработающей темы: страница задавала собственный `:root{--bb-bg:...}` ПОСЛЕ `inject_theme` (равная специфичность с `[data-theme="light"]`, но позже в документе) → светлые значения перекрывались. Переопределение удалено; хардкод-цвета (`.edit textarea`, `.prev .scroll`) переведены на `var(--bb-*)`.
 
 ### 2026-09-20 (Session: 📄 Markdown → PDF)
-- **[TASK] «новый модуль: md to pdf. экран разделен на 2 части: с одной стороны человек вставляет гипертекст, а с другой он же но pdf. и кнопка скачать. типа markdowntopdf.com» (коммит `64b15f2`, задеплоено).**
+- **[TASK] «новый модуль: md to pdf. экран разделен на 2 части: с одной стороны человек вставляет гипертекст, а с другой он же но pdf. и кнопка скачать. типа markdowntopdf.com» (коммит `516bb0b`, задеплоено).**
   - **SPA `/md2pdf`** (в `api/index.py`, по образцу `/code`, полностью клиент-сайд, без БД и серверных зависимостей — безопасно для Vercel):
     - Разметка: topbar (← Назад / ⬇️ Скачать PDF) + toolbar («📋 Пример», «🧹 Очистить», счётчик «N строк · M слов») + workspace grid 1fr/1fr (editable textarea слева, A4-«бумага» справа); на узких экранах стекируются.
     - Рендер: **marked** @12 + **highlight.js** (github light) с CDN (как в `/code`); `gfm:true, breaks:true`; подсветка `pre code` пост-обработкой; GFM-задачи (`- [ ]`/`- [x]`) — кастомный конверт в `<input type=checkbox disabled>` с class `task-list-item`.
@@ -580,7 +596,7 @@ _Баги добавляются по ходу тестирования оста
   - Прод-смоук: `GET /md2pdf` 200, тайтл «📄 Markdown → PDF», маркеры (mdInput/pdfPage/downloadPdf/printFrame/marked.parse) на месте; `GET /` содержит карточку `href="/md2pdf"`.
 
 ### 2026-09-17 (Session: 💻 Code Explainer — анализ больших репозиториев)
-- **[TASK] «фикси code explainer пока он не сможет грамотно просмотреть https://github.com/lucasteamalt12321/BankBot (добавить комментарии ко всем основным файлам и функциям)» (коммит `15ef1ba`, задеплоено).**
+- **[TASK] «фикси code explainer пока он не сможет грамотно просмотреть https://github.com/lucasteamalt12321/BankBot (добавить комментарии ко всем основным файлам и функциям)» (коммит `61b1022`, задеплоено).**
   - **Диагностика на реальном репо (885 файлов, `api/index.py` 29442 строк / 1.5MB):** 1) `_CODE_MAX_STORE_BYTES=400_000` → `api/index.py` вообще пропускался коллектором; 2) в AI шли только первые 500 строк файла (`_CODE_MAX_ANALYZE_LINES`) → функции за пределами 500 строк не комментировались; 3) в БД сохранялись только top-35 файлов (остальные не попадали в дерево); 4) `data/chat_export/*.html` (30–40k строк, ~1MB) засоряли AI-бюджет; 5) re-analyze всегда стартовал с начала (нет прогресса).
   - **Фиксы:**
     - Константы: `_CODE_MAX_FILES=35`, `_CODE_CHUNK_LINES=450`, `_CODE_CHUNKS_PER_RUN=20` (бюджет AI-чанков на вызов, ~4 батча по `_CODE_AI_BATCH_SIZE=5`, вписывается в maxDuration 60с Vercel), `_CODE_MAX_STORE_LINES=60_000`, `_CODE_MAX_STORE_BYTES=3_000_000` (теперь `api/index.py` 1.5MB проходит), `_CODE_ANALYZE_RATE_LIMIT=10`/час, `_CODE_SKIP_DIRS` (`.git/node_modules/.godot/lib/__pycache__/.venv/dist/build/coverage/htmlcov/chat_export/video_files` + dot-диры), `_CODE_SKIP_FILE_NAMES` (lock-файлы).
@@ -594,7 +610,7 @@ _Баги добавляются по ходу тестирования оста
   - 🟡 **Known issue (pre-existing, НЕ фикс этой задачи):** полный синхронный анализ репо BankBot (клон ~51с локально) превышает Vercel maxDuration 60с даже без AI (`analyze:false` → 504 FUNCTION_INVOCATION_TIMEOUT на проде). Для маленьких/средних репо (Hello-World/Spoon-Knife) — работает. Чтобы BankBot зашёл целиком, нужен фоновый клон/анализ (background task / отдельная serverless-функция с большим таймаутом / очереди) — предложить пользователю отдельной задачей.
 
 ### 2026-09-14 (Session: 🎮 GD — персона-атрибуция по нику из заявки + админ «+» в профиле игрока)
-- **[TASK] «LucasTeam это Лука, nikiktosik не помню, shadowraven привяжи к тестовому» — атрибуция прохождений по нику из заявки (`submissions.username`), а не по аккаунту (коммит `7f5e2a5`, задеплоено).**
+- **[TASK] «LucasTeam это Лука, nikiktosik не помню, shadowraven привяжи к тестовому» — атрибуция прохождений по нику из заявки (`submissions.username`), а не по аккаунту (коммит `bb6e78a`, задеплоено).**
   - ДБ на проде защищена (env vars типа `sensitive` не расшифровать через API/CLI) → временный debug-эндпоинт `/api/gd/_dbg` (заголовок `X-Dbg: c7a2e1f4b8d39a05`) дал ground truth, затем ЭНДПОИНТ УДАЛЁН.
   - Ground truth: `levels`: id1 Grey Trap pos3, id6 Acid factory pos5, id7 Ultra paracosm pos4, id4 Supersonic pos1, id5 True values of live pos2. `level_completions`: (2091908459→1), (1597272920→4,5), (17→6), (8→6,7). Прод-approved `submissions` (ник из заявки): GreyTrap→`LucasTeam`(2091908459), Supersonic→`LucasTeam`(1597272920), TVOL→`ShadowRaven`(1597272920), Acid→`nikiktos`(17) и `LucasTeam12321`(8), Ultra→`LucasTeam12321`(8); stray approved id17 `Supresonic`/web_1597272920 без completion.
   - **Модель:** персона = ник из заявки; один аккаунт может иметь несколько персон (1597272920 = LucasTeam за Supersonic + ShadowRaven за TVOL). `gd_aliases` УДАЛЕНА (DROP в `_ensure_gd_tables`), добавлен `level_completions.player_name` + backfill `_gd_backfill_completion_names` (submission.username, иначе account name).
@@ -626,7 +642,7 @@ _Баги добавляются по ходу тестирования оста
   - Эндпоинт `/api/gd/my_stats` не используется UI, но оставлен (API). тест обновлён (`Моя карточка`/`Открыть полную карточку` в `/gd`). 10/10 зелёные; ruff/py_compile чисто; `node --check` `/gd` — OK.
 
 ### 2026-09-14 (Session: 🎮 GD — прохождения уровня + внешние ссылки медиа)
-- **[TASK]** Запрос пользователя: «Усовершенствовать систему прохождений в ГД — при нажатии на уровень список прохождений; при клике на виктора ссылка на профиль и медиа; в заявке можно выбрать файл / внешнюю ссылку; большие файлы не принимаются» (коммит `9b0b74d`, задеплоено).
+- **[TASK]** Запрос пользователя: «Усовершенствовать систему прохождений в ГД — при нажатии на уровень список прохождений; при клике на виктора ссылка на профиль и медиа; в заявке можно выбрать файл / внешнюю ссылку; большие файлы не принимаются» (коммит `fe5c1be`, задеплоено).
   - **Новая страница** `/gd/level/<int:id>` + `GET /api/gd/level/<int:id>/completions`: approved-прохождения уровня (дедуп по игроку, последнее медиа), meta уровня (позиция/сложность, live-сложность только как fallback). Виктор: `player_name` по COALESCE-приоритету лидерборда (gd_nickname→display_name→tg_first_name→tg_username→s.username), для web-игроков «профиль →» `/u/<login>`, медиа-ссылка + inline-превью прямых image/video-URL и `data:`-URL, бирка «🔗 внешняя ссылка».
   - **Лидерборд:** имя уровня стало ссылкой на страницу прохождений (admin-edit не сломан — cell content подменяется input'ом).
   - **Сабмит:** переключатель «📎 Файл / 🔗 Ссылка» (кнопки `mode-file-btn`/`mode-link-btn`); внешняя http(s)-ссылка → `media_type="link"`, хранится в `media_file_id` (лимит 2048 симв., блок `javascript:`/`data:`/`file:`/`vbscript:` через `urlparse`); файл ИЛИ ссылка, оба → 400 «один источник медиа»; файл ≤16 МБ (413 + клиентская проверка, текст «макс. 16 МБ»).
@@ -643,8 +659,8 @@ _Баги добавляются по ходу тестирования оста
   - **⚡ Первый виктор:** в `get_gd_level_completions` вычисляется `MIN(submitted_at)` и ставится флаг `is_first`; на странице уровня — жёлтый бейдж «⚡ Первый виктор» у самого раннего виктора.
   - Тесты: +3 в `test_web_portal_e2e.py` (`test_gd_normalized_difficulty`, `test_gd_players_page_and_api`, `test_gd_first_completion_badge`); DDL `player_stats` дополнен columns points/demons_count. 9/6 зелёных (gd×6 + social×3); ruff + `node --check` (gd/gdlevel/gdplayers/gdplayer) — всё чисто. Vercel deploy OK.
   - 🟢 **Known issue FIXED:** `/api/gd/leaderboard` больше не блокируется (энричмент только когда позиция неизвестна). Прод-дым: `/gd/players` 200, `/api/gd/players` → data OK.
-  - **[FIX `57e6e84`]** `_gd_ensure_points_backfill` — ленивый пересчёт `player_stats` для строк, созданных до появления колонок points/demons_count (вызывается в `get_gd_players`/`get_gd_player_profile`; прод-данные → топ игроков наполнился, leaderboard 0.84s). Прод-коллизия имён «LucasTeam» (2 tg-аккаунта с одинаковым display name) — пользователь подтвердил: оба его; объединены в алиас `ShadowRaven` (см. ниже).
-- **[TASK] «оба lucasteam — это я. shadowraven нет в топе»** — объединение аккаунтов одного игрока (коммит `96ed0ca`):
+  - **[FIX `d80ab4d`]** `_gd_ensure_points_backfill` — ленивый пересчёт `player_stats` для строк, созданных до появления колонок points/demons_count (вызывается в `get_gd_players`/`get_gd_player_profile`; прод-данные → топ игроков наполнился, leaderboard 0.84s). Прод-коллизия имён «LucasTeam» (2 tg-аккаунта с одинаковым display name) — пользователь подтвердил: оба его; объединены в алиас `ShadowRaven` (см. ниже).
+- **[TASK] «оба lucasteam — это я. shadowraven нет в топе»** — объединение аккаунтов одного игрока (коммит `72f7629`):
   - **`gd_aliases`** (`user_id PK, alias`): привязка нескольких аккаунтов к одному каноническому GDL-имени. Бутстрап в `_ensure_gd_tables`: `(1597272920, 'ShadowRaven')`, `(2091908459, 'ShadowRaven')` (idempotent ON CONFLICT DO NOTHING). Web-аккаунт `lucasteam` НЕ трогал (пользователь: «объедини 2» — только два TG).
   - **Alias-aware везде:** `/api/gd/players` группирует по алиасу в Python (сумма очков/демонов/total_approved, hardest = min-позиция, LIMIT после группировки); карточка `/gd/player/ShadowRaven` объединяет статистику и прохождения членов (дедуп по уровню, ранняя дата, через `_gd_group_player_completions`); викторы `/api/gd/level/<id>/completions` дедупятся по алиасу (uid+alias в SELECT, ключ `alias_col`); completers в лидерборде — alias-подзапрос в STRING_AGG.
   - Тесты: `gd_aliases` в e2e-DDL + `test_gd_alias_merge` (2 tg → «ShadowRaven» rank1, points 1500, completions_union 2, виктор один). 10/10 зелёные; ruff + py_compile чисто. Vercel deploy OK, прод smoke → `/api/gd/players` показывает единый «ShadowRaven» rank1.
@@ -679,12 +695,12 @@ _Баги добавляются по ходу тестирования оста
   - Промпт-инъекция контекста (предыдущая итерация `extra_context`/`_ai_chat_context_block`/`_oge_data_snapshot`) удалена полностью — заменена инструментами.
   - Состояние чекбоксов в `localStorage.ai_chat_context`, default OFF; payload `/api/ai_chat` → `context:{curator,oge}`.
   - Проверки: `node --check` (JS страницы) OK, `py_compile` OK, `ruff` OK, smoke POST с обеими группами → 200 (AI ответил; для «тест» инструменты не понадобились).
-  - Коммиты: `4d640d9` (промпт-контекст, доработан до tools) → `18fa357` (финал: инструменты). Задеплоено (Ready).
+  - Коммиты: `ba59a7a` (промпт-контекст, доработан до tools) → `c08a325` (финал: инструменты). Задеплоено (Ready).
 
 ### 2026-09-12 (Session: 🔀 Хаб — тумблер вкл/выкл сортировки по популярности)
 - **[TASK]** Запрос пользователя: «сделай чтобы сортировка вкл-выкл».
   - Чекбокс «Сортировать модули по популярности» над сеткой модулей (`#hub-sort-toggle`, `.hub-sort-bar`).
-  - Состояние в `localStorage.hub_sort_popularity`; **default = OFF** — сортировка включается явно (`=== '1'`), при '0'/отсутствии — выкл (коммит `053a7d7`).
+  - Состояние в `localStorage.hub_sort_popularity`; **default = OFF** — сортировка включается явно (`=== '1'`), при '0'/отсутствии — выкл (коммит `76568fb`).
   - ON: кэш популярности грузится один раз, сортируются main и beta-секции отдельно (только прямые дети).
   - OFF: `restoreOrder()` возвращает карточки в порядок по умолчанию, захваченный при загрузке (`DEF_MAIN`/`DEF_BETA`).
   - Переключение через `onchange="toggleHubSort()"`; повторное включение без ре-фетча (кэш `HUB_SORT_DATA`).
@@ -692,19 +708,19 @@ _Баги добавляются по ходу тестирования оста
 
 ### 2026-09-12 (Session: 🧹 Хаб — бета-карточки перескочили в основной раздел)
 - **[HUB-BUG]** Репорт пользователя: «бета модули появились в основном».
-  - **Корень:** фича сортировки по популярности (`sortModulesByPopularity`, коммит `61189c4`) — `sortContainer('.cards')` использовал `container.querySelectorAll('a.card')`, который выбирает ВСЕХ потомков-карточек, а `#beta-cards` вложена ВНУТРЬ `.cards` → 13 бета-карточек физически переехали в главную сетку (вставка через insertBefore в `.cards`), `#beta-cards` опустел.
-  - **Фикс (коммит `03c9ab3`):** фильтр `c.parentNode === container` — сортируются только прямые дети контейнера; структура main/beta не трогается, виджеты OGE/куратор остаются на месте.
+  - **Корень:** фича сортировки по популярности (`sortModulesByPopularity`, коммит `c79658f`) — `sortContainer('.cards')` использовал `container.querySelectorAll('a.card')`, который выбирает ВСЕХ потомков-карточек, а `#beta-cards` вложена ВНУТРЬ `.cards` → 13 бета-карточек физически переехали в главную сетку (вставка через insertBefore в `.cards`), `#beta-cards` опустел.
+  - **Фикс (коммит `aebda78`):** фильтр `c.parentNode === container` — сортируются только прямые дети контейнера; структура main/beta не трогается, виджеты OGE/куратор остаются на месте.
   - Проверки: `node --check` (выделенный блок) OK, `py_compile` OK, `ruff` OK. Задеплоено (Ready).
 
 ### 2026-09-12 (Session: 🎮 GD — правка сложности не сохранялась на экране)
 - **[GD-BUG]** Репорт пользователя: «в ГД меняю Хардер на Инсэйн, жму галочку ✅, а оно опять Хардер показывает».
   - **Корень:** `api_gd_leaderboard` (api/index.py:~6535) каждую загрузку **перезаписывал** сохранённую сложность свежим значением из gdbrowser API по имени уровня (`if d and d != "Unknown": lv["difficulty"] = d`). PUT-эндпоинт сохранял «Insane» в БД, но рефреш таблицы показывал live-значение «Harder» снова.
-  - **Фикс (коммит `a60587a`):** live-эпричмент теперь только fallback — применяется лишь когда сохранённая сложность пустая/`Unknown`/`-`. Ручная правка админа больше не затирается.
+  - **Фикс (коммит `318a032`):** live-эпричмент теперь только fallback — применяется лишь когда сохранённая сложность пустая/`Unknown`/`-`. Ручная правка админа больше не затирается.
   - Проверки: `py_compile` OK, `ruff` OK.
 
-> Запрос пользователя: «продолжай охоту на баги». Субагенты аудировали модули; параллельно вытянут `git pull` remote `b275395..4f6b25b` (big-changes: `bot/web/family_budget.py` — session-token-first auth fix, `api/dnd_runtime.py` — `_sanitize_for_prompt`, ротация Groq API-ключей, удалены `reading_trainer.html`/`setup_webhook.html`/`webapp/reading_trainer*`, добавлен `tests/unit/test_code_explainer.py`). Конфликт `api/index.py` разрешён (слейт AST blocklist + sandbox), stash применён, **семейство IDOR починил remote.**
+> Запрос пользователя: «продолжай охоту на баги». Субагенты аудировали модули; параллельно вытянут `git pull` remote `b108ce9..ccd6dd2` (big-changes: `bot/web/family_budget.py` — session-token-first auth fix, `api/dnd_runtime.py` — `_sanitize_for_prompt`, ротация Groq API-ключей, удалены `reading_trainer.html`/`setup_webhook.html`/`webapp/reading_trainer*`, добавлен `tests/unit/test_code_explainer.py`). Конфликт `api/index.py` разрешён (слейт AST blocklist + sandbox), stash применён, **семейство IDOR починил remote.**
 
-#### 🔴 Исправлено (коммит `61189c4`, задеплоено на bank-bot-ruby)
+#### 🔴 Исправлено (коммит `c79658f`, задеплоено на bank-bot-ruby)
 
 | # | Модуль | Проблема | Фикс |
 |---|--------|----------|------|
@@ -720,7 +736,7 @@ _Баги добавляются по ходу тестирования оста
 
 - **DnD/Chess `_dnd_require_auth`/`_chess_require_auth`** — НЕ IDOR: это анонимная bearer-идентичность (localStorage `web_*`-токены, шеринг-сессии), менять = сломать званого доступ. Оставлено как есть.
 - **Chess `api_chess_link` `force`** — by-design (при анонимной модели затирание своей же ссылки), но с фиксом remote (`_get_user_id` session-first) риск незначимый. Low.
-- **Family Budget IDOR** — remote в `4f6b25b` уже переключил `_get_user_id` на session-token-first (X-Auth-Token → web session → telegram_id). Больше ничего не нужно.
+- **Family Budget IDOR** — remote в `ccd6dd2` уже переключил `_get_user_id` на session-token-first (X-Auth-Token → web session → telegram_id). Больше ничего не нужно.
 - **TransactionService** пишет без явной DI-сессии — by-design: мутации идут через свежий UnitOfWork внутри вызова, а не через открытую сессию.
 - **XSS `'` в esc()** (`api/index.py:~1258`) — не эксплуатируется: `_gdEsc` строит DOM через textContent, нет single-quote интерполяций в HTML-атрибутах. Low/cosmetic.
 
@@ -787,9 +803,9 @@ _Баги добавляются по ходу тестирования оста
 - **Верифицировано**: `py_compile` ✓, `ruff` ✓, `node --check` JS ✓, 7/7 тестов ✓
 
 ### 2026-09-01 (Session: 🔧 Дедлок миграций + чистка мёртвого кода и моста)
-- **[PROD-BUG] Study ALTER deadlock в live-логах Telegram** (`[STUDY] alter skipped`): каждый serverless cold start гонял `_ensure_study_progress_tables`, параллельные `ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at/last_correct_at` в одной общей транзакции дедлочились (`DeadlockDetected`) и «убивали» транзакцию (`InFailedSqlTransaction` → aborted). Фикс (`0346cf8`): ALTER вынесены в автономные `_alter_add_column_if_missing` (свой `engine.begin()` на каждую), перед ALTER — `_column_exists` (pragma_table_info SQLite / information_schema PG), retry ×4 на deadlock/serialization/aborted с backoff. Проверки: старая таблица без колонок → мигрируется; свежая → no-op. `py_compile`/`ruff` чисто.
-- **[CHORE] Удаление мёртвого кода** (`1aa158c`): `bot/commands/beta_commands.py`, `bot/handlers/message_handler.py`/`callback_handler.py` (aiogram-стабы, не регистрировались), `core/managers/scheduler_manager.py`, `core/school/` (пустой пакет), `core/systems/beta_economy.py` — ни одного импорта в коде/тестах.
-- **[CHORE] Удаление неиспользуемого TG↔VK моста** (`bab353c`): `bridge_bot/` + `vk_bot/` + `bot/bridge/` целиком + тесты (`tests/bridge/`, `tests/vk_bot/`, `tests/unit/test_bridge_*`) + `TestBridgeBotSmoke`/`TestVKBotSmoke` из `tests/smoke/test_startup.py` + докстринги (`bot/main.py`, `bot/middleware`, `common`). Мост выключен `BRIDGE_ENABLED=false`, не используется прод-путём (`run_bot.py`/`api/index.py`). Архитектура: **один** основной PTB-бот в `bot/`; мост был вложенным отдельным aiogram-входом.
+- **[PROD-BUG] Study ALTER deadlock в live-логах Telegram** (`[STUDY] alter skipped`): каждый serverless cold start гонял `_ensure_study_progress_tables`, параллельные `ALTER TABLE study_progress ADD COLUMN IF NOT EXISTS created_at/last_correct_at` в одной общей транзакции дедлочились (`DeadlockDetected`) и «убивали» транзакцию (`InFailedSqlTransaction` → aborted). Фикс (`e4be0ff`): ALTER вынесены в автономные `_alter_add_column_if_missing` (свой `engine.begin()` на каждую), перед ALTER — `_column_exists` (pragma_table_info SQLite / information_schema PG), retry ×4 на deadlock/serialization/aborted с backoff. Проверки: старая таблица без колонок → мигрируется; свежая → no-op. `py_compile`/`ruff` чисто.
+- **[CHORE] Удаление мёртвого кода** (`4053ed0`): `bot/commands/beta_commands.py`, `bot/handlers/message_handler.py`/`callback_handler.py` (aiogram-стабы, не регистрировались), `core/managers/scheduler_manager.py`, `core/school/` (пустой пакет), `core/systems/beta_economy.py` — ни одного импорта в коде/тестах.
+- **[CHORE] Удаление неиспользуемого TG↔VK моста** (`0c617fa`): `bridge_bot/` + `vk_bot/` + `bot/bridge/` целиком + тесты (`tests/bridge/`, `tests/vk_bot/`, `tests/unit/test_bridge_*`) + `TestBridgeBotSmoke`/`TestVKBotSmoke` из `tests/smoke/test_startup.py` + докстринги (`bot/main.py`, `bot/middleware`, `common`). Мост выключен `BRIDGE_ENABLED=false`, не используется прод-путём (`run_bot.py`/`api/index.py`). Архитектура: **один** основной PTB-бот в `bot/`; мост был вложенным отдельным aiogram-входом.
   - **NE трогать (ложные срабатывания аудита):** `core/repositories/` (активно, через core.di/services), reading_trainer (рабочая страница `/reading_trainer.html`), `audio_service/`, `vk_mini_app/` (сервисы), `database/migrations/*.sql` (читаются `migrate.py` через glob).
 
 ### 2026-09-01 (Session: 🏛 Трекер учебников — защита от дубликатов)
@@ -798,7 +814,7 @@ _Баги добавляются по ходу тестирования оста
   - Клиент (`/textbooks`): `m-add` сверяет `subject+title` в `books` и отклоняет дубль до отправки; кнопка блокируется на время fetch.
   - Тест `test_duplicate_subject_title_rejected` → suite 9/9 passed. JS `node --check` OK, `py_compile`/`ruff` чистые.
   - **Замечание (среда):** локально в Termux bcrypt не импортируется (пакет Rust-based, нет wheel для py3.13 Termux, `pkg`/`apt` не дают rust) → тесты прогоняю с ручным stub'ом `bcrypt` в sys.modules. На Vercel/CI bcrypt ставится из requirements.txt. В PR-код стуб не вносился.
-  - **Git: `git pull` вызвал конфликт веток (remote `ffe5e5f` vs local `29f3ce5`)** — сделан `rebase origin/main`, конфликты `activeContext.md` разрешены, stash (серверная проверка) применён, bcrypt и remote-фиксы (Family bcrypt, Exam DB, admin auth, log_error) подтянуты.
+  - **Git: `git pull` вызвал конфликт веток (remote `2bbc0e8` vs local `29f3ce5`)** — сделан `rebase origin/main`, конфликты `activeContext.md` разрешены, stash (серверная проверка) применён, bcrypt и remote-фиксы (Family bcrypt, Exam DB, admin auth, log_error) подтянуты.
 
 ### 2026-08-27 (Session 9d: 🐉 DnD — шаринг сессий + выпуск модулей из беты)
 - **[DND-BUG-1] исправлен:** добавлен шаринг DnD-сессий для совместной игры с друзьями.
@@ -827,12 +843,12 @@ _Баги добавляются по ходу тестирования оста
   - `[BANK-BUG-8]` `motivation_system.py`: стрик ежедневного бонуса считался от сегодня → всегда 0 → множители не применялись; теперь считаем до вчера, награда `calculate_bonus_amount(streak+1)`.
   - `[BANK-BUG-9]` `beta_economy.py:57` `datetime.now()` → `datetime.utcnow()` (истечение лотов по таймзоне).
 - **Открытые/архитектурные (не чинил, записаны выше):** `[BANK-BUG-10]` две реализации магазина, `[BANK-BUG-11]` неатомарная покупка, `[BANK-BUG-12]` инертный `ParserRegistry`; `[SEC-BUG-5/6]` доверие MIME клиента в каноне / мёртвый CORS-блок.
-- **Проверки:** `ast.parse` по api/index.py и core-файлам OK; `tests/unit/test_music.py` 7 passed. **Закоммичено `92b7f44`, задеплоено на `bank-bot-ruby.vercel.app` (Ready).**
+- **Проверки:** `ast.parse` по api/index.py и core-файлам OK; `tests/unit/test_music.py` 7 passed. **Закоммичено `a598a52`, задеплоено на `bank-bot-ruby.vercel.app` (Ready).**
 
 ### 2026-08-28 (Session: музыка — анализ не работал на реальных файлах)
 - **[MUSIC-BUG-1]** (high, реальный репорт «всё равно не анализируется музыка»): изолированно сервис работал (MIDI/WAV 200 JSON), но на реальных аудио падало. **Корень:** `analyze` для аудио грузил весь файл ДВАЖДЫ (BPM + тональность) через `librosa.load` → 30с клип = 14с, холодный старт ещё больше → Vercel убивал функцию по дефолтному лимиту **10с** → браузер видел сбой.
 - **Фикс:** `core/music/audio_utils.analyze_audio` грузит трек один раз с капом `duration=20s, sr=16kHz` (~2x быстрее); `detect_bpm`/`detect_key` тоже через `_load` с duration-капом. Аудио-сервис: `maxDuration` 10s→**60s** (`vercel.json`: убран `builds`, оставлен `functions`). В LTHub — понятное сообщение при таймауте («попробуйте фрагмент до ~30с»).
-- **Проверка:** прод `audioservice.vercel.app` `/api/music/analyze` на 30с WAV теперь 200 за ~22с (холодный, с JIT) — в лимите 60с; MIDI 120 BPM. **Закоммичено `7547813`, задеплоено (audioservice + bank-bot-ruby).**
+- **Проверка:** прод `audioservice.vercel.app` `/api/music/analyze` на 30с WAV теперь 200 за ~22с (холодный, с JIT) — в лимите 60с; MIDI 120 BPM. **Закоммичено `7a7e527`, задеплоено (audioservice + bank-bot-ruby).**
 - **Остаток:** `change_tempo`/`change_key`/`overlay` грузят полный трек (нужен для синтеза) — на очень длинных файлах всё ещё могут упираться в 60с; при необходимости тоже капать длительность.
 
 ### 2026-08-31 (Session: архитектурные фиксы — bcrypt, exam DB, admin auth, log_error)
@@ -920,13 +936,13 @@ _Баги добавляются по ходу тестирования оста
 - `_CURATOR_HANDLERS`: 7 новых handler-функций
 - `_curator_tool_action()`: 8 новых меток (с emoji) для UI «куратор думает...»
 - Системный промпт: 7 новых JSON-схем в блоке ИНСТРУМЕНТЫ
-- Коммит `de04529`, задеплоено.
+- Коммит `4a0e15f`, задеплоено.
 
 ### 2026-08-31 (Session: аудит и фикс бета-модулей — 3 раунда, ~29 багов)
 
 > Запрос пользователя: «еще улучшь бета модули и найди больше багов(и пофикси их)». Запущены параллельные субагенты для глубокого аудита D&D, Trivia, Family, Verbs, Music, AI Chat, Exam, Suggest, Textbooks.
 
-#### Raund 1 (12 багов, коммит `c79243d` → `86773f8`)
+#### Raund 1 (12 багов, коммит `2b8c3ec` → `7a38860`)
 - **[DND-FIX-1]** `dnd_page()` — добавлен `Content-Type: text/html; charset=utf-8` (был bare `return html`).
 - **[DND-FIX-2]** `sendAction()` — добавлен `hubTrack('dnd', 1)` (AI-действия не считались в ачивки).
 - **[DND-FIX-3]** CSS hover кнопки `.btn:hover`/`.btn-stop:hover` — были одинаковые с дефолтом, добавлены darker shades.
@@ -940,7 +956,7 @@ _Баги добавляются по ходу тестирования оста
 - **[VERB-FIX-2]** `api_verbs_submit()` — убран двойной `_load_verb_exercise()` (2 DB queries → 1).
 - **[MUSIC-FIX-1]** Все music endpoints — добавлен `shutil.rmtree` в `finally` для temp file cleanup.
 
-#### Raund 2 (10 багов, коммит `5a4a526` → `0927dd9`)
+#### Raund 2 (10 багов, коммит `f404bcf` → `17be977`)
 - **[DND-FIX-5]** Ограничения длины ввода: action text 2000, session name 100, fix text 1000, dice 50, purpose 200.
 - **[DND-FIX-6]** `api_dnd_stop()` — generic error message вместо утечки Python-исключений.
 - **[DND-FIX-7]** `api_dnd_roll()` — rate limiting 20/min (триггерит AI calls).
@@ -952,7 +968,7 @@ _Баги добавляются по ходу тестирования оста
 - **[AICHAT-FIX-2]** `_VIRTUAL_PC` eviction — max 50 виртуальных ПК, LRU-style eviction.
 - **[AICHAT-FIX-3]** Message limits — 4000 chars, history cap 20 messages.
 
-#### Raund 3 (7 багов, коммит `72ecbf5` → `78484ad`)
+#### Raund 3 (7 багов, коммит `7f84994` → `51f6bb7`)
 - **[AICHAT-FIX-4]** `_tool_browse_web` SSRF protection — блокировка private/loopback/reserved IP через `ipaddress.ip_address()`, блокировка internal hostname'ов (localhost, 169.254.169.254, metadata.google.internal), ограничение редиректов (макс. 2), cap response 50KB.
 - **[VERB-FIX-3]** `_load_verb_exercise()` — `json.loads` с try/except (2 crash-бага).
 - **[VERB-FIX-4]** `_load_verb_submissions()` — аналогично.
@@ -975,7 +991,7 @@ _Баги добавляются по ходу тестирования оста
 
 ### 2026-08-28 (Session: музыка — цепочка регрессов кнопки/анализа)
 - **Истинная первопричина «не работает музыка»**: `MUSIC_API_BASE` инжектился через `json.dumps` внутри ШАБЛОНА в одинарных кавычках → `var MUSIC_API_BASE='"https://audioservice..."'` — двойные кавычки стали литералами внутри JS-строки. fetch уходил по невалидному URL и резолвился ОТНОСИТЕЛЬНО ОРИГИНА LTHub (а не на audioservice) → крупные файлы давали **413** на прокси LTHub, мелкие — **404**. Все предыдущие симптомы (timeout/ничего не происходит/413/404) были следствием этого + побочных правок.
-- **Фикс:** убраны одинарные кавычки из шаблона, `json.dumps` теперь формирует корректную JS-строку `var MUSIC_API_BASE="https://audioservice.vercel.app";`. Плюс client-side компрессор аудио (20с@16кГц моно WAV ~0.6МБ) как защита от реального лимита Vercel ~4.5МБ. Коммиты `357d969`, `707268a`, задеплоено.
+- **Фикс:** убраны одинарные кавычки из шаблона, `json.dumps` теперь формирует корректную JS-строку `var MUSIC_API_BASE="https://audioservice.vercel.app";`. Плюс client-side компрессор аудио (20с@16кГц моно WAV ~0.6МБ) как защита от реального лимита Vercel ~4.5МБ. Коммиты `a732fa6`, `513dae3`, задеплоено.
 - **Правило проекта (подтверждено граблями):** при инъекции строки в inline-JS НЕ оборачивать `json.dumps` в доп. кавычки шаблона — либо `json.dumps` без кавыч в шаблоне, либо чистая интерполяция без `json.dumps`. И после каждой правки embedded-JS обязательно проверять итоговый отрендеренный `<script>` (не только `node --check` исходника, а именно вывод страницы).
 
 ### 2026-08-27 (Session 9c: 📊 Общая статистика как модуль + блок в кабинете)
@@ -1037,13 +1053,13 @@ _Баги добавляются по ходу тестирования оста
 ### 2026-08-26 (Session 7: ИИ-алгоритм — куратор выбирает вопрос из БД)
 - **`/api/quiz/ai-generate`** (POST): ИИ-куратор **выбирает лучший вопрос из БД** для ученика, а не генерирует новый. Алгоритм: (1) строит каталог всех вопросов модуля (ключ + текст + тема), (2) получает слабые карточки ученика из `study_progress`, (3) отправляет каталог + слабые куратору с проритетами: слабые → новые → повтор, (4) куратор возвращает ключ, (5) сервер ищет полный вопрос в пуле и отдаёт с MCQ-опциями. Фоллбэк при недоступном AI: случайная слабая или случайная из каталога. Промпт НЕ сохраняется в историю чата.
 - **Кнопка "ИИ (генерация)"** во всех 5 модулях: Math/Physics/Russian — `renderAiQuestion()`, History/emperors — `loadAiQuestion()`, Informatics — `loadInfoAiQuestion()`. Informatics также получил НОВЫЙ algo-selector (Перемешать / ИИ).
-- **53 тестов passed**, ruff clean. Деплой `be76752` ✓ Ready.
+- **53 тестов passed**, ruff clean. Деплой `481b17c` ✓ Ready.
 
 ### 2026-08-26 (Session 6b: Алгоритм smart/flash/deck на страницах ОГЭ)
 - **Выбор алгоритма** добавлен на страницы Математика, Физика и Русский язык: `<select id="f-algo">` / `<select id="r-algo">` с тремя вариантами — `smart` (слабые первые, по умолчанию), `flash` (интервалы), `deck` (колода). Каждая страница хранит свой выбор в localStorage (`math_f_algo`, `physics_f_algo`, `russian_r_algo`).
 - **`pickFormula()` / `pickRule()`** — новый пикер, заменяющий последовательный `fIdx++`. Алгоритм `smart` приоритизирует: weak (streak < 0) → unseen (reps = 0) → due (due <= now) → rest. Алгоритм `flash` — аналог Emperors page (overdue/new/not-yet-due). `deck` — перемешанная колода.
 - **SRS-трекинг per formula/rule** — отдельный объект `fFlash` / `rFlash` (localStorage) с ease, interval, due, streak. Обновляется при каждом ответе через `fFlashUpdate` / `rFlashUpdate`. Статистика: выучено + повтор в строке прогресса.
-- **53 тестов passed**, ruff clean, node --check OK. Деплой `675d947` ✓ Ready.
+- **53 тестов passed**, ruff clean, node --check OK. Деплой `3dc72ec` ✓ Ready.
 
 ### 2026-08-26 (Session 6: Максимальная прокачка OGE-системы)
 - **SM-2 → стандартный алгоритм.** Ease factor теперь растёт (+0.1 при правильном ответе, потолок 3.0) и падает (−0.2 при ошибке, пол 1.3). Обновлено на сервере (`_study_record_one` Python) и во всех 5 клиентских копиях (emperors `recordAnswer`, math/physics/russian `record`, informatics `infoRecord`). Раньше ease никогда не рос — теперь повторение интервалов геометрически растёт при хорошем знании.
@@ -1056,7 +1072,7 @@ _Баги добавляются по ходу тестирования оста
 - **Аналитический дашборд `/analytics`**: полная страница — серия дней (streak), общий прогресс (readiness bar), сегодня (cards/correct_rate/score), per-module progress bars (clickable), forecast grid (14 дней, hot/active/empty), слабые места (clickable).
 - **Хаб: прогресс-бары на OGE-карточках** + ссылка на Аналитику ОГЭ. Функция `loadOgeStats()` тянет `/api/study/stats` и рендерит mastered/total + due + weak на каждой карточке.
 - **Тесты:** 8 новых в test_study_progress.py (stats, due-cards, quiz generate/check, analytics). Итого: test_curator 17 + test_study_progress 16 + test_emperors_module 20 = **53 passed**. ruff clean, node --check OK для хаба и analytics.
-- **Деплои:** `64189e9` (SM-2 + инфо + физика + stats + хаб), `73fa99d` (аналитика + квиз + due-cards), `c9e4021` (fix analytics JS escape). Все на проде ✓ Ready.
+- **Деплои:** `318971b` (SM-2 + инфо + физика + stats + хаб), `787bf42` (аналитика + квиз + due-cards), `14989a2` (fix analytics JS escape). Все на проде ✓ Ready.
 - **⚠️ Паттерн:** `\'` в Python triple-quoted template → `'` в JS (Python consumed backslash). Для onclick handlers нужен `\\'` → `\'` в JS (escaped quote inside single-quoted string). Обнаружено через `node --check` на отрендеренном output.
 
 ## Changelog
@@ -1065,12 +1081,12 @@ _Баги добавляются по ходу тестирования оста
 - **План дня: два типа заданий.** `kind:"fix"` — исправить ошибки: зачёт = верный ответ сегодня на слабую карточку (`wrong_count>0 AND last_correct_at>=начала суток`), одна карточка в день считается один раз (по строке на карточку); `kind:"new"` — изучить новые: зачёт = первая работа с карточкой сегодня (`created_at>=начала суток`). ИИ-план возвращает `{module, kind, cards 3-30, topic?}` — topic это фильтр-подстрока по card_key (LOWER LIKE). Rule-планировщик выбирает тип сам: weak>0 → fix («🛠 Исправить ошибки…»), иначе new («✨ Изучить новые…»).
 - **Схема:** `study_progress` += `created_at REAL DEFAULT 0`, `last_correct_at REAL DEFAULT 0` (+ idempotent ALTER для прода; `_study_record_one` проставляет обе метки). ⚠️ SQLite-фикстуры тестов обновлены вручную.
 - **🐛 Синк прогресса Истории между устройствами (репорт Луки: разный ранг на телефонах и ПК):** страница `/emperors` жила на localStorage + `/api/emperors/progress` (отдельная таблица!), а мердж при загрузке брал серверную карту только если её `due` строго новее локальной — устройства расползались. Фикс: страница переведена на единую `/api/study/progress` (module=history): GET отдаёт `ts` (=updated_at) и streak; мердж по ts (сервер >= локали → берём сервер), затем pushFlash доливает локальные более свежие записи на сервер. Бонус: автозачёт планов по истории теперь видит реальную активность (раньше emperors_activity писалась мимо study_progress, миграция была one-shot).
-- **Проверки:** ruff clean; test_curator 17 (новые: подсчёт fix/new/topic, план с двумя типами, снапшот), test_study_progress 8, test_emperors_module 20 = 45 passed; node --check хаба и /emperors OK. Коммит `ce28185` запушен.
+- **Проверки:** ruff clean; test_curator 17 (новые: подсчёт fix/new/topic, план с двумя типами, снапшот), test_study_progress 8, test_emperors_module 20 = 45 passed; node --check хаба и /emperors OK. Коммит `d63840d` запушен.
 - Примечание: анонимы (без входа) синхронизироваться не могут по определению — прогресс привязан к аккаунту через токен.
 
 ### 2026-08-26 (Session 4: автозачёт плана дня вместо ручной кнопки)
 - **Решение пользователя:** кнопка «✓ Отметить выполненным» убрана — зачёт только автоматический.
-- **Механика (`f2ef98e`):** пункт плана получает `cards` (целевое число карточек; rule-планировщик `max(3, per)`, ИИ-план теперь просит `"cards":N` 3–30 и формулирует text под объём). Пункт закрыт, когда в `study_progress` у предмета today `updated_at >= начала суток` записей >= target (`_touched_today_by_module`, `_item_target`, `_auto_plan_done`). `_plan_payload(row, uid)` считает per-item done/target и общий done=число закрытых пунктов. `_snapshot_auto_done` пишет автозначение в done_count при каждом GET/POST плана — история для облегчения завтрашнего плана сохранена. Роут `/api/study/plan/done` удалён (404).
+- **Механика (`886838c`):** пункт плана получает `cards` (целевое число карточек; rule-планировщик `max(3, per)`, ИИ-план теперь просит `"cards":N` 3–30 и формулирует text под объём). Пункт закрыт, когда в `study_progress` у предмета today `updated_at >= начала суток` записей >= target (`_touched_today_by_module`, `_item_target`, `_auto_plan_done`). `_plan_payload(row, uid)` считает per-item done/target и общий done=число закрытых пунктов. `_snapshot_auto_done` пишет автозначение в done_count при каждом GET/POST плана — история для облегчения завтрашнего плана сохранена. Роут `/api/study/plan/done` удалён (404).
 - **UI:** виджет — «Автоматически закрыто X из Y», чипы прогресса d/target на частично выполненных пунктах; модалка — справа «d/N карт» или «✅ готово», поясняющая строка вместо кнопки, 🎉 при полном закрытии; pollToday раз в минуту тихо подтягивает свежий план. Чат куратора: в контекст идёт автостатус («прогресс d/target», «✅»).
 - **Совместимость:** старые items без cards → target = minutes (клампы 2..40); фронт и бэк деплоятся парой.
 - **Проверки:** test_curator 16/16 (done-тест переписан: активность по математике → закрыт только её пункт, снапшот в done_count, /plan/done → 404); с test_study_progress 24 passed; ruff clean; node --check хаба OK.
@@ -1078,7 +1094,7 @@ _Баги добавляются по ходу тестирования оста
 ### 2026-08-26 (Session 3: куратор — реалистичное время и названия карточек; прод смоукнут)
 - **Повод (репорт Луки):** куратор советовал «разобрать одну карточку (5 минут)» и сыпал техническими ключами `event::Крымская война`.
 - **Фиксы:** нормы времени в промпте чата (карточка ~0,5–1 мин, задача 2–4 мин; группировать в пачки под бюджет; не показывать ученику ключи); слабые карточки в данных тула progress отдаются человекочитаемыми именами (`_card_display_name`: префикс `типа::` снимается, если хвост содержит кириллицу; полные ключи остаются только в строке «Ключи» для тула card) + строка «повторение одной карточки ~1 минуту»; ИИ-план (`_plan_items_ai`): требование реалистичных minutes и сумма ≤ бюджета, кламп пункта снижен 5→2 мин; rule-планировщик: `per = max(2, …)` вместо max(5,…).
-- **Прод-смоук:** `/` → 200; чат с тулом progress по Истории → actions=[листает журнал…], в ответе нет `event::`, совет пачкой «5–10 карточек». Деплой fbbc59d ✓ Ready in 36s.
+- **Прод-смоук:** `/` → 200; чат с тулом progress по Истории → actions=[листает журнал…], в ответе нет `event::`, совет пачкой «5–10 карточек». Деплой 775ea41 ✓ Ready in 36s.
 - Тесты 24 passed, ruff clean.
 
 ### 2026-08-26 (Session 2: куратор — тулы topic/card; фикс бета-раздела хаба; деплой через CLI)
@@ -1086,14 +1102,14 @@ _Баги добавляются по ходу тестирования оста
 - **🐛 Бета-раздел на хабе перестал открываться — причина найдена, виновник мой прошлый коммит.** В Python-шаблоне хаба `\n` внутри JS-регэкспов mdLite декодировалось в РЕАЛЬНЫЙ перевод строки → SyntaxError убивал весь `<script>` хаба (toggleBeta, loadUser, куратор — всё). Локальный рендер-тест строку ловил, но JS не проверялся. Фикс: удвоенные бэкслеши (`\\n`); **правило проекта: после правок embedded-JS обязательно `node --check` отрендеренного `<script>`** (паттерн из memory bank, теперь подтверждён граблями).
 - **Деплой впервые отсюда через Vercel CLI:** токен в `.env.local` как `VERCEL_TOKEN`; `VERCEL_TOKEN=… vercel deploy --prod --yes` → ✓ Ready in 28s, алиас bank-bot-ruby.vercel.app. Прод смоукнут: `/` → 200, toggleBeta/mdLite/статус-строка присутствуют, извлечённый `<script>` проходит `node --check`.
 - **Проверки:** ruff clean; test_curator 16/16 (+ассерты topic-фильтра, card, действий UI); с test_study_progress 24 passed.
-- Коммит `68249a9` запушен и задеплоен.
+- Коммит `9187420` запушен и задеплоен.
 
 ### 2026-08-26 (Session: куратор — markdown + инструменты-lookup)
 - **Markdown в чате куратора:** фронт рендерил ответы как сплошной текст (`textContent`). Добавлен `mdLite()` (escape-first → `**жирный**`, `` `код` ``, `*курсив*`, списки «- » → «•», `\n` → `<br>`), `bubble()` использует innerHTML для bot/sys и textContent для user — XSS безопасно.
 - **Инструменты-lookup (кодовое слово):** модель может ответить ТОЛЬКО `{"tool":...}` — `stats` (общая статистика), `progress` (+опц. `module`) — журнал карточек по предмету/всем (выучено = серия 3+, к повторению сегодня, слабые карточки с ✓/✗, разбивка по типам), `plan` — план дня. `_tool_directive()` парсит директиву, `_curator_tool_data()` собирает данные из `study_progress`/`oge_daily_plans`, второй вызов ИИ получает их блоком «Система передала данные» и даёт финальный ответ без JSON. Директива в историю чата НЕ пишется. В ответе API новое поле `actions`.
 - **UI:** на время запроса пузырь статуса «📖 Куратор смотрит твой журнал…» (удаляется по ответу); при lookup — центрированная системная строка `.cur-msg.sys` «🔍 Куратор листает журнал … 📖»; ответы рендерятся с markdown.
 - **⚠️ Грабля (поймана локальным рендером до пуша):** `\ud83d\udcd6` внутри Python-строки = два lone-surrogate → UnicodeEncodeError и 500 всей страницы хаба. Правило: эмодзи в JS-инъекциях писать только 8-значным `\U0001F4D6`.
-- **Проверки:** ruff clean; `test_curator.py` 16/16 (+4 новых: парсинг директив, данные инструментов, roundtrip c actions и чистотой истории, фолбэк при сбое второго вызова); вместе с test_study_progress 24 passed; локальный рендер `/`: mdLite/status/sys присутствуют, кодировка OK. Коммит `b90bf5d`, запушен.
+- **Проверки:** ruff clean; `test_curator.py` 16/16 (+4 новых: парсинг директив, данные инструментов, roundtrip c actions и чистотой истории, фолбэк при сбое второго вызова); вместе с test_study_progress 24 passed; локальный рендер `/`: mdLite/status/sys присутствуют, кодировка OK. Коммит `65c7128`, запушен.
 
 ## Changelog
 
@@ -1114,13 +1130,13 @@ _Баги добавляются по ходу тестирования оста
 - **Проблема:** при полной недоступности всех ИИ-провайдеров `/api/study/chat` возвращал 502, модалка куратора показывала «❌ Куратор временно недоступен».
 - **Фикс 1 — устойчивость `call_ai_api`:** сетевой сбой на модели Groq больше не обрывает перебор кандидатов (continue вместо return); 429 также пробует следующую модель; ошибка парсинга успешного ответа основного провайдера уходит в фоллбэк вместо мгновенного ❌.
 - **Фикс 2 — rule-based фолбэк куратора:** `_curator_fallback_reply(subjects, plan_lines)` — при недоступности ИИ чат отвечает автоподсказкой (план дня + совет по слабой теме из `_oge_subjects_payload`), сообщения сохраняются в историю; 502 убран.
-- **Подтверждено по git-логу:** итерация OGE-08…12 реализована коммитами `53ed71f`, `64b1b16`, `e5d948b`, `7d84430`, `1553840`, `fca5b62`; оба приоритетных бага исправлены в `83082af`.
+- **Подтверждено по git-логу:** итерация OGE-08…12 реализована коммитами `123b629`, `8c1889a`, `1614d73`, `974f6c7`, `cd98466`, `7d077bd`; оба приоритетных бага исправлены в `2bcf5e8`.
 - **Финальный деплой этой сессии:** `vercel --prod` ✓ Ready; прод смоукнут (`/`, `/emperors`, `/math`, `/exam` → 200; `/api/test_ai` → «Hello»).
 
 ### 2026-08-25 (Session: планирование — итерация «ИИ-куратор + UX», запись багов)
 
 - **ТЗ записано в `activeContext.md`** (полный текст от пользователя): ИИ-куратор-чат из виджета «План на день» (промпт = прогресс карточек + слабые темы + бюджет времени + история переписки из БД, прочерк если пусто); план генерируется раз в сутки при первом заходе, облегчается при невыполнении вчера, меняется только при смене целевого времени; чипы бюджета 5/10/15/20/30 мин; автопроверка вместо «Знаю/Не знаю»; термины истории — нативной вкладкой уровня Тренажёр/Сопоставление + режимы тренажёра «имена/события/термины/все сразу»; ИИ-подсказки темы/режима на всех страницах.
-- **`projectbrief.md` Phase 6 пересчитан** (сумма весов ровно 100): база завершена → 73 (OGE-FULL переключён в completed — волна контента задеплоена `16b13f9`), добавлены deliverables OGE-08 Куратор-чат (9), OGE-09 Персистентный план дня (8), OGE-10 Автопроверка (5), OGE-11 История вкладки/режимы (3), OGE-12 ИИ-подсказки везде (2).
+- **`projectbrief.md` Phase 6 пересчитан** (сумма весов ровно 100): база завершена → 73 (OGE-FULL переключён в completed — волна контента задеплоена `01143b1`), добавлены deliverables OGE-08 Куратор-чат (9), OGE-09 Персистентный план дня (8), OGE-10 Автопроверка (5), OGE-11 История вкладки/режимы (3), OGE-12 ИИ-подсказки везде (2).
 - **Записаны баги по протоколу пользователя:** [EXAM-BUG-1] сводный экзамен `/exam` не запускается; [AICHAT-BUG-1] AI Chat персонаж «Чай» → «Ошибка AI: 404» (гипотеза: модель/endpoint провайдера в `call_ai_api`). Оба — первоочередные.
 - Код не менялся; `last_checked_commit` без изменений.
 
@@ -1443,7 +1459,7 @@ _Баги добавляются по ходу тестирования оста
 
 **Проверки:** ruff All checks passed; py_compile OK (только pre-existing SyntaxWarning во встроенном JS); извлечённый JS тренажёра → `node --check` OK; flask test client `GET /reading_trainer.html` → 200 + все новые маркеры; `tests/unit/test_vercel_webhook_start.py` + `tests/unit/test_vercel_parsing_e2e.py` → 23 passed.
 
-**Обновление Memory Bank:** `projectbrief.md` MOM-05 pending→completed, Mom Module 19/22 → 20/22 (91%), Phase 2 96% → 97%, «Завершённые модули» Mom 19%→20%, Additional Tasks MOM-05 → completed. `activeContext.md` — заголовок секции MOM-05. `progress.md` `last_checked_commit` → `4eea518`.
+**Обновление Memory Bank:** `projectbrief.md` MOM-05 pending→completed, Mom Module 19/22 → 20/22 (91%), Phase 2 96% → 97%, «Завершённые модули» Mom 19%→20%, Additional Tasks MOM-05 → completed. `activeContext.md` — заголовок секции MOM-05. `progress.md` `last_checked_commit` → `b003f3c`.
 
 ### 2026-08-03 (Session: BUGFIX01 — фикс юнит-тестов + регрессий)
 
@@ -1455,7 +1471,7 @@ _Баги добавляются по ходу тестирования оста
 
 **Проверки:** полный `tests/unit`: **924 passed, 10 skipped** (0 failed); `tests/smoke`: 12 passed; ruff All checks passed; py_compile OK (только pre-existing SyntaxWarning во встроенном JS `api/index.py`).
 
-**Примечание:** рабочая копия содержит параллельные незакоммиченные правки `api/index.py` + `tests/unit/test_vercel_parsing_e2e.py` (идемпотентность PARSE01 ч.2, принадлежат другим коммитам PARSE01/64d40d7). Мои правки багфикса — в `git diff HEAD`.
+**Примечание:** рабочая копия содержит параллельные незакоммиченные правки `api/index.py` + `tests/unit/test_vercel_parsing_e2e.py` (идемпотентность PARSE01 ч.2, принадлежат другим коммитам PARSE01/ff20964). Мои правки багфикса — в `git diff HEAD`.
 
 ### 2026-08-03 (Session: PARSE01 часть 2 — idempotency + защита от ложных начислений)
 
@@ -1486,7 +1502,7 @@ _Баги добавляются по ходу тестирования оста
 **TRIVIA01 completed.** Мини-игра «Брейн-Ринг по Канону» доведена до готовности:
 
 **Сделано:**
-- Починен сломанный тест `tests/unit/test_trivia_game.py:41` — `test_question_generator` теперь `async` с `await generate_trivia_question()` (asyncio_mode=auto уже включён). Тест падал с `TypeError: coroutine` с коммита a11826f (async-переход) — 3/3 passed.
+- Починен сломанный тест `tests/unit/test_trivia_game.py:41` — `test_question_generator` теперь `async` с `await generate_trivia_question()` (asyncio_mode=auto уже включён). Тест падал с `TypeError: coroutine` с коммита cef1a2e (async-переход) — 3/3 passed.
 - Починен Vercel webhook `/trivia` (`api/index.py:8833`): `generate_trivia_question()` вызывалась без `await` → `TypeError`, молча проглатывался `except` → опрос не отправлялся. Теперь `import asyncio; asyncio.run(...)`. Проверено локально: возвращает вопрос с 4 вариантами.
 - Награда в текстах приведена к фактической: «+25 монет» → «+10 монет» (2 места). Колбэк `trivia_answer_callback` даёт 10.
 - `projectbrief.md`: TRIVIA01 `in_progress` → `completed`; notes обновлены (нативные quiz-poll, а не inline-кнопки; канон из `data/canon_knowledge.txt`; награда 10 монет).
@@ -1596,7 +1612,7 @@ _Баги добавляются по ходу тестирования оста
 
 **Root cause:** Таблицы уже существовали в Supabase — их создал Alembic старого проекта `family_circle`, где `created_at`/`status`/`spoke_count`/`finished` имеют `nullable=False` без DEFAULT на уровне БД (DEFAULT был только в ORM). `CREATE TABLE IF NOT EXISTS` существующие таблицы не меняет.
 
-**Фикс (commit c77502c):** все INSERT'ы Family Circle теперь передают поля явно: `created_at` (datetime.now(timezone.utc)), `status`, `participants_total`, `spoke_count`, `finished`. Добавлен импорт `timezone`.
+**Фикс (commit f577d70):** все INSERT'ы Family Circle теперь передают поля явно: `created_at` (datetime.now(timezone.utc)), `status`, `participants_total`, `spoke_count`, `finished`. Добавлен импорт `timezone`.
 
 **Верификация на проде:** create → join → chat (AI отвечает) → finish → report — все 200. Страницы /family, /family/room, /family/result — 200. debug-поле `detail` из 500-ответа убрано.
 
@@ -1703,7 +1719,7 @@ _Баги добавляются по ходу тестирования оста
 | GD | 6 | ✅ |
 | Admin Panel | 7 | ⏳ |
 
-**Коммит:** 60adaa9
+**Коммит:** 7dfaaf5
 
 ### 2026-07-30 (Session: Family Circle — DATABASE_URL подключена)
 
@@ -1746,7 +1762,7 @@ _Баги добавляются по ходу тестирования оста
 - Получен VK сервисный и защищённый ключи, Vercel токен
 - VK Mini App зарегистрирован (app_id=54665568)
 
-**Коммиты:** 4e4da4e, 3abc5bf
+**Коммиты:** b5c5f7f, 47233ed
 
 ### 2026-07-04 (VK Mini App — Budget UI + Yandex.Disk removal)
 
@@ -1793,7 +1809,7 @@ _Баги добавляются по ходу тестирования оста
 - Admin: 2/2 команды (100%)
 - Общий прогресс тестирования: 29%
 
-**Коммиты:** f26e098, a91f11a, 881988e, 3aa801c
+**Коммиты:** a9f4d7e, cb59d67, 2de6fa9, 21274f8
 
 ### 2026-06-03 (Memory Bank: HF deprecated, GD Module planned for Vercel)
 - **Hugging Face runtime помечен как устаревший** в `memory_bank/activeContext.md`.
@@ -1825,9 +1841,9 @@ _Баги добавляются по ходу тестирования оста
   - Board images via `https://lichess1.org/export/fen.gif?fen=<FEN>&theme=brown&piece=cburnett`
 - **Testing:** All commands tested via webhook, Lichess API verified working.
 - **Commits:** 
-  - `fb3819e` — feat: add chess module with Lichess integration
-  - `10266ba` — refactor: change chess commands to underscore format
-  - `8f33214` — feat: display chess board image in /puzzle command
+  - `52367b1` — feat: add chess module with Lichess integration
+  - `2f3a95b` — refactor: change chess commands to underscore format
+  - `dca1fd7` — feat: display chess board image in /puzzle command
 - **Phase 2 progress:** 59% → 71% (+12% for CH-02, CH-03, CH-04)
 - **Remaining Chess work:** CH-05 (puzzle rewards, 3%), CH-06 (bank integration + history, 3%), CH-TEST (manual testing, 2%)
 - **Verification:** `python -m py_compile api/index.py` passed; webhook tests successful; Lichess API endpoints verified.
@@ -2177,33 +2193,33 @@ _Баги добавляются по ходу тестирования оста
 
 ### 2026-08-24 (ОГЭ-центр — Этап 0: ядро рекомендаций)
 - Реализовано ядро ОГЭ-центра: таблица `study_progress` (user_id, module, card_key, reps, interval_days, ease, due, streak, correct_count, wrong_count, counter), API `/api/study/progress` GET/POST/reset и `/api/study/recommendations` (приоритет: просроченные due → слабые темы >40% ошибок → новые; вес по датам ОГЭ из `OGE_EXAM_DATES`), хаб-виджет «📌 План на сегодня» + бейджи на карточках предметов, идемпотентная миграция `emperors_progress`→`study_progress`. Информатика переименована `/math`→`/informatics` (+301 redirect).
-- Проверки: ruff clean; `tests/unit/test_study_progress.py` (11 тестов: API, recommendations-приоритеты, миграция, хаб-виджет); `test_informatics_module.py` (бывш. `test_math_module.py`) обновлён под `/informatics` + тест редиректа; регресс моих модулей зелёный. Задеплоено `7967c1d`.
+- Проверки: ruff clean; `tests/unit/test_study_progress.py` (11 тестов: API, recommendations-приоритеты, миграция, хаб-виджет); `test_informatics_module.py` (бывш. `test_math_module.py`) обновлён под `/informatics` + тест редиректа; регресс моих модулей зелёный. Задеплоено `98b935f`.
 - Разделение труда (решение пользователя): ОГЭ ведёт opencode; легаси-падения тестов (120 шт., env/version mismatch по `telegram`/`pydantic`/`aiohttp`/`structlog` в бот/src-модулях) чинит другой разработчик параллельно — НЕ блокирует ОГЭ.
 
 ### 2026-08-24 (ОГЭ-центр — Этап 1: Математика)
 - Реализован модуль Математика `/math`: пакет `core/mathematics/` (FORMULAS ~130 карточек формул по 12 темам, TASKS ~30 задач, GENERATORS 8 клиентских параметрических генераторов). Страница `math_page` (шаблон `MATH_PAGE_TEMPLATE`): вкладки 📚Формулы (flashcards SM-2 через `study_progress`, ключ `formula::<id>`), 🧠Задачи (самопроверка, `task::<id>`), 🎲Генератор (рандом-задачи, `gen::<gid>`), 📝Экзамен (20 заданий + таймер + оценка). Прогресс пишется в `/api/study/progress` (module='math', ключ без префикса модуля; важно: `body={"module":...,"cards":...}`, ответ `{"ok":True}`; ключи хранятся как есть).
-- Карточка «Математика» добавлена в хаб (после Информатики). Тесты: `test_mathematics_module.py` (данные + страница + roundtrip прогресса), `test_informatics_module.py` обновлён (больше нет редиректа `/math`→`/informatics`). Мои модули зелёные. Задеплоено `731c453`.
+- Карточка «Математика» добавлена в хаб (после Информатики). Тесты: `test_mathematics_module.py` (данные + страница + roundtrip прогресса), `test_informatics_module.py` обновлён (больше нет редиректа `/math`→`/informatics`). Мои модули зелёные. Задеплоено `610a2a4`.
 
 ### 2026-08-24 (ОГЭ-центр — Этап 2: Информатика расширена до кодификатора)
 - Расширен модуль Информатика `core/informatics/tasks.py`: добавлено 6 тем кодификатора ОГЭ — Системы счисления, Кодирование информации, Логические основы, Базы данных и запросы, Компьютерные сети, Алгоритмы и исполнители (итого 15 тем × 5 задач = 75). Каждая тема: theory + 5 задач. `OGE_MODULES["informatics"].total` → 75. Тесты `test_informatics_module.py` обновлены (count=15, ids lesson1..lesson15).
-- Интеграция с ОГЭ-центром: страница `/informatics` теперь пишет прогресс в `study_progress` (module='informatics', ключ = id задачи) через `infoRecord`/`infoPush`/`infoLoad` (как у математики). Теперь информатика появляется в виджете «План на сегодня» и рекомендациях. `node --check` JS ок, прод `/informatics` 200, новые темы присутствуют. Задеплоено `59cbd6f`.
+- Интеграция с ОГЭ-центром: страница `/informatics` теперь пишет прогресс в `study_progress` (module='informatics', ключ = id задачи) через `infoRecord`/`infoPush`/`infoLoad` (как у математики). Теперь информатика появляется в виджете «План на сегодня» и рекомендациях. `node --check` JS ок, прод `/informatics` 200, новые темы присутствуют. Задеплоено `46dd79f`.
 - Генераторы/экзамен-режим для информатики (паритет с математикой) — отложены в OGE-FULL (полный проход по кодификатору).
 
 ### 2026-08-24 (ОГЭ-центр — Этап 3 / OGE-04: Русский язык)
 - Создан модуль `core/russian/` (`rules.py` + `__init__.py`): RULES 40 карточек правил (Орфография/Пунктуация/Работа с текстом), TASKS 30 заданий тренажёра (вставь букву, расставь знаки, найди средство выразительности, тип речи), ESSAY_CRITERIA 12 критериев ФИПИ (К1–К12) с чек-листами без автопроверки.
 - Страница `/russian` (шаблон RUSSIAN_PAGE_TEMPLATE в api/index.py): вкладки 📚 Правила (flashcards SM-2, `rule::<id>`), 🧠 Тренажёр (самопроверка, `task::<id>`), 📋 Чек-лист сочинения (чекбоксы, `essay::<id>`). Прогресс → `/api/study/progress` module='russian'. Карточка в хабе добавлена. `OGE_MODULES["russian"].total` → 82.
-- Тесты: `test_russian_module.py` (данные + страница + roundtrip); мои модули зелёные (57 тестов), ruff clean, node --check JS ок. Прод `/russian` 200, правила встроены. Задеплоено `5c053df`.
+- Тесты: `test_russian_module.py` (данные + страница + roundtrip); мои модули зелёные (57 тестов), ruff clean, node --check JS ок. Прод `/russian` 200, правила встроены. Задеплоено `a96dd24`.
 
 ### 2026-08-24 (ОГЭ-центр — OGE-07: ИИ-план дня + режим ОГЭ)
 - **ИИ-план:** новый эндпоинт `GET /api/study/ai-plan` — собирает статистику через рефакторенный хелпер `_oge_subjects_payload(uid, now)` (общий с `/api/study/recommendations`), шлёт промпт в Groq (`call_ai_api`, llama-3.3-70b), кэширует результат на день в `_OGE_AI_PLAN_CACHE[uid]`, поддерживает `?force=1`. Fallback: `{"ok":false,"plan":""}` при ошибке AI.
 - **Хаб:** блок «✨ Персональный план от ИИ» внутри виджета (кнопка ↻ = force); переключатель «🎯 Режим подготовки к ОГЭ» (`#oge-mode-bar`) — скрывает виджет и 4 предметные карточки (`data-oge="1"`), состояние в localStorage `oge_mode`, по умолчанию ВКЛ.
-- Тесты: ai-plan (401 без auth; генерация→кэш→force; fallback при ❌) + расширен hub-тест. Все зелёные, node --check ок. Задеплоено `aef6359`.
+- Тесты: ai-plan (401 без auth; генерация→кэш→force; fallback при ❌) + расширен hub-тест. Все зелёные, node --check ок. Задеплоено `e2161ed`.
 
 ### 2026-08-24 (ОГЭ-центр — OGE-05: Физика)
 - Создан `core/physics/` (`formulas.py`): FORMULAS 57 формул по 9 темам (кинематика, динамика, давление, плотность, работа/энергия, тепло, электричество, оптика, колебания), TASKS 28 задач, GENERATORS 6 клиентских. Страница `/physics` клонирована с математики (скрипт-клон шаблона, GEN-блок переписан под физику): вкладки Формулы/Задачи/Генератор/Экзамен; module='physics', ключи `formula::`/`task::`/`gen::`. Хаб-карточка + data-oge="1", `OGE_MODULES["physics"].total`=85.
-- Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `45fc25f`.
+- Тесты `test_physics_module.py` (данные+страница+roundtrip) — мои модули 68 зелёных; ruff clean; node --check ок. Прод `/physics` 200. Задеплоено `e7875b6`.
 
-### Changelog 2026-09-15 — feat(gd): убрана «Top X» лестница сложностей; фикс гонки кнопок редактирования (commit `309d3c5`)
+### Changelog 2026-09-15 — feat(gd): убрана «Top X» лестница сложностей; фикс гонки кнопок редактирования (commit `b279ba7`)
 
 - **Удалены тиры `top_1000`..`top_10`** из `GD_DIFFICULTY_TIERS`, `GD_DIFFICULTY_COLORS`, `_GD_DIFF_RAW_MAP`, клиентских `DIFF_COLORS`/`DIFF_TIERS` на `/gd`, `/gd/player`, `/gd/players`, `/u/<login>`. Позиция уровня больше НЕ авто-деривирует лист-тир: `_gd_tier_from_position()` всегда возвращает `"unknown"`.
 - **Legacy-значения** «Top N»/`top_*` из БД (напр. уровни, добавленные при существовавшей лестнице) нормализуются в `unknown` (`re.fullmatch(r"top\d+", probe)`), бейдж показывается серым (#94a3b8, «Unknown»). Демоны считаются только для явных демон-тиров (вес ≥ 50); unknown больше не засчитывается в `demons_count`.
@@ -2212,7 +2228,7 @@ _Баги добавляются по ходу тестирования оста
 - Прод-смоук: лидерборд показывает реальные сложности (Electroman = Insane, Cant Let Go/Acid factory = Hard), «Top 10» бейджей на /gd больше нет.
 
 
-### Changelog 2026-09-15 — fix(gd): case-insensitive persona grouping in leaderboard (commit `c574b1d`)
+### Changelog 2026-09-15 — fix(gd): case-insensitive persona grouping in leaderboard (commit `e55c13b`)
 
 - **Персоны «Nikiktos» и «nikiktos» объединены в топе** (`get_gd_players`) — группировка по `casefold()` вместо точного регистра; каноническое имя: первая буква заглавная (т.е. `Nikiktos`), затем по `web_users.gd_nickname`, затем первый вариант.
 - **Дедупликация прохождений** на странице уровня (`get_gd_level_completions`) также case-insensitive — один игрок не дублируется из-за разного регистра.
@@ -2231,44 +2247,44 @@ _Баги добавляются по ходу тестирования оста
 - **Проверки:** ruff clean; 86 тестов затронутых наборов (web_portal_e2e 24, error_logging 4, family_mediator 5, social 3, freemium_gates 5, code_explainer 10, mathematics 10, physics 9, russian 8, short_mode 8) — зелёные.
 
 ## last_checked_commit
-b0013a8 (2026-09-25; fix(family+auth): переносимый DDL, сессионный uid в dnd/chess, рекурсия log_error, короткий медиатор; 86 тестов, ruff clean)
-95d7cf2 (2026-09-21; fix(md2pdf): понятные ошибки improveMd при не-JSON/таймаут ответах ИИ — багхант; 15+/8 md2pdf tests, ruff clean, deployed)
-624f3a3 (2026-09-21; feat(md2pdf): кнопка «✨ Улучшить форматирование» + POST /api/md2pdf/format — ИИ-переформатирование Markdown; 7/7 md2pdf + 10/10 code-explainer tests, ruff clean, node --check OK, deployed)
+547d909 (2026-09-25; fix(family+auth): переносимый DDL, сессионный uid в dnd/chess, рекурсия log_error, короткий медиатор; 86 тестов, ruff clean)
+5cf3b36 (2026-09-21; fix(md2pdf): понятные ошибки improveMd при не-JSON/таймаут ответах ИИ — багхант; 15+/8 md2pdf tests, ruff clean, deployed)
+7eafa3c (2026-09-21; feat(md2pdf): кнопка «✨ Улучшить форматирование» + POST /api/md2pdf/format — ИИ-переформатирование Markdown; 7/7 md2pdf + 10/10 code-explainer tests, ruff clean, node --check OK, deployed)
 (infra) 2026-09-21: Vercel project renamed bank-bot → lthub; canonical prod domain lthub.vercel.app (legacy alias bank-bot-ruby.vercel.app retained for Telegram webhook); both 200. No code changes.
-0447d52 (2026-09-21; fix(md2pdf): escape newlines in inline JS — превью было пустым (SyntaxError); тема страницы через var(--bb-*), светлая/тёмная переключается; 4/4+10/10 tests, ruff clean, node --check OK, deployed)
-64b15f2 (2026-09-20; feat(md2pdf): Markdown → PDF page — live split editor/preview, browser print-to-PDF download via hidden iframe; 4/4 tests, ruff clean, node --check OK, deployed, prod smoke OK)
-15ef1ba (2026-09-17; fix(code explainer): chunked analysis of large files, persist all files, resume progress — api/index.py 1.5MB больше не пропускается, комментарии по всем функциям через повторные «Разобрать»; 10/10 code-explainer tests, ruff clean, deployed, prod smoke OK)
-c574b1d (2026-09-15; fix(gd): case-insensitive persona grouping in leaderboard — prefer capital spelling; duplicate "nikiktos"/"Nikiktos" collapsed into one "Nikiktos"; 11/11 green; ruff clean; prod smoke OK)
-8468dbd (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
-e0352de (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
-caee066 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
-18fa357 (2026-09-12; feat(ai_chat): чекбоксы = группы tools — curator_recommend/dashboard + 6 oge_* в function-calling)
-4d640d9 (2026-09-12; feat(ai_chat): чекбоксы-контекст «Куратор» / «ОГЭ-прогресс» в промпт AI; 18fa357 перевёл это в инструменты)
-abec013 (2026-09-12; feat(hub): тумблер вкл/выкл сортировки по популярности — localStorage + restoreOrder)
-03c9ab3 (2026-09-12; fix(hub): popularity sort — только прямые дети, бета-карточки больше не утекают в основной раздел)
-a60587a (2026-09-12; fix(gd): respect admin-set difficulty — gdbrowser enrichment только как fallback)
-61189c4 (2026-09-12; fix(bug-hunt): SSRF redirects, sandboxed run_python, quiz/history 500, register rate-limit+409, audio temp cleanup, DI close; feat(hub): popularity sort)
-4f6b25b (2026-09-12; remote: ротация Groq API-ключей GROQ_API_KEY_2..., семейство session-token-first auth fix, _sanitize_for_prompt, удаление reading_trainer.html/setup_webhook/webapp, +test_code_explainer)
-47cb41a (2026-09-01; docs(mb) — удаление мёртвого кода + моста)
-bab353c (2026-09-01; chore: удаление TG↔VK моста bridge_bot/vk_bot/bot/bridge + тесты)
-1aa158c (2026-09-01; chore: удаление мёртвого кода — beta_commands, message/callback_handler, scheduler_manager, core/school, beta_economy)
-0346cf8 (2026-09-01; fix(study): deadlock-safe миграция study_progress — автономные ALTER + _column_exists + retry; прод-баг DeadlockDetected/InFailedSqlTransaction)
-4d65831 (2026-09-01; textbooks — защита от дубликатов (subject+title), fix 1→5 после rebase origin/main `ffe5e5f`; локально bcrypt-stub для тестов Termux)
-ffe5e5f (2026-09-01; remote: остановить spam log_error — notify_admin только на реальные ошибки)
-8703706 (2026-09-01; remote: docs(mb) changelog архитектурных фиксов)
-d250021 (2026-09-01; remote: архитектурные фиксы — bcrypt, exam DB, admin auth, log_error)
-70f00b5 (2026-08-27; Session 9b: максимальная прокачка ИИ-куратора — починены due/weak/topics + отсчёт + fallback, +5 инструментов, +5 тестов; деплой через CLI)
-c9e4021 (2026-08-26; максимальная прокачка OGE: SM-2 с ростом ease, инфо-тренажёр с самооценкой, физика в экзамене, /api/study/stats, /api/study/due-cards, /api/quiz/generate+check, /analytics, хаб-прогрессбары; деплой через CLI)
-f2ef98e (2026-08-26; автозачёт плана дня: пункт закрыт когда по предмету сегодня тронуто >= cards карточек, кнопка/роут plan/done удалены, снапшот в done_count; ранее fbbc59d — нормы времени + названия без ключей; 68249a9 — тулы topic/card + фикс JS хаба; прод: деплой через CLI по мере сессий)
-fbbc59d (2026-08-26; куратор: реалистичные нормы времени + названия карточек без ключей + планер 2 мин/пункт; ранее 68249a9 — тулы topic/card и фикс JS хаба; b90bf5d — mdLite + lookup-инструменты; прод задеплоен через CLI и смоукнут)
-b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card + фикс JS хаба (\n в regex ломал весь script, бета-раздел не открывался); b90bf5d — mdLite markdown + инструменты-lookup {"tool":...}, UI-статус «смотрит твой журнал»; прод задеплоен через Vercel CLI, смоукнут)
+9f664c4 (2026-09-21; fix(md2pdf): escape newlines in inline JS — превью было пустым (SyntaxError); тема страницы через var(--bb-*), светлая/тёмная переключается; 4/4+10/10 tests, ruff clean, node --check OK, deployed)
+516bb0b (2026-09-20; feat(md2pdf): Markdown → PDF page — live split editor/preview, browser print-to-PDF download via hidden iframe; 4/4 tests, ruff clean, node --check OK, deployed, prod smoke OK)
+61b1022 (2026-09-17; fix(code explainer): chunked analysis of large files, persist all files, resume progress — api/index.py 1.5MB больше не пропускается, комментарии по всем функциям через повторные «Разобрать»; 10/10 code-explainer tests, ruff clean, deployed, prod smoke OK)
+e55c13b (2026-09-15; fix(gd): case-insensitive persona grouping in leaderboard — prefer capital spelling; duplicate "nikiktos"/"Nikiktos" collapsed into one "Nikiktos"; 11/11 green; ruff clean; prod smoke OK)
+f2af2c3 (2026-09-12; fix(exam): X-Auth-Token на ai-batch/check/ai-record + per-card sid+idx — прогресс/достижения таки пишутся, грейдинг 2+ пакетов корректный)
+0259ab9 (2026-09-12; fix(auth): ai_chat шлёт X-Auth-Token; GD loadMyStats резолвит auth при нетоковом ACCOUNT_ID — синхронизация хаба/GD/AI)
+8edb954 (2026-09-12; fix(ai_chat): персона персонажа в системный промпт — раньше только имя, все отвечали нейтрально)
+c08a325 (2026-09-12; feat(ai_chat): чекбоксы = группы tools — curator_recommend/dashboard + 6 oge_* в function-calling)
+ba59a7a (2026-09-12; feat(ai_chat): чекбоксы-контекст «Куратор» / «ОГЭ-прогресс» в промпт AI; c08a325 перевёл это в инструменты)
+55e529e (2026-09-12; feat(hub): тумблер вкл/выкл сортировки по популярности — localStorage + restoreOrder)
+aebda78 (2026-09-12; fix(hub): popularity sort — только прямые дети, бета-карточки больше не утекают в основной раздел)
+318a032 (2026-09-12; fix(gd): respect admin-set difficulty — gdbrowser enrichment только как fallback)
+c79658f (2026-09-12; fix(bug-hunt): SSRF redirects, sandboxed run_python, quiz/history 500, register rate-limit+409, audio temp cleanup, DI close; feat(hub): popularity sort)
+ccd6dd2 (2026-09-12; remote: ротация Groq API-ключей GROQ_API_KEY_2..., семейство session-token-first auth fix, _sanitize_for_prompt, удаление reading_trainer.html/setup_webhook/webapp, +test_code_explainer)
+f06bdb9 (2026-09-01; docs(mb) — удаление мёртвого кода + моста)
+0c617fa (2026-09-01; chore: удаление TG↔VK моста bridge_bot/vk_bot/bot/bridge + тесты)
+4053ed0 (2026-09-01; chore: удаление мёртвого кода — beta_commands, message/callback_handler, scheduler_manager, core/school, beta_economy)
+e4be0ff (2026-09-01; fix(study): deadlock-safe миграция study_progress — автономные ALTER + _column_exists + retry; прод-баг DeadlockDetected/InFailedSqlTransaction)
+599a3ef (2026-09-01; textbooks — защита от дубликатов (subject+title), fix 1→5 после rebase origin/main `2bbc0e8`; локально bcrypt-stub для тестов Termux)
+2bbc0e8 (2026-09-01; remote: остановить spam log_error — notify_admin только на реальные ошибки)
+ed1f25c (2026-09-01; remote: docs(mb) changelog архитектурных фиксов)
+5150759 (2026-09-01; remote: архитектурные фиксы — bcrypt, exam DB, admin auth, log_error)
+036b42f (2026-08-27; Session 9b: максимальная прокачка ИИ-куратора — починены due/weak/topics + отсчёт + fallback, +5 инструментов, +5 тестов; деплой через CLI)
+14989a2 (2026-08-26; максимальная прокачка OGE: SM-2 с ростом ease, инфо-тренажёр с самооценкой, физика в экзамене, /api/study/stats, /api/study/due-cards, /api/quiz/generate+check, /analytics, хаб-прогрессбары; деплой через CLI)
+886838c (2026-08-26; автозачёт плана дня: пункт закрыт когда по предмету сегодня тронуто >= cards карточек, кнопка/роут plan/done удалены, снапшот в done_count; ранее 775ea41 — нормы времени + названия без ключей; 9187420 — тулы topic/card + фикс JS хаба; прод: деплой через CLI по мере сессий)
+775ea41 (2026-08-26; куратор: реалистичные нормы времени + названия карточек без ключей + планер 2 мин/пункт; ранее 9187420 — тулы topic/card и фикс JS хаба; 65c7128 — mdLite + lookup-инструменты; прод задеплоен через CLI и смоукнут)
+65c7128..9187420 (2026-08-26; 9187420 — тулы куратора topic/card + фикс JS хаба (\n в regex ломал весь script, бета-раздел не открывался); 65c7128 — mdLite markdown + инструменты-lookup {"tool":...}, UI-статус «смотрит твой журнал»; прод задеплоен через Vercel CLI, смоукнут)
 
 ### 2026-08-23 (Темы + Pico CSS + императоры: критерий выученности)
 - **ОГЭ-центр (план):** составлен и записан в память банка план подготовки к ОГЭ по 5 предметам (математика, русский, информатика, физика, история) с ядром рекомендаций «что учить сейчас». Deliverables — `projectbrief.md` Phase 6 (OGE-00…OGE-06 + OGE-FULL), детальный план — `memory_bank/oge_center_plan.md`. Решения: информатика → `/informatics`, математика → `/math`; единая таблица `study_progress`; контент MVP, затем весь кодификатор ФИПИ. Исполнение не начато.
 - **Тема светлая/тёмная:** полный набор переменных `--bb-*`/`--gh-*` в `core/theme.py`, инжекция через `after_request`, переключатель на всех страницах (localStorage + prefers-color-scheme). Конвертация всех страниц с жёстких hex на переменные; исправлены предсуществующие баги (неопределённые var(), `color: var(--bb-bg)` как текст, скорруппированные 8-битные hex).
 - **Pico CSS v2** подключён централизованно (`THEME_CSS`) на все страницы; палитра Pico замаплена на переменные темы; глобальный фикс `button { width: auto }` против full-width по умолчанию.
 - **Прогресс-бары** (императоры + информатика): трек `--bb-elev` / заливка `--bb-primary` — починен контраст после осветления синих в светлой теме.
-- **Императоры:** карточка считается выученной для бара/статистики при серии из 3 правильных ответов подряд (`rec.streak`, сброс на ошибке); механика подбора карточек не тронута. Исправлен баг подсчёта: раньше в бар попадали карточки вне текущего охвата («5 императоров» vs «все»). Проверки: node --check OK, ruff clean, 49 тестов passed, задеплоено `0320d70`.
+- **Императоры:** карточка считается выученной для бара/статистики при серии из 3 правильных ответов подряд (`rec.streak`, сброс на ошибке); механика подбора карточек не тронута. Исправлен баг подсчёта: раньше в бар попадали карточки вне текущего охвата («5 императоров» vs «все»). Проверки: node --check OK, ruff clean, 49 тестов passed, задеплоено `3f59b68`.
 
 ### 2026-06-13 (D18 — E2E tests for parsing + bank)
 - **D18 completed:** 19 E2E tests for all 6 bot parsers + webhook flow.
@@ -2281,7 +2297,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - **Bugfix:** Added missing `amount` key to GDcards chest and card parsers (required by webhook handler at line 2075).
 - **Bugfix:** Fixed DB mock setup for webhook tests — `execute().mappings().first()` returns `{"id": 1}` and `.all()` returns `[]`.
 - **Verification:** All 19 + 3 smoke tests = 22 passed.
-- **Commit:** `6091a4f` — D18: Fix GDcards amount key, add 19 E2E parsing tests
+- **Commit:** `ee1479c` — D18: Fix GDcards amount key, add 19 E2E parsing tests
 
 ### 2026-06-07 (D10 — E2E парсинг всех ботов на Vercel + калибровка коэффициентов)
 - **D10 (ParserRegistry + E2E парсинг):** Значительный прогресс. В `api/index.py` добавлены парсеры для всех ботов из чата.
@@ -2687,19 +2703,19 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - **Next steps:** Complete GD-TEST manual testing, update deliverables status
 
 ## last_checked_commit
-- 6c14e3b (2026-06-01, Phase 2: GD-TEST manual testing started)
+- e80eaa6 (2026-06-01, Phase 2: GD-TEST manual testing started)
 - GD-TEST: Manual testing of all GD commands started
 - Groq API: Primary AI provider (HF as fallback)
 - Memory Bank: Verified - Project Deliverables table with 100/100 total weight
 
 ## last_checked_commit
-- c604468 (2026-05-30, Phase 2: GD-07 + Mom Module print button)
+- 5cc9b9f (2026-05-30, Phase 2: GD-07 + Mom Module print button)
 - GD-07: GD API integration in `bot/gd/gd_api.py` and `bot/commands/gd_api_commands_ptb.py`
 - Mom Module: Added print button to reading trainer, fixed Vercel static file serving
 - Features: /gd_user (player stats), /gd_level (level info), print worksheet (text + questions on A4)
 
 ## last_checked_commit
-3931843 fix: add parse_mode=HTML to /addexpense usage message
+b4234d7 fix: add parse_mode=HTML to /addexpense usage message
 
 ---
 
@@ -2767,7 +2783,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - `bot/bot.py` — регистрация get_budget_handlers()
 - `api/index.py` — /budget и /addexpense обработчики
 
-**Коммиты:** `3931843`, `cb53e11`, `2d9a3ae`, `bd20fff`
+**Коммиты:** `b4234d7`, `d21785a`, `052e89c`, `6476537`
 
 ### 2026-06-30 — Universe Module: /infect, /tea, /daily_prayer + auto message modification
 
@@ -2784,7 +2800,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Файлы:**
 - `api/index.py` — все команды + инфекция-чек в обработчике сообщений
 
-**Коммиты:** `795435b`, `3fd47df`
+**Коммиты:** `84b7eda`, `bf70abc`
 
 ### 2026-07-28 — Практика глаголов (WEB-08)
 
@@ -2800,19 +2816,19 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 
 ### 2026-08-24 (ОГЭ-центр — OGE-03: История термины)
 - Создан core/history/terms.py: TERMS 80 терминов по 5 периодам (Русь IX-XV, Московская Русь XV-XVII, Империя XVIII-XIX, XX век 1900-1945, 1945-2000). Страница /terms (TERMS_PAGE_TEMPLATE, флешкарточки SM-2): module=history, ключ term::<id> - прогресс объединяется с императорами в одном модуле history. Хаб-карточка + data-oge, OGE_MODULES history.total -> 371.
-- Тесты test_history_terms.py; ruff clean; node --check ок; прод /terms 200. Задеплоено d65607a.
+- Тесты test_history_terms.py; ruff clean; node --check ок; прод /terms 200. Задеплоено 6e418a8.
 
 ### 2026-08-24 (ОГЭ-центр - OGE-06: Экзаменатор)
 - Новый эндпоинт GET /api/exam/mixed?n=15: собирает случайные задания из math+russian+informatics TASKS, хранит сессию в _EXAM_SESSIONS (cap 300), клиенту ответы НЕ отдаёт. POST /api/exam/check: серверная проверка (_exam_is_correct: строка+число), при авторизации пишет прогресс в study_progress через _study_record_one (SM-2 upsert). Страница /exam (EXAM_PAGE_TEMPLATE): ввод по одному заданию, Enter=ответ/дальше, итоговый счёт. Хаб-карточка data-oge.
-- Тесты test_exam_center.py (страница, сессия без ответов, грейд+запись в БД, 404) - всего моих модулей 77 зелёных; ruff clean; node --check ок. Прод /exam 200, mixed отдаёт задания. Задеплоено 9e854b7.
+- Тесты test_exam_center.py (страница, сессия без ответов, грейд+запись в БД, 404) - всего моих модулей 77 зелёных; ruff clean; node --check ок. Прод /exam 200, mixed отдаёт задания. Задеплоено c439bb8.
 
 ### 2026-08-24 (UI-полировка названий ОГЭ-модулей)
 - Убран суффикс «— ОГЭ» из заголовков карточек хаба, <title> и h1 всех предметных страниц; вместо него — плашка-бейдж «ОГЭ» в стиле «Бета» (в хабе класс beta-tag с accent2, на страницах самодостаточный inline-pill). Затронуты: Информатика, Математика, Русский язык, Физика, Экзаменатор, История—термины.
-- Карточка и страница «Императоры России» переименованы в «Историю» (+бейдж ОГЭ); тесты test_emperors_module и test_web_portal_e2e обновлены. Прод: hub/emperors/math проверены. Задеплоено 80f16aa.
+- Карточка и страница «Императоры России» переименованы в «Историю» (+бейдж ОГЭ); тесты test_emperors_module и test_web_portal_e2e обновлены. Прод: hub/emperors/math проверены. Задеплоено fd4b9b9.
 
 ### 2026-08-24 (История объединена + режим ОГЭ только для виджета)
 - Модули истории слиты: /emperors теперь единая страница с вкладками «Даты и правители» / «Термины» (TERMS_FRAGMENT встроен, JS с префиксом t-, прогресс общий module=history). /terms -> redirect /emperors?tab=terms; карточка «История — термины» из хаба удалена. Переключатель режима ОГЭ больше не скрывает предметные карточки (только виджет плана). При сносе шаблона terms случайно удалились _EXAM_SESSIONS/_exam_is_correct/_study_record_one - восстановлены.
-- Тесты: 83 зелёных по моим модулям; node --check ок; прод: /emperors 200 c вкладками и терминами, /terms 302, карточки в хабе чисты. Задеплоено 7bae239.
+- Тесты: 83 зелёных по моим модулям; node --check ок; прод: /emperors 200 c вкладками и терминами, /terms 302, карточки в хабе чисты. Задеплоено 86895c2.
 
 ### 2026-08-28 (BUG-FIX: самопроверка — 18 багов)
 
@@ -2846,13 +2862,13 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 **Проверка:** ruff clean; `test_study_progress`/`test_achievements`/`test_exam_center`/`test_web_portal_e2e` — 42 passed.
 
 ## last_checked_commit
-  81de566 (2026-09-14; feat(gd): my player card tab + GDL widget + fix admin 403, server-rendered admin flag).
+  0e84538 (2026-09-14; feat(gd): my player card tab + GDL widget + fix admin 403, server-rendered admin flag).
 ## last_checked_commit
-  3ab85b1 (2026-08-29; feat(gd): рекорды привязаны к аккаунту, анонимы заблокированы, GD-ник из профиля).
+  473fdbf (2026-08-29; feat(gd): рекорды привязаны к аккаунту, анонимы заблокированы, GD-ник из профиля).
 ## last_checked_commit
-  dac6306 (2026-08-29; feat(music): Применить/предпросмотр/Скачать внизу).
+  cfa1528 (2026-08-29; feat(music): Применить/предпросмотр/Скачать внизу).
 
-  621c65d (2026-08-29; fix(music): синтаксическая ошибка useKey ломала весь <script>). Пред. 6128d89 (feat(music): прокачка модуля), e91aef9 (кнопка Послушать), 707268a (fix MUSIC_API_BASE json.dumps).
+  68c2ec8 (2026-08-29; fix(music): синтаксическая ошибка useKey ломала весь <script>). Пред. 651b6b2 (feat(music): прокачка модуля), 8fc8600 (кнопка Послушать), 513dae3 (fix MUSIC_API_BASE json.dumps).
 - **Реальная первопричина «не анализируется / кнопки не работают» (повторялось 6+ раз):** НЕ кэш и НЕ сервер. **Синтаксическая ошибка JS** в строке генерации кнопки «→ в тональность»: аргумент `useKey('...')` внутри одинарно-кавычной JS-строки преждевременно её закрывал → `SyntaxError` при парсинге ВСЕГО `<script>` → ни один обработчик (`m-analyze`/`m-listen`/эффекты) не привязывался → кнопки «ничего не делали». Сервер `/api/music/analyze` всё время отвечал 200 (проверено curl). **Фикс:** шаблонная строка (backticks) + `data-key` + `useKey(this.dataset.key)`. Перепроверено на RENDERED-выводе (node --check) и вызовом обработчиков в заглушке — OK. Версия кэша (versioned link `?v=BUILD_TAG` + no-store) оставлена как защита от устаревших копий в webview.
 - **ПРАВИЛО ПРОВЕРКИ JS-В-HTML (критично):** `node --check` на извлечённом из *.py исходнике НЕ ловит ошибки, вносимые Python-рендером (экранирование `\'`→`'`, `\"`→`"`). Всегда валидировать ПОСЛЕ `html.replace(...)` — извлекать скрипт из ОТРЕНДЕРЕННОГО HTML и прогонять `node --check`. Иначе «успешная» проверка скрывает битый код, который ломает страницу у пользователя.
 - **UI-модель модуля Музыка (после доработки):** трансформы (темп/тональность/эффекты/оверлей) НЕ скачивают сразу — результат кладётся в `currentPreview` и проигрывается; «▶ Послушать» играет `currentPreview`, иначе оригинал; единая кнопка «⬇ Скачать» внизу (секция 6) скачивает `currentPreview` или оригинал. Кнопка темпа/тональность — «Применить». Reset preview при смене файла и повторном анализе.
@@ -2864,7 +2880,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 ### 2026-08-28 — Баг: кнопка «Анализировать» в /music не срабатывала
 - **Симптом:** пользователь сообщил, что кнопка анализа «не нажимается». Кнопка и обработчик были на месте, MUSIC_API_BASE задан, CORS сервиса корректен.
 - **Причина:** обработчики `m-analyze`/`o-run` (и `postFile`) вызывали `r.json()` и читали ответ без проверки `r.ok`/Content-Type. При любом не-JSON ответе сервиса (ошибка 5xx, HTML-страница Vercel) `r.json()` бросал необработанное исключение → промис отклонялся незаметно → кнопка «ничего не делает».
-- **Фикс:** все обработчики обёрнуты в try/catch; добавлены проверки `r.ok` и `Content-Type.indexOf('application/json')`; при ошибке в `#err` выводится понятное сообщение («Ошибка сервера N», «Сетевая ошибка: …», «Выберите файл»). Задеплоено `f01cf85`.
+- **Фикс:** все обработчики обёрнуты в try/catch; добавлены проверки `r.ok` и `Content-Type.indexOf('application/json')`; при ошибке в `#err` выводится понятное сообщение («Ошибка сервера N», «Сетевая ошибка: …», «Выберите файл»). Задеплоено `ab5d856`.
 - **Побочно:** карточка «Музыка» возвращена в блок «Бета-модули» (по явному требованию пользователя — «должна быть в бета блоке»).
 
 ### 2026-08-28 — Задача: аудит багов по всему проекту
@@ -2872,7 +2888,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 
 ### 2026-08-28 — Правка: видимость карточки Музыки в хабе
 - Карточка `/music` изначально лежала внутри `#beta-cards` (`.beta-cards{display:none}`, раскрывается по клику на «🧪 Бета-модули»), поэтому пользователь её не видел.
-- Перенесена в основную видимую сетку карточек хаба (перед `oge-mode-bar`), с сохранением тега «Бета». Проверено на проде: `href="/music"` теперь до `id="oge-mode-bar"` и до `id="beta-cards"`. Задеплоено `9689100`.
+- Перенесена в основную видимую сетку карточек хаба (перед `oge-mode-bar`), с сохранением тега «Бета». Проверено на проде: `href="/music"` теперь до `id="oge-mode-bar"` и до `id="beta-cards"`. Задеплоено `5d197bb`.
 
 ### 2026-08-28 — Музыка: отдельный Vercel-сервис аудио (вариант Б)
 - **Проблема:** librosa+зависимости (~397 МБ) слишком тяжёлые для основного билда Vercel.
@@ -2880,7 +2896,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
   - Важно: пакет `music` лежит в корне сервиса (Vercel кладёт корень проекта в sys.path, как `core` в основном проекте), иначе `from music import` падает с FUNCTION_INVOCATION_FAILED.
   - Локальная папка сервиса создана вне `/root/Bankbot` (чтобы не перезаписать `.vercel`-линк основного проекта), затем скопирована в репо `audio_service/`.
 - **Интеграция LTHub:** `music_page()` инжектит `MUSIC_API_BASE` из env `AUDIO_SERVICE_URL` (дефолт `https://audioservice.vercel.app`); фронтен `/music` шлёт все запросы на `${MUSIC_API_BASE}/api/music/*`. Основной `requirements.txt` остаётся лёгким (mido), `requirements-audio.txt` — опционально для локального запуска.
-- **Проверка живьём:** `/health` → ok+audio_available; analyze MIDI → bpm 120 / key Am; change_tempo → 200 audio/midi; CORS preflight OPTIONS → 204. `ruff` чист, ast OK, node --check OK. Закоммичено `636f980`, задеплоено (LTHub + сервис).
+- **Проверка живьём:** `/health` → ok+audio_available; analyze MIDI → bpm 120 / key Am; change_tempo → 200 audio/midi; CORS preflight OPTIONS → 204. `ruff` чист, ast OK, node --check OK. Закоммичено `9f8ba2c`, задеплоено (LTHub + сервис).
 - **Отложено (вариант А):** клиентская обработка в браузере (Web Audio / JS-MIDI) — пользователь выбрал «сначала Б, потом А».
 
 ### 2026-08-28 — Музыка в сайт (LTHub, бета-модуль)
@@ -2914,27 +2930,27 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - Пользователь выбрал «Графики динамики» из 3 вариантов (подсветка слабых тем / экспорт CSV / графики / своё).
 - **Backend:** `_oge_stats_payload` возвращает `trend` — массив из 30 дней, каждый `{date, total, modules:{mod: накопит_выучено}}`. Накопление по `last_correct_at <= day_end` (карточка считается выученной к дню последнего верного ответа). O(30·N) — тривиально.
 - **Frontend:** на `/stats` добавлена карточка «📈 Динамика освоения (30 дней)» с простой SVG-диаграммой: полилинии по модулям (цвета `OGE_COLORS`) + пунктирная линия «всего выучено» (зелёная), оси X (даты) и Y (шт.), легенда.
-- Валидация: `ast`+`node --check` OK, `ruff check` — All checks passed!, тест `/api/study/stats` (2 шт.) — passed. Закоммичено `5c5e900`, задеплоено.
+- Валидация: `ast`+`node --check` OK, `ruff check` — All checks passed!, тест `/api/study/stats` (2 шт.) — passed. Закоммичено `1e45e49`, задеплоено.
 
 ### 2026-08-28 - Полный прогон тестов + OGE-прогноз «дни до выучивания всех новых»
 - **Регрессионный прогон `tests/unit` (8 параллельных батчей):** итог ~1214 passed / 1 failed / 10 skipped. Единственный fail — `test_study_progress.py::test_analytics_page_renders`: ожидал `/analytics`→200, но после слияния `/analytics`→`/stats` (302) тест устарел. Исправлен: проверяет 302+Location `/stats`, затем рендер `/stats` (есть `s-streak`). Повторный прогон файла — 16 passed. Полный suite зелёный.
-- **OGE-прогноз (2):** `_oge_stats_payload` возвращает `days_to_learn_all = ceil(total_unseen / pace) + MASTERY_GAP(4)` — оценка, за сколько дней будут выучены ВСЕ новые карточки (темп `pace` ввода + 4 дня на освоение последней партии). Сводка `/stats` дополнена: «· чтобы выучить все новые: ~K дн.». `ast`+node OK. Закоммичено `1ba7636`, задеплоено.
+- **OGE-прогноз (2):** `_oge_stats_payload` возвращает `days_to_learn_all = ceil(total_unseen / pace) + MASTERY_GAP(4)` — оценка, за сколько дней будут выучены ВСЕ новые карточки (темп `pace` ввода + 4 дня на освоение последней партии). Сводка `/stats` дополнена: «· чтобы выучить все новые: ~K дн.». `ast`+node OK. Закоммичено `a6344d3`, задеплоено.
 
 ### 2026-08-28 - Бета-аудит 2026-08-10: верификация + финальный фикс
 - **Верификация** (по пунктам плана activeContext:339-349): все 9 пунктов уже реализованы в последующих коммитах. Подтверждено в коде: D&D `parse_dice` лимит 1..100 (dnd_runtime.py:61); шахматы `_PENDING_PUZZLES.pop(uid)` ДО начисления + TTL-кулдаун (api/index.py:8805,8761) + try/catch `JSON.parse` (8596); тривия `secrets.token_hex(6)` session_id (16858) + валидация `answer_index` (16872); глаголы `VERB_GEN_LOCK` с очисткой (19004); семья `DELETE` через `_family_verify_member` (22346); `daily_prayer_log` UNIQUE-индекс (662); канон `esc()`+`safeUrl()` (17401); регистрация `is_admin=FALSE` + сессия админа по серверному флагу (9471,171).
 - **Финальный фикс:** `api_chess_puzzle_check` (api/index.py:8820) больше не отдаёт `move` при `correct=False` (раньше утекало решение пазла при неверном ходе); клиент показывает «Попробуйте другой ход».
-- **Проверка:** `ast.parse` OK. Закоммичено `1af992a`, задеплоено на `bank-bot-ruby.vercel.app`.
+- **Проверка:** `ast.parse` OK. Закоммичено `0d7e9bf`, задеплоено на `bank-bot-ruby.vercel.app`.
 
 ### 2026-08-28 - OGE forecast: «сколько новых карточек будет выучено»
 - **Бэкенд** `_oge_stats_payload` (api/index.py): прогноз теперь считает `learned` (накопительно) и `learned_delta` по дням. По планировщику SM-2 (`rep1→+1д, rep2→+3д, rep3=mastered`) карточка, введённая в день j, осваивается в день j+4 → `learned_delta[i]=introduced[i-4]`.
 - **Фронт** `/stats` `renderOgeAnalytics`: легенда + зелёная строка `N✅ (+delta)` в каждой ячейке прогноза; сводка «За 14 дней выучишь ≈ N новых карточек (из M новых всего)».
-- **Проверка:** `ast.parse` OK; `node --check` stats JS OK; прод `/stats` → 200 с `s-learn-summary`. Закоммичено `ad72441`, задеплоено.
+- **Проверка:** `ast.parse` OK; `node --check` stats JS OK; прод `/stats` → 200 с `s-learn-summary`. Закоммичено `8b44b2b`, задеплоено.
 
 ### 2026-08-28 - History: темы + эпохи в /emperors
 - **Темы:** `core/history/emperors.py` — `HISTORY_TOPIC_ORDER` (9 тем) + `classify_topic(title, note)` (эвристика по ключевым словам); экспортировано в `core/history/__init__.py`. Поля `topic` добавлены в `history_data` (events/persons) и в `allItems`.
 - **Фильтр:** `topicMatch` в `itemsInScope()` (термины всегда показываются); `<select class="topic-sel">` «Все темы» + 9 тем в панелях Квиз/Сопоставление/Хронология; `toggleTopic` синхронизирует все селекты и сбрасывает колоду.
 - **Эпохи:** опции «Эпоха: …» (7 эпох из `eraGroups()`) динамически добавлены во все `.scope-sel`; `activeRulerIds()`/`activeRulers()` и `studyPanel()` понимают scope `era:<Имя>` (фильтр по `grp.ids`).
-- **Проверка:** `ast.parse` api/index.py OK; `node --check` emperors JS OK; прод `/emperors` → 200 с `topic-sel`/`topic_order`. Закоммичено `3ca946b`, задеплоено на `bank-bot-ruby.vercel.app`.
+- **Проверка:** `ast.parse` api/index.py OK; `node --check` emperors JS OK; прод `/emperors` → 200 с `topic-sel`/`topic_order`. Закоммичено `f73366e`, задеплоено на `bank-bot-ruby.vercel.app`.
 ### Задача 1. Ачивки
 - **Статус:** Готово
 - **Количество:** 227 ачивок
@@ -2951,7 +2967,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - Tests: 31/31 relevant unit tests pass; ruff clean.
 - Deployed to Vercel (bank-bot-ruby.vercel.app).
 
-**Commit:** 9a4510c (feat: add light/dark theme system injected via after_request for all pages)
+**Commit:** 15d1a9a (feat: add light/dark theme system injected via after_request for all pages)
 
 ### Changelog 2026-09-01 — log_error spam fix + bug audit
 
@@ -2960,7 +2976,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 #### log_error spam fixes
 - `log_error()` — `notify_admin()` только при `error_type != "info"` (раньше шлёт всегда, включая info-логи).
 - SEND_MSG — не логирует успешные отправки (status=200), только ошибки.
-- **Коммит:** `ffe5e5f`
+- **Коммит:** `2bbc0e8`
 
 #### DnD UniqueViolation spam fix
 - Дедупликация перед `CREATE UNIQUE INDEX uq_dnd_characters_session_player` — PostgreSQL не может создать UNIQUE INDEX если уже есть дубли.
@@ -3022,15 +3038,15 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 
 #### Недоделанные модули (решили удалить)
 
-- `core/managers/scheduler_manager.py` — `_execute_message_deletion`/`_execute_custom_task` были TODO (стабы, не интегрированы с ботом). Удалён в предыдущем коммите `1aa158c`.
+- `core/managers/scheduler_manager.py` — `_execute_message_deletion`/`_execute_custom_task` были TODO (стабы, не интегрированы с ботом). Удалён в предыдущем коммите `4053ed0`.
 
-**Коммит:** `4e606a6`, задеплоен на `bank-bot-ruby.vercel.app`.
+**Коммит:** `9e4f65c`, задеплоен на `bank-bot-ruby.vercel.app`.
 
 ### Changelog 2026-09-04 — Phase 6 OGE завершена (100/100)
 
 **Сессия:** OGE-10, OGE-11, OGE-12 закрыты. Phase 6 полностью завершена.
 
-#### OGE-10: Автопроверка вместо «Знаю/Не знаю» (commit `c81dff4`)
+#### OGE-10: Автопроверка вместо «Знаю/Не знаю» (commit `5e0c2fd`)
 
 В информатике (`/informatics`) заменена ручная самооценка на серверную автопроверку:
 
@@ -3039,7 +3055,7 @@ b90bf5d..68249a9 (2026-08-26; 68249a9 — тулы куратора topic/card +
 - **Study tab (`loadTopic`):** вместо кнопки «Показать ответ» — текстовый input + кнопка «Проверить». Автоматически записывает результат через `infoRecord()`. При ошибке показывает правильный ответ + пояснение.
 - **Trainer tab (`showTrainerTask`):** аналогично — вместо «Показать ответ» → «Знал/Ошибся» — текстовый input + «Проверить». Результат записывается автоматически. Убран неиспользуемый `#answer-btn` из HTML.
 
-#### OGE-11: История — фильтр типов в панели «Изучить» (commit `6dd7505`)
+#### OGE-11: История — фильтр типов в панели «Изучить» (commit `3a93e98`)
 
 В `/emperors` добавлен dropdown «Показать: Все сразу / События / Имена / Термины» в панели «Изучить»:
 
@@ -3061,7 +3077,7 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 **Сессия:** Два критичных security-фикса.
 
-#### Family budget user_id spoofing (commit `e2a541d`)
+#### Family budget user_id spoofing (commit `5ece815`)
 
 **Проблема:** `_get_user_id()` в `bot/web/family_budget.py` читал `user_id` из query param (`request.args.get("user_id")`) — любой мог подставить чужой ID и управлять чужой семьёй/бюджетом.
 
@@ -3072,7 +3088,7 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - `loadDashboard()` вызывает `/family/status` без query param, USER_ID устанавливается из ответа.
 - Добавлен `autoLogin()` для автоматической авторизации через web_token.
 
-#### AI chat user_id spoofing (commit `e2a541d`)
+#### AI chat user_id spoofing (commit `5ece815`)
 
 **Проблема:** `user_id = str(data.get("user_id") or "anon")` в `/api/ai_chat` читал ID из POST body без проверки сессии — любой мог отправить чужой user_id.
 
@@ -3115,7 +3131,7 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 ### Changelog 2026-09-05 — AI sandboxing + DnD prompt injection
 
-#### AI-1: `_tool_run_python` RCE sandboxing (commit `f1a2e06`)
+#### AI-1: `_tool_run_python` RCE sandboxing (commit `fddaee5`)
 
 **Проблема:** AI chat мог выполнять произвольный Python code через `subprocess.run([sys.executable, "-c", code])` — полный RCE без ограничений.
 
@@ -3124,7 +3140,7 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - Блокировка `__import__`, `globals()`, `locals()`, `eval()`, `exec()`, `open()`, `__builtins__`, `getattr(..., "__import__")`.
 - Окружение: `PATH=/usr/bin:/bin`, `HOME=tempdir`, пустой `PYTHONPATH`.
 
-#### AI-2: DnD `build_prompt` prompt injection (commit `f1a2e06`)
+#### AI-2: DnD `build_prompt` prompt injection (commit `fddaee5`)
 
 **Проблема:** User-supplied поля (`context_summary`, `current_scene`, `fixes`) могли содержать prompt injection (system/assistant/user role markers, override commands).
 
@@ -3134,11 +3150,11 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 
 **Проблема:** Regex blocklist в `_PYTHON_BLOCKLIST` содержал синтаксическую ошибку (`code` модуль конфликтовал с regex-парсером) → `re.error: missing ), unterminated subpattern at position 2` → модуль не импортируется → Vercel 500 на ВСЕХ страницах.
 
-**Фикс (commit `1b0f631`):** Regex заменён на AST-based sandbox (`ast.parse` + `ast.walk`): проверяет `Import`, `ImportFrom`, `Call` узлы. Блокирует `_BLOCKED_MODULES` (os, subprocess, socket и др.) и `_BLOCKED_KEYWORDS` (__import__, eval, exec, open, __builtins__). `import ast` — lazy import внутри функции.
+**Фикс (commit `effcc42`):** Regex заменён на AST-based sandbox (`ast.parse` + `ast.walk`): проверяет `Import`, `ImportFrom`, `Call` узлы. Блокирует `_BLOCKED_MODULES` (os, subprocess, socket и др.) и `_BLOCKED_KEYWORDS` (__import__, eval, exec, open, __builtins__). `import ast` — lazy import внутри функции.
 
 ### Changelog 2026-09-05 — DB-backed rate limiting + connection pool unification
 
-#### In-memory rate limiting fix (commit `8ab128b`)
+#### In-memory rate limiting fix (commit `e1aaefb`)
 
 **Проблема:** `_check_ai_rate` использовал in-memory dict `_AI_RATE_LIMITS`, который сбрасывался при каждом Vercel cold start — rate limiting не работал.
 
@@ -3148,19 +3164,19 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - DB rate check добавлен к DnD (`dnd:`) и AI chat (`ai_chat:`) — критичные AI-эндпоинты.
 - In-memory check остаётся как fast path, DB — как persistent fallback.
 
-#### Dual connection pool unification — DB-3 (commit `8ab128b`)
+#### Dual connection pool unification — DB-3 (commit `e1aaefb`)
 
 **Проблема:** `api/index.py` создавал свой `DB_ENGINE` через `get_db_engine()`, а `database/database.py` — свой через `get_pooled_engine()`. Два отдельных connection pool на одну PostgreSQL БД → лишние соединения, wastage на Vercel Hobby (connection limit).
 
 **Фикс:** `get_db_engine()` в `api/index.py` теперь импортирует `engine` из `database.database` (shared engine). Fallback на создание нового engine только если import не удался.
 
-### Changelog 2026-09-13 — feat(social): система профилей и друзей (commit `dbbacc5`)
+### Changelog 2026-09-13 — feat(social): система профилей и друзей (commit `9d1f2eb`)
 
 - **Backend:** таблицы `friend_requests` + `web_friends` (две строки на пару) через `_ensure_social_tables()` у `get_db_engine()`. Новые роуты: `GET /api/u/<login>` (публичный профиль: id/login/display_name/gd_nickname/created_at/coins/streak/active_days/total_actions/modules/achievements/is_self/relation — без email/telegram/hash), `GET /api/users/search` (LIKE по login/display_name, min 2 симв., limit 20, self исключён), `GET /api/friends`, `POST /api/friends/request` (self 400, дубли/«уже друзья» 409, rate-limit `frq:{uid}` 20/час), `accept`/`decline`/`cancel` (403 на чужие), `remove` (обе стороны), `GET /api/friends/weekly` (SUM actions за 7 дней вручную собранными IN-плейсхолдерами).
 - **Страницы:** `/friends` (вкладки друзья/входящие/поиск с debounce 300ms, топ недели с медалями и progress-bars, кнопки через `data-fid`/`data-action` + делегирование событий), `/u/<login>` (профиль + GD-блок `/api/gd/user/<nick>`, кнопки по relation), блок «Друзья» в `/account`, ссылка «Друзья» + бейдж входящих (`friend-badge`) в user-bar хаба, `loadFriendBadge()`.
 - **Правки по ходу:** `created_at` в профиле — `isoformat()` с fallback на `str()` (SQLite в тестах отдаёт строку). Тесты `test_social.py` (3 зелёных), e2e DDL дополнен social/activity-таблицами, ruff clean, `node --check` со всех 4 страниц OK. Прод smoke: register→search→request→accept→weekly→remove→409 dup — всё OK.
 
-### Changelog 2026-09-22 — feat(freemium): гейтинг 67/33 во всех модулях (commit `f6132eb`)
+### Changelog 2026-09-22 — feat(freemium): гейтинг 67/33 во всех модулях (commit `f8e9b14`)
 
 - **Backend.** Единый гейт `_auth_user_or_401()`: `(user, None)` или `(None, 401 {auth_required:true, error:"Требуется авторизация…"})`. Гейтнуты за вход: `/api/dnd/stop|fix`, `/api/chess/link|stats`, `/api/md2pdf/format`, `/api/music/overlay`, `/api/study/ai-plan|plan(regenerate)|chat POST|hint|stats`, `/api/exam/ai-record`, `/api/verbs/submit`, `/api/trivia/answer` (+1 монета `_award_web_coins(user,1,"Тривия…")` при верном). Раскрыты анонимам (база): `study/today` (был soft-empty→открыт), `study/chat` GET anon (пустой), `due_cards/recommendations/progress` (уже пустые); `code/analyze` + `code/projects` + чтение гостевых проектов (`user_id NULL`, rate `code_anon_{ip}` 3/ч, `run_ai=False`); `dnd/status|join|act|roll`; `chess/puzzle|check` (rate `chess_puzzle:{ip}` 20/60с, монеты +5 только когда `pending.logged_uid == uid == auth_uid`).
 - **Frontend.** `_FREEMIUM_AUTH_JS` инжектится в каждую HTML-страницу в `_inject_theme_into_response` перед `</body>`: патч `window.fetch` ловит 401 `{auth_required}` → модалка логина `showLtLogin()`; SUPPRESS-список фоновых: `/api/study/hint`, `/api/exam/ai-record`, `/api/study/progress`, `/api/study/plan`.
@@ -3168,21 +3184,21 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Прод-фикс:** `code_projects.user_id` убран `NOT NULL` (DDL + idempotent `ALTER ... DROP NOT NULL`) — гостевой analyze падал 500 на проде.
 - **Тесты:** `test_md2pdf` переписан на StaticPool+patch-паттерн (9/9), новый `test_freemium_gates` (6/6: регистрация без email, 14 гейтов→401 auth_required, база открыта, инжект скрипта), регресс `test_code_explainer` (10, DDL синхронизирован: `created_via`, `user_id` nullable; stale-ожидания 401/404 приведены к дизайну — список/analyze/project-просмотр гостевых открыты), `test_achievements` (7). `tests/conftest.py` — autouse fixture no-op `send_telegram_message` при ENV=test: любой `log_error` раньше вешал прогон навсегда (Telegram-запрос без сети). **Итого 32 теста зелёные, ruff clean.**
 
-### Changelog 2026-09-22 — fix(register): портабельный DDL web_coin_log + prod deploy фиксирует регистрацию (commit `8fa39f2`)
+### Changelog 2026-09-22 — fix(register): портабельный DDL web_coin_log + prod deploy фиксирует регистрацию (commit `7a834d6`)
 
 - **Прод-баг:** регистрация на проде → 500 «Ошибка сервера». Причина: `_ensure_web_coin_tables()` создавала `web_coin_log` с SQLite-синтаксисом `id INTEGER PRIMARY KEY AUTOINCREMENT` → ошибка парсинга Postgres → ensure False → register отдавал 500 (INSERT юзера при этом успевал пройти — возможны осиротевшие аккаунты). Диагностика по vercel logs: 500-ответ регистрации длился ~60s из-за Groq-fallback шторма — `log_error()` имеет ДВА сетевых пути: `notify_admin`→Telegram и `_get_ai_recommendation`→`_ai_chat`.
 - **Фикс:** каноническая Postgres-DDL `web_coin_log (id SERIAL PRIMARY KEY, user_id INTEGER, amount INTEGER NOT NULL, description VARCHAR(255), created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)` — `CURRENT_TIMESTAMP` портабелен (SQLite не парсит `DEFAULT NOW()` даже при `IF NOT EXISTS`). Временная диагностика в 500-ответе откачена.
 - **Регрессия в тестах:** `DEFAULT NOW()` ломает sqlite-движки без pre-created `web_coin_log` (test_code_explainer) — ensure кидал исключение → log_error (вешало на 60s без фикстуры) → False → register 500 → каскад 13 фейлов. После `CURRENT_TIMESTAMP` — снова 32/32 зелёных, ruff clean.
 - **Prod smoke:** `POST /api/auth/register` без email → 200 `{login, token, user_id:35}`; login → 200 (logs), authed `GET /api/study/stats` → 200. Деплой: `lthub-hin4fiiqw-lucasteamalt12321s-projects.vercel.app`.
 
-### Changelog 2026-09-24 — fix(ai_chat)+бanner+cleanup (commits `29e7a9c`, `44f9cab`)
+### Changelog 2026-09-24 — fix(ai_chat)+бanner+cleanup (commits `584fe3b`, `2a11246`)
 
-- **fix(ai_chat) `29e7a9c`:** фильтр `if "gpt-oss" not in candidate` применялся ко ВСЕМ провайдерам в `_ai_chat` и молча пропускал Gemini (primary НИКОГДА не вызывался); `_groq_active_model` читался/писался и для Gemini. Теперь Groq-логика (cache/активная модель/перебор кандидатов/gpt-oss reasoning-хаки) изолирована в ветку `if name == "Groq"`, у не-Groq (Gemini) — одиночный POST с ретраем на 429 и проверкой пустого content (fallback на Groq). `GEMINI_API_KEY` на проде НЕ установлен — фикс станет активен при добавлении ключа. Новые тесты: `tests/unit/test_ai_chat_fallback.py` (5/5: Gemini primary при 200/empty/error, без ключа → Groq, active-модель не подмешивается к Gemini).
+- **fix(ai_chat) `584fe3b`:** фильтр `if "gpt-oss" not in candidate` применялся ко ВСЕМ провайдерам в `_ai_chat` и молча пропускал Gemini (primary НИКОГДА не вызывался); `_groq_active_model` читался/писался и для Gemini. Теперь Groq-логика (cache/активная модель/перебор кандидатов/gpt-oss reasoning-хаки) изолирована в ветку `if name == "Groq"`, у не-Groq (Gemini) — одиночный POST с ретраем на 429 и проверкой пустого content (fallback на Groq). `GEMINI_API_KEY` на проде НЕ установлен — фикс станет активен при добавлении ключа. Новые тесты: `tests/unit/test_ai_chat_fallback.py` (5/5: Gemini primary при 200/empty/error, без ключа → Groq, active-модель не подмешивается к Gemini).
 - **Операция:** удалены осиротевшие тестовые аккаунты на проде `smoke2026fb/fc/fd/fe/fg/fh` (6 шт.) через временный guarded-эндпоинт (`CLEANUP_NONCE` env + header): SELECT → DELETE по `login LIKE 'smoke2026f%'` в отдельных транзакциях (`web_sessions/user_coins/web_coin_log/web_streak/web_activity` + `web_users`). Важно: падение одной команды внутри общего `begin()` в Postgres помечает транзакцию aborted → все последующие уже не выполняются (первый прогон вернул 500 InFailedSqlTransaction). Эндпоинт и env удалены. Первый баг-урок: первые регистрационные 400/500 могли плодить пользователей без токена.
-- **feat(ui) `44f9cab`:** вместо некрасивого системного `alert()` при «требуется авторизация» — большой баннер-прямоугольник вверху экрана с кнопкой **«Войти»**. В `_FREEMIUM_AUTH_JS`: (1) патч `window.fetch` — любой JSON-401 (кроме SUPPRESS и `/api/auth/login|logout`) → `auth_required` → модалка (как раньше), иначе `js.error` → `window.ltBanner(error)`; (2) `ltBanner()` — fixed-топ, тема `var(--bb-*)`, кнопка «Войти» (открывает модалку входа), крестик закрытия, один переиспользуемый элемент; (3) перехват `window.alert` — сообщения с маркерами «авторизац/войдите/регистрац/требуется вход/нужно войти» рисуются баннером вместо нативного alert (остальные alert() сохранены). Пример: `showErr(m){setMsg; alert(m)}` на /code (индекс:29566) для 401 `/api/code/project/<id>/comment`.
+- **feat(ui) `2a11246`:** вместо некрасивого системного `alert()` при «требуется авторизация» — большой баннер-прямоугольник вверху экрана с кнопкой **«Войти»**. В `_FREEMIUM_AUTH_JS`: (1) патч `window.fetch` — любой JSON-401 (кроме SUPPRESS и `/api/auth/login|logout`) → `auth_required` → модалка (как раньше), иначе `js.error` → `window.ltBanner(error)`; (2) `ltBanner()` — fixed-топ, тема `var(--bb-*)`, кнопка «Войти» (открывает модалку входа), крестик закрытия, один переиспользуемый элемент; (3) перехват `window.alert` — сообщения с маркерами «авторизац/войдите/регистрац/требуется вход/нужно войти» рисуются баннером вместо нативного alert (остальные alert() сохранены). Пример: `showErr(m){setMsg; alert(m)}` на /code (индекс:29566) для 401 `/api/code/project/<id>/comment`.
 - **Верификация:** ruff clean; 37 тестов зелёные (test_ai_chat_fallback 5 + freemium 6 + md2pdf 9 + code 10 + achievements 7); инжект JS валиден (node --check). Деплой `lthub-7uptqdpe2-lucasteamalt12321s-projects.vercel.app` (Ready, на алиасе). **Прод-смоук недоукомплектован**: egress песочницы к Vercel стал сбрасывать TCP (TLS recv failure ~19.5s) — GET /code подключение сбрасывается; требуется повторный смоук из рабочей сети.
 
-### Changelog 2026-09-24 — feat(code_explainer): гостевой скан без больших файлов (commit `c97ad4f`)
+### Changelog 2026-09-24 — feat(code_explainer): гостевой скан без больших файлов (commit `be30d55`)
 
 - **Задача:** «в code explainer можно загрузить проект без регистрации, но нельзя просканировать» — аноним теперь может нажать «🚀 Анализировать всё», но **без больших файлов** (>800 строк), иначе — подсказка войти.
 - **Backend** (`_api_code_reanalyze`, POST `/api/code/project/<id>/analyze`): аноним проходит в `_code_project_visible(project_id, None)` (только гостевые, `user_id NULL`); rate-limit по IP `code_scan_anon_{ip}` `_CODE_GUEST_SCAN_RATE=3`/час + `_check_ai_rate("code_anon_{ip}")` → 429; для гостей из пула исключаются файлы с `line_count > _CODE_GUEST_SCAN_MAX_LINES=800` (счётчик `skipped_large`), остальное поведение не меняется (чанкованный анализ, бюджет `_CODE_CHUNKS_PER_RUN=5`). Ответ дополнен `"skipped_large"`. Авторизованные пользователи анализируют как раньше (нет скипа больших файлов).
@@ -3191,12 +3207,12 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Прод-смоук (через рабочую edge-IP `.195` + `--resolve`, DNS отдаёт недоступные `.67`):** `GET /code` 200; аноним `POST /api/code/analyze {repo:octocat/Hello-World, analyze:false}` → 200 project_id 17; аноним `POST .../17/analyze` → **200** (раньше 401) `{skipped_large:0}`; lodash (55 файлов) → `{file_count:40, skipped_large:15, analyzed_count:3}` за 4.5s — большие файлы реально исключены. Деплой `lthub-dsesijizn-lucasteamalt12321s-projects.vercel.app` (Ready).
 - **Из сети песочницы доступ к lthub.vercel.app сейчас:** локальный DNS даёт edge-IP `.67` (216.198.79.67/64.29.17.67) — недоступны (TCP/TLS reset), рабочие `.195`; в WinHTTP настроен мёртвый прокси `127.0.0.1:10801` (синхронный SYN_SENT). Рабочие чекеры: `curl --resolve lthub.vercel.app:443:64.29.17.195`. Рекомендация: hosts-pin `.195` + снять/перезапустить прокси.
 
-### Changelog 2026-09-25 — fix(gd+emperors): идемпотентные ALTER ADD COLUMN (commit `b6c342f`)
+### Changelog 2026-09-25 — fix(gd+emperors): идемпотентные ALTER ADD COLUMN (commit `2c8ff2e`)
 
-- **Прод-баг (репорт пользователя):** бот спамился в TG: `GD / error — Table init error: (psycopg2.errors.DuplicateColumn) column "difficulty" of relation "levels" already exists`. Причина: `_ddl()` (рефактор `b0013a8`) на SQLite-совместимость вырезает `IF NOT EXISTS` из `ALTER TABLE ... ADD COLUMN` (строка re.sub ~240), а `_ensure_gd_tables` использовал старую форму без try-обёртки → на Postgres колонка уже есть → DuplicateColumn → ловится в `except` → `log_error("GD", "error", ...)` → `notify_admin` → Telegram-сообщение на КАЖДЫЙ холодный старт (и каждый вызов ensure). Колонки в этих ALTER-ах давно в стабильных CREATE TABLE → это legacy-миграции, которые на проде всегда уже применены.
+- **Прод-баг (репорт пользователя):** бот спамился в TG: `GD / error — Table init error: (psycopg2.errors.DuplicateColumn) column "difficulty" of relation "levels" already exists`. Причина: `_ddl()` (рефактор `547d909`) на SQLite-совместимость вырезает `IF NOT EXISTS` из `ALTER TABLE ... ADD COLUMN` (строка re.sub ~240), а `_ensure_gd_tables` использовал старую форму без try-обёртки → на Postgres колонка уже есть → DuplicateColumn → ловится в `except` → `log_error("GD", "error", ...)` → `notify_admin` → Telegram-сообщение на КАЖДЫЙ холодный старт (и каждый вызов ensure). Колонки в этих ALTER-ах давно в стабильных CREATE TABLE → это legacy-миграции, которые на проде всегда уже применены.
 - **Фикс:** в `_ensure_gd_tables` введён хелпер `_add(col, table)` на базе идемпотентного `_ddl_add_column(...)` (проверяет `information_schema.columns`/`PRAGMA table_info` до ALTER; когда колонка есть — возвращает None, SQL не выполняется). Переведены: `levels.difficulty`, `submissions.difficulty/attempts`, `player_stats.points/demons_count`, `level_completions.player_name`. Аналогичный латентный необёрнутый ALTER `emperors_progress.counter` исправлен тем же способом. У PARSE/code/parsed_transactions такие ALTER-ы уже были в `try/except pass` — не падали.
 - **Проверка:** ruff clean; двукратный прогон `_ensure_gd_tables/_ensure_emperors_tables/_ensure_parsing_tables/_ensure_code_tables` на sqlite → idempotent OK (модель «уже мигрировано» для прода); 58 passed (code_explainer 13 + freemium 6 + error_logging 4 + gd_models/gd_player_stats). ⚠️ `test_gd_commands.py` 10 failed — **pre-existing**, не связаны: это bot-async-тесты, плагин `pytest-asyncio` не установлен.
-- **Деплой:** `lthub-f5xqmu1bf-lucasteamalt12321s-projects.vercel.app` (Ready). Пуш `cabfe45..b6c342f`.
+- **Деплой:** `lthub-f5xqmu1bf-lucasteamalt12321s-projects.vercel.app` (Ready). Пуш `b369733..2c8ff2e`.
 
 ### Changelog 2026-10-02 — feat(lthub_tunnel): обход блокировки Vercel-домена через VPN-подписку (TUNNEL, Phase 12)
 
@@ -3211,10 +3227,10 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Тесты:** `tests/unit/test_lthub_tunnel.py` — **39 passed** (парсер, дедуп, отбраковка xhttp/мусорных host, генерация sing-box/Clash, `prune_config` на 6 сценариев: выкидывание битой ноды, ANSI, нераспознанная ошибка, поломанная сама группа, лимит проходов, успех с первого раза). Регресс `test_canon_requests_e2e` + `test_web_portal_e2e` → суммарно **82 passed**, ruff **All checks passed**. Экспортированный конфиг проходит `sing-box check` (exit 0).
 - **End-to-end (прогонялось многократно):** `https://lthub.vercel.app -> ДОСТУПЕН (HTTP 200 за 1.6–3.4 с)`, `/`, `/health`, `/login`, `/api/canon/works` — 200; аудио-origin отдаёт ожидаемый 405 на GET (то есть достижим). Один источник подписок отдаёт сертификат не на свой хост (`CERTIFICATE_VERIFY_FAILED`) и пропускается целиком — проверка TLS намеренно не отключается.
 - **Известное окружение:** в песочнице встречается `OSError: [WinError 1455] файл подкаписи слишком мал` при `CreateProcess` — это лимит тестовой машины, а не код; лечится убийством зависших процессов sing-box.
-- **Статус в git:** НЕ закоммичено (пользователь и третий сеанс оставили туннель автору, пока тесты падали). В дереве: изменён `.gitignore`, untracked `scripts/lthub_tunnel/` и `tests/unit/test_lthub_tunnel.py`. Канон и GD co-op уехали чужим коммитом `f50afb4`/`59d68bd`.
+- **Статус в git:** НЕ закоммичено (пользователь и третий сеанс оставили туннель автору, пока тесты падали). В дереве: изменён `.gitignore`, untracked `scripts/lthub_tunnel/` и `tests/unit/test_lthub_tunnel.py`. Канон и GD co-op уехали чужим коммитом `8565d04`/`53eb51a`.
 
 ## last_checked_commit
-  b0415ae (2026-10-02; feat(tunnel): обход блокировки Vercel-домена через VPN-подписку — Phase 12 TUNNEL 90/100).
+  58beb4f (2026-10-02; feat(tunnel): обход блокировки Vercel-домена через VPN-подписку — Phase 12 TUNNEL 90/100).
 
 ### Changelog 2026-10-02 — feat(tunnel+): пинг нод и выбор самой быстрой (TUNNEL, Phase 12)
 
@@ -3227,7 +3243,7 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Проверки:** 67 тестов `tests/unit/test_lthub_tunnel.py` (было 39; +12 на пинг, +6 на ретраи/кеш, +4 на `pick_fastest`) + регресс canon/web_portal → **110 passed**, ruff **All checks passed**, экспортированный конфиг проходит `sing-box check` (exit 0). Живой прогон: 85 нод → пинг 33–36 живых → `--top 6` → prune выкинул xhttp → 5 в urltest → `lthub.vercel.app -> ДОСТУПЕН (HTTP 200)`. Fallback кеша проверен вживую: при лежащем источнике подписка поднялась из кеша и пинг нашёл 36 живых нод.
 - **Известно про среду:** из песочницы Vercel-домены периодически сбрасывают соединение (DNS отдаёт рабочий edge-IP `64.29.17.195`, но соединение рвётся; с `--resolve` на тот же IP сайт отвечает **200 за 0.38 с**). Внешняя проблема тестовой машины, не кода; лечится hosts-записью.
 - **Документация:** `scripts/lthub_tunnel/README.md` переписан (таблица команд и опций, раздел «Как выбирается нода», кеш, диагностика), `docs/README.md` дополнен.
-- **Коммиты:** `b0415ae` feat(tunnel) — базовый туннель; `b189e41` docs(mb) — last_checked_commit; этот changelog — поверх них (пинг + повторы + кеш подписки), ожидает коммита.
+- **Коммиты:** `58beb4f` feat(tunnel) — базовый туннель; `0c3d2a8` docs(mb) — last_checked_commit; этот changelog — поверх них (пинг + повторы + кеш подписки), ожидает коммита.
 
 ### Changelog 2026-10-04 — fix(tunnel): таймауты загрузки, третий источник подписок
 
@@ -3264,4 +3280,4 @@ Phase 6 OGE Center: **100/100**. Все deliverables закрыты (OGE-08/09/1
 - **Проверки:** 85 → **87** тестов (гонка `busy`, `done` при ошибке), целевой регресс **130 passed**, ruff чист. Пересобранный `LthubTunnel.exe`: HTTP 200 за 547 мс, код возврата 0, процессов не осталось.
 
 ## last_checked_commit
-  2a1de17 (2026-10-05; feat(tunnel): оконное приложение и один .exe; выше поверх него — фикс гонки кнопки и кода selftest, ожидает коммита).
+  b5d116d (2026-10-05; feat(tunnel): оконное приложение и один .exe; выше поверх него — фикс гонки кнопки и кода selftest, ожидает коммита).
