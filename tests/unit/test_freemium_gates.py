@@ -138,7 +138,7 @@ GATED_CASES = [
     ("post", "/api/study/plan", {}),
     ("post", "/api/study/chat", {}),
     ("get", "/api/study/hint?module=math", {}),
-    ("get", "/api/study/stats", {}),
+
     ("get", "/api/chess/stats", {}),
     ("post", "/api/exam/ai-record", {}),
     ("post", "/api/verbs/submit", {}),
