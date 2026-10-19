@@ -1,16 +1,45 @@
 # Progress
 
-**Текущая фаза:** Phase 6 OGE Center — подготовка к ОГЭ по 5 предметам. Школьный проект (SCH-01…SCH-05) закрыт 2026-10-18: база, README/docs и `school_project/` готовы; канонический прогресс **77.5 / 100**.
+**Текущая фаза:** Phase 6 OGE Center — подготовка к ОГЭ по 5 предметам. Школьный проект (SCH-01…SCH-05) закрыт 2026-10-18: база, README/docs и `school_project/` готовы; канонический прогресс **77.5 / 100**. Туннель: `up`/`runner` больше не верят «порт отвечает» — проверяют живость своего sing-box (`57b0d9d`).
 
 ## last_checked_commit
 
-**`c334e38`** — fix(deps): вернуть `requests` в `requirements.txt` (2026-10-18). До него: `0041376` (fix(tests): `/api/study/stats` открыт анонимам), `be6dd2e` (memory_bank: SCH-05), `ada0a49` (docs(school-project): SCH-03/04), `e729452` (test(chess): CH-TEST), `2569ec9` (fix(gd): GD-03/GD-05), `eef4773` (fix(tests): детерминизм), `f756160` (fix: study-chat WIP + открытая анонимам база), `3a82ced` (BUGHUNT BUG-04..BUG-10), `a8570b5` (туннель: прогресс пробы нод + прокси http/socks5h), `f7235c9` (chore: add relaxdev.yml config hint), `aec8fda` (Amvera mirror guide), `eb12a9e` (amvera.yml), `33ae7d9` (md2pdf X-Auth-Token), `2855c39` (CI аудио/sing-box), `2da7541` (RelaxDev gunicorn), `660f7d1` (CI ruff check .), `cddd377` (ссылка на LthubTunnel.exe в README), `8690aa8` (не трекать .vercel), `73617f9` (CI python 3.12 + пин ruff), `09aeed6` (Changelog 2026-10-08), `3145cb9` (advisory-lock до первого DDL), `e5da38d` (подписки не держат запуск), `28082ea` (GD-08).
+**`57b0d9d`** — fix(lthub-tunnel): проверять живость своего sing-box, а не только порт (2026-10-18). До него: `774e797` (memory_bank: PII rewrite + CI fixes), `c334e38` (fix(deps): вернуть `requests` в `requirements.txt`), `0041376` (fix(tests): `/api/study/stats` открыт анонимам), `be6dd2e` (memory_bank: SCH-05), `ada0a49` (docs(school-project): SCH-03/04), `e729452` (test(chess): CH-TEST), `2569ec9` (fix(gd): GD-03/GD-05), `eef4773` (fix(tests): детерминизм), `f756160` (fix: study-chat WIP + открытая анонимам база), `3a82ced` (memory_bank sync), `1fdaa62` (BUGHUNT BUG-04..BUG-10), `a8570b5` (туннель: прогресс пробы нод + прокси http/socks5h), `f7235c9` (chore: add relaxdev.yml config hint), `aec8fda` (Amvera mirror guide), `eb12a9e` (amvera.yml), `33ae7d9` (md2pdf X-Auth-Token), `2855c39` (CI аудио/sing-box), `2da7541` (RelaxDev gunicorn), `660f7d1` (CI ruff check .), `cddd377` (ссылка на LthubTunnel.exe в README), `8690aa8` (не трекать .vercel), `73617f9` (CI python 3.12 + пин ruff), `09aeed6` (Changelog 2026-10-08), `3145cb9` (advisory-lock до первого DDL), `e5da38d` (подписки не держат запуск), `28082ea` (GD-08).
 
 > ✅ На 2026-10-18 всё закоммичено и **запушено в `origin/main`**: туннель, BUGHUNT (BUG-04…BUG-10), закрытие школьного проекта SCH-03…SCH-05, переписывание истории git (PII удалён, все хеши с 2026-05-23 пересчитаны) и CI-фиксы (`0041376`, `c334e38`). WIP-правка автора в `tests/unit/test_freemium_gates.py` вошла в `0041376` — без неё CI оставался красным. В рабочем дереве остались только файлы автора, которые я не трогал: `AGENTS.md` и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
 
 > ✅ Чужая работа (canon, туннель) автором закоммичена — предупреждение снято 2026-10-07. В дереве только мои файлы.
+
+## Changelog 2026-10-18 (вечер) — TUN: живость своего sing-box в `up`/`runner` (`57b0d9d`)
+
+**Задача пользователя:** «делай дальше». Взят последний открытый пункт `memory_bank/todo.md`: `cmd_up` проверял только «порт слушает».
+
+### Проблема
+
+`cmd_up` (`scripts/lthub_tunnel/tunnel.py`) и `TunnelSession.start` (`scripts/lthub_tunnel/runner.py`) ждали только `wait_port()` — «на порту 2080 кто-то отвечает». Этого мало:
+
+- наш sing-box мог умереть сразу после старта (битый конфиг), а порт оставался занят старым/чужим процессом — запуск выглядел успешным;
+- чужой sing-box от прошлого запуска (или чужое приложение на том же порту) попадал в замер нод как «наш» туннель;
+- крах во время `urltest`-settle показывался как «сайт недоступен», то есть с неверной причиной.
+
+### Фикс
+
+- **`listening_pids(host, port)`** — PID-ы владельцев порта через `psutil.net_connections(kind="tcp")`. `None` означает «определить не удалось» (нет psutil, `AccessDenied`, у сокета не виден владелец — типично для Linux без root): тогда решение принимается только по живости процесса, ложных тревог нет.
+- **`own_tunnel_problem(process, host, port)`** — почему наш sing-box не обслуживает порт: код `poll()` (процесс умер) либо порт слушает процесс с чужим pid. Владелец неизвестен или порт никто не слушает — проблемы нет.
+- Вызовы: в `cmd_up` — после `wait_port` и повторно после `urltest`-settle; в `TunnelSession.start` — там же. CLI печатает причину и хвост `sing-box.log` (код возврата 1), `runner`/GUI бросают `RuntimeError`.
+
+### Проверки
+
+- `tests/unit/test_lthub_tunnel.py`: **+11** регрессионных тестов (моки `psutil`/`Popen`) — порт занят чужим pid, чужой pid не виден (Linux без root), процесс умер, сокет в статусе `ESTABLISHED` не считается слушающим, провода `cmd_up` и `TunnelSession.start`.
+- Ручная проверка на реальном psutil (Windows): свой процесс на порту → `{pid}` и «проблем нет», закрытый порт → `set()`, мёртвый процесс → «sing-box завершился сразу после старта (код 9)».
+- `pytest tests/unit` — **1491 passed / 11 skipped / 0 failed** (106 с); `ruff check` по изменённым путям — чисто.
+
+### CI на `main` — зелёный (закрыт открытый пункт)
+
+- `774e797`: run `39135293160` — **Lint / Test / Integration Tests / Coverage — success**; дополнительно workflow `HF Render Failover Watchdog` (run `39146642403`) — success.
+- Попутно исправлен ярлык хеша в секции `last_checked_commit`: `3a82ced` — это коммит синхронизации memory_bank, а не BUGHUNT (`1fdaa62`).
 
 ## Changelog 2026-10-18 — study-chat WIP, долги баг-ханта (GD-03/05, CH-TEST), школьный проект SCH-03…SCH-05
 
@@ -68,8 +97,8 @@
 ### Открыто
 
 - **TUN-08** — серверная раздача конфигов (не согласовано).
-- Мониторинг CI на `main` после `c334e38`.
-- Опционально: удалить локальный бэкап старой истории и временные каталоги `%TEMP%\bb_*`.
+- Продуктовые deliverable'ы, оставшиеся `in_progress` (22.5 веса): B07 Universe, B08 AI, B10 Mom, B11 Family Budget, B12 VK Mini App, B16 Code Explainer, B21 Tunnel.
+- Опционально: удалить бэкап старой истории (ветка `backup/pre-pii-rewrite`, `%TEMP%\bb_backup_245ab4f.bundle`) и временные каталоги `%TEMP%\bb_*`.
 
 ## Changelog 2026-10-15 — BUGHUNT Phase 11: BUG-04…BUG-10 закрыты (закоммичено `1fdaa62`, запушено 2026-10-18)
 
