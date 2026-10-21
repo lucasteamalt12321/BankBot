@@ -18,3 +18,4 @@
 - [ ] Чужие файлы в корне не закоммичены (не трогал): `AGENTS.md` (правка автора) и отладочные `*.py` (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`)
 - [ ] Продуктовые deliverables, оставшиеся `in_progress` (22.5 веса): B07 Universe, B08 AI, B10 Mom, B11 Family Budget, B12 VK Mini App, B16 Code Explainer, B21 Tunnel — см. `projectbrief.md` → `## Project Deliverables`
 - [ ] Опционально: удалить бэкап старой истории (ветка `backup/pre-pii-rewrite`, `%TEMP%\bb_backup_245ab4f.bundle`) и временные каталоги `%TEMP%\bb_*`
+- [ ] Render-реле для обхода блокировки `*.vercel.app` из РФ (реализовано `relay/` + тесты + пинг в `hf-watchdog.yml`): требуется деплой на Render (сервис из `relay/`, без карты) + добавить секрет `RENDER_RELAY_URL` — см. `relay/README.md`

@@ -1,0 +1,5 @@
+# Минимальные зависимости реле (отдельный Render-сервис, Root Directory = relay).
+# Версии синхронизированы с корневым requirements.txt.
+flask==3.0.0
+requests==2.34.2
+gunicorn==23.0.0

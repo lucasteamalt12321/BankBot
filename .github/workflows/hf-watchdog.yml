@@ -48,6 +48,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           RENDER_WEBHOOK_URL: ${{ secrets.RENDER_WEBHOOK_URL }}
+          RENDER_RELAY_URL: ${{ secrets.RENDER_RELAY_URL }}
           FORCE_RESTART: ${{ github.event.inputs.force_restart || 'false' }}
           FORCE_FAILOVER: ${{ github.event.inputs.force_failover || 'false' }}
         run: |
@@ -68,6 +69,7 @@ jobs:
           HF_TOKEN = os.environ["HF_TOKEN"].strip()
           BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
           RENDER_WEBHOOK_URL = os.environ.get("RENDER_WEBHOOK_URL", "").strip().rstrip("/")
+          RENDER_RELAY_URL = os.environ.get("RENDER_RELAY_URL", "").strip().rstrip("/")
           HF_WEBHOOK_URL = os.environ["HF_WEBHOOK_URL"].strip().rstrip("/")
           HF_SPACE_ID = os.environ["HF_SPACE_ID"]
           HF_HEALTH_URL = os.environ["HF_HEALTH_URL"]
@@ -182,6 +184,13 @@ jobs:
               pass
 
           print(f"HF status={status} healthy={hf_healthy} webhook_ok={hf_webhook_ok}")
+
+          # Keep the Render relay awake: the free plan sleeps after ~15 min
+          # of idle time; a ping each cycle (~744 h/month) stays under the
+          # 750 h/month limit and removes cold starts for RF users.
+          if RENDER_RELAY_URL:
+              relay_status, _ = fetch(f"{RENDER_RELAY_URL}/health", timeout=10)
+              print(f"Render relay health={relay_status}")
 
           # Determine desired platform
           if FORCE_FAILOVER:
