@@ -27267,6 +27267,26 @@ def telegram_webhook(secret: str):
                 send_telegram_message(chat_id, "❌ Ошибка при заражении.")
 
 
+
+        elif command == "/cure" and chat_id:
+            try:
+                target_id = user_id
+                reply_to_msg = message.get("reply_to_message")
+                if reply_to_msg and reply_to_msg.get("from"):
+                    target_id = reply_to_msg["from"].get("id") or target_id
+                with get_db_engine().connect() as conn:
+                    row = conn.execute(text("SELECT virus_type FROM infection_status WHERE user_id = :uid"), {"uid": target_id}).mappings().first()
+                    if not row or not row["virus_type"]:
+                        send_telegram_message(chat_id, "\u2615 \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u043d\u0435 \u0437\u0430\u0440\u0430\u0436\u0451\u043d.")
+                        return jsonify({"ok": True})
+                    conn.execute(text("DELETE FROM infection_status WHERE user_id = :uid"), {"uid": target_id})
+                    conn.commit()
+                who = "\u0412\u044b" if target_id == user_id else "\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c"
+                send_telegram_message(chat_id, f"\u2615 {who} \u0432\u044b\u043b\u0435\u0447\u0435\u043d\u044b \u043e\u0442 \u043e\u043b\u0435\u0433\u043e\u0432\u0438\u0440\u0443\u0441\u0430!")
+            except Exception as exc:
+                log_error("UNIVERSE", "error", f"/cure error: {exc}")
+                send_telegram_message(chat_id, "\u274c \u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u0438 \u043b\u0435\u0447\u0435\u043d\u0438\u0438.")
+
         elif command == "/spread" and chat_id:
             try:
                 reply_to_msg = message.get("reply_to_message")
