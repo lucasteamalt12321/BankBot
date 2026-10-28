@@ -25574,12 +25574,34 @@ def telegram_webhook(secret: str):
 
         log_error("WEBHOOK", "info", f"command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
 
+        # Universe Module: auto-infect on mention
+        if msg_text and "@olegchekmarev12" in msg_text.lower():
+            try:
+                with get_db_engine().connect() as conn:
+                    inf_row = conn.execute(
+                        text("SELECT virus_type FROM infection_status WHERE user_id = :uid"),
+                        {"uid": user_id},
+                    ).mappings().first()
+                    if not inf_row or not inf_row["virus_type"]:
+                        virus = random.choice(["олеговирус", "LTL-паразит"])
+                        conn.execute(
+                            text("""
+                                INSERT INTO infection_status (user_id, virus_type, infected_at)
+                                VALUES (:uid, :vt, NOW())
+                                ON CONFLICT (user_id) DO UPDATE SET virus_type = :vt, infected_at = NOW()
+                            """),
+                            {"uid": user_id, "vt": virus},
+                        )
+                        conn.commit()
+                        log_error("UNIVERSE", "info", f"auto-infected {user_id} as {virus} via mention")
+            except Exception as exc:
+                log_error("UNIVERSE", "error", f"auto-infect error: {exc}")
+
         # Universe Module: infected user message modification
         if (
             msg_text
             and not command
             and chat_id
-            and chat_id != user_id
             and not message.get("reply_to_message")
         ):
             try:
@@ -25597,12 +25619,15 @@ def telegram_webhook(secret: str):
                     else:
                         modified = msg_text + " ☕"
                         suffix = "🧬 _заражён LTL-паразитом_"
-                    if msg_id:
-                        requests.delete(
-                            f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
-                            json={"chat_id": chat_id, "message_id": msg_id},
-                            timeout=3,
-                        )
+                    if msg_id and chat_id != user_id:
+                        try:
+                            requests.delete(
+                                f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
+                                json={"chat_id": chat_id, "message_id": msg_id},
+                                timeout=3,
+                            )
+                        except Exception:
+                            pass
                     send_telegram_message(
                         chat_id,
                         f"{modified}\n\n{suffix}",
@@ -27185,10 +27210,14 @@ def telegram_webhook(secret: str):
         # ========== Universe Module ==========
         elif command == "/infect" and chat_id:
             try:
+                target_id = user_id
+                reply_to_msg = message.get("reply_to_message")
+                if reply_to_msg and reply_to_msg.get("from"):
+                    target_id = reply_to_msg["from"].get("id") or target_id
                 with get_db_engine().connect() as conn:
                     existing = conn.execute(
                         text("SELECT virus_type, infected_at FROM infection_status WHERE user_id = :uid"),
-                        {"uid": user_id},
+                        {"uid": target_id},
                     ).mappings().first()
                     if existing and existing["infected_at"]:
                         infected_at = existing["infected_at"]
@@ -27198,7 +27227,7 @@ def telegram_webhook(secret: str):
                         if (datetime.now(timezone.utc) - infected_at) < timedelta(hours=24):
                             send_telegram_message(
                                 chat_id,
-                                f"🦠 Вы уже заражены «{existing['virus_type']}»!\n"
+                                f"🦠 Уже заражён «{existing['virus_type']}»!\n"
                                 f"Попробуйте `/tea` для облегчения.",
                                 parse_mode="Markdown",
                             )
@@ -27221,13 +27250,14 @@ def telegram_webhook(secret: str):
                             VALUES (:uid, :vt, NOW())
                             ON CONFLICT (user_id) DO UPDATE SET virus_type = :vt, infected_at = NOW()
                         """),
-                        {"uid": user_id, "vt": virus},
+                        {"uid": target_id, "vt": virus},
                     )
                     conn.commit()
                 emoji = "🦠" if virus == "олеговирус" else "🧬"
+                who = "Вы" if target_id == user_id else "Пользователь"
                 send_telegram_message(
                     chat_id,
-                    f"{emoji} Вы заражены «{virus}»!\n"
+                    f"{emoji} {who} заражены «{virus}»!\n"
                     f"Симптомы: {symptoms}\n\n"
                     f"Используйте `/tea` для облегчения.",
                     parse_mode="Markdown",
