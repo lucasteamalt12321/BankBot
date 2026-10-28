@@ -27266,6 +27266,32 @@ def telegram_webhook(secret: str):
                 log_error("UNIVERSE", "error", f"/infect error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при заражении.")
 
+
+        elif command == "/spread" and chat_id:
+            try:
+                reply_to_msg = message.get("reply_to_message")
+                target_id = (reply_to_msg.get("from") or {}).get("id") if reply_to_msg else None
+                if not target_id or target_id == user_id:
+                    send_telegram_message(chat_id, "🦠 Ответь командой на сообщение того, кого хочешь заразить.")
+                    return jsonify({"ok": True})
+                with get_db_engine().connect() as conn:
+                    me = conn.execute(text("SELECT virus_type FROM infection_status WHERE user_id = :uid"), {"uid": user_id}).mappings().first()
+                    if not me or not me["virus_type"]:
+                        send_telegram_message(chat_id, "🦠 Ты сам не заражён. /infect сначала.")
+                        return jsonify({"ok": True})
+                    virus = me["virus_type"]
+                    conn.execute(text("""
+                        INSERT INTO infection_status (user_id, virus_type, infected_at)
+                        VALUES (:uid, :vt, NOW())
+                        ON CONFLICT (user_id) DO UPDATE SET virus_type = :vt, infected_at = NOW()
+                    """), {"uid": target_id, "vt": virus})
+                    conn.commit()
+                emoji = "🦠" if virus == "олеговирус" else "🧬"
+                send_telegram_message(chat_id, f"{emoji} Заражение передано! Теперь он тоже {virus}.")
+            except Exception as exc:
+                log_error("UNIVERSE", "error", f"/spread error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при распространении.")
+
         elif command == "/tea" and chat_id:
             try:
                 with get_db_engine().connect() as conn:
