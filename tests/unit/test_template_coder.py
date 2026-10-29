@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -140,7 +140,7 @@ def test_done_text_resets_in_dialog() -> None:
 
 def test_active_state_expires_after_30_minutes() -> None:
     service = TemplateCoderService()
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     fresh_state = CoderState(steps=1, history=[8], updated_at=now - timedelta(minutes=29))
     expired_state = CoderState(steps=1, history=[8], updated_at=now - timedelta(minutes=31))
 
@@ -218,7 +218,7 @@ async def test_dialog_resets_expired_state_before_new_template() -> None:
                 time_minutes=5,
                 steps=2,
                 history=[8, 1],
-                updated_at=datetime.now(UTC) - timedelta(minutes=31),
+                updated_at=datetime.now(timezone.utc) - timedelta(minutes=31),
             )
         }
     )

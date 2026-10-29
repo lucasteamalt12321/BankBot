@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from bot.template_coder.data import (
     AGREEMENT_CODE,
@@ -93,10 +93,10 @@ class TemplateCoderService:
         """Return true if an active state exceeded inactivity TTL."""
         if state.is_empty() or state.updated_at is None:
             return False
-        current_time = now or datetime.now(UTC)
+        current_time = now or datetime.now(timezone.utc)
         updated_at = state.updated_at
         if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=UTC)
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
         return current_time - updated_at > self.state_ttl
 
     def help_text(self) -> str:
@@ -156,7 +156,7 @@ class TemplateCoderService:
 
         new_state = self.clone_state(state)
         self.apply(new_state, code)
-        new_state.updated_at = datetime.now(UTC)
+        new_state.updated_at = datetime.now(timezone.utc)
 
         return self.response_text(new_state), new_state
 
