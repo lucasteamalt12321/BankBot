@@ -28,6 +28,7 @@ from flask import Flask, jsonify, redirect, request, send_file
 from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.exc import IntegrityError
 
+from api import universe_runtime as universe
 from src.webhook_secret import resolve_webhook_secret
 
 
@@ -6143,11 +6144,19 @@ def send_endings_trainer(chat_id: int) -> None:
 
 
 def normalize_command(text: str | None) -> str:
-    """Return command without bot mention and arguments."""
+    """Return command without bot mention and arguments.
+
+    Обычный текст — не команда: иначе ``command`` непустой у любого сообщения,
+    и обработчики свободного текста (D&D, AI-чат, искажение сообщений
+    заражённых) никогда не срабатывают.
+    """
 
     if not text:
         return ""
-    first_token = text.strip().split(maxsplit=1)[0]
+    stripped = text.strip()
+    if not stripped.startswith("/"):
+        return ""
+    first_token = stripped.split(maxsplit=1)[0]
     return first_token.split("@", maxsplit=1)[0].lower()
 
 
@@ -25574,26 +25583,14 @@ def telegram_webhook(secret: str):
 
         log_error("WEBHOOK", "info", f"command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
 
-        # Universe Module: auto-infect on mention
-        if msg_text and "@olegchekmarev12" in msg_text.lower():
+        # Universe Module: auto-infect on mention (команды не заражают)
+        if msg_text and not command and "@olegchekmarev12" in msg_text.lower():
             try:
-                with get_db_engine().connect() as conn:
-                    inf_row = conn.execute(
-                        text("SELECT virus_type FROM infection_status WHERE user_id = :uid"),
-                        {"uid": user_id},
-                    ).mappings().first()
-                    if not inf_row or not inf_row["virus_type"]:
-                        virus = random.choice(["олеговирус", "LTL-паразит"])
-                        conn.execute(
-                            text("""
-                                INSERT INTO infection_status (user_id, virus_type, infected_at)
-                                VALUES (:uid, :vt, NOW())
-                                ON CONFLICT (user_id) DO UPDATE SET virus_type = :vt, infected_at = NOW()
-                            """),
-                            {"uid": user_id, "vt": virus},
-                        )
-                        conn.commit()
-                        log_error("UNIVERSE", "info", f"auto-infected {user_id} as {virus} via mention")
+                outcome, _status = universe.infect(
+                    get_db_engine(), user_id, only_if_healthy=True
+                )
+                if outcome == "infected":
+                    log_error("UNIVERSE", "info", f"auto-infected {user_id} via mention")
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"auto-infect error: {exc}")
 
@@ -25605,20 +25602,12 @@ def telegram_webhook(secret: str):
             and not message.get("reply_to_message")
         ):
             try:
-                with get_db_engine().connect() as conn:
-                    inf_row = conn.execute(
-                        text("SELECT virus_type FROM infection_status WHERE user_id = :uid"),
-                        {"uid": user_id},
-                    ).mappings().first()
-                if inf_row and inf_row["virus_type"]:
-                    virus = inf_row["virus_type"]
+                infection = universe.load_infection(get_db_engine(), user_id)
+                if universe.is_symptomatic(infection):
                     msg_id = message.get("message_id")
-                    if virus == "олеговирус":
-                        modified = msg_text.replace(" ", " кхм-кхм ")[:200]
-                        suffix = "🦠 _заражён олеговирусом_"
-                    else:
-                        modified = msg_text + " ☕"
-                        suffix = "🧬 _заражён LTL-паразитом_"
+                    modified = universe.modify_text(msg_text, infection.virus_type)
+                    caption = universe.caption_for(infection.virus_type)
+                    extra = {}
                     if msg_id and chat_id != user_id:
                         try:
                             requests.delete(
@@ -25628,10 +25617,15 @@ def telegram_webhook(secret: str):
                             )
                         except Exception:
                             pass
+                    elif msg_id:
+                        # В личке удалять чужое сообщение нельзя — отвечаем на него,
+                        # иначе исходный текст остаётся и сообщение просто дублируется.
+                        extra["reply_to_message_id"] = msg_id
                     send_telegram_message(
                         chat_id,
-                        f"{modified}\n\n{suffix}",
+                        f"{modified}\n\n{caption}",
                         parse_mode="Markdown",
+                        **extra,
                     )
                     return jsonify({"ok": True})
             except Exception as exc:
@@ -26043,7 +26037,10 @@ def telegram_webhook(secret: str):
                 "/dnd_status — статус D&D сессии\n"
                 "/dnd_roll — бросить кубик D&D\n"
                 "/dnd_fix — исправить ответ AI\n"
-                "/infect — вирусный модул (universe)"
+                "/infect [вирус] — заразиться или заразить ответом 🦠\n"
+                "/virus — статус заражения\n"
+                "/spread — передать вирус (ответом на сообщение)\n"
+                "/cure — вылечиться\n"
             )
             send_telegram_message(chat_id, help_text, parse_mode="HTML")
 
@@ -27214,59 +27211,37 @@ def telegram_webhook(secret: str):
                 reply_to_msg = message.get("reply_to_message")
                 if reply_to_msg and reply_to_msg.get("from"):
                     target_id = reply_to_msg["from"].get("id") or target_id
-                with get_db_engine().connect() as conn:
-                    existing = conn.execute(
-                        text("SELECT virus_type, infected_at FROM infection_status WHERE user_id = :uid"),
-                        {"uid": target_id},
-                    ).mappings().first()
-                    if existing and existing["infected_at"]:
-                        infected_at = existing["infected_at"]
-                        if hasattr(infected_at, "tzinfo") and infected_at.tzinfo is None:
-                            from datetime import timezone
-                            infected_at = infected_at.replace(tzinfo=timezone.utc)
-                        if (datetime.now(timezone.utc) - infected_at) < timedelta(hours=24):
-                            send_telegram_message(
-                                chat_id,
-                                f"🦠 Уже заражён «{existing['virus_type']}»!\n"
-                                f"Попробуйте `/tea` для облегчения.",
-                                parse_mode="Markdown",
-                            )
-                            return jsonify({"ok": True})
-                    virus = random.choice(["олеговирус", "LTL-паразит"])
-                    symptoms_oleg = [
-                        "кхм-кхм в каждом предложении",
-                        "непреодолимое желание писать манифесты",
-                        "постоянная потребность поправлять других",
-                    ]
-                    symptoms_ltl = [
-                        "непонятные вспышки смеха",
-                        "желание пить чай 24/7",
-                        "странные байты в голове",
-                    ]
-                    symptoms = random.choice(symptoms_oleg if virus == "олеговирус" else symptoms_ltl)
-                    conn.execute(
-                        text("""
-                            INSERT INTO infection_status (user_id, virus_type, infected_at)
-                            VALUES (:uid, :vt, NOW())
-                            ON CONFLICT (user_id) DO UPDATE SET virus_type = :vt, infected_at = NOW()
-                        """),
-                        {"uid": target_id, "vt": virus},
-                    )
-                    conn.commit()
-                emoji = "🦠" if virus == "олеговирус" else "🧬"
-                who = "Вы" if target_id == user_id else "Пользователь"
-                send_telegram_message(
-                    chat_id,
-                    f"{emoji} {who} заражены «{virus}»!\n"
-                    f"Симптомы: {symptoms}\n\n"
-                    f"Используйте `/tea` для облегчения.",
-                    parse_mode="Markdown",
+                args = msg_text.split()[1:] if len(msg_text.split()) > 1 else []
+                outcome, infection = universe.infect(
+                    get_db_engine(), target_id, virus=args[0] if args else None
                 )
+                if outcome == "immunity" and infection:
+                    send_telegram_message(
+                        chat_id,
+                        f"🦠 Уже заражён «{infection.virus_type}»!\n"
+                        f"/tea — облегчение, /cure — вылечиться.",
+                    )
+                else:
+                    virus = infection.virus_type if infection else universe.OLEGOVIRUS
+                    emoji = universe.emoji_for(virus)
+                    who = "Вы заражены" if target_id == user_id else "Пользователь заражён"
+                    send_telegram_message(
+                        chat_id,
+                        f"{emoji} {who} «{virus}»!\n"
+                        f"Симптомы: {universe.symptom_for(virus)}\n\n"
+                        f"/tea — облегчение на час, /cure — вылечиться.",
+                    )
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"/infect error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при заражении.")
 
-
+        elif command == "/virus" and chat_id:
+            try:
+                infection = universe.load_infection(get_db_engine(), user_id)
+                send_telegram_message(chat_id, universe.status_text(infection))
+            except Exception as exc:
+                log_error("UNIVERSE", "error", f"/virus error: {exc}")
+                send_telegram_message(chat_id, "❌ Ошибка при чтении статуса.")
 
         elif command == "/cure" and chat_id:
             try:
@@ -27274,18 +27249,19 @@ def telegram_webhook(secret: str):
                 reply_to_msg = message.get("reply_to_message")
                 if reply_to_msg and reply_to_msg.get("from"):
                     target_id = reply_to_msg["from"].get("id") or target_id
-                with get_db_engine().connect() as conn:
-                    row = conn.execute(text("SELECT virus_type FROM infection_status WHERE user_id = :uid"), {"uid": target_id}).mappings().first()
-                    if not row or not row["virus_type"]:
-                        send_telegram_message(chat_id, "\u2615 \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u043d\u0435 \u0437\u0430\u0440\u0430\u0436\u0451\u043d.")
-                        return jsonify({"ok": True})
-                    conn.execute(text("DELETE FROM infection_status WHERE user_id = :uid"), {"uid": target_id})
-                    conn.commit()
-                who = "\u0412\u044b" if target_id == user_id else "\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c"
-                send_telegram_message(chat_id, f"\u2615 {who} \u0432\u044b\u043b\u0435\u0447\u0435\u043d\u044b \u043e\u0442 \u043e\u043b\u0435\u0433\u043e\u0432\u0438\u0440\u0443\u0441\u0430!")
+                outcome, infection = universe.cure(get_db_engine(), target_id)
+                if outcome == "not_infected":
+                    reply = "☕ Пользователь не заражён."
+                else:
+                    virus = infection.virus_type if infection else "вирус"
+                    if target_id == user_id:
+                        reply = f"☕ Вы вылечены от «{virus}»!"
+                    else:
+                        reply = f"☕ Пользователь вылечен от «{virus}»!"
+                send_telegram_message(chat_id, reply)
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"/cure error: {exc}")
-                send_telegram_message(chat_id, "\u274c \u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u0438 \u043b\u0435\u0447\u0435\u043d\u0438\u0438.")
+                send_telegram_message(chat_id, "❌ Ошибка при лечении.")
 
         elif command == "/spread" and chat_id:
             try:
@@ -27294,62 +27270,36 @@ def telegram_webhook(secret: str):
                 if not target_id or target_id == user_id:
                     send_telegram_message(chat_id, "🦠 Ответь командой на сообщение того, кого хочешь заразить.")
                     return jsonify({"ok": True})
-                with get_db_engine().connect() as conn:
-                    me = conn.execute(text("SELECT virus_type FROM infection_status WHERE user_id = :uid"), {"uid": user_id}).mappings().first()
-                    if not me or not me["virus_type"]:
-                        send_telegram_message(chat_id, "🦠 Ты сам не заражён. /infect сначала.")
-                        return jsonify({"ok": True})
-                    virus = me["virus_type"]
-                    conn.execute(text("""
-                        INSERT INTO infection_status (user_id, virus_type, infected_at)
-                        VALUES (:uid, :vt, NOW())
-                        ON CONFLICT (user_id) DO UPDATE SET virus_type = :vt, infected_at = NOW()
-                    """), {"uid": target_id, "vt": virus})
-                    conn.commit()
-                emoji = "🦠" if virus == "олеговирус" else "🧬"
-                send_telegram_message(chat_id, f"{emoji} Заражение передано! Теперь он тоже {virus}.")
+                outcome, infection = universe.spread(get_db_engine(), user_id, target_id)
+                if outcome == "not_infected":
+                    reply = "🦠 Ты сам не заражён. /infect сначала."
+                elif outcome == "target_infected" and infection:
+                    reply = f"🦠 Он уже заражён «{infection.virus_type}». Сначала /cure."
+                else:
+                    virus = infection.virus_type if infection else "вирус"
+                    emoji = universe.emoji_for(virus)
+                    reply = f"{emoji} Заражение передано! Теперь он тоже «{virus}»."
+                send_telegram_message(chat_id, reply)
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"/spread error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при распространении.")
 
         elif command == "/tea" and chat_id:
             try:
-                with get_db_engine().connect() as conn:
-                    row = conn.execute(
-                        text("SELECT virus_type, tea_cooldown_until FROM infection_status WHERE user_id = :uid"),
-                        {"uid": user_id},
-                    ).mappings().first()
-                    if not row or not row["virus_type"]:
-                        send_telegram_message(chat_id, "☕ Вы не заражены. Чай и так поможет!")
-                        return jsonify({"ok": True})
-                    if row["tea_cooldown_until"]:
-                        cooldown = row["tea_cooldown_until"]
-                        if hasattr(cooldown, "tzinfo") and cooldown.tzinfo is None:
-                            from datetime import timezone
-                            cooldown = cooldown.replace(tzinfo=timezone.utc)
-                        if datetime.now(timezone.utc) < cooldown:
-                            remaining = (cooldown - datetime.now(timezone.utc)).seconds // 60
-                            send_telegram_message(
-                                chat_id,
-                                f"☕ Подождите ещё {remaining} мин. до следующего чаепития.",
-                            )
-                            return jsonify({"ok": True})
-                    conn.execute(
-                        text("""
-                            UPDATE infection_status
-                            SET tea_cooldown_until = NOW() + INTERVAL '1 hour'
-                            WHERE user_id = :uid
-                        """),
-                        {"uid": user_id},
-                    )
-                    conn.commit()
-                phrases = [
-                    "Чай помогает! Временное облегчение на 1 час.",
-                    "Ароматный настой снимает симптомы... пока.",
-                    "eight-nine! Чай спасёт вас от вируса.",
-                    "Горячий чай — лучшее лекарство. Эффект: 1 час.",
-                ]
-                send_telegram_message(chat_id, f"☕ {random.choice(phrases)}", parse_mode="Markdown")
+                outcome, minutes, _infection = universe.drink_tea(get_db_engine(), user_id)
+                if outcome == "not_infected":
+                    reply = "☕ Вы не заражены. Чай и так поможет!"
+                elif outcome == "cooldown":
+                    reply = f"☕ Подождите ещё {minutes} мин. до следующего чаепития."
+                else:
+                    phrases = [
+                        "Чай помогает! Временное облегчение на 1 час.",
+                        "Ароматный настой снимает симптомы... пока.",
+                        "eight-nine! Чай спасёт вас от вируса.",
+                        "Горячий чай — лучшее лекарство. Эффект: 1 час.",
+                    ]
+                    reply = f"☕ {random.choice(phrases)}"
+                send_telegram_message(chat_id, reply)
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"/tea error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при чаепитии.")
