@@ -12729,7 +12729,11 @@ def login_page():
                 localStorage.setItem('web_user_id', 'u' + r.user_id);
                 localStorage.setItem('web_token', r.token);
                 showToast('Вход выполнен!');
-                setTimeout(function() { window.location.href = '/'; }, 800);
+                setTimeout(function() {
+                    var dest = new URLSearchParams(location.search).get('redirect') || '/';
+                    if (dest.charAt(0) !== '/' || dest.charAt(1) === '/') { dest = '/'; }
+                    window.location.href = dest;
+                }, 800);
             }
         }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
     }
@@ -32228,3 +32232,15 @@ app.route("/code")(code_page)
 # Vercel handler
 handler = app
 application = app
+
+
+# === LTHub OAuth provider (GAL and other first-party PKCE clients) ===
+from core.oauth import register_oauth as _register_lthub_oauth
+
+_register_lthub_oauth(
+    app,
+    get_db_engine=get_db_engine,
+    get_session_user=_get_session_user,
+    auth_token=_auth_token_from_request,
+    log_error=log_error,
+)
