@@ -129,14 +129,14 @@ def _validate_authorize(
 
 def _error_page(message: str, status: int = 400):
     return (
-        "<!doctype html><html lang=\"ru\"><meta charset=\"utf-8\">"
+        '<!doctype html><html lang="ru"><meta charset="utf-8">'
         "<title>LTHub OAuth</title>"
-        "<body style=\"font-family:system-ui;background:#0f1115;color:#e6e9ef;"
-        "display:flex;align-items:center;justify-content:center;min-height:100vh\">"
-        f"<main style=\"max-width:520px;padding:24px;border:1px solid #262c38;"
-        f"border-radius:12px;background:#171a21\"><h1>Ошибка авторизации</h1>"
-        f"<p style=\"color:#8b93a3\">{html.escape(message)}</p>"
-        "<p><a style=\"color:#4c8dff\" href=\"/\">На главную LTHub</a></p>"
+        '<body style="font-family:system-ui;background:#0f1115;color:#e6e9ef;'
+        'display:flex;align-items:center;justify-content:center;min-height:100vh">'
+        f'<main style="max-width:520px;padding:24px;border:1px solid #262c38;'
+        f'border-radius:12px;background:#171a21"><h1>Ошибка авторизации</h1>'
+        f'<p style="color:#8b93a3">{html.escape(message)}</p>'
+        '<p><a style="color:#4c8dff" href="/">На главную LTHub</a></p>'
         "</main></body></html>",
         status,
     )
@@ -144,6 +144,9 @@ def _error_page(message: str, status: int = 400):
 
 def _authorize_page(params: dict) -> str:
     payload = json.dumps(params, ensure_ascii=False).replace("</", "<\\/")
+    register_mode = params.get("intent") == "register"
+    mode_path = "/register" if register_mode else "/login"
+    mode_label = "Зарегистрироваться" if register_mode else "Войти"
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -176,7 +179,9 @@ a{{color:#4c8dff}}
 </main>
 <script>
 const PARAMS = {payload};
-const REDIRECT_TO_LOGIN = "/login?redirect=" + encodeURIComponent(location.pathname + location.search);
+const MODE_PATH = {json.dumps(mode_path)};
+const MODE_LABEL = {json.dumps(mode_label)};
+const REDIRECT_TO_MODE = MODE_PATH + "?redirect=" + encodeURIComponent(location.pathname + location.search);
 const token = localStorage.getItem("web_token");
 const who = document.getElementById("who");
 const approve = document.getElementById("approve");
@@ -185,11 +190,11 @@ const statusEl = document.getElementById("status");
 function fail(message) {{
   who.textContent = message;
   statusEl.textContent = "Войдите в LTHub и обновите страницу.";
-  statusEl.innerHTML += ' <a href="' + REDIRECT_TO_LOGIN + '">Войти</a>';
+  statusEl.innerHTML += ' <a href="' + REDIRECT_TO_MODE + '">' + MODE_LABEL + '</a>';
 }}
 
 if (!token) {{
-  location.replace(REDIRECT_TO_LOGIN);
+  location.replace(REDIRECT_TO_MODE);
 }} else {{
   fetch("/api/auth/me", {{headers: {{"X-Auth-Token": token}}}})
     .then(function (r) {{ return r.ok ? r.json() : Promise.reject(new Error("auth")); }})
@@ -244,6 +249,9 @@ def register_oauth(app, *, get_db_engine, get_session_user, auth_token, log_erro
         ).strip()
         state = (request.args.get("state") or "").strip()[:256]
         response_type = (request.args.get("response_type") or "").strip()
+        intent = (request.args.get("intent") or "").strip().lower()
+        if intent not in ("", "login", "register"):
+            intent = ""
         if response_type != "code":
             return _error_page("response_type должен быть code")
         client, error = _validate_authorize(
@@ -251,16 +259,17 @@ def register_oauth(app, *, get_db_engine, get_session_user, auth_token, log_erro
         )
         if error:
             return _error_page(f"Некорректный запрос: {error}")
-        return _authorize_page(
-            {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "code_challenge": code_challenge,
-                "code_challenge_method": "S256",
-                "state": state,
-                "response_type": "code",
-            }
-        )
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+            "response_type": "code",
+        }
+        if intent:
+            params["intent"] = intent
+        return _authorize_page(params)
 
     @app.route("/api/oauth/authorize", methods=["POST"])
     def oauth_authorize_api():
@@ -326,9 +335,7 @@ def register_oauth(app, *, get_db_engine, get_session_user, auth_token, log_erro
         verifier = str(data.get("code_verifier") or "").strip()
         if (data.get("grant_type") or "authorization_code") != "authorization_code":
             return jsonify({"error": "unsupported_grant_type"}), 400
-        _client, error = _validate_authorize(
-            client_id, redirect_uri, "x" * 43, "S256"
-        )
+        _client, error = _validate_authorize(client_id, redirect_uri, "x" * 43, "S256")
         if error:
             return jsonify({"error": error}), 400
         if not VERIFIER_RE.fullmatch(verifier):
@@ -337,9 +344,10 @@ def register_oauth(app, *, get_db_engine, get_session_user, auth_token, log_erro
         now = _now()
         try:
             with _engine().begin() as conn:
-                row = conn.execute(
-                    text(
-                        """
+                row = (
+                    conn.execute(
+                        text(
+                            """
                         SELECT c.user_id, c.client_id, c.redirect_uri,
                                c.code_challenge, c.expires_at, c.used_at,
                                u.login, u.display_name
@@ -347,9 +355,12 @@ def register_oauth(app, *, get_db_engine, get_session_user, auth_token, log_erro
                         JOIN web_users u ON u.id = c.user_id
                         WHERE c.code_hash = :code_hash
                         """
-                    ),
-                    {"code_hash": _hash(code)},
-                ).mappings().first()
+                        ),
+                        {"code_hash": _hash(code)},
+                    )
+                    .mappings()
+                    .first()
+                )
                 if not row or row["used_at"] is not None or row["expires_at"] < now:
                     return jsonify({"error": "invalid_grant"}), 400
                 if row["client_id"] != client_id or row["redirect_uri"] != redirect_uri:
@@ -418,26 +429,26 @@ def register_oauth(app, *, get_db_engine, get_session_user, auth_token, log_erro
         now = _now()
         try:
             with _engine().connect() as conn:
-                row = conn.execute(
-                    text(
-                        """
+                row = (
+                    conn.execute(
+                        text(
+                            """
                         SELECT u.id, u.login, u.display_name,
                                t.expires_at, t.revoked_at
                         FROM oauth_tokens t
                         JOIN web_users u ON u.id = t.user_id
                         WHERE t.token_hash = :token_hash
                         """
-                    ),
-                    {"token_hash": _hash(token)},
-                ).mappings().first()
+                        ),
+                        {"token_hash": _hash(token)},
+                    )
+                    .mappings()
+                    .first()
+                )
         except Exception as exc:
             _log(f"userinfo error: {exc}")
             return jsonify({"error": "server_error"}), 500
-        if (
-            not row
-            or row["revoked_at"] is not None
-            or row["expires_at"] < now
-        ):
+        if not row or row["revoked_at"] is not None or row["expires_at"] < now:
             return jsonify({"error": "invalid_token"}), 401
         return jsonify(
             {

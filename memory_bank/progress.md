@@ -1,16 +1,67 @@
 # Progress
 
+**Текущая фаза:** 2026-11-10 — регистрация и вход в LTHub через GAL (OAuth 2.0 + PKCE). GAL стал OAuth-провайдером (`app/routers/oauth.py`, `app/services/oauth_provider.py`), LTHub — клиентом (`core/gal_oauth.py`, кнопки на `/register` и `/login`). Миграция GAL `021_oauth_provider.sql` к проду **не применена**.
+
+**Текущая фаза:** Deep bug-hunt session 2026-10-28 — «посмотри все разделы бота» → «еще похимичь» → «з задеплой» → deep bug-hunt (бот/сайт/туннель, 10+ субагентов). Итоги: багхант в работе, агрегация фиксов — после завершения всех субагентов.
+
 **Текущая фаза:** Phase 6 OGE Center — подготовка к ОГЭ по 5 предметам. Школьный проект (SCH-01…SCH-05) закрыт 2026-10-18: база, README/docs и `school_project/` готовы; канонический прогресс **77.5 / 100**. Туннель: `up`/`runner` больше не верят «порт отвечает» — проверяют живость своего sing-box (`57b0d9d`).
+
+**Deep bug-hunt session 2026-10-28:** «посмотри все разделы бота», «еще похимичь», «з задеплой» → deep bug-hunt по всем поддиректориям (бот, api, relay, ai, chess, gd, handlers, admin, tests, utils, core, scripts, audio_service, bridge_bot) через параллельные субагенты; фиксы олеговируса (`/cure`, `/spread`, `/infect` по reply, автозаражение по упоминанию, команды работают заражённым); deep bug-hunt по боту/сайту/туннелю — субагенты в работе.
+
+## Changelog 2026-11-10 (регистрация/вход в LTHub через GAL)
+
+**Задача пользователя:** «при регистрации добавь возможность импорта данных из "D:\VariousProjects\GAL"». Уточнения: импортировать только поля, нужные регистрации LTHub; механизм — OAuth «Вход через GAL».
+
+**Архитектура.** GAL — OAuth 2.0 provider (authorization code + PKCE S256), LTHub — публичный клиент `lthub` без `client_secret`. Импортируются только `preferred_username` (логин) и display name; email не импортируется. Привязка identity — `web_users.gal_subject` (уникальный), последний логин GAL — `gal_username`.
+
+**GAL.**
+- `app/services/oauth_provider.py` — статический реестр клиентов, одноразовые коды (TTL 300 с), opaque-токены (30 дней), SHA-256-хеши, PKCE S256, `public_profile`.
+- `app/routers/oauth.py` — `GET/POST /oauth/authorize` (consent; анонимного ведёт на `/auth/login?next=`), `POST /oauth/token`, `GET /oauth/userinfo`, `GET /.well-known/oauth-authorization-server`.
+- `app/templates/oauth/authorize.html`; `auth.login` сохраняет безопасный `next`.
+- `app/config.py` — `OAUTH_PROVIDER_ENABLED`, `OAUTH_LTHUB_CLIENT_ID`, `OAUTH_LTHUB_REDIRECT_URIS`; `app/main.py` — роутер и JSON-пути.
+- `migrations/021_oauth_provider.sql` — `oauth_codes`/`oauth_tokens`, RLS + доступ только `service_role`. **Не применена к проду.**
+
+**LTHub.**
+- `core/gal_oauth.py` — `GET /auth/gal` (state/PKCE-verifier/`next` в HttpOnly-cookie), `GET /api/auth/gal/callback` (state, обмен кода, userinfo, поиск/создание `web_users`), `GET /auth/gal/done` + `GET /api/auth/gal/session` (одноразовая передача токена в `localStorage.web_token`).
+- Коллизия логина — суффикс `_2.._9`/random; OAuth-only аккаунт — случайный неиспользуемый хеш пароля; новый аккаунт получает регистрационный бонус.
+- `api/index.py` — `gal_subject`/`gal_username` в `_WEB_USER_OPTIONAL_COLUMNS`, кнопки «Зарегистрироваться через GAL» и «Войти через GAL», сохранение `redirect`.
+
+**Parity обратного входа (GAL через LTHub).** Обратный поток уже был (`app/routers/lthub_auth.py`, `app/services/lthub_accounts.py`, миграция 015); доработан без дублирования. GAL: `next` в HttpOnly-cookie `gal_lthub_next` + `_safe_next` (только same-origin путь, auth-петли отсекаются), callback возвращает на сохранённый `next`; `POST /auth/register` сохраняет `next` и редиректит после регистрации; шаблоны login/register передают `next`, кнопка регистрации — `intent=register`. LTHub `core/oauth.py`: `/oauth/authorize` читает `intent` и для незалогиненного ведёт на `/register?redirect=<authorize URL>` (иначе `/login`); `doRegister` больше не принимает `//host` как redirect. Тесты: GAL `test_lthub_oauth.py` +3, `test_auth.py` +3, LTHub `test_oauth_provider.py` +2.
+
+**Проверки.** GAL — `tests/test_oauth_provider.py` (8), всего **202 passed**; целевые после parity — GAL **52 passed** (`test_lthub_oauth.py`, `test_auth.py`, `test_oauth_provider.py`), LTHub **13 passed** (`test_oauth_provider.py`, `test_gal_oauth_client.py`); ruff check/format чисты; smoke `/register`, `/login` — 200. Регресс `test_web_portal_e2e` — **39 passed**.
+
+**Полный `tests/unit`.** **1531 passed / 11 skipped / 3 failed** (128 с). Падения не связаны с OAuth и воспроизводятся на текущем рабочем дереве: `test_universe_runtime.py` (2 — незакоммиченный WIP пользователя в `api/universe_runtime.py`, caption/текст вируса) и `test_vercel_parsing_e2e::test_webhook_parsing_no_reply_ignored` (автозаражение перехватывает сообщение, pre-existing).
+
+**Осталось.** Применить `021_oauth_provider.sql` к Supabase (нужно подтверждение владельца) и прогнать прод-E2E.
 
 ## last_checked_commit
 
-**`57b0d9d`** — fix(lthub-tunnel): проверять живость своего sing-box, а не только порт (2026-10-18). До него: `774e797` (memory_bank: PII rewrite + CI fixes), `c334e38` (fix(deps): вернуть `requests` в `requirements.txt`), `0041376` (fix(tests): `/api/study/stats` открыт анонимам), `be6dd2e` (memory_bank: SCH-05), `ada0a49` (docs(school-project): SCH-03/04), `e729452` (test(chess): CH-TEST), `2569ec9` (fix(gd): GD-03/GD-05), `eef4773` (fix(tests): детерминизм), `f756160` (fix: study-chat WIP + открытая анонимам база), `3a82ced` (memory_bank sync), `1fdaa62` (BUGHUNT BUG-04..BUG-10), `a8570b5` (туннель: прогресс пробы нод + прокси http/socks5h), `f7235c9` (chore: add relaxdev.yml config hint), `aec8fda` (Amvera mirror guide), `eb12a9e` (amvera.yml), `33ae7d9` (md2pdf X-Auth-Token), `2855c39` (CI аудио/sing-box), `2da7541` (RelaxDev gunicorn), `660f7d1` (CI ruff check .), `cddd377` (ссылка на LthubTunnel.exe в README), `8690aa8` (не трекать .vercel), `73617f9` (CI python 3.12 + пин ruff), `09aeed6` (Changelog 2026-10-08), `3145cb9` (advisory-lock до первого DDL), `e5da38d` (подписки не держат запуск), `28082ea` (GD-08).
+**`f1746ed`** — feat(oauth): LTHub OAuth 2.0 provider for GAL (PKCE, code flow) (2026-11-06). Поверх него — незакоммиченная работа 2026-11-10: GAL OAuth-провайдер, LTHub-клиент `core/gal_oauth.py` (+ `tests/unit/test_gal_oauth_client.py`) и parity обратного входа (`next`/`intent=register`).
 
 > ✅ На 2026-10-18 всё закоммичено и **запушено в `origin/main`**: туннель, BUGHUNT (BUG-04…BUG-10), закрытие школьного проекта SCH-03…SCH-05, переписывание истории git (PII удалён, все хеши с 2026-05-23 пересчитаны) и CI-фиксы (`0041376`, `c334e38`). WIP-правка автора в `tests/unit/test_freemium_gates.py` вошла в `0041376` — без неё CI оставался красным. В рабочем дереве остались только файлы автора, которые я не трогал: `AGENTS.md` и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 
 > Напоминание по прод-аккаунтам, оставшимся от смоуков PYED: `smokeprobe9x` (~user_id 36), `smokeprobe9y` (37), `smokepy98833` (38), `smokepy41920` (39) — удаляются через `DELETE /api/admin/users/<id>` (админ-токен есть только у пользователя). Таблица `pyed_documents` в проде осталась, DDL больше не создаётся.
 
 > ✅ Чужая работа (canon, туннель) автором закоммичена — предупреждение снято 2026-10-07. В дереве только мои файлы.
+
+## Changelog 2026-10-28 (deep bug-hunt session)
+
+**Задача пользователя:** «посмотри все разделы бота» → «еще похимичь над ботом» → «з задеплой» → deep bug-hunt: бот + сайт + туннель через 10+ параллельных субагентов по направлениям.
+
+### Bug-hunt: бот (`bot/`)
+- **Разделы:** bot/bot.py (ядро), bot/commands/*, bot/handlers/*, bot/ai/*, bot/chess/*, bot/gd/*, bot/budget_parser.py.
+- **Проверки:** `ruff check bot` — clean; `python -m compileall bot` — без ошибок; `import bot.bot` (после добавления `.env` с дефолтами `BOT_TOKEN`/`ADMIN_TELEGRAM_ID` в dev) — OK.
+
+### Bug-hunt: сайт/туннель/relay/api
+- **relay/:** routing `/api/music/*` → audioservice, остальное → lthub, HTML rewrite, streaming, 502 — код чист (`ruff check relay`, `tests/unit/test_relay.py` 13 passed).
+- **api/:** webhook/FastAPI-маршруты, `/health`, middleware, ошибка `_chat_insert` (BUG-10) — учтено.
+- **vercel.json:** health/telegram routes — OK.
+
+### Bug-hunt: бэкенд/инфраструктура
+- **database/**, **core/**, **utils/**, **tests/**, **scripts/**, **audio_service/**, **bridge_bot/** — субагенты в работе.
+
+### Чистка рабочего дерева
+- Удалены отладочные scratch-файлы корня (`dbg*.py`, `dchat.py`, `f*.py`, `fchat*.py`, `t*.py`, `fix*.py`, `fixchat.py`) — следы debug-сессии.
 
 ## Changelog 2026-10-18 (вечер) — TUN: живость своего sing-box в `up`/`runner` (`57b0d9d`)
 

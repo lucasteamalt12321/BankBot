@@ -107,6 +107,11 @@
   - `TELEGRAM_RUNTIME_MODE=webhook|polling` — explicit runtime selector (recommended)
   - `WEBHOOK_SECRET` — required secret for Telegram webhook path/header
   - `PUBLIC_WEBHOOK_URL` or derived HF URL — public webhook base URL if auto-detection is not reliable
+- GAL OAuth client (веб-портал LTHub, `core/gal_oauth.py`):
+  - `GAL_OAUTH_ENABLED` — включить регистрацию/вход через GAL (по умолчанию `true`)
+  - `GAL_OAUTH_CLIENT_ID` — OAuth client id в GAL (по умолчанию `lthub`)
+  - `GAL_OAUTH_AUTHORIZE_URL` / `GAL_OAUTH_TOKEN_URL` / `GAL_OAUTH_USERINFO_URL` — endpoints GAL
+  - `GAL_OAUTH_REDIRECT_URI` — callback; пусто — `request.url_root` + `/api/auth/gal/callback`
 
 ### Структура проекта
 ```

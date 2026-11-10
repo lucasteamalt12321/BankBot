@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 
@@ -67,6 +68,35 @@ def test_authorize_page_renders(oauth_app) -> None:
     response = client.get(query)
     assert response.status_code == 200
     assert b"Global Achievement List" in response.data
+
+
+def test_authorize_page_register_intent(oauth_app) -> None:
+    client = oauth_app.test_client()
+    verifier = "e" * 64
+    query = (
+        "/oauth/authorize?response_type=code&client_id=gal&intent=register"
+        "&redirect_uri=https%3A%2F%2Fgal-inky.vercel.app%2Fauth%2Flthub%2Fcallback"
+        f"&state=state-1&code_challenge={_pkce_challenge(verifier)}"
+        "&code_challenge_method=S256"
+    )
+    response = client.get(query)
+    assert response.status_code == 200
+    assert b'const MODE_PATH = "/register";' in response.data
+    assert json.dumps("Зарегистрироваться").encode() in response.data
+
+
+def test_authorize_page_unknown_intent_falls_back_to_login(oauth_app) -> None:
+    client = oauth_app.test_client()
+    verifier = "f" * 64
+    query = (
+        "/oauth/authorize?response_type=code&client_id=gal&intent=hacked"
+        "&redirect_uri=https%3A%2F%2Fgal-inky.vercel.app%2Fauth%2Flthub%2Fcallback"
+        f"&state=state-1&code_challenge={_pkce_challenge(verifier)}"
+        "&code_challenge_method=S256"
+    )
+    response = client.get(query)
+    assert response.status_code == 200
+    assert b'const MODE_PATH = "/login";' in response.data
 
 
 def test_authorize_requires_session(oauth_app) -> None:

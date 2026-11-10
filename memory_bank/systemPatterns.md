@@ -124,6 +124,15 @@ Text message → parse_all_messages()
 - Пользовательские входы-счётчики (напр. `actions` в достижениях, число кубиков `NdM`) жёстко клампятся
   сверху; тяжёлые синхронные циклы по пользовательскому числу недопустимы (вешают event loop).
 
+### Web-аккаунты и OAuth-клиент GAL (2026-11-10)
+
+- Веб-аккаунты LTHub живут в `web_users`; сессионный токен — `localStorage.web_token` (не `auth_token`).
+- **GAL — OAuth 2.0 provider, LTHub — публичный клиент** (`core/gal_oauth.py`, authorization code + PKCE S256, без `client_secret`).
+- Поток: `GET /auth/gal` кладёт `state`/PKCE-verifier/`next` в HttpOnly-cookie → GAL `/oauth/authorize` → `GET /api/auth/gal/callback` проверяет state, меняет код на токен, читает `/oauth/userinfo`, находит/создаёт пользователя и сессию → `GET /auth/gal/done` + `GET /api/auth/gal/session` одноразово передают токен в `localStorage.web_token` (callback не может писать localStorage).
+- Привязка identity — `web_users.gal_subject` (уникальный индекс), последний логин GAL — `gal_username`. Занятый логин получает суффикс `_2.._9`/random; OAuth-only аккаунт получает случайный неиспользуемый хеш пароля; email не импортируется.
+- **Грабли Postgres:** ловить `IntegrityError` внутри `engine.begin()` нельзя без savepoint — транзакция становится aborted. Вставка пользователя обёрнута в `with conn.begin_nested()`; после `IntegrityError` аккаунт перечитывается по `gal_subject`.
+- Внутренние переходы OAuth проходят через safe-`next`/`redirect` (только локальные пути, без `//`).
+
 ### Planned runtime removals for webhook migration
 
 - Background periodic loops are disabled in HF webhook runtime.

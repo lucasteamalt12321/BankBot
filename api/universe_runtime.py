@@ -300,7 +300,7 @@ def modify_text(text: str, virus: str) -> str:
 
 def caption_for(virus: str) -> str:
     if virus == OLEGOVIRUS:
-        return "🦠 _заражён олеговирусом_"
+        return ""
     return "🧬 _заражён LTL-паразитом_"
 
 

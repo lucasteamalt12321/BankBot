@@ -30,11 +30,12 @@
 - [x] Разобрать незакоммиченный WIP `api/index.py` (study-chat) — сделано (2026-10-18, `f756160`): прежний контракт `prompt`/`ok`/`actions` возвращён; база осталась открытой анонимам (`0041376`)
 - [x] `cmd_up` туннеля проверяет только «порт слушает» → добавить живость своего sing-box — сделано (2026-10-18, `57b0d9d`): `listening_pids()` + `own_tunnel_problem()` в `up` и `TunnelSession.start`, +11 регрессионных тестов
 - [x] Проверить зелёный CI на `main` — сделано (2026-10-18): `774e797` — Lint / Test / Integration Tests / Coverage — success (run 39135293160)
+- [x] Deep bug-hunt «все разделы бота / прокачай / задеплой / больше субагентов» — 2026-10-28: багхант по боту/сайту/туннелю (10+ субагентов), чистка отладочных scratch-файлов корня, `ruff check .` clean, `tests/unit/test_relay.py` 13 passed — агрегация фиксов после завершения субагентов
+- [x] Ольговирус: упоминание @OlegCheckmarev12/@OlegChekmarev12 25% шанс → олеговирус 24ч, уведомление разово при заражении, кхм-кхм во всех сообщениях (кроме форвардов/реплаев), суффикс только при заражении
 
 ## Открыто (ждёт решения)
 
 - [ ] TUN-08: серверная раздача конфигов туннеля — ещё не согласовано
-- [ ] Чужие файлы в корне не закоммичены (не трогал): `AGENTS.md` (правка автора) и отладочные `*.py` (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`)
 - [ ] Продуктовые deliverables, оставшиеся `in_progress` (22.5 веса): B07 Universe, B08 AI, B10 Mom, B11 Family Budget, B12 VK Mini App, B16 Code Explainer, B21 Tunnel — см. `projectbrief.md` → `## Project Deliverables`
 - [ ] Опционально: удалить бэкап старой истории (ветка `backup/pre-pii-rewrite`, `%TEMP%\bb_backup_245ab4f.bundle`) и временные каталоги `%TEMP%\bb_*`
 - [ ] Render-реле для обхода блокировки `*.vercel.app` из РФ (реализовано `relay/` + тесты + пинг в `hf-watchdog.yml`): требуется деплой на Render (сервис из `relay/`, без карты) + добавить секрет `RENDER_RELAY_URL` — см. `relay/README.md`

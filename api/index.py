@@ -34,12 +34,18 @@ from src.webhook_secret import resolve_webhook_secret
 
 def _build_tag():
     try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
+        return (
+            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+            .decode()
+            .strip()
+        )
     except Exception:
         return ""
+
+
 # Фолбэк: метка времени холодного старта, чтобы при каждом новом деплое URL
 # менялся и браузер/VK-webview не отдавал устаревшую закэшированную страницу.
-BUILD_TAG = (_build_tag() or ("b" + str(int(time.time()))))
+BUILD_TAG = _build_tag() or ("b" + str(int(time.time())))
 
 from core.canon import (
     CANON_VERSION,
@@ -66,26 +72,33 @@ from core.history import classify_topic, HISTORY_TOPIC_ORDER as _HISTORY_TOPIC_O
 _WEB_USER_PREFIX = "web_"
 _TELEGRAM_USER_PREFIX = "tg_"
 
+
 def _generate_web_user_id() -> str:
     """Generate a new anonymous web user ID."""
     return _WEB_USER_PREFIX + uuid.uuid4().hex[:24]
 
+
 def _is_valid_web_user_id(user_id: str) -> bool:
     """Validate web user ID format."""
     return (
-        isinstance(user_id, str) and
-        (user_id.startswith(_WEB_USER_PREFIX) or user_id.startswith(_TELEGRAM_USER_PREFIX)) and
-        len(user_id) >= 10
+        isinstance(user_id, str)
+        and (
+            user_id.startswith(_WEB_USER_PREFIX)
+            or user_id.startswith(_TELEGRAM_USER_PREFIX)
+        )
+        and len(user_id) >= 10
     )
+
 
 def _extract_telegram_id(user_id: str) -> int | None:
     """Extract telegram_id from tg_ prefixed user_id."""
     if user_id.startswith(_TELEGRAM_USER_PREFIX):
         try:
-            return int(user_id[len(_TELEGRAM_USER_PREFIX):])
+            return int(user_id[len(_TELEGRAM_USER_PREFIX) :])
         except ValueError:
             return None
     return None
+
 
 def _web_user_id_to_int(user_id: str) -> int:
     """Convert web_user_id to int for compatibility with existing code expecting int user_id."""
@@ -132,7 +145,9 @@ def _create_session(user_id: int) -> str | None:
         engine = get_db_engine()
         with engine.connect() as conn:
             conn.execute(
-                text("INSERT INTO web_sessions (token, user_id) VALUES (:t, :uid) ON CONFLICT DO NOTHING"),
+                text(
+                    "INSERT INTO web_sessions (token, user_id) VALUES (:t, :uid) ON CONFLICT DO NOTHING"
+                ),
                 {"t": token, "uid": user_id},
             )
             conn.commit()
@@ -149,22 +164,32 @@ def _get_session_user(token: str | None) -> dict | None:
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            row = conn.execute(
-                text("""
+            row = (
+                conn.execute(
+                    text("""
                     SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id, u.lichess_nickname, u.is_admin,
                            s.created_at
                     FROM web_sessions s JOIN web_users u ON u.id = s.user_id
                     WHERE s.token = :t
                 """),
-                {"t": token},
-            ).mappings().first()
+                    {"t": token},
+                )
+                .mappings()
+                .first()
+            )
         if not row:
             return None
-        session_age = time.time() - row["created_at"].timestamp() if hasattr(row["created_at"], 'timestamp') else 0
+        session_age = (
+            time.time() - row["created_at"].timestamp()
+            if hasattr(row["created_at"], "timestamp")
+            else 0
+        )
         if session_age > 30 * 86400:
             try:
                 with engine.begin() as conn:
-                    conn.execute(text("DELETE FROM web_sessions WHERE token = :t"), {"t": token})
+                    conn.execute(
+                        text("DELETE FROM web_sessions WHERE token = :t"), {"t": token}
+                    )
             except Exception:
                 pass
             return None
@@ -224,7 +249,15 @@ def _auth_user_or_401():
     """
     user = _get_session_user(_auth_token_from_request())
     if not user:
-        return None, (jsonify({"auth_required": True, "error": "Требуется авторизация: войдите в аккаунт"}), 401)
+        return None, (
+            jsonify(
+                {
+                    "auth_required": True,
+                    "error": "Требуется авторизация: войдите в аккаунт",
+                }
+            ),
+            401,
+        )
     return user, None
 
 
@@ -245,7 +278,12 @@ def _ddl(sql: str, engine=None) -> str:
         dialect = getattr(engine, "dialect", None)
         if dialect is not None and dialect.name != "sqlite":
             return sql
-    out = re.sub(r"\bSERIAL\s+PRIMARY\s+KEY\b", "INTEGER PRIMARY KEY AUTOINCREMENT", sql, flags=re.I)
+    out = re.sub(
+        r"\bSERIAL\s+PRIMARY\s+KEY\b",
+        "INTEGER PRIMARY KEY AUTOINCREMENT",
+        sql,
+        flags=re.I,
+    )
     out = re.sub(r"\bSERIAL\b", "INTEGER", out, flags=re.I)
     out = re.sub(r"\bTIMESTAMPTZ\b", "TIMESTAMP", out, flags=re.I)
     out = re.sub(r"\bTIMESTAMP\s+WITH\s+TIME\s+ZONE\b", "TIMESTAMP", out, flags=re.I)
@@ -268,13 +306,18 @@ def _ddl_add_column(table: str, column_sql: str, engine=None) -> str | None:
         engine = engine or get_db_engine()
         with engine.connect() as conn:
             if engine.dialect.name == "sqlite":
-                cols = {str(r[1]).lower() for r in conn.execute(text(f"PRAGMA table_info({table})")).all()}
+                cols = {
+                    str(r[1]).lower()
+                    for r in conn.execute(text(f"PRAGMA table_info({table})")).all()
+                }
                 if not cols or col_name in cols:
                     return None
             else:
                 found = conn.execute(
-                    text("SELECT 1 FROM information_schema.columns "
-                         "WHERE table_name = :t AND column_name = :c LIMIT 1"),
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_name = :t AND column_name = :c LIMIT 1"
+                    ),
                     {"t": table, "c": col_name},
                 ).first()
                 if found:
@@ -398,6 +441,8 @@ _WEB_USER_OPTIONAL_COLUMNS = (
     "is_admin BOOLEAN DEFAULT FALSE",
     "email VARCHAR(255) UNIQUE",
     "created_via VARCHAR(32)",
+    "gal_subject VARCHAR(64)",
+    "gal_username VARCHAR(64)",
 )
 
 
@@ -424,9 +469,14 @@ def _table_columns(table: str, engine=None) -> set[str]:
         eng = engine or get_db_engine()
         with eng.connect() as conn:
             if eng.dialect.name == "sqlite":
-                return {str(r[1]).lower() for r in conn.execute(text(f"PRAGMA table_info({table})")).all()}
+                return {
+                    str(r[1]).lower()
+                    for r in conn.execute(text(f"PRAGMA table_info({table})")).all()
+                }
             rows = conn.execute(
-                text("SELECT column_name FROM information_schema.columns WHERE table_name = :t"),
+                text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = :t"
+                ),
                 {"t": table},
             ).all()
             return {str(r[0]).lower() for r in rows}
@@ -439,14 +489,17 @@ def _ensure_web_coin_tables(engine=None) -> bool:
     try:
         target = engine or get_db_engine()
         with target.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS user_coins (
                     user_id VARCHAR(64) PRIMARY KEY,
                     balance INTEGER DEFAULT 0,
                     last_puzzle_at TIMESTAMPTZ
                 )
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS web_coin_log (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER,
@@ -454,7 +507,8 @@ def _ensure_web_coin_tables(engine=None) -> bool:
                     description VARCHAR(255),
                     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
+            )
         return True
     except Exception as exc:
         log_error("COINS", "error", f"web coin tables error: {exc}")
@@ -470,22 +524,32 @@ def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
     uid = _web_user_id("u" + str(user_id))
     try:
         with get_db_engine().begin() as conn:
-            existing = conn.execute(
-                text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
-                {"user_id": uid},
-            ).mappings().first()
+            existing = (
+                conn.execute(
+                    text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
+                    {"user_id": uid},
+                )
+                .mappings()
+                .first()
+            )
             if existing:
                 conn.execute(
-                    text("UPDATE user_coins SET balance = balance + :delta WHERE user_id = :user_id"),
+                    text(
+                        "UPDATE user_coins SET balance = balance + :delta WHERE user_id = :user_id"
+                    ),
                     {"delta": amount, "user_id": uid},
                 )
             else:
                 conn.execute(
-                    text("INSERT INTO user_coins (user_id, balance, last_puzzle_at) VALUES (:user_id, :delta, NOW())"),
+                    text(
+                        "INSERT INTO user_coins (user_id, balance, last_puzzle_at) VALUES (:user_id, :delta, NOW())"
+                    ),
                     {"user_id": uid, "delta": amount},
                 )
             conn.execute(
-                text("INSERT INTO web_coin_log (user_id, amount, description) VALUES (:user_id, :amount, :desc)"),
+                text(
+                    "INSERT INTO web_coin_log (user_id, amount, description) VALUES (:user_id, :amount, :desc)"
+                ),
                 {"user_id": uid, "amount": amount, "desc": description},
             )
             return True
@@ -493,9 +557,12 @@ def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
         log_error("ADMIN", "error", f"award coins error: {exc}")
         return False
 
+
 app = Flask(__name__)
 # BUG-06: ограничение размера тела запроса — защита от DoS на upload/JSON.
-app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(16 * 1024 * 1024)))
+app.config["MAX_CONTENT_LENGTH"] = int(
+    os.getenv("MAX_CONTENT_LENGTH", str(16 * 1024 * 1024))
+)
 
 
 @app.errorhandler(413)
@@ -510,15 +577,26 @@ def _payload_too_large(_err):
 # CORS for VK Mini App
 try:
     from flask_cors import CORS
-    CORS(app, resources={r"/api/budget/*": {"origins": ["https://vk.com", "https://*.vk.com"]}})
+
+    CORS(
+        app,
+        resources={
+            r"/api/budget/*": {"origins": ["https://vk.com", "https://*.vk.com"]}
+        },
+    )
 except ImportError:
     pass
 
 # Centralized light/dark theme injection for all HTML responses
 from core.theme import inject_theme
 
-_OGE_HINT_PAGES = {"/math": "math", "/russian": "russian", "/physics": "physics",
-                   "/informatics": "informatics", "/emperors": "history"}
+_OGE_HINT_PAGES = {
+    "/math": "math",
+    "/russian": "russian",
+    "/physics": "physics",
+    "/informatics": "informatics",
+    "/emperors": "history",
+}
 
 _OGE_HINT_JS = """<script>
 (function(){
@@ -539,9 +617,9 @@ _OGE_HINT_JS = """<script>
         +'border:1px solid var(--bb-primary);color:var(--bb-text);padding:9px 14px;'
         +'border-radius:12px;font-size:13px;line-height:1.4;text-decoration:none;'
         +'max-width:78vw;box-shadow:0 4px 18px rgba(0,0,0,.25)';
-      el.textContent='\u2728 \u0418\u0418 \u0441\u043E\u0432\u0435\u0442\u0443\u0435\u0442: '+d.text;
+      el.textContent='\u2728 \u0418\u0418 \u0441\u043e\u0432\u0435\u0442\u0443\u0435\u0442: '+d.text;
       var x=document.createElement('span');
-      x.textContent=' \u00D7';
+      x.textContent=' \u00d7';
       x.style.cssText='color:var(--bb-muted);font-weight:700;margin-left:6px';
       x.onclick=function(ev){ev.preventDefault();ev.stopPropagation();el.remove();localStorage.setItem('aihint_dismiss',d.text);};
       el.appendChild(x);
@@ -723,6 +801,7 @@ def _inject_theme_into_response(response):
             log_error("THEME", "error", f"theme injection error: {exc}")
     return response
 
+
 # Webhook secret
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 _raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
@@ -730,7 +809,10 @@ _raw_webhook_secret = os.getenv("WEBHOOK_SECRET") or ""
 # что и в run_bot.py / hf-watchdog.yml. Раньше здесь был литерал
 # "fallback_not_configured" → URL вебхука и проверка использовали разные
 # секреты, и все апдейты Telegram отбраковывались (403).
-WEBHOOK_SECRET = resolve_webhook_secret(BOT_TOKEN, _raw_webhook_secret) or "webhook-secret-not-configured"
+WEBHOOK_SECRET = (
+    resolve_webhook_secret(BOT_TOKEN, _raw_webhook_secret)
+    or "webhook-secret-not-configured"
+)
 
 
 def _redact_webhook_url(url: str | None) -> str | None:
@@ -757,10 +839,13 @@ _REGISTER_DAILY = 200
 
 _AI_RATE_LIMITS: dict[str, list[float]] = {}
 _AI_RATE_WINDOW = 60  # 1 minute window
-_AI_RATE_MAX = 10     # max 10 requests per minute per key
+_AI_RATE_MAX = 10  # max 10 requests per minute per key
 _ENDINGS_MAX_TEXT = 4000  # max chars of source text for /api/endings_process
 
-def _check_ai_rate(key: str, max_requests: int = _AI_RATE_MAX, window: int = _AI_RATE_WINDOW) -> bool:
+
+def _check_ai_rate(
+    key: str, max_requests: int = _AI_RATE_MAX, window: int = _AI_RATE_WINDOW
+) -> bool:
     """Return True if rate limit exceeded for the given key.
 
     Uses in-memory dict (fast but resets on cold start). For critical
@@ -781,21 +866,29 @@ def _check_db_rate(key: str, max_requests: int = 10, window: int = 60) -> bool:
     try:
         engine = get_db_engine()
         with engine.begin() as conn:
-            conn.execute(text(
-                "DELETE FROM rate_limits WHERE key = :k AND ts < :cutoff"
-            ), {"k": key, "cutoff": now - window})
-            row = conn.execute(text(
-                "SELECT COUNT(*) as cnt FROM rate_limits WHERE key = :k"
-            ), {"k": key}).mappings().first()
+            conn.execute(
+                text("DELETE FROM rate_limits WHERE key = :k AND ts < :cutoff"),
+                {"k": key, "cutoff": now - window},
+            )
+            row = (
+                conn.execute(
+                    text("SELECT COUNT(*) as cnt FROM rate_limits WHERE key = :k"),
+                    {"k": key},
+                )
+                .mappings()
+                .first()
+            )
             cnt = int(row["cnt"] or 0) if row else 0
             if cnt >= max_requests:
                 return True
-            conn.execute(text(
-                "INSERT INTO rate_limits (key, ts) VALUES (:k, :ts)"
-            ), {"k": key, "ts": now})
+            conn.execute(
+                text("INSERT INTO rate_limits (key, ts) VALUES (:k, :ts)"),
+                {"k": key, "ts": now},
+            )
     except Exception:
         pass  # DB failure → fall back to in-memory only
     return False
+
 
 # Bot identity for reply/mention detection
 BOT_ID: int | None = None
@@ -838,7 +931,9 @@ _GD_APPROVE_STATE: dict[int, dict] = {}  # user_id -> {sub_id, level_name, usern
 # Error logging system
 _ERROR_LOG: list[dict] = []
 _ERROR_LOG_LIMIT = 50
-_PENDING_PUZZLES: dict[int, dict] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
+_PENDING_PUZZLES: dict[
+    int, dict
+] = {}  # user_id -> {puzzle_id, solution, rating, themes, chat_id}
 _PENDING_PUZZLE_TTL = 1800  # seconds; stale entries are lazily pruned
 _ADDE_COOLDOWN: dict[int, float] = {}  # user_id -> timestamp
 _ADDE_LOG: list[dict] = []  # recent /addexpense callers for debugging
@@ -858,6 +953,7 @@ def get_db_engine():
     if DB_ENGINE is None:
         try:
             from database.database import engine as shared_engine
+
             DB_ENGINE = shared_engine
         except Exception:
             database_url = (
@@ -891,7 +987,11 @@ def get_db_engine():
         _ensure_chess_accounts_and_coins(DB_ENGINE)
         _ensure_oge_curator_tables(DB_ENGINE)
         if not _raw_webhook_secret:
-            log_error("SECURITY", "error", "WEBHOOK_SECRET env var not set — webhook verification uses fallback")
+            log_error(
+                "SECURITY",
+                "error",
+                "WEBHOOK_SECRET env var not set — webhook verification uses fallback",
+            )
         try:
             _ensure_canon_tables(DB_ENGINE)
         except Exception as exc:
@@ -906,35 +1006,45 @@ def get_db_engine():
             log_error("CODE", "error", f"table init skipped: {exc}")
         try:
             with DB_ENGINE.begin() as conn:
-                conn.execute(text(
-                    "CREATE TABLE IF NOT EXISTS rate_limits ("
-                    "key TEXT NOT NULL, ts DOUBLE PRECISION NOT NULL)"
-                ))
-                conn.execute(text(
-                    "CREATE INDEX IF NOT EXISTS idx_rate_limits_key_ts ON rate_limits (key, ts)"
-                ))
+                conn.execute(
+                    text(
+                        "CREATE TABLE IF NOT EXISTS rate_limits ("
+                        "key TEXT NOT NULL, ts DOUBLE PRECISION NOT NULL)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_rate_limits_key_ts ON rate_limits (key, ts)"
+                    )
+                )
         except Exception:
             pass
     return DB_ENGINE
+
 
 def _ensure_gd_tables(engine):
     """Create GD module tables if they don't exist (preserves existing data)."""
     try:
         with engine.connect() as conn:
+
             def _add(column_sql, table):
                 _stmt = _ddl_add_column(table, column_sql, engine=engine)
                 if _stmt:
                     conn.execute(text(_stmt))
-            conn.execute(text("""
+
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS levels (
                     id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
                     position INTEGER NOT NULL DEFAULT 0,
                     difficulty TEXT DEFAULT 'Unknown'
                 )
-            """))
+            """)
+            )
             _add("difficulty TEXT DEFAULT 'Unknown'", "levels")
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS submissions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
@@ -949,13 +1059,15 @@ def _ensure_gd_tables(engine):
                     reviewed_at TIMESTAMP,
                     reviewed_by BIGINT
                 )
-            """))
+            """)
+            )
             _add("difficulty TEXT", "submissions")
             _add("attempts INTEGER", "submissions")
             # Co-op: GD nick of the second player in a two-player run. Nullable,
             # so existing single-player submissions are unaffected.
             _add("partner_nick TEXT", "submissions")
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS player_stats (
                     user_id BIGINT PRIMARY KEY,
                     total_approved INTEGER DEFAULT 0,
@@ -965,13 +1077,15 @@ def _ensure_gd_tables(engine):
                     points INTEGER DEFAULT 0,
                     demons_count INTEGER DEFAULT 0
                 )
-            """))
+            """)
+            )
             _add("points INTEGER DEFAULT 0", "player_stats")
             _add("demons_count INTEGER DEFAULT 0", "player_stats")
             # Legacy account-merge mechanism removed: GD players are attributed by the GD nick
             # taken from the approved submission (submissions.username), not by account binding.
             conn.execute(text("DROP TABLE IF EXISTS gd_aliases"))
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS level_completions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
@@ -980,7 +1094,8 @@ def _ensure_gd_tables(engine):
                     player_name TEXT,
                     UNIQUE(user_id, level_id)
                 )
-            """))
+            """)
+            )
             _add("player_name TEXT", "level_completions")
             try:
                 _gd_backfill_completion_names(conn)
@@ -992,7 +1107,8 @@ def _ensure_gd_tables(engine):
                 _gd_rename_persona(conn, "LucasTeam", "LucasTeam12321")
             except Exception as exc:
                 log_error("GD", "error", f"persona rename migration error: {exc}")
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS game_states (
                     user_id BIGINT NOT NULL,
                     game_name TEXT NOT NULL,
@@ -1001,7 +1117,8 @@ def _ensure_gd_tables(engine):
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, game_name, metric)
                 )
-            """))
+            """)
+            )
             conn.commit()
         log_error("GD", "info", "Tables ensured successfully")
     except Exception as exc:
@@ -1093,14 +1210,16 @@ def _ensure_user_preferences_table(engine):
     """Create user_preferences table if it doesn't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS user_preferences (
                     user_id BIGINT PRIMARY KEY,
                     preferred_character VARCHAR(20) DEFAULT 'чай',
                     preferred_ai_model VARCHAR(50),
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
+            )
             conn.commit()
         log_error("INIT", "info", "user_preferences table ensured")
     except Exception as exc:
@@ -1111,7 +1230,8 @@ def _ensure_chess_games_table(engine):
     """Create chess_games table if it doesn't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS chess_games (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
@@ -1123,8 +1243,13 @@ def _ensure_chess_games_table(engine):
                     solved_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chess_games_user_id ON chess_games(user_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_chess_games_user_id ON chess_games(user_id)"
+                )
+            )
             conn.commit()
         log_error("INIT", "info", "chess_games table ensured")
     except Exception as exc:
@@ -1135,20 +1260,24 @@ def _ensure_chess_accounts_and_coins(engine):
     """Create chess_accounts and user_coins tables if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS chess_accounts (
                     user_id INTEGER PRIMARY KEY,
                     lichess_username VARCHAR(64) NOT NULL,
                     linked_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS user_coins (
                     user_id VARCHAR(64) PRIMARY KEY,
                     balance INTEGER DEFAULT 0,
                     last_puzzle_at TIMESTAMPTZ
                 )
-            """))
+            """)
+            )
             conn.commit()
         log_error("INIT", "info", "chess_accounts + user_coins tables ensured")
     except Exception as exc:
@@ -1159,7 +1288,8 @@ def _ensure_budget_tables(engine):
     """Create Family Budget tables if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS families (
                     id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -1167,10 +1297,20 @@ def _ensure_budget_tables(engine):
                     invite_code TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_families_invite_code ON families(invite_code)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_families_admin_id ON families(admin_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_families_invite_code ON families(invite_code)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_families_admin_id ON families(admin_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS family_members (
                     id SERIAL PRIMARY KEY,
                     family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
@@ -1178,10 +1318,20 @@ def _ensure_budget_tables(engine):
                     display_name TEXT NOT NULL,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_family_members_family_id ON family_members(family_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_family_members_user_id ON family_members(user_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_family_members_family_id ON family_members(family_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_family_members_user_id ON family_members(user_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS budget_transactions (
                     id SERIAL PRIMARY KEY,
                     family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
@@ -1191,18 +1341,30 @@ def _ensure_budget_tables(engine):
                     description TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_budget_transactions_family_id ON budget_transactions(family_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_budget_transactions_family_id ON budget_transactions(family_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS transaction_details (
                     id SERIAL PRIMARY KEY,
                     transaction_id INTEGER NOT NULL REFERENCES budget_transactions(id) ON DELETE CASCADE,
                     for_whom_id TEXT NOT NULL,
                     share INTEGER NOT NULL
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_transaction_details_txn_id ON transaction_details(transaction_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_transaction_details_txn_id ON transaction_details(transaction_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS debts (
                     id SERIAL PRIMARY KEY,
                     family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
@@ -1212,11 +1374,25 @@ def _ensure_budget_tables(engine):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debts_family_id ON debts(family_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debts_debtor_id ON debts(debtor_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debts_creditor_id ON debts(creditor_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_debts_family_id ON debts(family_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_debts_debtor_id ON debts(debtor_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_debts_creditor_id ON debts(creditor_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS payments (
                     id SERIAL PRIMARY KEY,
                     family_id INTEGER NOT NULL REFERENCES families(id) ON DELETE CASCADE,
@@ -1225,9 +1401,15 @@ def _ensure_budget_tables(engine):
                     amount INTEGER NOT NULL,
                     paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_payments_family_id ON payments(family_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_payments_family_id ON payments(family_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS linked_vk_accounts (
                     id SERIAL PRIMARY KEY,
                     tg_user_id TEXT NOT NULL,
@@ -1236,9 +1418,18 @@ def _ensure_budget_tables(engine):
                     code_expires_at TIMESTAMP,
                     linked_at TIMESTAMP
                 )
-            """))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_tg ON linked_vk_accounts(tg_user_id)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_vk ON linked_vk_accounts(vk_user_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_tg ON linked_vk_accounts(tg_user_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_linked_vk_vk ON linked_vk_accounts(vk_user_id)"
+                )
+            )
             conn.commit()
         log_error("BUDGET", "info", "Tables ensured successfully")
     except Exception as exc:
@@ -1253,22 +1444,30 @@ def _ensure_universe_tables(engine):
             # берут локи на daily_prayer_log, и второй холодный старт, успевший
             # взять таблицу раньше, вис в deadlock (см. _pg_advisory_lock).
             _pg_advisory_lock(conn, engine, _LOCK_UNIVERSE)
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS infection_status (
                     user_id BIGINT PRIMARY KEY,
                     virus_type VARCHAR(50),
                     infected_at TIMESTAMPTZ,
                     tea_cooldown_until TIMESTAMPTZ
                 )
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS daily_prayer_log (
                     user_id BIGINT NOT NULL,
                     prayer_date DATE NOT NULL,
                     UNIQUE (user_id, prayer_date)
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_daily_prayer_log_date ON daily_prayer_log(prayer_date)"
+                )
+            )
             try:
                 # Dedup existing rows so the unique index can be created.
                 # Use a dialect-appropriate system row identifier: SQLite uses
@@ -1278,22 +1477,28 @@ def _ensure_universe_tables(engine):
                 # too - там старая форма падала с syntax error, и уникальный
                 # индекс на SQLite вообще не создавался.
                 _rid = "rowid" if engine.dialect.name == "sqlite" else "ctid"
-                conn.execute(text(
-                    f"DELETE FROM daily_prayer_log "
-                    f"WHERE {_rid} NOT IN ("
-                    f"SELECT MIN({_rid}) FROM daily_prayer_log "
-                    f"GROUP BY user_id, prayer_date)"
-                ))
-                conn.execute(text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_prayer_log_user_date ON daily_prayer_log(user_id, prayer_date)"
-                ))
+                conn.execute(
+                    text(
+                        f"DELETE FROM daily_prayer_log "
+                        f"WHERE {_rid} NOT IN ("
+                        f"SELECT MIN({_rid}) FROM daily_prayer_log "
+                        f"GROUP BY user_id, prayer_date)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_prayer_log_user_date ON daily_prayer_log(user_id, prayer_date)"
+                    )
+                )
                 conn.commit()
             except Exception as exc:
                 try:
                     conn.rollback()
                 except Exception:
                     pass
-                log_error("UNIVERSE", "error", f"daily_prayer_log unique index warn: {exc}")
+                log_error(
+                    "UNIVERSE", "error", f"daily_prayer_log unique index warn: {exc}"
+                )
         log_error("UNIVERSE", "info", "Tables ensured successfully")
     except Exception as exc:
         log_error("UNIVERSE", "error", f"Table init error: {exc}")
@@ -1314,7 +1519,8 @@ def _ensure_dnd_tables(engine):
             # CREATE UNIQUE INDEX одной и той же dnd_characters
             # (DeadlockDetected · 16:57 prod) — сериализуем их до первого DDL.
             _pg_advisory_lock(conn, engine, _LOCK_DND)
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS dnd_sessions (
                     id SERIAL PRIMARY KEY,
                     master_id BIGINT NOT NULL,
@@ -1334,7 +1540,8 @@ def _ensure_dnd_tables(engine):
                     last_ai_response TEXT,
                     chapter_breakdown TEXT
                 )
-            """))
+            """)
+            )
             for _col in (
                 "description TEXT",
                 "share_code VARCHAR(16)",
@@ -1352,7 +1559,8 @@ def _ensure_dnd_tables(engine):
                 "chapter_breakdown TEXT",
             ):
                 _ensure_ddl_column(conn, "dnd_sessions", _col, engine)
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS dnd_characters (
                     id SERIAL PRIMARY KEY,
                     session_id INTEGER REFERENCES dnd_sessions(id) ON DELETE CASCADE,
@@ -1373,21 +1581,27 @@ def _ensure_dnd_tables(engine):
                     is_active BOOLEAN DEFAULT TRUE,
                     last_active_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
+            """)
+            )
             # Deduplicate before creating unique index (PostgreSQL can't create
             # UNIQUE INDEX if duplicate rows already exist).
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 DELETE FROM dnd_characters
                 WHERE id NOT IN (
                     SELECT MIN(id) FROM dnd_characters
                     GROUP BY session_id, player_id
                 )
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_dnd_characters_session_player
                 ON dnd_characters (session_id, player_id)
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS dnd_session_logs (
                     id SERIAL PRIMARY KEY,
                     session_id INTEGER REFERENCES dnd_sessions(id) ON DELETE CASCADE,
@@ -1398,9 +1612,15 @@ def _ensure_dnd_tables(engine):
                     ai_context TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dnd_session_logs_session ON dnd_session_logs(session_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_dnd_session_logs_session ON dnd_session_logs(session_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS dnd_fixes (
                     id SERIAL PRIMARY KEY,
                     session_id INTEGER REFERENCES dnd_sessions(id) ON DELETE CASCADE,
@@ -1411,17 +1631,24 @@ def _ensure_dnd_tables(engine):
                     applied BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dnd_fixes_session ON dnd_fixes(session_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_dnd_fixes_session ON dnd_fixes(session_id)"
+                )
+            )
             conn.commit()
         log_error("DND", "info", "Tables ensured successfully")
     except Exception as exc:
         log_error("DND", "error", f"Table init error: {exc}")
 
+
 def _ensure_verb_tables(engine):
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS verb_exercises (
                     id INTEGER PRIMARY KEY,
                     teacher_id INTEGER NOT NULL,
@@ -1432,8 +1659,10 @@ def _ensure_verb_tables(engine):
                     tasks TEXT NOT NULL,
                     created_at REAL NOT NULL
                 )
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS verb_submissions (
                     id SERIAL PRIMARY KEY,
                     exercise_id INTEGER NOT NULL,
@@ -1444,9 +1673,18 @@ def _ensure_verb_tables(engine):
                     details TEXT NOT NULL,
                     timestamp REAL NOT NULL
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_verb_submissions_exercise ON verb_submissions(exercise_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_verb_exercises_teacher ON verb_exercises(teacher_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_verb_submissions_exercise ON verb_submissions(exercise_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_verb_exercises_teacher ON verb_exercises(teacher_id)"
+                )
+            )
             conn.commit()
         log_error("VERBS", "info", "Tables ensured")
     except Exception as exc:
@@ -1457,44 +1695,73 @@ def _family_dedupe_and_unique_member_names(engine):
     """Enforce UNIQUE(room_id, display_name). Legacy duplicate names are renamed, not deleted."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_members_room_name ON members(room_id, display_name)"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_members_room_name ON members(room_id, display_name)"
+                )
+            )
     except Exception:
         with engine.begin() as conn:
             seen: set[tuple[str, str]] = set()
-            rows = conn.execute(text(
-                "SELECT id, room_id, display_name FROM members ORDER BY created_at ASC, id ASC"
-            )).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT id, room_id, display_name FROM members ORDER BY created_at ASC, id ASC"
+                    )
+                )
+                .mappings()
+                .all()
+            )
             for r in rows:
                 key = (r["room_id"], r["display_name"])
                 if key in seen:
                     new_name = f"{r['display_name'][:80]}#{r['id'][:8]}"
-                    conn.execute(text("UPDATE members SET display_name = :n WHERE id = :id"),
-                                 {"n": new_name, "id": r["id"]})
+                    conn.execute(
+                        text("UPDATE members SET display_name = :n WHERE id = :id"),
+                        {"n": new_name, "id": r["id"]},
+                    )
                 else:
                     seen.add(key)
         with engine.begin() as conn:
-            conn.execute(text("CREATE UNIQUE INDEX uq_members_room_name ON members(room_id, display_name)"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX uq_members_room_name ON members(room_id, display_name)"
+                )
+            )
 
 
 def _family_dedupe_and_unique_reports(engine):
     """Enforce UNIQUE(room_id) on final_reports so a report is generated only once."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_final_reports_room ON final_reports(room_id)"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_final_reports_room ON final_reports(room_id)"
+                )
+            )
     except Exception:
         with engine.begin() as conn:
-            conn.execute(text(
-                "DELETE FROM final_reports WHERE id NOT IN (SELECT MIN(id) FROM final_reports GROUP BY room_id)"
-            ))
+            conn.execute(
+                text(
+                    "DELETE FROM final_reports WHERE id NOT IN (SELECT MIN(id) FROM final_reports GROUP BY room_id)"
+                )
+            )
         with engine.begin() as conn:
-            conn.execute(text("CREATE UNIQUE INDEX uq_final_reports_room ON final_reports(room_id)"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX uq_final_reports_room ON final_reports(room_id)"
+                )
+            )
 
 
 def _ensure_family_tables(engine):
     """Create Family Circle mediation tables if they don't exist (preserves existing data)."""
     try:
         with engine.connect() as conn:
-            conn.execute(text(_ddl("""
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS rooms (
                     id VARCHAR(20) PRIMARY KEY,
                     name VARCHAR(255) NOT NULL,
@@ -1503,8 +1770,15 @@ def _ensure_family_tables(engine):
                     participants_total INTEGER NOT NULL DEFAULT 1,
                     spoke_count INTEGER DEFAULT 0
                 )
-            """, engine)))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS members (
                     id VARCHAR(36) PRIMARY KEY,
                     room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
@@ -1513,9 +1787,18 @@ def _ensure_family_tables(engine):
                     finished BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """, engine)))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_room ON members(room_id)"))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_members_room ON members(room_id)")
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS messages (
                     id VARCHAR(36) PRIMARY KEY,
                     member_id VARCHAR(36) REFERENCES members(id) ON DELETE CASCADE,
@@ -1525,9 +1808,20 @@ def _ensure_family_tables(engine):
                     needs_extracted TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """, engine)))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_member ON messages(member_id)"))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_messages_member ON messages(member_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS needs (
                     id VARCHAR(36) PRIMARY KEY,
                     room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
@@ -1535,17 +1829,34 @@ def _ensure_family_tables(engine):
                     member_id VARCHAR(36) REFERENCES members(id) ON DELETE SET NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """, engine)))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_needs_room ON needs(room_id)"))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_needs_room ON needs(room_id)")
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS final_reports (
                     id VARCHAR(36) PRIMARY KEY,
                     room_id VARCHAR(20) REFERENCES rooms(id) ON DELETE CASCADE,
                     report_text TEXT NOT NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """, engine)))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_final_reports_room ON final_reports(room_id)"))
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_final_reports_room ON final_reports(room_id)"
+                )
+            )
             conn.commit()
         _family_dedupe_and_unique_member_names(engine)
         _family_dedupe_and_unique_reports(engine)
@@ -1558,7 +1869,10 @@ def _ensure_web_auth_tables(engine):
     """Create web auth tables (users + sessions) if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text(_ddl("""
+            conn.execute(
+                text(
+                    _ddl(
+                        """
 CREATE TABLE IF NOT EXISTS web_users (
     id SERIAL PRIMARY KEY,                 -- 810
     login VARCHAR(64) UNIQUE NOT NULL,   -- 811
@@ -1571,15 +1885,29 @@ CREATE TABLE IF NOT EXISTS web_users (
     created_at TIMESTAMPTZ DEFAULT NOW(),-- 818
     email VARCHAR(255) UNIQUE            -- email column for authentication
 )
-            """, engine)))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS web_sessions (
                     token VARCHAR(64) PRIMARY KEY,
                     user_id INTEGER REFERENCES web_users(id) ON DELETE CASCADE,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """, engine)))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS web_coin_log (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER,
@@ -1587,8 +1915,15 @@ CREATE TABLE IF NOT EXISTS web_users (
                     description VARCHAR(255),
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """, engine)))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
                 CREATE TABLE IF NOT EXISTS web_feedback (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER,
@@ -1600,10 +1935,26 @@ CREATE TABLE IF NOT EXISTS web_users (
                     status VARCHAR(16) DEFAULT 'open',
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """, engine)))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_sessions_user ON web_sessions(user_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_coin_log_user ON web_coin_log(user_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_feedback_status ON web_feedback(status)"))
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_web_sessions_user ON web_sessions(user_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_web_coin_log_user ON web_coin_log(user_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_web_feedback_status ON web_feedback(status)"
+                )
+            )
             for _col in _WEB_USER_OPTIONAL_COLUMNS:
                 _ensure_ddl_column(conn, "web_users", _col, engine)
             conn.commit()
@@ -1616,36 +1967,66 @@ def _ensure_social_tables(engine):
     """Create web social tables (friends + friend requests) if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text(_ddl("""
+            conn.execute(
+                text(
+                    _ddl(
+                        """
 CREATE TABLE IF NOT EXISTS friend_requests (
     id SERIAL PRIMARY KEY,
     from_user INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     to_user INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )
-            """, engine)))
-            conn.execute(text(_ddl("""
+            """,
+                        engine,
+                    )
+                )
+            )
+            conn.execute(
+                text(
+                    _ddl(
+                        """
 CREATE TABLE IF NOT EXISTS web_friends (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     friend_id INTEGER NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )
-            """, engine)))
+            """,
+                        engine,
+                    )
+                )
+            )
             try:
-                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_friend_requests_pair ON friend_requests(from_user, to_user)"))
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_friend_requests_pair ON friend_requests(from_user, to_user)"
+                    )
+                )
             except Exception:
                 pass
             try:
-                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_requests_to ON friend_requests(to_user)"))
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_friend_requests_to ON friend_requests(to_user)"
+                    )
+                )
             except Exception:
                 pass
             try:
-                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_web_friends_pair ON web_friends(user_id, friend_id)"))
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_web_friends_pair ON web_friends(user_id, friend_id)"
+                    )
+                )
             except Exception:
                 pass
             try:
-                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_friends_user ON web_friends(user_id)"))
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_web_friends_user ON web_friends(user_id)"
+                    )
+                )
             except Exception:
                 pass
             conn.commit()
@@ -1687,14 +2068,17 @@ def _canon_work_to_dict(work) -> dict:
         "audio_name": getattr(work, "audio_name", None) or None,
         "audio_mime": getattr(work, "audio_mime", None) or None,
         "audio_size": getattr(work, "audio_size", None) or None,
-        "has_audio": bool(getattr(work, "audio_data", None) or getattr(work, "audio_url", None)),
+        "has_audio": bool(
+            getattr(work, "audio_data", None) or getattr(work, "audio_url", None)
+        ),
     }
 
 
 def _ensure_canon_tables(engine):
     """Create canon DB tables (works, requests, doc overlay) and seed metadata."""
     with engine.connect() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS canon_works (
                 id SERIAL PRIMARY KEY,
                 title VARCHAR(200) NOT NULL,
@@ -1715,7 +2099,8 @@ def _ensure_canon_tables(engine):
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
-        """))
+        """)
+        )
         # ALTER-дополнения для уже существующей прод-таблицы (Supabase).
         for column_sql in (
             "ADD COLUMN IF NOT EXISTS audio_data BYTEA",
@@ -1728,8 +2113,13 @@ def _ensure_canon_tables(engine):
             try:
                 conn.execute(text(f"ALTER TABLE canon_works {column_sql}"))
             except Exception as exc:
-                log_error("CANON", "error", f"alter canon_works ({column_sql[:30]}...) skipped: {exc}")
-        conn.execute(text("""
+                log_error(
+                    "CANON",
+                    "error",
+                    f"alter canon_works ({column_sql[:30]}...) skipped: {exc}",
+                )
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS canon_requests (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER,
@@ -1750,7 +2140,8 @@ def _ensure_canon_tables(engine):
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 reviewed_at TIMESTAMPTZ
             )
-        """))
+        """)
+        )
         # ALTER-дополнения для уже существующей прод-таблицы (Supabase).
         for column_sql in (
             "ADD COLUMN IF NOT EXISTS file_data BYTEA",
@@ -1761,21 +2152,37 @@ def _ensure_canon_tables(engine):
             try:
                 conn.execute(text(f"ALTER TABLE canon_requests {column_sql}"))
             except Exception as exc:
-                log_error("CANON", "error", f"alter canon_requests ({column_sql[:30]}...) skipped: {exc}")
-        conn.execute(text("""
+                log_error(
+                    "CANON",
+                    "error",
+                    f"alter canon_requests ({column_sql[:30]}...) skipped: {exc}",
+                )
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS canon_doc (
                 id SERIAL PRIMARY KEY,
                 content TEXT NOT NULL,
                 updated_by INTEGER,
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
-        """))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_canon_works_status ON canon_works(status)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_canon_requests_status ON canon_requests(status)"))
+        """)
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_canon_works_status ON canon_works(status)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_canon_requests_status ON canon_requests(status)"
+            )
+        )
         # Сид: если canon_works пуста — влить базовые произведения из core.canon.
-        count_row = conn.execute(
-            text("SELECT COUNT(*) AS c FROM canon_works")
-        ).mappings().first()
+        count_row = (
+            conn.execute(text("SELECT COUNT(*) AS c FROM canon_works"))
+            .mappings()
+            .first()
+        )
         if int(count_row["c"] or 0) == 0:
             for work in CANON_WORKS:
                 conn.execute(
@@ -1801,7 +2208,8 @@ def _ensure_textbook_tables(engine):
     """Create textbook tracker tables if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS textbooks (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
@@ -1810,8 +2218,13 @@ def _ensure_textbook_tables(engine):
                     location VARCHAR(20) NOT NULL DEFAULT 'home',
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_textbooks_user ON textbooks(user_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_textbooks_user ON textbooks(user_id)"
+                )
+            )
             conn.commit()
         log_error("TEXTBOOK", "info", "Table ensured")
     except Exception as exc:
@@ -1822,7 +2235,8 @@ def _ensure_code_tables(engine):
     """Create Code Explainer tables if they don't exist."""
     try:
         with engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS code_projects (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT,
@@ -1834,13 +2248,21 @@ def _ensure_code_tables(engine):
                     error_message TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_projects_user ON code_projects(user_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_code_projects_user ON code_projects(user_id)"
+                )
+            )
             try:
-                conn.execute(text("ALTER TABLE code_projects ALTER COLUMN user_id DROP NOT NULL"))
+                conn.execute(
+                    text("ALTER TABLE code_projects ALTER COLUMN user_id DROP NOT NULL")
+                )
             except Exception:
                 pass  # уже nullable или БД без поддержки (sqlite/тесты)
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS code_files (
                     id SERIAL PRIMARY KEY,
                     project_id INTEGER NOT NULL,
@@ -1857,12 +2279,22 @@ def _ensure_code_tables(engine):
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     UNIQUE(project_id, file_path)
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_files_project ON code_files(project_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_code_files_project ON code_files(project_id)"
+                )
+            )
             # Legacy migration for tables created before ai_chunks_* existed.
-            _ensure_ddl_column(conn, "code_files", "ai_chunks_done INTEGER NOT NULL DEFAULT 0", engine)
-            _ensure_ddl_column(conn, "code_files", "ai_chunks_total INTEGER NOT NULL DEFAULT 1", engine)
-            conn.execute(text("""
+            _ensure_ddl_column(
+                conn, "code_files", "ai_chunks_done INTEGER NOT NULL DEFAULT 0", engine
+            )
+            _ensure_ddl_column(
+                conn, "code_files", "ai_chunks_total INTEGER NOT NULL DEFAULT 1", engine
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS code_user_comments (
                     id SERIAL PRIMARY KEY,
                     project_id INTEGER NOT NULL,
@@ -1872,9 +2304,15 @@ def _ensure_code_tables(engine):
                     comment TEXT NOT NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_comments_project ON code_user_comments(project_id, file_path)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_code_comments_project ON code_user_comments(project_id, file_path)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS code_chat_messages (
                     id SERIAL PRIMARY KEY,
                     project_id INTEGER NOT NULL,
@@ -1884,8 +2322,13 @@ def _ensure_code_tables(engine):
                     tool_calls JSONB,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_code_chat_project ON code_chat_messages(project_id, user_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_code_chat_project ON code_chat_messages(project_id, user_id)"
+                )
+            )
         log_error("CODE", "info", "Table ensured")
     except Exception as exc:
         log_error("CODE", "error", f"Table init error: {exc}")
@@ -1895,7 +2338,8 @@ def _ensure_parsing_tables(engine):
     """Create parsing tracking tables if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS parsed_transactions (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER,
@@ -1909,14 +2353,28 @@ def _ensure_parsing_tables(engine):
                     message_text TEXT,
                     parsed_at TIMESTAMPTZ DEFAULT NOW()
                 )
-            """))
+            """)
+            )
             # Legacy migration for parsed_transactions rows created before these columns.
-            _ensure_ddl_column(conn, "parsed_transactions", "status VARCHAR(16) DEFAULT 'success'", engine)
+            _ensure_ddl_column(
+                conn,
+                "parsed_transactions",
+                "status VARCHAR(16) DEFAULT 'success'",
+                engine,
+            )
             _ensure_ddl_column(conn, "parsed_transactions", "chat_id BIGINT", engine)
             _ensure_ddl_column(conn, "parsed_transactions", "message_id BIGINT", engine)
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_parsed_transactions_parsed_at ON parsed_transactions(parsed_at)"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_parsed_transactions_parsed_at ON parsed_transactions(parsed_at)"
+                )
+            )
             try:
-                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_parsed_transactions_msg ON parsed_transactions(chat_id, message_id) WHERE message_id IS NOT NULL"))
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_parsed_transactions_msg ON parsed_transactions(chat_id, message_id) WHERE message_id IS NOT NULL"
+                    )
+                )
             except Exception:
                 pass
             _sync_conversion_rates(conn)
@@ -1930,7 +2388,8 @@ def _ensure_emperors_tables(engine):
     """Create Emperors module tables if they don't exist (preserves existing data)."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS emperors_progress (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -1944,12 +2403,23 @@ def _ensure_emperors_tables(engine):
                     counter INTEGER NOT NULL DEFAULT 0,
                     updated_at REAL NOT NULL
                 )
-            """))
-            _stmt = _ddl_add_column("emperors_progress", "counter INTEGER NOT NULL DEFAULT 0", engine=engine)
+            """)
+            )
+            _stmt = _ddl_add_column(
+                "emperors_progress", "counter INTEGER NOT NULL DEFAULT 0", engine=engine
+            )
             if _stmt:
                 conn.execute(text(_stmt))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_emperors_progress_user ON emperors_progress(user_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_emperors_progress_user_card ON emperors_progress(user_id, card_key)"
+                )
+            )
             conn.commit()
         log_error("EMPERORS", "info", "Tables ensured")
     except Exception as exc:
@@ -1958,9 +2428,19 @@ def _ensure_emperors_tables(engine):
 
 OGE_MODULES = {
     "history": {"label": "История", "emoji": "📜", "url": "/emperors", "total": 391},
-    "informatics": {"label": "Информатика", "emoji": "💻", "url": "/informatics", "total": 95},
+    "informatics": {
+        "label": "Информатика",
+        "emoji": "💻",
+        "url": "/informatics",
+        "total": 95,
+    },
     "math": {"label": "Математика", "emoji": "📐", "url": "/math", "total": 130},
-    "russian": {"label": "Русский язык", "emoji": "📝", "url": "/russian", "total": 107},
+    "russian": {
+        "label": "Русский язык",
+        "emoji": "📝",
+        "url": "/russian",
+        "total": 107,
+    },
     "physics": {"label": "Физика", "emoji": "⚛️", "url": "/physics", "total": 102},
 }
 
@@ -1997,7 +2477,8 @@ def _migrate_emperors_progress_to_study(engine):
             if done:
                 conn.commit()
                 return False
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO study_progress
                     (user_id, module, card_key, reps, interval_days, ease, due, streak,
                      correct_count, wrong_count, counter, updated_at)
@@ -2008,7 +2489,8 @@ def _migrate_emperors_progress_to_study(engine):
                 FROM emperors_progress
                 WHERE true
                 ON CONFLICT DO NOTHING
-            """))
+            """)
+            )
             conn.commit()
         log_error("STUDY", "info", "emperors_progress migrated to study_progress")
         return True
@@ -2022,14 +2504,28 @@ def _column_exists(conn, table, column):
     engine_backend = conn.engine.dialect.name
     try:
         if engine_backend == "sqlite":
-            row = conn.execute(text(
-                "SELECT COUNT(*) AS c FROM pragma_table_info(:t) WHERE name = :c"
-            ), {"t": table, "c": column}).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT COUNT(*) AS c FROM pragma_table_info(:t) WHERE name = :c"
+                    ),
+                    {"t": table, "c": column},
+                )
+                .mappings()
+                .first()
+            )
             return bool(row and row["c"])
-        row = conn.execute(text(
-            "SELECT COUNT(*) AS c FROM information_schema.columns "
-            "WHERE table_name = :t AND column_name = :c"
-        ), {"t": table, "c": column}).mappings().first()
+        row = (
+            conn.execute(
+                text(
+                    "SELECT COUNT(*) AS c FROM information_schema.columns "
+                    "WHERE table_name = :t AND column_name = :c"
+                ),
+                {"t": table, "c": column},
+            )
+            .mappings()
+            .first()
+        )
         return bool(row and row["c"])
     except Exception:
         return False
@@ -2049,25 +2545,33 @@ def _alter_add_column_if_missing(engine, table, column, ddl_type, max_retries=4)
                 exists = _column_exists(conn, table, column)
                 if exists:
                     return
-                conn.execute(text(
-                    f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"
-                ))
+                conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
+                )
             return
         except Exception as exc:
             msg = str(exc).lower()
-            if "deadlock" in msg or "serialization" in msg or "being aborted" in msg or "in failed sql transaction" in msg:
+            if (
+                "deadlock" in msg
+                or "serialization" in msg
+                or "being aborted" in msg
+                or "in failed sql transaction" in msg
+            ):
                 time.sleep(0.15 * (attempt + 1))
                 continue
             log_error("STUDY", "error", f"alter {table}.{column} skipped: {exc}")
             return
-    log_error("STUDY", "error", f"alter {table}.{column} failed after {max_retries} retries")
+    log_error(
+        "STUDY", "error", f"alter {table}.{column} failed after {max_retries} retries"
+    )
 
 
 def _ensure_study_progress_tables(engine):
     """Create the unified OGE progress table and migrate Emperors rows into it."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS study_progress (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -2085,10 +2589,20 @@ def _ensure_study_progress_tables(engine):
                     created_at REAL NOT NULL DEFAULT 0,
                     last_correct_at REAL NOT NULL DEFAULT 0
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_study_progress_user ON study_progress(user_id)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_study_progress_user_module_card ON study_progress(user_id, module, card_key)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_study_progress_user ON study_progress(user_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_progress_user_module_card ON study_progress(user_id, module, card_key)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS study_daily (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -2097,23 +2611,38 @@ def _ensure_study_progress_tables(engine):
                     correct INTEGER NOT NULL DEFAULT 0,
                     wrong INTEGER NOT NULL DEFAULT 0
                 )
-            """))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_study_daily_user_day_module ON study_daily(user_id, day, module)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_daily_user_day_module ON study_daily(user_id, day, module)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS exam_sessions (
                     sid VARCHAR(20) PRIMARY KEY,
                     items_json TEXT NOT NULL,
                     created_at REAL NOT NULL DEFAULT 0
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_sessions_created ON exam_sessions(created_at)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_exam_sessions_created ON exam_sessions(created_at)"
+                )
+            )
             conn.commit()
         # Миграция существующих продовых таблиц. Каждая в своей автономной
         # транзакции с проверкой существования колонки, чтобы параллельные
         # серверлесс cold starts не дедлокились на ALTER TABLE (см. прод-логи
         # DeadlockDetected / InFailedSqlTransaction на study_progress).
-        _alter_add_column_if_missing(engine, "study_progress", "created_at", "REAL NOT NULL DEFAULT 0")
-        _alter_add_column_if_missing(engine, "study_progress", "last_correct_at", "REAL NOT NULL DEFAULT 0")
+        _alter_add_column_if_missing(
+            engine, "study_progress", "created_at", "REAL NOT NULL DEFAULT 0"
+        )
+        _alter_add_column_if_missing(
+            engine, "study_progress", "last_correct_at", "REAL NOT NULL DEFAULT 0"
+        )
         _migrate_emperors_progress_to_study(engine)
         log_error("STUDY", "info", "Tables ensured")
     except Exception as exc:
@@ -2124,17 +2653,28 @@ def _ensure_achievements_tables(engine):
     """Create the unified achievements/streak tables if they don't exist."""
     try:
         with engine.connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS web_achievements (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER NOT NULL,
                     code TEXT NOT NULL,
                     unlocked_at REAL NOT NULL
                 )
-            """))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_web_achievements_user_code ON web_achievements(user_id, code)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_achievements_user ON web_achievements(user_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_web_achievements_user_code ON web_achievements(user_id, code)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_web_achievements_user ON web_achievements(user_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS web_streak (
                     user_id INTEGER PRIMARY KEY,
                     last_active_day TEXT NOT NULL,
@@ -2142,8 +2682,10 @@ def _ensure_achievements_tables(engine):
                     longest_streak INTEGER NOT NULL DEFAULT 0,
                     total_active_days INTEGER NOT NULL DEFAULT 0
                 )
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS web_activity_log (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -2151,10 +2693,20 @@ def _ensure_achievements_tables(engine):
                     module TEXT NOT NULL,
                     actions INTEGER NOT NULL DEFAULT 1
                 )
-            """))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_web_activity_user_day_module ON web_activity_log(user_id, day, module)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_activity_user ON web_activity_log(user_id)"))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_web_activity_user_day_module ON web_activity_log(user_id, day, module)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_web_activity_user ON web_activity_log(user_id)"
+                )
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS web_events (
                     user_id INTEGER NOT NULL,
                     event TEXT NOT NULL,
@@ -2162,8 +2714,13 @@ def _ensure_achievements_tables(engine):
                     updated_at REAL NOT NULL DEFAULT 0,
                     PRIMARY KEY (user_id, event)
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_web_events_user ON web_events(user_id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_web_events_user ON web_events(user_id)"
+                )
+            )
             conn.commit()
         log_error("ACHIEVEMENTS", "info", "Tables ensured")
     except Exception as exc:
@@ -2172,280 +2729,1780 @@ def _ensure_achievements_tables(engine):
 
 ACHIEVEMENTS: dict[str, dict] = {
     # --- Первые шаги ---
-    "first_step": {"icon": "🚀", "name": "Первый шаг", "desc": "Выполнить любое действие на портале", "module": "system", "weight": 10},
-    "first_quiz": {"icon": "🎯", "name": "Первая победа", "desc": "Правильно ответить в любом тренажёре", "module": "system", "weight": 10},
-    "first_streak": {"icon": "🔥", "name": "Начало серии", "desc": "Активность 2 дня подряд", "module": "streak", "weight": 10},
+    "first_step": {
+        "icon": "🚀",
+        "name": "Первый шаг",
+        "desc": "Выполнить любое действие на портале",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_quiz": {
+        "icon": "🎯",
+        "name": "Первая победа",
+        "desc": "Правильно ответить в любом тренажёре",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_streak": {
+        "icon": "🔥",
+        "name": "Начало серии",
+        "desc": "Активность 2 дня подряд",
+        "module": "streak",
+        "weight": 10,
+    },
     # --- Активность ---
-    "first_50_actions": {"icon": "⚡", "name": "Энергичный", "desc": "Выполнить 50 действий на портале", "module": "system", "weight": 10},
-    "first_100_actions": {"icon": "⚡", "name": "Продуктивный", "desc": "Выполнить 100 действий на портале", "module": "system", "weight": 10},
-    "first_250_actions": {"icon": "⚡", "name": "Трудоголик", "desc": "Выполнить 250 действий на портале", "module": "system", "weight": 10},
-    "first_500_actions": {"icon": "🌟", "name": "Активист", "desc": "Выполнить 500 действий на портале", "module": "system", "weight": 10},
-    "first_1000_actions": {"icon": "🌟", "name": "Марафонец", "desc": "Выполнить 1000 действий на портале", "module": "system", "weight": 10},
-    "first_2500_actions": {"icon": "🌟", "name": "Стахановец", "desc": "Выполнить 2500 действий на портале", "module": "system", "weight": 10},
-    "first_5000_actions": {"icon": "🏆", "name": "Гигант", "desc": "Выполнить 5000 действий на портале", "module": "system", "weight": 10},
+    "first_50_actions": {
+        "icon": "⚡",
+        "name": "Энергичный",
+        "desc": "Выполнить 50 действий на портале",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_100_actions": {
+        "icon": "⚡",
+        "name": "Продуктивный",
+        "desc": "Выполнить 100 действий на портале",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_250_actions": {
+        "icon": "⚡",
+        "name": "Трудоголик",
+        "desc": "Выполнить 250 действий на портале",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_500_actions": {
+        "icon": "🌟",
+        "name": "Активист",
+        "desc": "Выполнить 500 действий на портале",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_1000_actions": {
+        "icon": "🌟",
+        "name": "Марафонец",
+        "desc": "Выполнить 1000 действий на портале",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_2500_actions": {
+        "icon": "🌟",
+        "name": "Стахановец",
+        "desc": "Выполнить 2500 действий на портале",
+        "module": "system",
+        "weight": 10,
+    },
+    "first_5000_actions": {
+        "icon": "🏆",
+        "name": "Гигант",
+        "desc": "Выполнить 5000 действий на портале",
+        "module": "system",
+        "weight": 10,
+    },
     # --- Исследователь ---
-    "module_2": {"icon": "🧭", "name": "Любознательный", "desc": "Посетить 2 разных модуля", "module": "system", "weight": 10},
-    "module_3": {"icon": "🧭", "name": "Исследователь-новичок", "desc": "Посетить 3 разных модуля", "module": "system", "weight": 10},
-    "module_4": {"icon": "🧭", "name": "Исследователь-любитель", "desc": "Посетить 4 разных модуля", "module": "system", "weight": 10},
-    "module_5": {"icon": "🧭", "name": "Путешественник", "desc": "Посетить 5 разных модулей", "module": "system", "weight": 10},
-    "module_6": {"icon": "🧭", "name": "Исследователь-профи", "desc": "Посетить 6 разных модулей", "module": "system", "weight": 10},
-    "module_7": {"icon": "🌐", "name": "Коллекционер модулей", "desc": "Посетить 7 разных модулей", "module": "system", "weight": 10},
-    "module_8": {"icon": "🌐", "name": "Полиглот портала", "desc": "Посетить 8 разных модулей", "module": "system", "weight": 10},
-    "module_9": {"icon": "🌐", "name": "Картограф", "desc": "Посетить 9 разных модулей", "module": "system", "weight": 10},
-    "module_10": {"icon": "🌐", "name": "Старожил", "desc": "Посетить 10 разных модулей", "module": "system", "weight": 10},
-    "module_11": {"icon": "🚀", "name": "Исследователь", "desc": "Посетить все 11 модулей", "module": "system", "weight": 10},
-    "module_12": {"icon": "🚀", "name": "Всезнайка", "desc": "Посетить 12 разных модулей", "module": "system", "weight": 10},
-    "module_13": {"icon": "🚀", "name": "Вездесущий", "desc": "Посетить 13 разных модулей", "module": "system", "weight": 10},
+    "module_2": {
+        "icon": "🧭",
+        "name": "Любознательный",
+        "desc": "Посетить 2 разных модуля",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_3": {
+        "icon": "🧭",
+        "name": "Исследователь-новичок",
+        "desc": "Посетить 3 разных модуля",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_4": {
+        "icon": "🧭",
+        "name": "Исследователь-любитель",
+        "desc": "Посетить 4 разных модуля",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_5": {
+        "icon": "🧭",
+        "name": "Путешественник",
+        "desc": "Посетить 5 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_6": {
+        "icon": "🧭",
+        "name": "Исследователь-профи",
+        "desc": "Посетить 6 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_7": {
+        "icon": "🌐",
+        "name": "Коллекционер модулей",
+        "desc": "Посетить 7 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_8": {
+        "icon": "🌐",
+        "name": "Полиглот портала",
+        "desc": "Посетить 8 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_9": {
+        "icon": "🌐",
+        "name": "Картограф",
+        "desc": "Посетить 9 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_10": {
+        "icon": "🌐",
+        "name": "Старожил",
+        "desc": "Посетить 10 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_11": {
+        "icon": "🚀",
+        "name": "Исследователь",
+        "desc": "Посетить все 11 модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_12": {
+        "icon": "🚀",
+        "name": "Всезнайка",
+        "desc": "Посетить 12 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
+    "module_13": {
+        "icon": "🚀",
+        "name": "Вездесущий",
+        "desc": "Посетить 13 разных модулей",
+        "module": "system",
+        "weight": 10,
+    },
     # --- Серии дней ---
-    "streak_3": {"icon": "🔥", "name": "Серия 3 дня", "desc": "Активность 3 дня подряд", "module": "streak", "weight": 10},
-    "streak_5": {"icon": "🔥", "name": "Серия 5 дней", "desc": "Активность 5 дней подряд", "module": "streak", "weight": 10},
-    "streak_7": {"icon": "⚡", "name": "Серия 7 дней", "desc": "Активность 7 дней подряд", "module": "streak", "weight": 10},
-    "streak_10": {"icon": "🔥", "name": "Серия 10 дней", "desc": "Активность 10 дней подряд", "module": "streak", "weight": 10},
-    "streak_14": {"icon": "🌟", "name": "Серия 14 дней", "desc": "Активность 14 дней подряд", "module": "streak", "weight": 10},
-    "streak_20": {"icon": "🔥", "name": "Серия 20 дней", "desc": "Активность 20 дней подряд", "module": "streak", "weight": 10},
-    "streak_30": {"icon": "💎", "name": "Серия 30 дней", "desc": "Активность 30 дней подряд", "module": "streak", "weight": 10},
-    "streak_45": {"icon": "🌟", "name": "Серия 45 дней", "desc": "Активность 45 дней подряд", "module": "streak", "weight": 10},
-    "streak_60": {"icon": "🏆", "name": "Серия 60 дней", "desc": "Активность 60 дней подряд", "module": "streak", "weight": 10},
-    "streak_90": {"icon": "🌟", "name": "Серия 90 дней", "desc": "Активность 90 дней подряд", "module": "streak", "weight": 10},
-    "streak_100": {"icon": "👑", "name": "Серия 100 дней", "desc": "Активность 100 дней подряд", "module": "streak", "weight": 10},
-    "streak_150": {"icon": "💎", "name": "Серия 150 дней", "desc": "Активность 150 дней подряд", "module": "streak", "weight": 10},
-    "streak_200": {"icon": "👑", "name": "Серия 200 дней", "desc": "Активность 200 дней подряд", "module": "streak", "weight": 10},
-    "streak_250": {"icon": "💎", "name": "Серия 250 дней", "desc": "Активность 250 дней подряд", "module": "streak", "weight": 10},
-    "streak_365": {"icon": "🌞", "name": "Год активности", "desc": "Активность 365 дней подряд", "module": "streak", "weight": 10},
-    "streak_400": {"icon": "🏆", "name": "Серия 400 дней", "desc": "Активность 400 дней подряд", "module": "streak", "weight": 10},
-    "streak_500": {"icon": "🌞", "name": "Полтора года", "desc": "Активность 500 дней подряд", "module": "streak", "weight": 10},
-    "streak_750": {"icon": "👑", "name": "Серия 750 дней", "desc": "Активность 750 дней подряд", "module": "streak", "weight": 10},
-    "streak_1000": {"icon": "👑", "name": "Серия 1000 дней", "desc": "Активность 1000 дней подряд", "module": "streak", "weight": 10},
+    "streak_3": {
+        "icon": "🔥",
+        "name": "Серия 3 дня",
+        "desc": "Активность 3 дня подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_5": {
+        "icon": "🔥",
+        "name": "Серия 5 дней",
+        "desc": "Активность 5 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_7": {
+        "icon": "⚡",
+        "name": "Серия 7 дней",
+        "desc": "Активность 7 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_10": {
+        "icon": "🔥",
+        "name": "Серия 10 дней",
+        "desc": "Активность 10 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_14": {
+        "icon": "🌟",
+        "name": "Серия 14 дней",
+        "desc": "Активность 14 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_20": {
+        "icon": "🔥",
+        "name": "Серия 20 дней",
+        "desc": "Активность 20 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_30": {
+        "icon": "💎",
+        "name": "Серия 30 дней",
+        "desc": "Активность 30 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_45": {
+        "icon": "🌟",
+        "name": "Серия 45 дней",
+        "desc": "Активность 45 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_60": {
+        "icon": "🏆",
+        "name": "Серия 60 дней",
+        "desc": "Активность 60 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_90": {
+        "icon": "🌟",
+        "name": "Серия 90 дней",
+        "desc": "Активность 90 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_100": {
+        "icon": "👑",
+        "name": "Серия 100 дней",
+        "desc": "Активность 100 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_150": {
+        "icon": "💎",
+        "name": "Серия 150 дней",
+        "desc": "Активность 150 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_200": {
+        "icon": "👑",
+        "name": "Серия 200 дней",
+        "desc": "Активность 200 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_250": {
+        "icon": "💎",
+        "name": "Серия 250 дней",
+        "desc": "Активность 250 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_365": {
+        "icon": "🌞",
+        "name": "Год активности",
+        "desc": "Активность 365 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_400": {
+        "icon": "🏆",
+        "name": "Серия 400 дней",
+        "desc": "Активность 400 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_500": {
+        "icon": "🌞",
+        "name": "Полтора года",
+        "desc": "Активность 500 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_750": {
+        "icon": "👑",
+        "name": "Серия 750 дней",
+        "desc": "Активность 750 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
+    "streak_1000": {
+        "icon": "👑",
+        "name": "Серия 1000 дней",
+        "desc": "Активность 1000 дней подряд",
+        "module": "streak",
+        "weight": 10,
+    },
     # --- Активные дни (всего) ---
-    "days_3": {"icon": "📅", "name": "3 дня на портале", "desc": "Активность в 3 разных днях", "module": "streak", "weight": 10},
-    "days_5": {"icon": "📅", "name": "5 дней на портале", "desc": "Активность в 5 разных днях", "module": "streak", "weight": 10},
-    "days_7": {"icon": "📅", "name": "Неделя на портале", "desc": "Активность в 7 разных днях", "module": "streak", "weight": 10},
-    "days_10": {"icon": "📅", "name": "10 дней на портале", "desc": "Активность в 10 разных днях", "module": "streak", "weight": 10},
-    "days_14": {"icon": "📅", "name": "2 недели на портале", "desc": "Активность в 14 разных днях", "module": "streak", "weight": 10},
-    "days_20": {"icon": "📅", "name": "20 дней на портале", "desc": "Активность в 20 разных днях", "module": "streak", "weight": 10},
-    "days_30": {"icon": "🗓️", "name": "Месяц на портале", "desc": "Активность в 30 разных днях", "module": "streak", "weight": 10},
-    "days_45": {"icon": "🗓️", "name": "45 дней на портале", "desc": "Активность в 45 разных днях", "module": "streak", "weight": 10},
-    "days_60": {"icon": "🗓️", "name": "2 месяца на портале", "desc": "Активность в 60 разных днях", "module": "streak", "weight": 10},
-    "days_89": {"icon": "📅", "name": "Восемь-девять дней", "desc": "Активность в 89 разных днях", "module": "streak", "weight": 10},
-    "days_90": {"icon": "🗓️", "name": "90 дней на портале", "desc": "Активность в 90 разных днях", "module": "streak", "weight": 10},
-    "days_100": {"icon": "🎖️", "name": "100 дней на портале", "desc": "Активность в 100 разных днях", "module": "streak", "weight": 10},
-    "days_150": {"icon": "🎖️", "name": "150 дней на портале", "desc": "Активность в 150 разных днях", "module": "streak", "weight": 10},
-    "days_200": {"icon": "🎖️", "name": "200 дней на портале", "desc": "Активность в 200 разных днях", "module": "streak", "weight": 10},
-    "days_250": {"icon": "🎖️", "name": "250 дней на портале", "desc": "Активность в 250 разных днях", "module": "streak", "weight": 10},
-    "days_365": {"icon": "🏅", "name": "Год на портале", "desc": "Активность в 365 разных днях", "module": "streak", "weight": 10},
-    "days_400": {"icon": "🎖️", "name": "400 дней на портале", "desc": "Активность в 400 разных днях", "module": "streak", "weight": 10},
-    "days_750": {"icon": "🏅", "name": "750 дней на портале", "desc": "Активность в 750 разных днях", "module": "streak", "weight": 10},
-    "days_1000": {"icon": "🏅", "name": "1000 дней на портале", "desc": "Активность в 1000 разных днях", "module": "streak", "weight": 10},
+    "days_3": {
+        "icon": "📅",
+        "name": "3 дня на портале",
+        "desc": "Активность в 3 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_5": {
+        "icon": "📅",
+        "name": "5 дней на портале",
+        "desc": "Активность в 5 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_7": {
+        "icon": "📅",
+        "name": "Неделя на портале",
+        "desc": "Активность в 7 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_10": {
+        "icon": "📅",
+        "name": "10 дней на портале",
+        "desc": "Активность в 10 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_14": {
+        "icon": "📅",
+        "name": "2 недели на портале",
+        "desc": "Активность в 14 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_20": {
+        "icon": "📅",
+        "name": "20 дней на портале",
+        "desc": "Активность в 20 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_30": {
+        "icon": "🗓️",
+        "name": "Месяц на портале",
+        "desc": "Активность в 30 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_45": {
+        "icon": "🗓️",
+        "name": "45 дней на портале",
+        "desc": "Активность в 45 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_60": {
+        "icon": "🗓️",
+        "name": "2 месяца на портале",
+        "desc": "Активность в 60 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_89": {
+        "icon": "📅",
+        "name": "Восемь-девять дней",
+        "desc": "Активность в 89 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_90": {
+        "icon": "🗓️",
+        "name": "90 дней на портале",
+        "desc": "Активность в 90 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_100": {
+        "icon": "🎖️",
+        "name": "100 дней на портале",
+        "desc": "Активность в 100 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_150": {
+        "icon": "🎖️",
+        "name": "150 дней на портале",
+        "desc": "Активность в 150 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_200": {
+        "icon": "🎖️",
+        "name": "200 дней на портале",
+        "desc": "Активность в 200 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_250": {
+        "icon": "🎖️",
+        "name": "250 дней на портале",
+        "desc": "Активность в 250 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_365": {
+        "icon": "🏅",
+        "name": "Год на портале",
+        "desc": "Активность в 365 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_400": {
+        "icon": "🎖️",
+        "name": "400 дней на портале",
+        "desc": "Активность в 400 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_750": {
+        "icon": "🏅",
+        "name": "750 дней на портале",
+        "desc": "Активность в 750 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
+    "days_1000": {
+        "icon": "🏅",
+        "name": "1000 дней на портале",
+        "desc": "Активность в 1000 разных днях",
+        "module": "streak",
+        "weight": 10,
+    },
     # --- Тривиа (Викторина) ---
-    "trivia_first": {"icon": "🧠", "name": "Первая викторина", "desc": "Ответить на вопрос викторины", "module": "trivia", "weight": 10},
-    "trivia_5": {"icon": "🧠", "name": "Начало пути", "desc": "Ответить на 5 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_7": {"icon": "🧠", "name": "Счастливая семёрка", "desc": "Ответить на 7 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_10": {"icon": "🧠", "name": "Знаток викторины", "desc": "Ответить на 10 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_25": {"icon": "🧠", "name": "Викториан-25", "desc": "Ответить на 25 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_50": {"icon": "🧠", "name": "Викториан-50", "desc": "Ответить на 50 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_77": {"icon": "🧠", "name": "Семь семёрок", "desc": "Ответить на 77 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_89": {"icon": "🧠", "name": "Эрудит-89", "desc": "Ответить на 89 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_100": {"icon": "🎓", "name": "Мастер викторины", "desc": "Ответить на 100 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_123": {"icon": "🧠", "name": "Один-два-три", "desc": "Ответить на 123 вопроса викторины", "module": "trivia", "weight": 10},
-    "trivia_200": {"icon": "🎓", "name": "Гуру викторины", "desc": "Ответить на 200 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_250": {"icon": "🎓", "name": "Четверть тысячи", "desc": "Ответить на 250 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_500": {"icon": "🏆", "name": "Легенда викторины", "desc": "Ответить на 500 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_666": {"icon": "🧠", "name": "Зловещая эрудиция", "desc": "Ответить на 666 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_777": {"icon": "🎓", "name": "Джекпот эрудиции", "desc": "Ответить на 777 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_999": {"icon": "🏆", "name": "Почти тысяча", "desc": "Ответить на 999 вопросов викторины", "module": "trivia", "weight": 10},
-    "trivia_1000": {"icon": "🏆", "name": "Тысяча ответов", "desc": "Ответить на 1000 вопросов викторины", "module": "trivia", "weight": 10},
+    "trivia_first": {
+        "icon": "🧠",
+        "name": "Первая викторина",
+        "desc": "Ответить на вопрос викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_5": {
+        "icon": "🧠",
+        "name": "Начало пути",
+        "desc": "Ответить на 5 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_7": {
+        "icon": "🧠",
+        "name": "Счастливая семёрка",
+        "desc": "Ответить на 7 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_10": {
+        "icon": "🧠",
+        "name": "Знаток викторины",
+        "desc": "Ответить на 10 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_25": {
+        "icon": "🧠",
+        "name": "Викториан-25",
+        "desc": "Ответить на 25 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_50": {
+        "icon": "🧠",
+        "name": "Викториан-50",
+        "desc": "Ответить на 50 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_77": {
+        "icon": "🧠",
+        "name": "Семь семёрок",
+        "desc": "Ответить на 77 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_89": {
+        "icon": "🧠",
+        "name": "Эрудит-89",
+        "desc": "Ответить на 89 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_100": {
+        "icon": "🎓",
+        "name": "Мастер викторины",
+        "desc": "Ответить на 100 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_123": {
+        "icon": "🧠",
+        "name": "Один-два-три",
+        "desc": "Ответить на 123 вопроса викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_200": {
+        "icon": "🎓",
+        "name": "Гуру викторины",
+        "desc": "Ответить на 200 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_250": {
+        "icon": "🎓",
+        "name": "Четверть тысячи",
+        "desc": "Ответить на 250 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_500": {
+        "icon": "🏆",
+        "name": "Легенда викторины",
+        "desc": "Ответить на 500 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_666": {
+        "icon": "🧠",
+        "name": "Зловещая эрудиция",
+        "desc": "Ответить на 666 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_777": {
+        "icon": "🎓",
+        "name": "Джекпот эрудиции",
+        "desc": "Ответить на 777 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_999": {
+        "icon": "🏆",
+        "name": "Почти тысяча",
+        "desc": "Ответить на 999 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_1000": {
+        "icon": "🏆",
+        "name": "Тысяча ответов",
+        "desc": "Ответить на 1000 вопросов викторины",
+        "module": "trivia",
+        "weight": 10,
+    },
     # --- Тривиа: серия правильных ---
-    "trivia_streak_3": {"icon": "🎯", "name": "Хет-трик", "desc": "Ответить правильно 3 раза подряд", "module": "trivia", "weight": 10},
-    "trivia_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Ответить правильно 5 раз подряд", "module": "trivia", "weight": 10},
-    "trivia_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Ответить правильно 10 раз подряд", "module": "trivia", "weight": 10},
+    "trivia_streak_3": {
+        "icon": "🎯",
+        "name": "Хет-трик",
+        "desc": "Ответить правильно 3 раза подряд",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_streak_5": {
+        "icon": "🎯",
+        "name": "Пять подряд",
+        "desc": "Ответить правильно 5 раз подряд",
+        "module": "trivia",
+        "weight": 10,
+    },
+    "trivia_streak_10": {
+        "icon": "🏅",
+        "name": "Десять подряд",
+        "desc": "Ответить правильно 10 раз подряд",
+        "module": "trivia",
+        "weight": 10,
+    },
     # --- Императоры ---
-    "emperors_first": {"icon": "👑", "name": "Первые императоры", "desc": "Ответить на вопрос об императорах", "module": "emperors", "weight": 10},
-    "emperors_7": {"icon": "👑", "name": "Семь эпох", "desc": "Ответить на 7 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_10": {"icon": "👑", "name": "Историк-новичок", "desc": "Ответить на 10 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_25": {"icon": "👑", "name": "Историк-любитель", "desc": "Ответить на 25 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_50": {"icon": "👑", "name": "Историк-профессионал", "desc": "Ответить на 50 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_77": {"icon": "🏛️", "name": "Летопись-77", "desc": "Ответить на 77 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_89": {"icon": "👑", "name": "Восемь-девять эпох", "desc": "Ответить на 89 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_100": {"icon": "🏛️", "name": "Историк-академик", "desc": "Ответить на 100 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_123": {"icon": "🏛️", "name": "Ровно 123", "desc": "Ответить на 123 вопроса об императорах", "module": "emperors", "weight": 10},
-    "emperors_200": {"icon": "🏛️", "name": "Профессор истории", "desc": "Ответить на 200 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_250": {"icon": "🏛️", "name": "Квадрига", "desc": "Ответить на 250 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_333": {"icon": "👑", "name": "Три тройки", "desc": "Ответить на 333 вопроса об императорах", "module": "emperors", "weight": 10},
-    "emperors_500": {"icon": "👑", "name": "Хранитель истории", "desc": "Ответить на 500 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_666": {"icon": "👑", "name": "Тьма истории", "desc": "Ответить на 666 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_777": {"icon": "🏆", "name": "Джекпот эпох", "desc": "Ответить на 777 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_999": {"icon": "🏆", "name": "Миллениум", "desc": "Ответить на 999 вопросов об императорах", "module": "emperors", "weight": 10},
-    "emperors_1000": {"icon": "👑", "name": "Тысяча вопросов", "desc": "Ответить на 1000 вопросов об императорах", "module": "emperors", "weight": 10},
+    "emperors_first": {
+        "icon": "👑",
+        "name": "Первые императоры",
+        "desc": "Ответить на вопрос об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_7": {
+        "icon": "👑",
+        "name": "Семь эпох",
+        "desc": "Ответить на 7 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_10": {
+        "icon": "👑",
+        "name": "Историк-новичок",
+        "desc": "Ответить на 10 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_25": {
+        "icon": "👑",
+        "name": "Историк-любитель",
+        "desc": "Ответить на 25 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_50": {
+        "icon": "👑",
+        "name": "Историк-профессионал",
+        "desc": "Ответить на 50 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_77": {
+        "icon": "🏛️",
+        "name": "Летопись-77",
+        "desc": "Ответить на 77 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_89": {
+        "icon": "👑",
+        "name": "Восемь-девять эпох",
+        "desc": "Ответить на 89 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_100": {
+        "icon": "🏛️",
+        "name": "Историк-академик",
+        "desc": "Ответить на 100 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_123": {
+        "icon": "🏛️",
+        "name": "Ровно 123",
+        "desc": "Ответить на 123 вопроса об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_200": {
+        "icon": "🏛️",
+        "name": "Профессор истории",
+        "desc": "Ответить на 200 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_250": {
+        "icon": "🏛️",
+        "name": "Квадрига",
+        "desc": "Ответить на 250 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_333": {
+        "icon": "👑",
+        "name": "Три тройки",
+        "desc": "Ответить на 333 вопроса об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_500": {
+        "icon": "👑",
+        "name": "Хранитель истории",
+        "desc": "Ответить на 500 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_666": {
+        "icon": "👑",
+        "name": "Тьма истории",
+        "desc": "Ответить на 666 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_777": {
+        "icon": "🏆",
+        "name": "Джекпот эпох",
+        "desc": "Ответить на 777 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_999": {
+        "icon": "🏆",
+        "name": "Миллениум",
+        "desc": "Ответить на 999 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_1000": {
+        "icon": "👑",
+        "name": "Тысяча вопросов",
+        "desc": "Ответить на 1000 вопросов об императорах",
+        "module": "emperors",
+        "weight": 10,
+    },
     # --- Императоры: режимы ---
-    "emperors_mode_study": {"icon": "📚", "name": "Изучающий", "desc": "Попробовать режим «Изучить»", "module": "emperors", "weight": 10},
-    "emperors_mode_quiz": {"icon": "🧠", "name": "Тренирующийся", "desc": "Попробовать режим «Тренажёр»", "module": "emperors", "weight": 10},
-    "emperors_mode_match": {"icon": "🎯", "name": "Сопоставляющий", "desc": "Попробовать режим «Сопоставление»", "module": "emperors", "weight": 10},
-    "emperors_mode_chrono": {"icon": "📜", "name": "Хронолог", "desc": "Попробовать режим «Хронология»", "module": "emperors", "weight": 10},
-    "emperors_all_modes": {"icon": "🌟", "name": "Мастер режимов", "desc": "Попробовать все 4 режима императоров", "module": "emperors", "weight": 10},
+    "emperors_mode_study": {
+        "icon": "📚",
+        "name": "Изучающий",
+        "desc": "Попробовать режим «Изучить»",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mode_quiz": {
+        "icon": "🧠",
+        "name": "Тренирующийся",
+        "desc": "Попробовать режим «Тренажёр»",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mode_match": {
+        "icon": "🎯",
+        "name": "Сопоставляющий",
+        "desc": "Попробовать режим «Сопоставление»",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mode_chrono": {
+        "icon": "📜",
+        "name": "Хронолог",
+        "desc": "Попробовать режим «Хронология»",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_all_modes": {
+        "icon": "🌟",
+        "name": "Мастер режимов",
+        "desc": "Попробовать все 4 режима императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
     # --- Императоры: освоенные карточки ---
-    "emperors_mastered_5": {"icon": "🎖️", "name": "Первые пять", "desc": "Освоить 5 карточек императоров", "module": "emperors", "weight": 10},
-    "emperors_mastered_10": {"icon": "🎖️", "name": "Десятка", "desc": "Освоить 10 карточек императоров", "module": "emperors", "weight": 10},
-    "emperors_mastered_25": {"icon": "🎖️", "name": "Двадцать пять", "desc": "Освоить 25 карточек императоров", "module": "emperors", "weight": 10},
-    "emperors_mastered_50": {"icon": "🏅", "name": "Полсотни", "desc": "Освоить 50 карточек императоров", "module": "emperors", "weight": 10},
-    "emperors_mastered_100": {"icon": "🏅", "name": "Сотня карточек", "desc": "Освоить 100 карточек императоров", "module": "emperors", "weight": 10},
-    "emperors_mastered_150": {"icon": "🏅", "name": "Полтораста", "desc": "Освоить 150 карточек императоров", "module": "emperors", "weight": 10},
-    "emperors_mastered_200": {"icon": "🏆", "name": "Двести карточек", "desc": "Освоить 200 карточек императоров", "module": "emperors", "weight": 10},
-    "emperors_mastered_258": {"icon": "🏆", "name": "Коллекционер эпох", "desc": "Освоить все 258 карточек императоров", "module": "emperors", "weight": 10},
+    "emperors_mastered_5": {
+        "icon": "🎖️",
+        "name": "Первые пять",
+        "desc": "Освоить 5 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mastered_10": {
+        "icon": "🎖️",
+        "name": "Десятка",
+        "desc": "Освоить 10 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mastered_25": {
+        "icon": "🎖️",
+        "name": "Двадцать пять",
+        "desc": "Освоить 25 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mastered_50": {
+        "icon": "🏅",
+        "name": "Полсотни",
+        "desc": "Освоить 50 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mastered_100": {
+        "icon": "🏅",
+        "name": "Сотня карточек",
+        "desc": "Освоить 100 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mastered_150": {
+        "icon": "🏅",
+        "name": "Полтораста",
+        "desc": "Освоить 150 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mastered_200": {
+        "icon": "🏆",
+        "name": "Двести карточек",
+        "desc": "Освоить 200 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
+    "emperors_mastered_258": {
+        "icon": "🏆",
+        "name": "Коллекционер эпох",
+        "desc": "Освоить все 258 карточек императоров",
+        "module": "emperors",
+        "weight": 10,
+    },
     # --- Чтение ---
-    "reading_first": {"icon": "📖", "name": "Первое чтение", "desc": "Проверить первое задание по чтению", "module": "reading", "weight": 10},
-    "reading_5": {"icon": "📖", "name": "Читатель-новичок", "desc": "Проверить 5 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_7": {"icon": "📖", "name": "Неделя чтения", "desc": "Проверить 7 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_10": {"icon": "📖", "name": "Читатель-любитель", "desc": "Проверить 10 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_25": {"icon": "📖", "name": "Читатель-профи", "desc": "Проверить 25 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_50": {"icon": "📚", "name": "Книжный червь", "desc": "Проверить 50 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_77": {"icon": "📖", "name": "Библиофил-77", "desc": "Проверить 77 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_89": {"icon": "📖", "name": "Книжник-89", "desc": "Проверить 89 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_100": {"icon": "📚", "name": "Библиотекарь", "desc": "Проверить 100 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_123": {"icon": "📚", "name": "Книжный клуб", "desc": "Проверить 123 задания по чтению", "module": "reading", "weight": 10},
-    "reading_200": {"icon": "📚", "name": "Книжный эксперт", "desc": "Проверить 200 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_250": {"icon": "📚", "name": "Читальный зал", "desc": "Проверить 250 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_500": {"icon": "📚", "name": "Литературовед", "desc": "Проверить 500 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_666": {"icon": "📚", "name": "Чёрная библиотека", "desc": "Проверить 666 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_777": {"icon": "📚", "name": "Джекпот чтения", "desc": "Проверить 777 заданий по чтению", "module": "reading", "weight": 10},
-    "reading_1000": {"icon": "📚", "name": "Книжный миллионер", "desc": "Проверить 1000 заданий по чтению", "module": "reading", "weight": 10},
+    "reading_first": {
+        "icon": "📖",
+        "name": "Первое чтение",
+        "desc": "Проверить первое задание по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_5": {
+        "icon": "📖",
+        "name": "Читатель-новичок",
+        "desc": "Проверить 5 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_7": {
+        "icon": "📖",
+        "name": "Неделя чтения",
+        "desc": "Проверить 7 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_10": {
+        "icon": "📖",
+        "name": "Читатель-любитель",
+        "desc": "Проверить 10 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_25": {
+        "icon": "📖",
+        "name": "Читатель-профи",
+        "desc": "Проверить 25 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_50": {
+        "icon": "📚",
+        "name": "Книжный червь",
+        "desc": "Проверить 50 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_77": {
+        "icon": "📖",
+        "name": "Библиофил-77",
+        "desc": "Проверить 77 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_89": {
+        "icon": "📖",
+        "name": "Книжник-89",
+        "desc": "Проверить 89 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_100": {
+        "icon": "📚",
+        "name": "Библиотекарь",
+        "desc": "Проверить 100 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_123": {
+        "icon": "📚",
+        "name": "Книжный клуб",
+        "desc": "Проверить 123 задания по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_200": {
+        "icon": "📚",
+        "name": "Книжный эксперт",
+        "desc": "Проверить 200 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_250": {
+        "icon": "📚",
+        "name": "Читальный зал",
+        "desc": "Проверить 250 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_500": {
+        "icon": "📚",
+        "name": "Литературовед",
+        "desc": "Проверить 500 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_666": {
+        "icon": "📚",
+        "name": "Чёрная библиотека",
+        "desc": "Проверить 666 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_777": {
+        "icon": "📚",
+        "name": "Джекпот чтения",
+        "desc": "Проверить 777 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_1000": {
+        "icon": "📚",
+        "name": "Книжный миллионер",
+        "desc": "Проверить 1000 заданий по чтению",
+        "module": "reading",
+        "weight": 10,
+    },
     # --- Чтение: серия ---
-    "reading_streak_3": {"icon": "🎯", "name": "Читательский хет-трик", "desc": "Правильно выполнить 3 задания подряд", "module": "reading", "weight": 10},
-    "reading_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Правильно выполнить 5 заданий подряд", "module": "reading", "weight": 10},
-    "reading_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Правильно выполнить 10 заданий подряд", "module": "reading", "weight": 10},
+    "reading_streak_3": {
+        "icon": "🎯",
+        "name": "Читательский хет-трик",
+        "desc": "Правильно выполнить 3 задания подряд",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_streak_5": {
+        "icon": "🎯",
+        "name": "Пять подряд",
+        "desc": "Правильно выполнить 5 заданий подряд",
+        "module": "reading",
+        "weight": 10,
+    },
+    "reading_streak_10": {
+        "icon": "🏅",
+        "name": "Десять подряд",
+        "desc": "Правильно выполнить 10 заданий подряд",
+        "module": "reading",
+        "weight": 10,
+    },
     # --- Глаголы ---
-    "verbs_first": {"icon": "🔤", "name": "Первый глагол", "desc": "Выполнить первое упражнение по глаголам", "module": "verbs", "weight": 10},
-    "verbs_5": {"icon": "🔤", "name": "Глаголист-новичок", "desc": "Выполнить 5 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_7": {"icon": "🔤", "name": "Неделя глаголов", "desc": "Выполнить 7 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_10": {"icon": "🔤", "name": "Глаголист-любитель", "desc": "Выполнить 10 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_25": {"icon": "🔤", "name": "Глаголист-профи", "desc": "Выполнить 25 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_50": {"icon": "🔠", "name": "Мастер глаголов", "desc": "Выполнить 50 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_77": {"icon": "🔤", "name": "Спряжение-77", "desc": "Выполнить 77 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_89": {"icon": "🔤", "name": "Спряжение-89", "desc": "Выполнить 89 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_100": {"icon": "🔠", "name": "Профессор глаголов", "desc": "Выполнить 100 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_123": {"icon": "🔠", "name": "Все времена", "desc": "Выполнить 123 упражнения по глаголам", "module": "verbs", "weight": 10},
-    "verbs_200": {"icon": "🔠", "name": "Легенда глаголов", "desc": "Выполнить 200 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_250": {"icon": "🔠", "name": "Глагольный марафон", "desc": "Выполнить 250 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_500": {"icon": "🔠", "name": "Глагольный эксперт", "desc": "Выполнить 500 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_777": {"icon": "🔠", "name": "Джекпот глаголов", "desc": "Выполнить 777 упражнений по глаголам", "module": "verbs", "weight": 10},
-    "verbs_1000": {"icon": "🔠", "name": "Глагольный миллионер", "desc": "Выполнить 1000 упражнений по глаголам", "module": "verbs", "weight": 10},
+    "verbs_first": {
+        "icon": "🔤",
+        "name": "Первый глагол",
+        "desc": "Выполнить первое упражнение по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_5": {
+        "icon": "🔤",
+        "name": "Глаголист-новичок",
+        "desc": "Выполнить 5 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_7": {
+        "icon": "🔤",
+        "name": "Неделя глаголов",
+        "desc": "Выполнить 7 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_10": {
+        "icon": "🔤",
+        "name": "Глаголист-любитель",
+        "desc": "Выполнить 10 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_25": {
+        "icon": "🔤",
+        "name": "Глаголист-профи",
+        "desc": "Выполнить 25 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_50": {
+        "icon": "🔠",
+        "name": "Мастер глаголов",
+        "desc": "Выполнить 50 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_77": {
+        "icon": "🔤",
+        "name": "Спряжение-77",
+        "desc": "Выполнить 77 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_89": {
+        "icon": "🔤",
+        "name": "Спряжение-89",
+        "desc": "Выполнить 89 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_100": {
+        "icon": "🔠",
+        "name": "Профессор глаголов",
+        "desc": "Выполнить 100 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_123": {
+        "icon": "🔠",
+        "name": "Все времена",
+        "desc": "Выполнить 123 упражнения по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_200": {
+        "icon": "🔠",
+        "name": "Легенда глаголов",
+        "desc": "Выполнить 200 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_250": {
+        "icon": "🔠",
+        "name": "Глагольный марафон",
+        "desc": "Выполнить 250 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_500": {
+        "icon": "🔠",
+        "name": "Глагольный эксперт",
+        "desc": "Выполнить 500 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_777": {
+        "icon": "🔠",
+        "name": "Джекпот глаголов",
+        "desc": "Выполнить 777 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_1000": {
+        "icon": "🔠",
+        "name": "Глагольный миллионер",
+        "desc": "Выполнить 1000 упражнений по глаголам",
+        "module": "verbs",
+        "weight": 10,
+    },
     # --- Глаголы: серия ---
-    "verbs_streak_3": {"icon": "🎯", "name": "Глагольный хет-трик", "desc": "Правильно выполнить 3 упражнения подряд", "module": "verbs", "weight": 10},
-    "verbs_streak_5": {"icon": "🎯", "name": "Пять подряд", "desc": "Правильно выполнить 5 упражнений подряд", "module": "verbs", "weight": 10},
-    "verbs_streak_10": {"icon": "🏅", "name": "Десять подряд", "desc": "Правильно выполнить 10 упражнений подряд", "module": "verbs", "weight": 10},
+    "verbs_streak_3": {
+        "icon": "🎯",
+        "name": "Глагольный хет-трик",
+        "desc": "Правильно выполнить 3 упражнения подряд",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_streak_5": {
+        "icon": "🎯",
+        "name": "Пять подряд",
+        "desc": "Правильно выполнить 5 упражнений подряд",
+        "module": "verbs",
+        "weight": 10,
+    },
+    "verbs_streak_10": {
+        "icon": "🏅",
+        "name": "Десять подряд",
+        "desc": "Правильно выполнить 10 упражнений подряд",
+        "module": "verbs",
+        "weight": 10,
+    },
     # --- Шахматы ---
-    "chess_first": {"icon": "♟️", "name": "Первый ход", "desc": "Решить первый шахматный пазл", "module": "chess", "weight": 10},
-    "chess_5": {"icon": "♟️", "name": "Шахматист-новичок", "desc": "Решить 5 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_7": {"icon": "♟️", "name": "Неделя шахмат", "desc": "Решить 7 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_10": {"icon": "♟️", "name": "Шахматист-любитель", "desc": "Решить 10 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_25": {"icon": "♟️", "name": "Шахматист-профи", "desc": "Решить 25 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_50": {"icon": "♞", "name": "Мастер шахмат", "desc": "Решить 50 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_77": {"icon": "♞", "name": "Шахматный скаут", "desc": "Решить 77 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_89": {"icon": "♟️", "name": "Эндшпиль-89", "desc": "Решить 89 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_100": {"icon": "♛", "name": "Гроссмейстер", "desc": "Решить 100 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_150": {"icon": "♞", "name": "Полтораста пазлов", "desc": "Решить 150 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_200": {"icon": "♛", "name": "Чемпион шахмат", "desc": "Решить 200 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_250": {"icon": "♛", "name": "Шахматный марафон", "desc": "Решить 250 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_500": {"icon": "♛", "name": "Гений шахмат", "desc": "Решить 500 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_777": {"icon": "♛", "name": "Джекпот шахмат", "desc": "Решить 777 шахматных пазлов", "module": "chess", "weight": 10},
-    "chess_1000": {"icon": "♛", "name": "Шахматный миллионер", "desc": "Решить 1000 шахматных пазлов", "module": "chess", "weight": 10},
+    "chess_first": {
+        "icon": "♟️",
+        "name": "Первый ход",
+        "desc": "Решить первый шахматный пазл",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_5": {
+        "icon": "♟️",
+        "name": "Шахматист-новичок",
+        "desc": "Решить 5 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_7": {
+        "icon": "♟️",
+        "name": "Неделя шахмат",
+        "desc": "Решить 7 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_10": {
+        "icon": "♟️",
+        "name": "Шахматист-любитель",
+        "desc": "Решить 10 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_25": {
+        "icon": "♟️",
+        "name": "Шахматист-профи",
+        "desc": "Решить 25 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_50": {
+        "icon": "♞",
+        "name": "Мастер шахмат",
+        "desc": "Решить 50 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_77": {
+        "icon": "♞",
+        "name": "Шахматный скаут",
+        "desc": "Решить 77 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_89": {
+        "icon": "♟️",
+        "name": "Эндшпиль-89",
+        "desc": "Решить 89 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_100": {
+        "icon": "♛",
+        "name": "Гроссмейстер",
+        "desc": "Решить 100 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_150": {
+        "icon": "♞",
+        "name": "Полтораста пазлов",
+        "desc": "Решить 150 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_200": {
+        "icon": "♛",
+        "name": "Чемпион шахмат",
+        "desc": "Решить 200 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_250": {
+        "icon": "♛",
+        "name": "Шахматный марафон",
+        "desc": "Решить 250 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_500": {
+        "icon": "♛",
+        "name": "Гений шахмат",
+        "desc": "Решить 500 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_777": {
+        "icon": "♛",
+        "name": "Джекпот шахмат",
+        "desc": "Решить 777 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_1000": {
+        "icon": "♛",
+        "name": "Шахматный миллионер",
+        "desc": "Решить 1000 шахматных пазлов",
+        "module": "chess",
+        "weight": 10,
+    },
     # --- Шахматы: поиск игроков ---
-    "chess_search_1": {"icon": "🔍", "name": "Разведчик", "desc": "Впервые найти игрока на Lichess", "module": "chess", "weight": 10},
-    "chess_search_10": {"icon": "🔍", "name": "Скаут-10", "desc": "Найти 10 игроков на Lichess", "module": "chess", "weight": 10},
-    "chess_search_50": {"icon": "🔍", "name": "Шахматный сыщик", "desc": "Найти 50 игроков на Lichess", "module": "chess", "weight": 10},
-    "chess_search_100": {"icon": "🧭", "name": "Поисковик-100", "desc": "Найти 100 игроков на Lichess", "module": "chess", "weight": 10},
+    "chess_search_1": {
+        "icon": "🔍",
+        "name": "Разведчик",
+        "desc": "Впервые найти игрока на Lichess",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_search_10": {
+        "icon": "🔍",
+        "name": "Скаут-10",
+        "desc": "Найти 10 игроков на Lichess",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_search_50": {
+        "icon": "🔍",
+        "name": "Шахматный сыщик",
+        "desc": "Найти 50 игроков на Lichess",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_search_100": {
+        "icon": "🧭",
+        "name": "Поисковик-100",
+        "desc": "Найти 100 игроков на Lichess",
+        "module": "chess",
+        "weight": 10,
+    },
     # --- Шахматы: привязка аккаунтов ---
-    "chess_link_1": {"icon": "🔗", "name": "Первая связь", "desc": "Привязать аккаунт Lichess", "module": "chess", "weight": 10},
-    "chess_link_5": {"icon": "🔗", "name": "Надёжная связь", "desc": "Привязать 5 аккаунтов Lichess", "module": "chess", "weight": 10},
-    "chess_link_10": {"icon": "🔗", "name": "Сеть контактов", "desc": "Привязать 10 аккаунтов Lichess", "module": "chess", "weight": 10},
+    "chess_link_1": {
+        "icon": "🔗",
+        "name": "Первая связь",
+        "desc": "Привязать аккаунт Lichess",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_link_5": {
+        "icon": "🔗",
+        "name": "Надёжная связь",
+        "desc": "Привязать 5 аккаунтов Lichess",
+        "module": "chess",
+        "weight": 10,
+    },
+    "chess_link_10": {
+        "icon": "🔗",
+        "name": "Сеть контактов",
+        "desc": "Привязать 10 аккаунтов Lichess",
+        "module": "chess",
+        "weight": 10,
+    },
     # --- Канон ---
-    "canon_first": {"icon": "📜", "name": "Читатель канона", "desc": "Открыть произведение канона", "module": "canon", "weight": 10},
-    "canon_2": {"icon": "📜", "name": "Двойной улов", "desc": "Открыть 2 произведения канона", "module": "canon", "weight": 10},
-    "canon_5": {"icon": "📜", "name": "Канонист-новичок", "desc": "Открыть 5 произведений канона", "module": "canon", "weight": 10},
-    "canon_6": {"icon": "📜", "name": "Полдюжины", "desc": "Открыть 6 произведений канона", "module": "canon", "weight": 10},
-    "canon_10": {"icon": "📜", "name": "Канонист-любитель", "desc": "Открыть 10 произведений канона", "module": "canon", "weight": 10},
-    "canon_12": {"icon": "📜", "name": "Дюжина", "desc": "Открыть 12 произведений канона", "module": "canon", "weight": 10},
-    "canon_16": {"icon": "📖", "name": "Прочитал весь канон", "desc": "Открыть все 16 произведений канона", "module": "canon", "weight": 10},
-    "canon_18": {"icon": "📖", "name": "Восемнадцать", "desc": "Открыть 18 произведений канона", "module": "canon", "weight": 10},
-    "canon_20": {"icon": "📖", "name": "Канонист-профи", "desc": "Открыть 20 произведений канона", "module": "canon", "weight": 10},
-    "canon_all": {"icon": "🏆", "name": "Хранитель канона", "desc": "Открыть все доступные произведения канона", "module": "canon", "weight": 10},
+    "canon_first": {
+        "icon": "📜",
+        "name": "Читатель канона",
+        "desc": "Открыть произведение канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_2": {
+        "icon": "📜",
+        "name": "Двойной улов",
+        "desc": "Открыть 2 произведения канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_5": {
+        "icon": "📜",
+        "name": "Канонист-новичок",
+        "desc": "Открыть 5 произведений канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_6": {
+        "icon": "📜",
+        "name": "Полдюжины",
+        "desc": "Открыть 6 произведений канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_10": {
+        "icon": "📜",
+        "name": "Канонист-любитель",
+        "desc": "Открыть 10 произведений канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_12": {
+        "icon": "📜",
+        "name": "Дюжина",
+        "desc": "Открыть 12 произведений канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_16": {
+        "icon": "📖",
+        "name": "Прочитал весь канон",
+        "desc": "Открыть все 16 произведений канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_18": {
+        "icon": "📖",
+        "name": "Восемнадцать",
+        "desc": "Открыть 18 произведений канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_20": {
+        "icon": "📖",
+        "name": "Канонист-профи",
+        "desc": "Открыть 20 произведений канона",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_all": {
+        "icon": "🏆",
+        "name": "Хранитель канона",
+        "desc": "Открыть все доступные произведения канона",
+        "module": "canon",
+        "weight": 10,
+    },
     # --- Канон: глоссарий ---
-    "canon_terms_10": {"icon": "🧩", "name": "Глоссарист", "desc": "Посмотреть 10 терминов глоссария", "module": "canon", "weight": 10},
-    "canon_terms_25": {"icon": "🧩", "name": "Словарь-25", "desc": "Посмотреть 25 терминов глоссария", "module": "canon", "weight": 10},
-    "canon_terms_50": {"icon": "🧩", "name": "Лексикограф", "desc": "Посмотреть 50 терминов глоссария", "module": "canon", "weight": 10},
+    "canon_terms_10": {
+        "icon": "🧩",
+        "name": "Глоссарист",
+        "desc": "Посмотреть 10 терминов глоссария",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_terms_25": {
+        "icon": "🧩",
+        "name": "Словарь-25",
+        "desc": "Посмотреть 25 терминов глоссария",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_terms_50": {
+        "icon": "🧩",
+        "name": "Лексикограф",
+        "desc": "Посмотреть 50 терминов глоссария",
+        "module": "canon",
+        "weight": 10,
+    },
     # --- Канон: аудио ---
-    "canon_audio_1": {"icon": "🎧", "name": "Первый звук", "desc": "Прослушать произведение канона с аудио", "module": "canon", "weight": 10},
-    "canon_audio_5": {"icon": "🎧", "name": "Меломан", "desc": "Прослушать 5 произведений канона с аудио", "module": "canon", "weight": 10},
+    "canon_audio_1": {
+        "icon": "🎧",
+        "name": "Первый звук",
+        "desc": "Прослушать произведение канона с аудио",
+        "module": "canon",
+        "weight": 10,
+    },
+    "canon_audio_5": {
+        "icon": "🎧",
+        "name": "Меломан",
+        "desc": "Прослушать 5 произведений канона с аудио",
+        "module": "canon",
+        "weight": 10,
+    },
     # --- Молитва ---
-    "prayer_first": {"icon": "🙏", "name": "Первая молитва", "desc": "Прочитать молитву дня", "module": "prayer", "weight": 10},
-    "prayer_2": {"icon": "🙏", "name": "Вторая молитва", "desc": "Прочитать молитву 2 дня", "module": "prayer", "weight": 10},
-    "prayer_3": {"icon": "🙏", "name": "Три молитвы", "desc": "Прочитать молитву 3 дня", "module": "prayer", "weight": 10},
-    "prayer_5": {"icon": "🙏", "name": "Пять дней", "desc": "Прочитать молитву 5 дней", "module": "prayer", "weight": 10},
-    "prayer_7": {"icon": "🙏", "name": "Неделя молитвы", "desc": "Прочитать молитву 7 дней", "module": "prayer", "weight": 10},
-    "prayer_14": {"icon": "🙏", "name": "Две недели", "desc": "Прочитать молитву 14 дней", "module": "prayer", "weight": 10},
-    "prayer_30": {"icon": "🕯️", "name": "Месяц молитвы", "desc": "Прочитать молитву 30 дней", "module": "prayer", "weight": 10},
-    "prayer_60": {"icon": "🕯️", "name": "Два месяца", "desc": "Прочитать молитву 60 дней", "module": "prayer", "weight": 10},
-    "prayer_89": {"icon": "🍵", "name": "Восемь-девять", "desc": "Прочитать 89 молитв — сакральное число чайной религии", "module": "prayer", "weight": 10},
-    "prayer_100": {"icon": "🕯️", "name": "100 молитв", "desc": "Прочитать молитву 100 дней", "module": "prayer", "weight": 10},
-    "prayer_150": {"icon": "🕯️", "name": "Пять месяцев", "desc": "Прочитать молитву 150 дней", "module": "prayer", "weight": 10},
-    "prayer_200": {"icon": "🕯️", "name": "200 молитв", "desc": "Прочитать молитву 200 дней", "module": "prayer", "weight": 10},
-    "prayer_250": {"icon": "🕯️", "name": "250 молитв", "desc": "Прочитать молитву 250 дней", "module": "prayer", "weight": 10},
-    "prayer_365": {"icon": "🕯️", "name": "Год молитвы", "desc": "Прочитать молитву 365 дней", "module": "prayer", "weight": 10},
-    "prayer_500": {"icon": "🕯️", "name": "500 молитв", "desc": "Прочитать молитву 500 дней", "module": "prayer", "weight": 10},
-    "prayer_1000": {"icon": "🕯️", "name": "Тысяча молитв", "desc": "Прочитать молитву 1000 дней", "module": "prayer", "weight": 10},
+    "prayer_first": {
+        "icon": "🙏",
+        "name": "Первая молитва",
+        "desc": "Прочитать молитву дня",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_2": {
+        "icon": "🙏",
+        "name": "Вторая молитва",
+        "desc": "Прочитать молитву 2 дня",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_3": {
+        "icon": "🙏",
+        "name": "Три молитвы",
+        "desc": "Прочитать молитву 3 дня",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_5": {
+        "icon": "🙏",
+        "name": "Пять дней",
+        "desc": "Прочитать молитву 5 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_7": {
+        "icon": "🙏",
+        "name": "Неделя молитвы",
+        "desc": "Прочитать молитву 7 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_14": {
+        "icon": "🙏",
+        "name": "Две недели",
+        "desc": "Прочитать молитву 14 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_30": {
+        "icon": "🕯️",
+        "name": "Месяц молитвы",
+        "desc": "Прочитать молитву 30 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_60": {
+        "icon": "🕯️",
+        "name": "Два месяца",
+        "desc": "Прочитать молитву 60 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_89": {
+        "icon": "🍵",
+        "name": "Восемь-девять",
+        "desc": "Прочитать 89 молитв — сакральное число чайной религии",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_100": {
+        "icon": "🕯️",
+        "name": "100 молитв",
+        "desc": "Прочитать молитву 100 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_150": {
+        "icon": "🕯️",
+        "name": "Пять месяцев",
+        "desc": "Прочитать молитву 150 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_200": {
+        "icon": "🕯️",
+        "name": "200 молитв",
+        "desc": "Прочитать молитву 200 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_250": {
+        "icon": "🕯️",
+        "name": "250 молитв",
+        "desc": "Прочитать молитву 250 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_365": {
+        "icon": "🕯️",
+        "name": "Год молитвы",
+        "desc": "Прочитать молитву 365 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_500": {
+        "icon": "🕯️",
+        "name": "500 молитв",
+        "desc": "Прочитать молитву 500 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
+    "prayer_1000": {
+        "icon": "🕯️",
+        "name": "Тысяча молитв",
+        "desc": "Прочитать молитву 1000 дней",
+        "module": "prayer",
+        "weight": 10,
+    },
     # --- GD ---
-    "gd_first": {"icon": "🎮", "name": "Первый рекорд", "desc": "Отправить первый рекорд GD", "module": "gd", "weight": 10},
-    "gd_5": {"icon": "🎮", "name": "Рекордсмен-новичок", "desc": "Отправить 5 рекордов GD", "module": "gd", "weight": 10},
-    "gd_7": {"icon": "🎮", "name": "Неделя рекордов", "desc": "Отправить 7 рекордов GD", "module": "gd", "weight": 10},
-    "gd_10": {"icon": "🎮", "name": "Рекордсмен-любитель", "desc": "Отправить 10 рекордов GD", "module": "gd", "weight": 10},
-    "gd_25": {"icon": "🎮", "name": "Рекордсмен-профи", "desc": "Отправить 25 рекордов GD", "module": "gd", "weight": 10},
-    "gd_50": {"icon": "🕹️", "name": "Легенда GD", "desc": "Отправить 50 рекордов GD", "module": "gd", "weight": 10},
-    "gd_77": {"icon": "🎮", "name": "Семь семёрок", "desc": "Отправить 77 рекордов GD", "module": "gd", "weight": 10},
-    "gd_89": {"icon": "🎮", "name": "Восемь-девять рекордов", "desc": "Отправить 89 рекордов GD", "module": "gd", "weight": 10},
-    "gd_100": {"icon": "🕹️", "name": "Икона GD", "desc": "Отправить 100 рекордов GD", "module": "gd", "weight": 10},
-    "gd_150": {"icon": "🕹️", "name": "Полтораста", "desc": "Отправить 150 рекордов GD", "module": "gd", "weight": 10},
-    "gd_200": {"icon": "🏆", "name": "Мастер рекордов", "desc": "Отправить 200 рекордов GD", "module": "gd", "weight": 10},
-    "gd_250": {"icon": "🕹️", "name": "Рекордный марафон", "desc": "Отправить 250 рекордов GD", "module": "gd", "weight": 10},
-    "gd_500": {"icon": "🏆", "name": "Легенда GD", "desc": "Отправить 500 рекордов GD", "module": "gd", "weight": 10},
-    "gd_777": {"icon": "🏆", "name": "Джекпот рекордов", "desc": "Отправить 777 рекордов GD", "module": "gd", "weight": 10},
-    "gd_1000": {"icon": "🏆", "name": "Рекордный миллионер", "desc": "Отправить 1000 рекордов GD", "module": "gd", "weight": 10},
+    "gd_first": {
+        "icon": "🎮",
+        "name": "Первый рекорд",
+        "desc": "Отправить первый рекорд GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_5": {
+        "icon": "🎮",
+        "name": "Рекордсмен-новичок",
+        "desc": "Отправить 5 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_7": {
+        "icon": "🎮",
+        "name": "Неделя рекордов",
+        "desc": "Отправить 7 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_10": {
+        "icon": "🎮",
+        "name": "Рекордсмен-любитель",
+        "desc": "Отправить 10 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_25": {
+        "icon": "🎮",
+        "name": "Рекордсмен-профи",
+        "desc": "Отправить 25 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_50": {
+        "icon": "🕹️",
+        "name": "Легенда GD",
+        "desc": "Отправить 50 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_77": {
+        "icon": "🎮",
+        "name": "Семь семёрок",
+        "desc": "Отправить 77 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_89": {
+        "icon": "🎮",
+        "name": "Восемь-девять рекордов",
+        "desc": "Отправить 89 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_100": {
+        "icon": "🕹️",
+        "name": "Икона GD",
+        "desc": "Отправить 100 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_150": {
+        "icon": "🕹️",
+        "name": "Полтораста",
+        "desc": "Отправить 150 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_200": {
+        "icon": "🏆",
+        "name": "Мастер рекордов",
+        "desc": "Отправить 200 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_250": {
+        "icon": "🕹️",
+        "name": "Рекордный марафон",
+        "desc": "Отправить 250 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_500": {
+        "icon": "🏆",
+        "name": "Легенда GD",
+        "desc": "Отправить 500 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_777": {
+        "icon": "🏆",
+        "name": "Джекпот рекордов",
+        "desc": "Отправить 777 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
+    "gd_1000": {
+        "icon": "🏆",
+        "name": "Рекордный миллионер",
+        "desc": "Отправить 1000 рекордов GD",
+        "module": "gd",
+        "weight": 10,
+    },
     # --- D&D ---
-    "dnd_first": {"icon": "🎲", "name": "Первая сессия", "desc": "Начать первую D&D сессию", "module": "dnd", "weight": 10},
-    "dnd_roll_7": {"icon": "🎲", "name": "Неделя кубиков", "desc": "Сделать 7 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_10": {"icon": "🎲", "name": "Любитель костей", "desc": "Сделать 10 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_30": {"icon": "🎲", "name": "Тридцать бросков", "desc": "Сделать 30 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_50": {"icon": "🎲", "name": "Игрок-ветеран", "desc": "Сделать 50 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_75": {"icon": "🎲", "name": "75 бросков", "desc": "Сделать 75 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_89": {"icon": "🎲", "name": "Восемь-девять кубиков", "desc": "Сделать 89 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_100": {"icon": "🎲", "name": "Мастер бросков", "desc": "Сделать 100 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_150": {"icon": "🎲", "name": "Полтораста бросков", "desc": "Сделать 150 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_200": {"icon": "🎲", "name": "Легенда бросков", "desc": "Сделать 200 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_300": {"icon": "🎲", "name": "Триста бросков", "desc": "Сделать 300 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_500": {"icon": "🎲", "name": "Владыка бросков", "desc": "Сделать 500 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_777": {"icon": "🎲", "name": "Джекпот кубиков", "desc": "Сделать 777 бросков в D&D", "module": "dnd", "weight": 10},
-    "dnd_roll_1000": {"icon": "🎲", "name": "Тысяча бросков", "desc": "Сделать 1000 бросков в D&D", "module": "dnd", "weight": 10},
+    "dnd_first": {
+        "icon": "🎲",
+        "name": "Первая сессия",
+        "desc": "Начать первую D&D сессию",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_7": {
+        "icon": "🎲",
+        "name": "Неделя кубиков",
+        "desc": "Сделать 7 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_10": {
+        "icon": "🎲",
+        "name": "Любитель костей",
+        "desc": "Сделать 10 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_30": {
+        "icon": "🎲",
+        "name": "Тридцать бросков",
+        "desc": "Сделать 30 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_50": {
+        "icon": "🎲",
+        "name": "Игрок-ветеран",
+        "desc": "Сделать 50 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_75": {
+        "icon": "🎲",
+        "name": "75 бросков",
+        "desc": "Сделать 75 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_89": {
+        "icon": "🎲",
+        "name": "Восемь-девять кубиков",
+        "desc": "Сделать 89 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_100": {
+        "icon": "🎲",
+        "name": "Мастер бросков",
+        "desc": "Сделать 100 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_150": {
+        "icon": "🎲",
+        "name": "Полтораста бросков",
+        "desc": "Сделать 150 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_200": {
+        "icon": "🎲",
+        "name": "Легенда бросков",
+        "desc": "Сделать 200 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_300": {
+        "icon": "🎲",
+        "name": "Триста бросков",
+        "desc": "Сделать 300 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_500": {
+        "icon": "🎲",
+        "name": "Владыка бросков",
+        "desc": "Сделать 500 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_777": {
+        "icon": "🎲",
+        "name": "Джекпот кубиков",
+        "desc": "Сделать 777 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_roll_1000": {
+        "icon": "🎲",
+        "name": "Тысяча бросков",
+        "desc": "Сделать 1000 бросков в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
     # --- D&D: критические броски ---
-    "dnd_nat20": {"icon": "🎯", "name": "Естественная двадцатка", "desc": "Выбросить 20 на d20 в D&D", "module": "dnd", "weight": 10},
-    "dnd_nat1": {"icon": "💀", "name": "Естественная единица", "desc": "Выбросить 1 на d20 в D&D", "module": "dnd", "weight": 10},
+    "dnd_nat20": {
+        "icon": "🎯",
+        "name": "Естественная двадцатка",
+        "desc": "Выбросить 20 на d20 в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
+    "dnd_nat1": {
+        "icon": "💀",
+        "name": "Естественная единица",
+        "desc": "Выбросить 1 на d20 в D&D",
+        "module": "dnd",
+        "weight": 10,
+    },
     # --- Монеты ---
-    "coins_10": {"icon": "💰", "name": "Первые монеты", "desc": "Заработать 10 монет", "module": "coins", "weight": 10},
-    "coins_25": {"icon": "💰", "name": "Четвертак", "desc": "Заработать 25 монет", "module": "coins", "weight": 10},
-    "coins_50": {"icon": "💰", "name": "Полтинник", "desc": "Заработать 50 монет", "module": "coins", "weight": 10},
-    "coins_89": {"icon": "💰", "name": "Чайная казна", "desc": "Заработать 89 монет", "module": "coins", "weight": 10},
-    "coins_100": {"icon": "🪙", "name": "Сотня", "desc": "Заработать 100 монет", "module": "coins", "weight": 10},
-    "coins_250": {"icon": "💰", "name": "Двести пятьдесят", "desc": "Заработать 250 монет", "module": "coins", "weight": 10},
-    "coins_500": {"icon": "💵", "name": "Полтысячи", "desc": "Заработать 500 монет", "module": "coins", "weight": 10},
-    "coins_750": {"icon": "💵", "name": "Семь сотен", "desc": "Заработать 750 монет", "module": "coins", "weight": 10},
-    "coins_1000": {"icon": "💎", "name": "Тысяча", "desc": "Заработать 1000 монет", "module": "coins", "weight": 10},
-    "coins_2500": {"icon": "💎", "name": "Две с половиной", "desc": "Заработать 2500 монет", "module": "coins", "weight": 10},
-    "coins_5000": {"icon": "👑", "name": "Казначей", "desc": "Заработать 5000 монет", "module": "coins", "weight": 10},
-    "coins_10000": {"icon": "🏦", "name": "Банкир", "desc": "Заработать 10000 монет", "module": "coins", "weight": 10},
-    "coins_25000": {"icon": "🏦", "name": "Двадцать пять тысяч", "desc": "Заработать 25000 монет", "module": "coins", "weight": 10},
-    "coins_50000": {"icon": "🏆", "name": "Миллиардер", "desc": "Заработать 50000 монет", "module": "coins", "weight": 10},
-    "coins_75000": {"icon": "🏆", "name": "Семьдесят пять тысяч", "desc": "Заработать 75000 монет", "module": "coins", "weight": 10},
-    "coins_100000": {"icon": "👑", "name": "Легенда монет", "desc": "Заработать 100000 монет", "module": "coins", "weight": 10},
-    "coins_500000": {"icon": "👑", "name": "Полмиллиона", "desc": "Заработать 500000 монет", "module": "coins", "weight": 10},
-    "coins_1000000": {"icon": "🏆", "name": "Финансовый гений", "desc": "Заработать 1000000 монет", "module": "coins", "weight": 10},
-    "coins_10000000": {"icon": "🏆", "name": "Десять миллионов", "desc": "Заработать 10000000 монет", "module": "coins", "weight": 10},
+    "coins_10": {
+        "icon": "💰",
+        "name": "Первые монеты",
+        "desc": "Заработать 10 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_25": {
+        "icon": "💰",
+        "name": "Четвертак",
+        "desc": "Заработать 25 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_50": {
+        "icon": "💰",
+        "name": "Полтинник",
+        "desc": "Заработать 50 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_89": {
+        "icon": "💰",
+        "name": "Чайная казна",
+        "desc": "Заработать 89 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_100": {
+        "icon": "🪙",
+        "name": "Сотня",
+        "desc": "Заработать 100 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_250": {
+        "icon": "💰",
+        "name": "Двести пятьдесят",
+        "desc": "Заработать 250 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_500": {
+        "icon": "💵",
+        "name": "Полтысячи",
+        "desc": "Заработать 500 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_750": {
+        "icon": "💵",
+        "name": "Семь сотен",
+        "desc": "Заработать 750 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_1000": {
+        "icon": "💎",
+        "name": "Тысяча",
+        "desc": "Заработать 1000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_2500": {
+        "icon": "💎",
+        "name": "Две с половиной",
+        "desc": "Заработать 2500 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_5000": {
+        "icon": "👑",
+        "name": "Казначей",
+        "desc": "Заработать 5000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_10000": {
+        "icon": "🏦",
+        "name": "Банкир",
+        "desc": "Заработать 10000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_25000": {
+        "icon": "🏦",
+        "name": "Двадцать пять тысяч",
+        "desc": "Заработать 25000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_50000": {
+        "icon": "🏆",
+        "name": "Миллиардер",
+        "desc": "Заработать 50000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_75000": {
+        "icon": "🏆",
+        "name": "Семьдесят пять тысяч",
+        "desc": "Заработать 75000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_100000": {
+        "icon": "👑",
+        "name": "Легенда монет",
+        "desc": "Заработать 100000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_500000": {
+        "icon": "👑",
+        "name": "Полмиллиона",
+        "desc": "Заработать 500000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_1000000": {
+        "icon": "🏆",
+        "name": "Финансовый гений",
+        "desc": "Заработать 1000000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
+    "coins_10000000": {
+        "icon": "🏆",
+        "name": "Десять миллионов",
+        "desc": "Заработать 10000000 монет",
+        "module": "coins",
+        "weight": 10,
+    },
 }
 
 # --- ОГЭ-модули (Математика / Физика / Русский / Информатика / История) ---
@@ -2486,19 +4543,26 @@ for _oge_mod, _oge_meta in _OGE_STUDY_MODS.items():
     _oge_l2 = _oge_meta.get("l2", _oge_lbl.lower())
     for _n, _sfx, _title in _OGE_ANSWER_LEVELS:
         ACHIEVEMENTS[f"{_oge_mod}_{_sfx}"] = {
-            "icon": _oge_icon, "name": f"{_title} ({_oge_lbl})",
-            "desc": f"Выполнить {_n} заданий по {_oge_l2}", "module": _oge_mod, "weight": 10,
+            "icon": _oge_icon,
+            "name": f"{_title} ({_oge_lbl})",
+            "desc": f"Выполнить {_n} заданий по {_oge_l2}",
+            "module": _oge_mod,
+            "weight": 10,
         }
     for _n, _sfx, _title in _OGE_MASTERED_LEVELS:
         ACHIEVEMENTS[f"{_oge_mod}_mastered_{_sfx}"] = {
-            "icon": _oge_icon, "name": f"{_title} ({_oge_lbl})",
+            "icon": _oge_icon,
+            "name": f"{_title} ({_oge_lbl})",
             "desc": f"Освоить {_n} карточек по {_oge_l2} (серия верных 3+)",
-            "module": _oge_mod, "weight": 10,
+            "module": _oge_mod,
+            "weight": 10,
         }
     ACHIEVEMENTS[f"{_oge_mod}_mastered_all"] = {
-        "icon": "🏅", "name": f"Мастер {_oge_lbl}",
+        "icon": "🏅",
+        "name": f"Мастер {_oge_lbl}",
         "desc": f"Освоить все карточки по {_oge_l2}",
-        "module": _oge_mod, "weight": 10,
+        "module": _oge_mod,
+        "weight": 10,
     }
 
 
@@ -2509,10 +4573,14 @@ def _day_str(dt=None):
 
 
 def _get_streak_row(conn, user_id):
-    row = conn.execute(
-        text("SELECT * FROM web_streak WHERE user_id = :user_id"),
-        {"user_id": user_id},
-    ).mappings().first()
+    row = (
+        conn.execute(
+            text("SELECT * FROM web_streak WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        )
+        .mappings()
+        .first()
+    )
     return row
 
 
@@ -2530,10 +4598,14 @@ def _unlock_achievements(conn, user_id, codes, now_ts):
             for r in conn.execute(
                 text("SELECT code FROM web_achievements WHERE user_id = :user_id"),
                 {"user_id": user_id},
-            ).mappings().all()
+            )
+            .mappings()
+            .all()
         }
     except Exception as exc:
-        log_error("ACHIEVEMENTS", "error", f"existing achievements lookup failed: {exc}")
+        log_error(
+            "ACHIEVEMENTS", "error", f"existing achievements lookup failed: {exc}"
+        )
         existing = set()
     newly = []
     for code in codes:
@@ -2543,7 +4615,9 @@ def _unlock_achievements(conn, user_id, codes, now_ts):
             continue
         try:
             conn.execute(
-                text("INSERT INTO web_achievements (user_id, code, unlocked_at) VALUES (:u, :c, :t)"),
+                text(
+                    "INSERT INTO web_achievements (user_id, code, unlocked_at) VALUES (:u, :c, :t)"
+                ),
                 {"u": user_id, "c": code, "t": now_ts},
             )
             newly.append(code)
@@ -2571,46 +4645,68 @@ def _check_web_achievements(conn, user_id):
     facts["total_active_days"] = streak_row["total_active_days"] if streak_row else 0
 
     # --- active days / modules facts ---
-    day_rows = conn.execute(
-        text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :user_id"),
-        {"user_id": user_id},
-    ).mappings().all()
+    day_rows = (
+        conn.execute(
+            text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        )
+        .mappings()
+        .all()
+    )
     facts["active_days"] = len(day_rows)
-    module_rows = conn.execute(
-        text("SELECT DISTINCT module FROM web_activity_log WHERE user_id = :user_id"),
-        {"user_id": user_id},
-    ).mappings().all()
+    module_rows = (
+        conn.execute(
+            text(
+                "SELECT DISTINCT module FROM web_activity_log WHERE user_id = :user_id"
+            ),
+            {"user_id": user_id},
+        )
+        .mappings()
+        .all()
+    )
     facts["modules"] = {r["module"] for r in module_rows}
 
     # --- per-module action counts ---
     counts = {}
-    rows = conn.execute(
-        text("""
+    rows = (
+        conn.execute(
+            text("""
             SELECT module, SUM(actions) AS total
             FROM web_activity_log WHERE user_id = :user_id
             GROUP BY module
         """),
-        {"user_id": user_id},
-    ).mappings().all()
+            {"user_id": user_id},
+        )
+        .mappings()
+        .all()
+    )
     for r in rows:
         counts[r["module"]] = int(r["total"] or 0)
     facts["counts"] = counts
 
     # --- coins facts ---
     uid = _web_user_id("u" + str(user_id))
-    coin_row = conn.execute(
-        text("SELECT balance FROM user_coins WHERE user_id = :uid"),
-        {"uid": uid},
-    ).mappings().first()
+    coin_row = (
+        conn.execute(
+            text("SELECT balance FROM user_coins WHERE user_id = :uid"),
+            {"uid": uid},
+        )
+        .mappings()
+        .first()
+    )
     facts["coins"] = int(coin_row["balance"]) if coin_row else 0
 
     # --- event counters (searches, links, modes, crits, streaks...) ---
     events = {}
     try:
-        ev_rows = conn.execute(
-            text("SELECT event, count FROM web_events WHERE user_id = :user_id"),
-            {"user_id": user_id},
-        ).mappings().all()
+        ev_rows = (
+            conn.execute(
+                text("SELECT event, count FROM web_events WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .all()
+        )
         for r in ev_rows:
             events[r["event"]] = int(r["count"] or 0)
     except Exception as exc:
@@ -2620,10 +4716,16 @@ def _check_web_achievements(conn, user_id):
     # --- emperors mastered cards (reps >= 3 in the SM-2 progress table) ---
     emastered = 0
     try:
-        mrow = conn.execute(
-            text("SELECT COUNT(*) AS n FROM emperors_progress WHERE user_id = :uid AND reps >= 3"),
-            {"uid": uid},
-        ).mappings().first()
+        mrow = (
+            conn.execute(
+                text(
+                    "SELECT COUNT(*) AS n FROM emperors_progress WHERE user_id = :uid AND reps >= 3"
+                ),
+                {"uid": uid},
+            )
+            .mappings()
+            .first()
+        )
         emastered = int(mrow["n"] or 0) if mrow else 0
     except Exception as exc:
         log_error("ACHIEVEMENTS", "error", f"emperors mastered fact error: {exc}")
@@ -2631,12 +4733,19 @@ def _check_web_achievements(conn, user_id):
 
     # --- ОГЭ-модули: выполненные задания (уникальные карточки) и освоенные карточки из study_progress ---
     try:
-        oge_rows = conn.execute(text("""
+        oge_rows = (
+            conn.execute(
+                text("""
             SELECT module,
                    SUM(CASE WHEN correct_count + wrong_count > 0 THEN 1 ELSE 0 END) AS answers,
                    SUM(CASE WHEN streak >= 3 THEN 1 ELSE 0 END) AS mastered
             FROM study_progress WHERE user_id = :uid GROUP BY module
-        """), {"uid": uid}).mappings().all()
+        """),
+                {"uid": uid},
+            )
+            .mappings()
+            .all()
+        )
         for r in oge_rows:
             facts[f"{r['module']}_answers"] = int(r["answers"] or 0)
             facts[f"{r['module']}_mastered"] = int(r["mastered"] or 0)
@@ -2648,7 +4757,12 @@ def _check_web_achievements(conn, user_id):
     c = facts["current_streak"]
     if facts["total_active_days"] >= 1 and facts["active_days"] >= 1:
         should.append("first_step")
-    if facts["counts"].get("trivia") or facts["counts"].get("emperors") or facts["counts"].get("reading") or facts["counts"].get("verbs"):
+    if (
+        facts["counts"].get("trivia")
+        or facts["counts"].get("emperors")
+        or facts["counts"].get("reading")
+        or facts["counts"].get("verbs")
+    ):
         should.append("first_quiz")
     if c >= 2:
         should.append("first_streak")
@@ -2860,7 +4974,11 @@ def _check_web_achievements(conn, user_id):
         should.append("emperors_mode_match")
     if ev.get("emperors_mode_chrono", 0) >= 1:
         should.append("emperors_mode_chrono")
-    em_modes = sum(1 for m in ("study", "quiz", "match", "chrono") if ev.get("emperors_mode_" + m, 0) >= 1)
+    em_modes = sum(
+        1
+        for m in ("study", "quiz", "match", "chrono")
+        if ev.get("emperors_mode_" + m, 0) >= 1
+    )
     if em_modes >= 4:
         should.append("emperors_all_modes")
     mastered = facts["emperors_mastered"]
@@ -3198,7 +5316,11 @@ def _check_web_achievements(conn, user_id):
         conn.commit()
         # award coins for each newly unlocked achievement
         for code in newly:
-            _award_web_coins(user_id, ACHIEVEMENTS[code]["weight"], f"Достижение: {ACHIEVEMENTS[code]['name']}")
+            _award_web_coins(
+                user_id,
+                ACHIEVEMENTS[code]["weight"],
+                f"Достижение: {ACHIEVEMENTS[code]['name']}",
+            )
     return newly
 
 
@@ -3236,7 +5358,13 @@ def _record_activity(conn, user_id, module, actions):
                 longest_streak = :long,
                 total_active_days = :total
         """),
-        {"uid": user_id, "day": today, "cur": new_streak, "long": longest, "total": total},
+        {
+            "uid": user_id,
+            "day": today,
+            "cur": new_streak,
+            "long": longest,
+            "total": total,
+        },
     )
 
     try:
@@ -3253,11 +5381,15 @@ def _record_activity(conn, user_id, module, actions):
         log_error("ACHIEVEMENTS", "error", f"activity log error: {exc}")
         try:
             conn.execute(
-                text("INSERT INTO web_activity_log (user_id, day, module, actions) VALUES (:uid, :day, :module, :actions)"),
+                text(
+                    "INSERT INTO web_activity_log (user_id, day, module, actions) VALUES (:uid, :day, :module, :actions)"
+                ),
                 {"uid": user_id, "day": today, "module": module, "actions": actions},
             )
         except Exception as exc2:
-            log_error("ACHIEVEMENTS", "error", f"activity log fallback INSERT failed: {exc2}")
+            log_error(
+                "ACHIEVEMENTS", "error", f"activity log fallback INSERT failed: {exc2}"
+            )
     conn.commit()
     return new_streak, longest, total
 
@@ -3290,11 +5422,15 @@ def _record_events(conn, user_id, events):
             log_error("ACHIEVEMENTS", "error", f"event log error: {exc}")
             try:
                 conn.execute(
-                    text("INSERT INTO web_events (user_id, event, count, updated_at) VALUES (:uid, :ev, 1, :ts)"),
+                    text(
+                        "INSERT INTO web_events (user_id, event, count, updated_at) VALUES (:uid, :ev, 1, :ts)"
+                    ),
                     {"uid": user_id, "ev": ev, "ts": now},
                 )
             except Exception as exc2:
-                log_error("ACHIEVEMENTS", "error", f"event log fallback INSERT failed: {exc2}")
+                log_error(
+                    "ACHIEVEMENTS", "error", f"event log fallback INSERT failed: {exc2}"
+                )
 
 
 def _prev_day(day_str):
@@ -3316,18 +5452,28 @@ def _sync_conversion_rates(conn):
     try:
         for bot_name, k in BOT_CONVERSION_RATES.items():
             resource_type = PARSING_RESOURCE_TYPES.get(bot_name, bot_name)
-            existing = conn.execute(
-                text("SELECT k FROM conversion_rates WHERE bot_name = :bn AND resource_type = :rt"),
-                {"bn": bot_name, "rt": resource_type},
-            ).mappings().first()
+            existing = (
+                conn.execute(
+                    text(
+                        "SELECT k FROM conversion_rates WHERE bot_name = :bn AND resource_type = :rt"
+                    ),
+                    {"bn": bot_name, "rt": resource_type},
+                )
+                .mappings()
+                .first()
+            )
             if existing is None:
                 conn.execute(
-                    text("INSERT INTO conversion_rates (bot_name, resource_type, k) VALUES (:bn, :rt, :k)"),
+                    text(
+                        "INSERT INTO conversion_rates (bot_name, resource_type, k) VALUES (:bn, :rt, :k)"
+                    ),
                     {"bn": bot_name, "rt": resource_type, "k": k},
                 )
             elif float(existing["k"]) == 1.0 and float(existing["k"]) != k:
                 conn.execute(
-                    text("UPDATE conversion_rates SET k = :k WHERE bot_name = :bn AND resource_type = :rt"),
+                    text(
+                        "UPDATE conversion_rates SET k = :k WHERE bot_name = :bn AND resource_type = :rt"
+                    ),
                     {"bn": bot_name, "rt": resource_type, "k": k},
                 )
     except Exception as exc:
@@ -3391,10 +5537,14 @@ def _record_parsing_result(
         internal_id = None
         if user_id:
             with get_db_engine().connect() as conn:
-                row = conn.execute(
-                    text("SELECT id FROM users WHERE telegram_id = :tid"),
-                    {"tid": user_id},
-                ).mappings().first()
+                row = (
+                    conn.execute(
+                        text("SELECT id FROM users WHERE telegram_id = :tid"),
+                        {"tid": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
                 internal_id = row["id"] if row else None
         with get_db_engine().connect() as conn:
             _log_parsed_transaction(
@@ -3422,28 +5572,31 @@ def _record_parsing_result(
 def _save_verb_exercise(ex: dict):
     engine = get_db_engine()
     with engine.connect() as conn:
-        conn.execute(text(
-            "INSERT INTO verb_exercises (id, teacher_id, verbs, task_count, mode, wishes, tasks, created_at) "
-            "VALUES (:id, :teacher_id, :verbs, :task_count, :mode, :wishes, :tasks, :created_at)"
-        ), {
-            "id": ex["id"],
-            "teacher_id": ex["teacher_id"],
-            "verbs": ex["verbs"],
-            "task_count": ex["task_count"],
-            "mode": ex.get("mode", 3),
-            "wishes": ex.get("wishes", ""),
-            "tasks": json.dumps(ex["tasks"], ensure_ascii=False),
-            "created_at": time.time(),
-        })
+        conn.execute(
+            text(
+                "INSERT INTO verb_exercises (id, teacher_id, verbs, task_count, mode, wishes, tasks, created_at) "
+                "VALUES (:id, :teacher_id, :verbs, :task_count, :mode, :wishes, :tasks, :created_at)"
+            ),
+            {
+                "id": ex["id"],
+                "teacher_id": ex["teacher_id"],
+                "verbs": ex["verbs"],
+                "task_count": ex["task_count"],
+                "mode": ex.get("mode", 3),
+                "wishes": ex.get("wishes", ""),
+                "tasks": json.dumps(ex["tasks"], ensure_ascii=False),
+                "created_at": time.time(),
+            },
+        )
         conn.commit()
 
 
 def _load_verb_exercise(ex_id: int) -> dict | None:
     engine = get_db_engine()
     with engine.connect() as conn:
-        row = conn.execute(text(
-            "SELECT * FROM verb_exercises WHERE id = :id"
-        ), {"id": ex_id}).fetchone()
+        row = conn.execute(
+            text("SELECT * FROM verb_exercises WHERE id = :id"), {"id": ex_id}
+        ).fetchone()
     if not row:
         return None
     d = dict(row._mapping)
@@ -3457,38 +5610,47 @@ def _load_verb_exercise(ex_id: int) -> dict | None:
 def _load_teacher_exercises(teacher_id: int) -> list[dict]:
     engine = get_db_engine()
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT e.id, e.task_count, e.mode, e.created_at, "
-            "(SELECT COUNT(DISTINCT s.user_id) FROM verb_submissions s WHERE s.exercise_id = e.id) AS student_count "
-            "FROM verb_exercises e WHERE e.teacher_id = :tid ORDER BY e.created_at DESC"
-        ), {"tid": teacher_id}).fetchall()
+        rows = conn.execute(
+            text(
+                "SELECT e.id, e.task_count, e.mode, e.created_at, "
+                "(SELECT COUNT(DISTINCT s.user_id) FROM verb_submissions s WHERE s.exercise_id = e.id) AS student_count "
+                "FROM verb_exercises e WHERE e.teacher_id = :tid ORDER BY e.created_at DESC"
+            ),
+            {"tid": teacher_id},
+        ).fetchall()
     return [dict(r._mapping) for r in rows]
 
 
 def _save_verb_submission(ex_id: int, sub: dict):
     engine = get_db_engine()
     with engine.connect() as conn:
-        conn.execute(text(
-            "INSERT INTO verb_submissions (exercise_id, user_id, name, score, total, details, timestamp) "
-            "VALUES (:ex_id, :user_id, :name, :score, :total, :details, :ts)"
-        ), {
-            "ex_id": ex_id,
-            "user_id": sub["user_id"],
-            "name": sub["name"],
-            "score": sub["score"],
-            "total": sub["total"],
-            "details": json.dumps(sub["details"], ensure_ascii=False),
-            "ts": sub["timestamp"],
-        })
+        conn.execute(
+            text(
+                "INSERT INTO verb_submissions (exercise_id, user_id, name, score, total, details, timestamp) "
+                "VALUES (:ex_id, :user_id, :name, :score, :total, :details, :ts)"
+            ),
+            {
+                "ex_id": ex_id,
+                "user_id": sub["user_id"],
+                "name": sub["name"],
+                "score": sub["score"],
+                "total": sub["total"],
+                "details": json.dumps(sub["details"], ensure_ascii=False),
+                "ts": sub["timestamp"],
+            },
+        )
         conn.commit()
 
 
 def _load_verb_submissions(ex_id: int) -> list[dict]:
     engine = get_db_engine()
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT * FROM verb_submissions WHERE exercise_id = :ex_id ORDER BY timestamp"
-        ), {"ex_id": ex_id}).fetchall()
+        rows = conn.execute(
+            text(
+                "SELECT * FROM verb_submissions WHERE exercise_id = :ex_id ORDER BY timestamp"
+            ),
+            {"ex_id": ex_id},
+        ).fetchall()
     result = []
     for r in rows:
         d = dict(r._mapping)
@@ -3508,7 +5670,9 @@ def _load_bot_id() -> int | None:
     if not BOT_TOKEN:
         return None
     try:
-        resp = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+        resp = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10
+        )
         if resp.ok:
             data = resp.json()
             BOT_ID = data["result"]["id"]
@@ -3525,10 +5689,16 @@ def get_user_character(user_id: int) -> str:
         return _user_character_cache[user_id]
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT preferred_character FROM user_preferences WHERE user_id = :user_id"),
-                {"user_id": user_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT preferred_character FROM user_preferences WHERE user_id = :user_id"
+                    ),
+                    {"user_id": user_id},
+                )
+                .mappings()
+                .first()
+            )
             if row and row["preferred_character"]:
                 char = row["preferred_character"].lower()
                 if char in CHARACTER_PROMPTS:
@@ -3551,16 +5721,27 @@ def set_user_character(user_id: int, character: str) -> bool:
     # Try DB write (table may not exist yet)
     try:
         with get_db_engine().connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO user_preferences (user_id, preferred_character, updated_at)
                 VALUES (:user_id, :character, CURRENT_TIMESTAMP)
                 ON CONFLICT (user_id)
                 DO UPDATE SET preferred_character = :character, updated_at = CURRENT_TIMESTAMP
-            """), {"user_id": user_id, "character": character})
+            """),
+                {"user_id": user_id, "character": character},
+            )
             conn.commit()
-        log_error("CHARACTER", "info", f"User {user_id} set character to {character} (DB+cache)")
+        log_error(
+            "CHARACTER",
+            "info",
+            f"User {user_id} set character to {character} (DB+cache)",
+        )
     except Exception as exc:
-        log_error("CHARACTER", "info", f"User {user_id} set character to {character} (cache only, DB error: {exc})")
+        log_error(
+            "CHARACTER",
+            "info",
+            f"User {user_id} set character to {character} (cache only, DB error: {exc})",
+        )
     return True
 
 
@@ -3680,7 +5861,10 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                         try:
                             resp = requests.post(
                                 url,
-                                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                                headers={
+                                    "Authorization": f"Bearer {api_key}",
+                                    "Content-Type": "application/json",
+                                },
                                 json=body,
                                 timeout=timeout,
                             )
@@ -3695,7 +5879,9 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                         break
                     # 429 rate limit → короткая пауза и повтор той же модели
                     if resp.status_code == 429 and attempt < 2:
-                        print(f"{name} 429 ({candidate}), retrying in {2 * (attempt + 1)}s")
+                        print(
+                            f"{name} 429 ({candidate}), retrying in {2 * (attempt + 1)}s"
+                        )
                         time.sleep(2 * (attempt + 1))
                         continue
                     break
@@ -3716,7 +5902,9 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                         last_resp = resp
                         continue
                     return resp
-                print(f"{name} API error ({candidate}) {resp.status_code}: {resp.text[:200]}")
+                print(
+                    f"{name} API error ({candidate}) {resp.status_code}: {resp.text[:200]}"
+                )
                 last_resp = resp
                 # 404 = модель списана провайдером, 429 = rate limit — пробуем следующую.
                 if resp.status_code in (404, 429):
@@ -3731,7 +5919,10 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
             try:
                 resp = requests.post(
                     url,
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
                     json={"model": model, **payload},
                     timeout=timeout,
                 )
@@ -3786,7 +5977,9 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                 ({"reasoning": {"enabled": False}, **base_body}, base_body)
             ):
                 try:
-                    resp = requests.post(or_url, headers=or_headers, json=body, timeout=timeout)
+                    resp = requests.post(
+                        or_url, headers=or_headers, json=body, timeout=timeout
+                    )
                 except Exception as exc:
                     print(f"OpenRouter API error ({model}): {exc}")
                     resp = None
@@ -3797,7 +5990,9 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
             if resp is None:
                 continue
             if resp.status_code != 200:
-                print(f"OpenRouter API error ({model}) {resp.status_code}: {resp.text[:200]}")
+                print(
+                    f"OpenRouter API error ({model}) {resp.status_code}: {resp.text[:200]}"
+                )
                 last_resp = last_resp or resp
                 continue
             try:
@@ -3877,10 +6072,10 @@ def detect_bot_mention(text: str | None, entities: list | None) -> tuple[bool, s
             if ent.get("type") == "mention":
                 offset = ent.get("offset", 0)
                 length = ent.get("length", 0)
-                mention = text[offset:offset + length]
+                mention = text[offset : offset + length]
                 if mention.lower() == f"@{BOT_USERNAME}".lower():
                     # Remove the mention from text
-                    cleaned = (text[:offset] + text[offset + length:]).strip()
+                    cleaned = (text[:offset] + text[offset + length :]).strip()
                     return True, cleaned
     # Check text_mention entities (user without username)
     if entities:
@@ -3890,12 +6085,14 @@ def detect_bot_mention(text: str | None, entities: list | None) -> tuple[bool, s
                 if user.get("id") == BOT_ID:
                     offset = ent.get("offset", 0)
                     length = ent.get("length", 0)
-                    cleaned = (text[:offset] + text[offset + length:]).strip()
+                    cleaned = (text[:offset] + text[offset + length :]).strip()
                     return True, cleaned
     # Simple text check for @username
     mention_pattern = f"@{BOT_USERNAME}"
     if mention_pattern.lower() in text.lower():
-        cleaned = re.sub(re.escape(mention_pattern), "", text, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(
+            re.escape(mention_pattern), "", text, flags=re.IGNORECASE
+        ).strip()
         return True, cleaned
     return False, text
 
@@ -4211,9 +6408,15 @@ def find_user_by_name(name: str) -> int | None:
     name = name.strip().lower()
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("SELECT telegram_id, username, first_name, last_name FROM users"),
-            ).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT telegram_id, username, first_name, last_name FROM users"
+                    ),
+                )
+                .mappings()
+                .all()
+            )
             candidates = [dict(r) for r in rows]
     except Exception as exc:
         print(f"Error finding user: {exc}")
@@ -4263,10 +6466,16 @@ def get_game_state(user_id: int, game_name: str, metric: str = "") -> float:
     """Get stored previous value for a game metric."""
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT value FROM game_states WHERE user_id = :uid AND game_name = :gn AND metric = :m"),
-                {"uid": user_id, "gn": game_name, "m": metric},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT value FROM game_states WHERE user_id = :uid AND game_name = :gn AND metric = :m"
+                    ),
+                    {"uid": user_id, "gn": game_name, "m": metric},
+                )
+                .mappings()
+                .first()
+            )
             return float(row["value"]) if row else 0.0
     except Exception as exc:
         print(f"Error getting game state: {exc}")
@@ -4540,25 +6749,35 @@ def get_gddl_recommendation(level_name: str) -> int | None:
 # Ladder mirrors the real Global Demonlist: game ratings (easy..insane) and
 # demon tiers (Easy Demon..Extreme Demon). Index order = hardness. weight = base score.
 GD_DIFFICULTY_TIERS = [
-    ("easy",          "Easy",          5),
-    ("normal",        "Normal",       10),
-    ("hard",          "Hard",         20),
-    ("harder",        "Harder",       30),
-    ("insane",        "Insane",       40),
-    ("easy_demon",    "Easy Demon",   50),
-    ("medium_demon",  "Medium Demon", 60),
-    ("hard_demon",    "Hard Demon",   70),
-    ("insane_demon",  "Insane Demon", 80),
+    ("easy", "Easy", 5),
+    ("normal", "Normal", 10),
+    ("hard", "Hard", 20),
+    ("harder", "Harder", 30),
+    ("insane", "Insane", 40),
+    ("easy_demon", "Easy Demon", 50),
+    ("medium_demon", "Medium Demon", 60),
+    ("hard_demon", "Hard Demon", 70),
+    ("insane_demon", "Insane Demon", 80),
     ("extreme_demon", "Extreme Demon", 90),
 ]
 GD_DIFFICULTY_KEYS = {k for k, _l, _w in GD_DIFFICULTY_TIERS}
 GD_DIFFICULTY_LABELS = {k: lbl for k, lbl, _w in GD_DIFFICULTY_TIERS}
 GD_DIFFICULTY_WEIGHTS = {k: w for k, _l, w in GD_DIFFICULTY_TIERS}
 GD_DIFFICULTY_COLORS = {
-    "easy": "#00d26a", "normal": "#4ade80", "hard": "#fbbf24", "harder": "#fb923c", "insane": "#f43f5e",
-    "easy_demon": "#a855f7", "medium_demon": "#9333ea", "hard_demon": "#8b5cf6", "insane_demon": "#7c3aed", "extreme_demon": "#4c1d95",
+    "easy": "#00d26a",
+    "normal": "#4ade80",
+    "hard": "#fbbf24",
+    "harder": "#fb923c",
+    "insane": "#f43f5e",
+    "easy_demon": "#a855f7",
+    "medium_demon": "#9333ea",
+    "hard_demon": "#8b5cf6",
+    "insane_demon": "#7c3aed",
+    "extreme_demon": "#4c1d95",
     "unknown": "#94a3b8",
 }
+
+
 # No longer auto-derives a list-placement tier from a level position: with the
 # "Top X" ladder removed, an unknown difficulty simply stays "unknown".
 def _gd_tier_from_position(position) -> str:
@@ -4566,9 +6785,17 @@ def _gd_tier_from_position(position) -> str:
 
 
 _GD_DIFF_RAW_MAP = {
-    "easy": "easy", "normal": "normal", "hard": "hard", "harder": "harder", "insane": "insane",
-    "easydemon": "easy_demon", "mediumdemon": "medium_demon", "harddemon": "hard_demon",
-    "insanedemon": "insane_demon", "extremedemon": "extreme_demon", "demon": "extreme_demon",
+    "easy": "easy",
+    "normal": "normal",
+    "hard": "hard",
+    "harder": "harder",
+    "insane": "insane",
+    "easydemon": "easy_demon",
+    "mediumdemon": "medium_demon",
+    "harddemon": "hard_demon",
+    "insanedemon": "insane_demon",
+    "extremedemon": "extreme_demon",
+    "demon": "extreme_demon",
     "extreme": "extreme_demon",
 }
 
@@ -4581,6 +6808,7 @@ def _gd_norm_difficulty(value=None, position=0) -> str:
     "Top X" ladder is no longer auto-derived from a level position).
     """
     import re
+
     raw = (value or "").strip().lower()
     if raw in GD_DIFFICULTY_KEYS:
         return raw
@@ -4595,7 +6823,9 @@ def _gd_norm_difficulty(value=None, position=0) -> str:
         return "unknown"
     # guess by substring: e.g. "Extreme demon (insane)" -> nearest demon tier
     if "demon" in raw:
-        order = [0] + [i for i, (k, _l, _w) in enumerate(GD_DIFFICULTY_TIERS) if "demon" in k]
+        order = [0] + [
+            i for i, (k, _l, _w) in enumerate(GD_DIFFICULTY_TIERS) if "demon" in k
+        ]
         for i in order:
             key, _l, _w = GD_DIFFICULTY_TIERS[i]
             if key in probe:
@@ -4637,6 +6867,7 @@ def get_gd_difficulty_name(level_name: str) -> str:
     per level and skips the network call for already-known values.
     """
     import time
+
     key = _gd_norm_name(level_name)
     if not key:
         return "Unknown"
@@ -4688,9 +6919,11 @@ def get_gd_difficulty_name(level_name: str) -> str:
 # Geometry Dash Module — Raw SQL Helpers
 # ============================================================================
 
+
 def _gd_norm_name(name: str) -> str:
     """Normalize a level name: lowercase + collapse whitespace + strip."""
     import re
+
     return re.sub(r"\s+", " ", name or "").strip().lower()
 
 
@@ -4734,9 +6967,13 @@ def _gd_merge_rows(items: list[dict]) -> dict:
 def get_gd_level(level_id: int) -> dict | None:
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT * FROM levels WHERE id = :id"), {"id": level_id}
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT * FROM levels WHERE id = :id"), {"id": level_id}
+                )
+                .mappings()
+                .first()
+            )
             return dict(row) if row else None
     except Exception as exc:
         print(f"get_gd_level error: {exc}")
@@ -4746,8 +6983,9 @@ def get_gd_level(level_id: int) -> dict | None:
 def get_gd_leaderboard(limit: int = 20) -> list[dict]:
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("""
+            rows = (
+                conn.execute(
+                    text("""
                     SELECT l.*, COALESCE(c.cnt, 0) AS completions,
                            COALESCE(u.completers, '{}') AS completers
                     FROM levels l
@@ -4766,7 +7004,10 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
                     ) u ON u.level_id = l.id
                     ORDER BY l.position ASC
                 """),
-            ).mappings().all()
+                )
+                .mappings()
+                .all()
+            )
             groups: dict[str, list[dict]] = {}
             for r in rows:
                 d = dict(r)
@@ -4779,7 +7020,9 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
             for lv in merged[:limit]:
                 key = _gd_norm_difficulty(lv.get("difficulty"), lv.get("position"))
                 lv["difficulty_key"] = key
-                lv["difficulty"] = GD_DIFFICULTY_LABELS.get(key, lv.get("difficulty") or "Unknown")
+                lv["difficulty"] = GD_DIFFICULTY_LABELS.get(
+                    key, lv.get("difficulty") or "Unknown"
+                )
                 out.append(lv)
             return out
     except Exception as exc:
@@ -4790,10 +7033,16 @@ def get_gd_leaderboard(limit: int = 20) -> list[dict]:
 def get_gd_completions_count(level_id: int) -> int:
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT COUNT(*) AS c FROM level_completions WHERE level_id = :lid"),
-                {"lid": level_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT COUNT(*) AS c FROM level_completions WHERE level_id = :lid"
+                    ),
+                    {"lid": level_id},
+                )
+                .mappings()
+                .first()
+            )
             return int(row["c"]) if row else 0
     except Exception as exc:
         print(f"get_gd_completions_count error: {exc}")
@@ -4803,10 +7052,14 @@ def get_gd_completions_count(level_id: int) -> int:
 def get_gd_player_stats(user_id: int) -> dict | None:
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT * FROM player_stats WHERE user_id = :uid"),
-                {"uid": user_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT * FROM player_stats WHERE user_id = :uid"),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .first()
+            )
             return dict(row) if row else None
     except Exception as exc:
         print(f"get_gd_player_stats error: {exc}")
@@ -4817,14 +7070,20 @@ def get_gd_build_player_stats(user_id: int) -> dict:
     try:
         with get_db_engine().connect() as conn:
             conn.execute(
-                text("INSERT INTO player_stats (user_id, total_approved) VALUES (:uid, 0) ON CONFLICT (user_id) DO NOTHING"),
+                text(
+                    "INSERT INTO player_stats (user_id, total_approved) VALUES (:uid, 0) ON CONFLICT (user_id) DO NOTHING"
+                ),
                 {"uid": user_id},
             )
             conn.commit()
-            row = conn.execute(
-                text("SELECT * FROM player_stats WHERE user_id = :uid"),
-                {"uid": user_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT * FROM player_stats WHERE user_id = :uid"),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .first()
+            )
             return dict(row) if row else {}
     except Exception as exc:
         print(f"get_gd_build_player_stats error: {exc}")
@@ -4834,10 +7093,16 @@ def get_gd_build_player_stats(user_id: int) -> dict:
 def get_gd_submission_counts(user_id: int) -> dict:
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("SELECT status, COUNT(*) AS c FROM submissions WHERE user_id = :uid GROUP BY status"),
-                {"uid": user_id},
-            ).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT status, COUNT(*) AS c FROM submissions WHERE user_id = :uid GROUP BY status"
+                    ),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .all()
+            )
             counts = {"total": 0, "pending": 0, "approved": 0, "rejected": 0}
             for r in rows:
                 s = r["status"]
@@ -4853,10 +7118,16 @@ def get_gd_submission_counts(user_id: int) -> dict:
 def get_gd_user_completions_count(user_id: int) -> int:
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT COUNT(*) AS c FROM level_completions WHERE user_id = :uid"),
-                {"uid": user_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT COUNT(*) AS c FROM level_completions WHERE user_id = :uid"
+                    ),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .first()
+            )
             return int(row["c"]) if row else 0
     except Exception as exc:
         print(f"get_gd_user_completions_count error: {exc}")
@@ -4882,30 +7153,38 @@ def _gd_is_demon_tier(tier_key: str) -> bool:
 def _gd_sync_player_stats(conn, user_id: int) -> None:
     """Recompute points / demons_count / hardest_level_id for a user from level_completions."""
     try:
-        rows = conn.execute(
-            text("""
+        rows = (
+            conn.execute(
+                text("""
                 SELECT l.position, l.difficulty FROM level_completions lc
                 JOIN levels l ON l.id = lc.level_id
                 WHERE lc.user_id = :uid
             """),
-            {"uid": user_id},
-        ).mappings().all()
+                {"uid": user_id},
+            )
+            .mappings()
+            .all()
+        )
         points = 0
         demons = 0
         for r in rows:
             points += _gd_level_points(r["position"])
             if _gd_is_demon_tier(_gd_norm_difficulty(r["difficulty"], r["position"])):
                 demons += 1
-        hr = conn.execute(
-            text("""
+        hr = (
+            conn.execute(
+                text("""
                 SELECT lc.level_id FROM level_completions lc
                 JOIN levels l ON l.id = lc.level_id
                 WHERE lc.user_id = :uid
                 ORDER BY l.position ASC, lc.completed_at DESC, lc.id DESC
                 LIMIT 1
             """),
-            {"uid": user_id},
-        ).mappings().first()
+                {"uid": user_id},
+            )
+            .mappings()
+            .first()
+        )
         hardest_id = int(hr["level_id"]) if hr else None
         if hardest_id:
             conn.execute(
@@ -4938,10 +7217,16 @@ def _gd_sync_player_stats(conn, user_id: int) -> None:
 def _gd_recalc_level_players(conn, level_id: int) -> None:
     """Recompute stats for every player who has a completion on the level."""
     try:
-        users = conn.execute(
-            text("SELECT DISTINCT user_id AS uid FROM level_completions WHERE level_id = :lid"),
-            {"lid": level_id},
-        ).mappings().all()
+        users = (
+            conn.execute(
+                text(
+                    "SELECT DISTINCT user_id AS uid FROM level_completions WHERE level_id = :lid"
+                ),
+                {"lid": level_id},
+            )
+            .mappings()
+            .all()
+        )
         for u in users:
             _gd_sync_player_stats(conn, int(u["uid"]))
     except Exception as exc:
@@ -4956,25 +7241,33 @@ def _update_gd_hardest_level(conn, user_id: int) -> None:
 def get_gd_hardest_level_name(user_id: int) -> str:
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("""
+            row = (
+                conn.execute(
+                    text("""
                     SELECT l.name, l.position FROM player_stats ps
                     JOIN levels l ON l.id = ps.hardest_level_id
                     WHERE ps.user_id = :uid AND ps.hardest_level_id IS NOT NULL
                 """),
-                {"uid": user_id},
-            ).mappings().first()
+                    {"uid": user_id},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
-                row = conn.execute(
-                    text("""
+                row = (
+                    conn.execute(
+                        text("""
                         SELECT l.name, l.position FROM level_completions lc
                         JOIN levels l ON l.id = lc.level_id
                         WHERE lc.user_id = :uid
                         ORDER BY l.position ASC, lc.completed_at DESC
                         LIMIT 1
                     """),
-                    {"uid": user_id},
-                ).mappings().first()
+                        {"uid": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
             return f"{row['name']} (поз. {row['position']})" if row else "Нет"
     except Exception as exc:
         print(f"get_gd_hardest_level_name error: {exc}")
@@ -4984,7 +7277,9 @@ def get_gd_hardest_level_name(user_id: int) -> str:
 _GD_COOP_MAX_NICK = 50
 
 
-def _gd_norm_coop_partner(partner_nick: str | None, owner_nick: str) -> tuple[str | None, str | None]:
+def _gd_norm_coop_partner(
+    partner_nick: str | None, owner_nick: str
+) -> tuple[str | None, str | None]:
     """Validate the co-op partner nick. Returns (nick_or_None, error_message).
 
     Empty input means a normal single-player run, so None is not an error.
@@ -4996,7 +7291,10 @@ def _gd_norm_coop_partner(partner_nick: str | None, owner_nick: str) -> tuple[st
     if not raw:
         return None, None
     if len(raw) > _GD_COOP_MAX_NICK:
-        return None, f"GD-ник напарника слишком длинный (макс. {_GD_COOP_MAX_NICK} символов)"
+        return (
+            None,
+            f"GD-ник напарника слишком длинный (макс. {_GD_COOP_MAX_NICK} символов)",
+        )
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
         return None, "GD-ник напарника содержит недопустимые символы"
     owner = (owner_nick or "").strip()
@@ -5005,19 +7303,42 @@ def _gd_norm_coop_partner(partner_nick: str | None, owner_nick: str) -> tuple[st
     return raw, None
 
 
-def create_gd_submission(user_id: int, username: str, level_name: str, media_file_id: str, media_type: str, status: str | None = None, difficulty: str | None = None, attempts: int | None = None, partner_nick: str | None = None) -> int | None:
+def create_gd_submission(
+    user_id: int,
+    username: str,
+    level_name: str,
+    media_file_id: str,
+    media_type: str,
+    status: str | None = None,
+    difficulty: str | None = None,
+    attempts: int | None = None,
+    partner_nick: str | None = None,
+) -> int | None:
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
             if media_file_id:
                 # Full submission with media
-                result = conn.execute(
-                    text("""
+                result = (
+                    conn.execute(
+                        text("""
                         INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, media_file_id, media_type, status, partner_nick)
                         VALUES (:uid, :un, :ln, :dif, :att, :mfid, :mt, 'pending', :pnick) RETURNING id
                     """),
-                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "mfid": media_file_id, "mt": media_type, "pnick": partner_nick},
-                ).mappings().first()
+                        {
+                            "uid": user_id,
+                            "un": username,
+                            "ln": level_name,
+                            "dif": difficulty,
+                            "att": attempts,
+                            "mfid": media_file_id,
+                            "mt": media_type,
+                            "pnick": partner_nick,
+                        },
+                    )
+                    .mappings()
+                    .first()
+                )
                 conn.commit()
                 if result:
                     return int(result["id"])
@@ -5025,13 +7346,25 @@ def create_gd_submission(user_id: int, username: str, level_name: str, media_fil
                 return None
             else:
                 # Create placeholder submission (media pending by default, or explicit status)
-                result = conn.execute(
-                    text("""
+                result = (
+                    conn.execute(
+                        text("""
                         INSERT INTO submissions (user_id, username, level_name, difficulty, attempts, status, partner_nick)
                         VALUES (:uid, :un, :ln, :dif, :att, :st, :pnick) RETURNING id
                     """),
-                    {"uid": user_id, "un": username, "ln": level_name, "dif": difficulty, "att": attempts, "st": status or "pending_media", "pnick": partner_nick},
-                ).mappings().first()
+                        {
+                            "uid": user_id,
+                            "un": username,
+                            "ln": level_name,
+                            "dif": difficulty,
+                            "att": attempts,
+                            "st": status or "pending_media",
+                            "pnick": partner_nick,
+                        },
+                    )
+                    .mappings()
+                    .first()
+                )
                 conn.commit()
                 return int(result["id"]) if result else None
     except Exception as exc:
@@ -5039,17 +7372,31 @@ def create_gd_submission(user_id: int, username: str, level_name: str, media_fil
         return None
 
 
-def get_gd_pending_submissions(page: int = 0, per_page: int = 5) -> tuple[list[dict], int]:
+def get_gd_pending_submissions(
+    page: int = 0, per_page: int = 5
+) -> tuple[list[dict], int]:
     try:
         with get_db_engine().connect() as conn:
-            count_row = conn.execute(
-                text("SELECT COUNT(*) AS c FROM submissions WHERE status='pending'"),
-            ).mappings().first()
+            count_row = (
+                conn.execute(
+                    text(
+                        "SELECT COUNT(*) AS c FROM submissions WHERE status='pending'"
+                    ),
+                )
+                .mappings()
+                .first()
+            )
             total = int(count_row["c"]) if count_row else 0
-            rows = conn.execute(
-                text("SELECT * FROM submissions WHERE status='pending' ORDER BY submitted_at DESC LIMIT :lim OFFSET :off"),
-                {"lim": per_page, "off": page * per_page},
-            ).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT * FROM submissions WHERE status='pending' ORDER BY submitted_at DESC LIMIT :lim OFFSET :off"
+                    ),
+                    {"lim": per_page, "off": page * per_page},
+                )
+                .mappings()
+                .all()
+            )
             return [dict(r) for r in rows], total
     except Exception as exc:
         print(f"get_gd_pending_submissions error: {exc}")
@@ -5060,15 +7407,23 @@ def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
     try:
         with get_db_engine().connect() as conn:
             # Get submission
-            sub = conn.execute(
-                text("SELECT * FROM submissions WHERE id = :sid AND status='pending'"),
-                {"sid": submission_id},
-            ).mappings().first()
+            sub = (
+                conn.execute(
+                    text(
+                        "SELECT * FROM submissions WHERE id = :sid AND status='pending'"
+                    ),
+                    {"sid": submission_id},
+                )
+                .mappings()
+                .first()
+            )
             if not sub:
                 return False
             # Approve
             conn.execute(
-                text("UPDATE submissions SET status='approved', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid"),
+                text(
+                    "UPDATE submissions SET status='approved', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid"
+                ),
                 {"sid": submission_id, "rid": reviewer_id},
             )
             # Update player stats
@@ -5082,19 +7437,29 @@ def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
             )
             # Track completion
             if sub.get("level_name"):
-                level = conn.execute(
-                    text("SELECT id FROM levels WHERE LOWER(TRIM(name)) = :key"),
-                    {"key": _gd_norm_name(sub["level_name"])},
-                ).mappings().first()
+                level = (
+                    conn.execute(
+                        text("SELECT id FROM levels WHERE LOWER(TRIM(name)) = :key"),
+                        {"key": _gd_norm_name(sub["level_name"])},
+                    )
+                    .mappings()
+                    .first()
+                )
                 if level:
-                    pname = (sub.get("username") or "").strip() or _gd_account_name(conn, int(sub["user_id"]))
+                    pname = (sub.get("username") or "").strip() or _gd_account_name(
+                        conn, int(sub["user_id"])
+                    )
                     conn.execute(
                         text("""
                             INSERT INTO level_completions (user_id, level_id, player_name)
                             VALUES (:uid, :lid, :pn)
                             ON CONFLICT (user_id, level_id) DO NOTHING
                         """),
-                        {"uid": sub["user_id"], "lid": level["id"], "pn": pname or "Игрок"},
+                        {
+                            "uid": sub["user_id"],
+                            "lid": level["id"],
+                            "pn": pname or "Игрок",
+                        },
                     )
                     _gd_sync_player_stats(conn, sub["user_id"])
             conn.commit()
@@ -5108,7 +7473,9 @@ def reject_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
     try:
         with get_db_engine().connect() as conn:
             result = conn.execute(
-                text("UPDATE submissions SET status='rejected', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid AND status='pending'"),
+                text(
+                    "UPDATE submissions SET status='rejected', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid AND status='pending'"
+                ),
                 {"sid": submission_id, "rid": reviewer_id},
             )
             conn.commit()
@@ -5122,8 +7489,9 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
     """Approved completions for a level, deduplicated per player (latest media first)."""
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("""
+            rows = (
+                conn.execute(
+                    text("""
                     SELECT s.username, s.media_file_id, s.media_type, s.submitted_at, s.user_id AS uid,
                            s.partner_nick,
                            wu.login AS web_login, wu.display_name, wu.gd_nickname,
@@ -5135,25 +7503,38 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
                     WHERE lv.id = :lid AND s.status = 'approved'
                     ORDER BY s.submitted_at IS NULL, s.submitted_at DESC, s.id DESC
                 """),
-                {"lid": level_id},
-            ).mappings().all()
-            min_row = conn.execute(
-                text("""
+                    {"lid": level_id},
+                )
+                .mappings()
+                .all()
+            )
+            min_row = (
+                conn.execute(
+                    text("""
                     SELECT MIN(s.submitted_at) AS first_at FROM submissions s
                     JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
                     WHERE lv.id = :lid AND s.status = 'approved'
                 """),
-                {"lid": level_id},
-            ).mappings().first()
-            first_at = str(min_row["first_at"])[:19] if min_row and min_row.get("first_at") else None
+                    {"lid": level_id},
+                )
+                .mappings()
+                .first()
+            )
+            first_at = (
+                str(min_row["first_at"])[:19]
+                if min_row and min_row.get("first_at")
+                else None
+            )
             result = []
             seen = set()
             for row in rows:
                 d = dict(row)
                 key = (
                     d.get("username")
-                    or d.get("gd_nickname") or d.get("display_name")
-                    or d.get("tg_first_name") or d.get("tg_username")
+                    or d.get("gd_nickname")
+                    or d.get("display_name")
+                    or d.get("tg_first_name")
+                    or d.get("tg_username")
                     or f"uid:{d.get('uid')}"
                 )
                 if not key:
@@ -5164,8 +7545,11 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
                 seen.add(fp)
                 d["player_name"] = (
                     d.get("username")
-                    or d.get("gd_nickname") or d.get("display_name")
-                    or d.get("tg_first_name") or d.get("tg_username") or "Игрок"
+                    or d.get("gd_nickname")
+                    or d.get("display_name")
+                    or d.get("tg_first_name")
+                    or d.get("tg_username")
+                    or "Игрок"
                 )
                 # Co-op: the partner credited by this same run (credited in their
                 # own profile too, see _gd_persona_lookup).
@@ -5177,7 +7561,11 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
                     d["submitted_at"] = str(d["submitted_at"])[:19]
                 result.append(d)
             for d in result:
-                d["is_first"] = bool(d.get("submitted_at")) and first_at is not None and d["submitted_at"] == first_at
+                d["is_first"] = (
+                    bool(d.get("submitted_at"))
+                    and first_at is not None
+                    and d["submitted_at"] == first_at
+                )
             return result
     except Exception as exc:
         print(f"get_gd_level_completions error: {exc}")
@@ -5187,16 +7575,26 @@ def get_gd_level_completions(level_id: int) -> list[dict]:
 def _gd_account_name(conn, uid: int) -> str:
     """Display name of an account, used as fallback when a submission has no GD nick."""
     try:
-        w = conn.execute(
-            text("SELECT login, display_name, gd_nickname FROM web_users WHERE id = :u"),
-            {"u": uid},
-        ).mappings().first()
+        w = (
+            conn.execute(
+                text(
+                    "SELECT login, display_name, gd_nickname FROM web_users WHERE id = :u"
+                ),
+                {"u": uid},
+            )
+            .mappings()
+            .first()
+        )
         if w:
             return (w["gd_nickname"] or w["display_name"] or w["login"] or "").strip()
-        t = conn.execute(
-            text("SELECT username, first_name FROM users WHERE telegram_id = :u"),
-            {"u": uid},
-        ).mappings().first()
+        t = (
+            conn.execute(
+                text("SELECT username, first_name FROM users WHERE telegram_id = :u"),
+                {"u": uid},
+            )
+            .mappings()
+            .first()
+        )
         if t:
             return (t["first_name"] or t["username"] or "").strip()
     except Exception:
@@ -5211,13 +7609,21 @@ def _gd_backfill_completion_names(conn) -> None:
     player submitted under, not the account that owns it. Rows without a matching
     submission fall back to the account display name.
     """
-    missing = conn.execute(text(
-        "SELECT user_id, level_id FROM level_completions "
-        "WHERE player_name IS NULL OR TRIM(player_name) = ''"
-    )).mappings().all()
+    missing = (
+        conn.execute(
+            text(
+                "SELECT user_id, level_id FROM level_completions "
+                "WHERE player_name IS NULL OR TRIM(player_name) = ''"
+            )
+        )
+        .mappings()
+        .all()
+    )
     if not missing:
         return
-    attr = conn.execute(text("""
+    attr = (
+        conn.execute(
+            text("""
         SELECT s2.user_id, s2.username, lv.id AS level_id
         FROM submissions s2
         JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s2.level_name))
@@ -5229,7 +7635,11 @@ def _gd_backfill_completion_names(conn) -> None:
               ORDER BY s3.submitted_at ASC NULLS LAST, s3.id ASC
               LIMIT 1
           )
-    """)).mappings().all()
+    """)
+        )
+        .mappings()
+        .all()
+    )
     per: dict = {}
     for a in attr:
         per[(int(a["user_id"]), int(a["level_id"]))] = (a["username"] or "").strip()
@@ -5237,7 +7647,9 @@ def _gd_backfill_completion_names(conn) -> None:
         uid, lid = int(r["user_id"]), int(r["level_id"])
         name = per.get((uid, lid)) or _gd_account_name(conn, uid)
         conn.execute(
-            text("UPDATE level_completions SET player_name = :nm WHERE user_id = :u AND level_id = :l"),
+            text(
+                "UPDATE level_completions SET player_name = :nm WHERE user_id = :u AND level_id = :l"
+            ),
             {"nm": name or "Игрок", "u": uid, "l": lid},
         )
 
@@ -5261,21 +7673,31 @@ def _gd_rename_persona(conn, old_nick: str, new_nick: str) -> bool:
         {"new": new, "old": old},
     )
     lc = conn.execute(
-        text("UPDATE level_completions SET player_name = :new WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(:old))"),
+        text(
+            "UPDATE level_completions SET player_name = :new WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(:old))"
+        ),
         {"new": new, "old": old},
     )
     if not sub.rowcount and not lc.rowcount:
         return False
     uids = {
-        int(r[0]) for r in conn.execute(text(
-            "SELECT DISTINCT user_id FROM submissions "
-            "WHERE status = 'approved' AND LOWER(TRIM(username)) = LOWER(TRIM(:new))"
-        ), {"new": new}).fetchall()
+        int(r[0])
+        for r in conn.execute(
+            text(
+                "SELECT DISTINCT user_id FROM submissions "
+                "WHERE status = 'approved' AND LOWER(TRIM(username)) = LOWER(TRIM(:new))"
+            ),
+            {"new": new},
+        ).fetchall()
     }
     uids |= {
-        int(r[0]) for r in conn.execute(text(
-            "SELECT DISTINCT user_id FROM level_completions WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(:new))"
-        ), {"new": new}).fetchall()
+        int(r[0])
+        for r in conn.execute(
+            text(
+                "SELECT DISTINCT user_id FROM level_completions WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(:new))"
+            ),
+            {"new": new},
+        ).fetchall()
     }
     for uid in uids:
         _gd_sync_player_stats(conn, uid)
@@ -5299,7 +7721,9 @@ def _gd_persona_lookup(conn, nick: str) -> dict | None:
     n = (nick or "").strip()
     if not n:
         return None
-    rows = conn.execute(text("""
+    rows = (
+        conn.execute(
+            text("""
         SELECT lv.id AS level_id, s.submitted_at AS at, 0 AS as_partner,
                s.partner_nick AS other_name, s.user_id AS uid
         FROM submissions s
@@ -5310,7 +7734,12 @@ def _gd_persona_lookup(conn, nick: str) -> dict | None:
         FROM submissions s
         JOIN levels lv ON LOWER(TRIM(lv.name)) = LOWER(TRIM(s.level_name))
         WHERE s.status = 'approved' AND LOWER(TRIM(s.partner_nick)) = LOWER(:n)
-    """), {"n": n}).mappings().all()
+    """),
+            {"n": n},
+        )
+        .mappings()
+        .all()
+    )
     if not rows:
         return None
     owner_uid: int | None = None
@@ -5326,21 +7755,32 @@ def _gd_persona_lookup(conn, nick: str) -> dict | None:
         }
         cur = best.get(int(r["level_id"]))
         # Solo (as_partner=0) wins ties; otherwise the earliest submission wins.
-        if cur is None or (cand["as_partner"], cand["at"]) < (cur["as_partner"], cur["at"]):
+        if cur is None or (cand["as_partner"], cand["at"]) < (
+            cur["as_partner"],
+            cur["at"],
+        ):
             best[int(r["level_id"])] = cand
     compl = []
     for level_id, chosen in best.items():
-        lv = conn.execute(
-            text("SELECT id, name, position, difficulty FROM levels WHERE id = :lid"),
-            {"lid": level_id},
-        ).mappings().first()
+        lv = (
+            conn.execute(
+                text(
+                    "SELECT id, name, position, difficulty FROM levels WHERE id = :lid"
+                ),
+                {"lid": level_id},
+            )
+            .mappings()
+            .first()
+        )
         if not lv:
             continue
         d = dict(lv)
         d["completed_at"] = chosen["at"] or None
         d["is_coop"] = bool(chosen["as_partner"])
         d["coop_with"] = chosen["other"] if chosen["as_partner"] else None
-        d["difficulty_key"] = _gd_norm_difficulty(d.get("difficulty"), d.get("position"))
+        d["difficulty_key"] = _gd_norm_difficulty(
+            d.get("difficulty"), d.get("position")
+        )
         d["difficulty"] = GD_DIFFICULTY_LABELS.get(d["difficulty_key"], "Unknown")
         compl.append(d)
     compl.sort(key=lambda x: int(x.get("position") or 1e9))
@@ -5354,25 +7794,36 @@ def _gd_completions_stats(conn, completions: list[dict]) -> dict:
     for c in completions:
         pos = int(c.get("position") or 0)
         points += _gd_level_points(pos)
-        if _gd_is_demon_tier(c.get("difficulty_key") or _gd_norm_difficulty("Unknown", pos)):
+        if _gd_is_demon_tier(
+            c.get("difficulty_key") or _gd_norm_difficulty("Unknown", pos)
+        ):
             demons += 1
         if pos and (hardest_pos is None or pos < hardest_pos):
             hardest_pos, hardest_name = pos, c.get("name")
     hardest = f"{hardest_name} (поз. {hardest_pos})" if hardest_name else "Нет"
-    return {"points": points, "demons_count": demons, "hardest": hardest, "hardest_pos": hardest_pos}
+    return {
+        "points": points,
+        "demons_count": demons,
+        "hardest": hardest,
+        "hardest_pos": hardest_pos,
+    }
 
 
 def _gd_ensure_points_backfill(conn) -> None:
     """Backfill player_stats.points/demons_count for users created before the column existed."""
     try:
-        stale = conn.execute(
-            text("""
+        stale = (
+            conn.execute(
+                text("""
                 SELECT DISTINCT lc.user_id
                 FROM level_completions lc
                 LEFT JOIN player_stats ps ON ps.user_id = lc.user_id AND ps.points IS NOT NULL AND ps.points > 0
                 WHERE ps.user_id IS NULL
             """)
-        ).scalars().all()
+            )
+            .scalars()
+            .all()
+        )
         for uid in stale:
             _gd_sync_player_stats(conn, int(uid))
     except Exception as exc:
@@ -5408,7 +7859,8 @@ def _gd_coop_leaderboard_rows(conn) -> list[dict]:
     try:
         return [
             dict(r)
-            for r in conn.execute(text("""
+            for r in conn.execute(
+                text("""
                 SELECT NULLIF(TRIM(s.partner_nick), '') AS pname, lv.id AS level_id,
                        lv.position, lv.name, lv.difficulty,
                        NULLIF(TRIM(s.username), '') AS other_name,
@@ -5420,7 +7872,10 @@ def _gd_coop_leaderboard_rows(conn) -> list[dict]:
                 WHERE s.status = 'approved'
                   AND s.partner_nick IS NOT NULL AND TRIM(s.partner_nick) <> ''
                   AND LOWER(TRIM(s.partner_nick)) <> LOWER(TRIM(s.username))
-            """)).mappings().all()
+            """)
+            )
+            .mappings()
+            .all()
         ]
     except Exception as exc:
         print(f"_gd_coop_leaderboard_rows error: {exc}")
@@ -5431,7 +7886,9 @@ def get_gd_players(limit: int = 20) -> list[dict]:
     """Global player leaderboard by points (per-completion nick from the approved submission)."""
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(text("""
+            rows = (
+                conn.execute(
+                    text("""
                 SELECT COALESCE(NULLIF(TRIM(lc.player_name), ''),
                                 NULLIF(wu.gd_nickname, ''), wu.display_name,
                                 NULLIF(tu.first_name, ''), tu.username, wu.login, 'Игрок') AS pname,
@@ -5442,16 +7899,27 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                 JOIN levels l ON l.id = lc.level_id
                 LEFT JOIN web_users wu ON wu.id = lc.user_id
                 LEFT JOIN users tu ON tu.telegram_id = lc.user_id
-            """)).mappings().all()
+            """)
+                )
+                .mappings()
+                .all()
+            )
             groups: dict[str, dict] = {}
             for r in rows:
                 nick = (r.get("pname") or "Игрок").strip()
                 key = nick.casefold()
                 g = groups.setdefault(
                     key,
-                    {"points": 0, "demons_count": 0, "total_approved": 0,
-                     "hardest_pos": None, "hardest_name": None, "web_login": None,
-                     "_cands": [], "_levels": set()},
+                    {
+                        "points": 0,
+                        "demons_count": 0,
+                        "total_approved": 0,
+                        "hardest_pos": None,
+                        "hardest_name": None,
+                        "web_login": None,
+                        "_cands": [],
+                        "_levels": set(),
+                    },
                 )
                 g["_cands"].append((nick, (r.get("web_gd_nick") or "").strip()))
                 g["_levels"].add(r.get("level_id"))
@@ -5473,9 +7941,16 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                 key = nick.casefold()
                 g = groups.setdefault(
                     key,
-                    {"points": 0, "demons_count": 0, "total_approved": 0,
-                     "hardest_pos": None, "hardest_name": None, "web_login": None,
-                     "_cands": [], "_levels": set()},
+                    {
+                        "points": 0,
+                        "demons_count": 0,
+                        "total_approved": 0,
+                        "hardest_pos": None,
+                        "hardest_name": None,
+                        "web_login": None,
+                        "_cands": [],
+                        "_levels": set(),
+                    },
                 )
                 lid = r.get("level_id")
                 if lid in g["_levels"]:
@@ -5491,16 +7966,25 @@ def get_gd_players(limit: int = 20) -> list[dict]:
                     g["web_login"] = r.get("web_login")
                 if pos and (g["hardest_pos"] is None or pos < g["hardest_pos"]):
                     g["hardest_pos"], g["hardest_name"] = pos, r.get("name")
-            merged = [dict(v, player_name=_gd_persona_display_name(v.pop("_cands"))) for v in groups.values()]
+            merged = [
+                dict(v, player_name=_gd_persona_display_name(v.pop("_cands")))
+                for v in groups.values()
+            ]
             for v in merged:
                 v.pop("_levels", None)
-            merged.sort(key=lambda x: (-x["points"], -x["demons_count"], -x["total_approved"]))
+            merged.sort(
+                key=lambda x: (-x["points"], -x["demons_count"], -x["total_approved"])
+            )
             out = []
             for i, g in enumerate(merged[:limit], 1):
                 g["rank"] = i
                 g["points"] = int(g["points"] or 0)
                 g["demons_count"] = int(g["demons_count"] or 0)
-                g["hardest"] = f"{g['hardest_name']} (поз. {g['hardest_pos']})" if g.get("hardest_name") else "Нет"
+                g["hardest"] = (
+                    f"{g['hardest_name']} (поз. {g['hardest_pos']})"
+                    if g.get("hardest_name")
+                    else "Нет"
+                )
                 g.pop("hardest_name", None)
                 g.pop("hardest_pos", None)
                 out.append(g)
@@ -5527,8 +8011,9 @@ def search_gd_nicks(query: str, limit: int = _GD_NICK_SEARCH_LIMIT) -> list[dict
     limit = max(1, min(int(limit or _GD_NICK_SEARCH_LIMIT), 50))
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("""
+            rows = (
+                conn.execute(
+                    text("""
                     SELECT TRIM(s.username) AS nick, COUNT(*) AS plays,
                            COUNT(DISTINCT lv.id) AS completed
                     FROM submissions s
@@ -5545,15 +8030,22 @@ def search_gd_nicks(query: str, limit: int = _GD_NICK_SEARCH_LIMIT) -> list[dict
                       AND LOWER(TRIM(s.partner_nick)) <> LOWER(TRIM(s.username))
                     GROUP BY LOWER(TRIM(s.partner_nick)), TRIM(s.partner_nick)
                 """),
-            ).mappings().all()
-            accounts = conn.execute(
-                text("""
+                )
+                .mappings()
+                .all()
+            )
+            accounts = (
+                conn.execute(
+                    text("""
                     SELECT TRIM(wu.gd_nickname) AS nick
                     FROM web_users wu
                     WHERE wu.gd_nickname IS NOT NULL AND TRIM(wu.gd_nickname) <> ''
                     GROUP BY LOWER(TRIM(wu.gd_nickname)), TRIM(wu.gd_nickname)
                 """),
-            ).mappings().all()
+                )
+                .mappings()
+                .all()
+            )
     except Exception as exc:
         print(f"search_gd_nicks error: {exc}")
         return []
@@ -5562,7 +8054,9 @@ def search_gd_nicks(query: str, limit: int = _GD_NICK_SEARCH_LIMIT) -> list[dict
         nick = (r["nick"] or "").strip()
         if not nick:
             continue
-        entry = index.setdefault(nick.casefold(), {"plays": 0, "completed": 0, "_cands": []})
+        entry = index.setdefault(
+            nick.casefold(), {"plays": 0, "completed": 0, "_cands": []}
+        )
         entry["plays"] += int(r["plays"] or 0)
         entry["completed"] += int(r["completed"] or 0)
         entry["_cands"].append(nick)
@@ -5570,16 +8064,20 @@ def search_gd_nicks(query: str, limit: int = _GD_NICK_SEARCH_LIMIT) -> list[dict
         nick = (r["nick"] or "").strip()
         if not nick:
             continue
-        index.setdefault(nick.casefold(), {"plays": 0, "completed": 0, "_cands": []})["_cands"].append(nick)
+        index.setdefault(nick.casefold(), {"plays": 0, "completed": 0, "_cands": []})[
+            "_cands"
+        ].append(nick)
     out = []
     for key, entry in index.items():
         if q not in key:
             continue
-        out.append({
-            "nick": _nick_search_display(entry["_cands"]),
-            "plays": entry["plays"],
-            "completed": entry["completed"],
-        })
+        out.append(
+            {
+                "nick": _nick_search_display(entry["_cands"]),
+                "plays": entry["plays"],
+                "completed": entry["completed"],
+            }
+        )
     out.sort(key=lambda n: (-n["completed"], -n["plays"], n["nick"]))
     return out[:limit]
 
@@ -5608,24 +8106,45 @@ def _gd_resolve_player_uid(conn, nick: str) -> tuple[int | None, dict]:
     n = (nick or "").strip()
     if not n:
         return None, {}
-    row = conn.execute(
-        text("SELECT id, login, display_name, gd_nickname FROM web_users WHERE LOWER(gd_nickname) = LOWER(:n)"),
-        {"n": n},
-    ).mappings().first()
+    row = (
+        conn.execute(
+            text(
+                "SELECT id, login, display_name, gd_nickname FROM web_users WHERE LOWER(gd_nickname) = LOWER(:n)"
+            ),
+            {"n": n},
+        )
+        .mappings()
+        .first()
+    )
     if row:
-        return int(row["id"]), {"web": True, "login": row["login"], "display_name": row["display_name"], "gd_nickname": row["gd_nickname"]}
-    row = conn.execute(
-        text("SELECT telegram_id, username, first_name FROM users WHERE LOWER(username) = LOWER(:n)"),
-        {"n": n},
-    ).mappings().first()
+        return int(row["id"]), {
+            "web": True,
+            "login": row["login"],
+            "display_name": row["display_name"],
+            "gd_nickname": row["gd_nickname"],
+        }
+    row = (
+        conn.execute(
+            text(
+                "SELECT telegram_id, username, first_name FROM users WHERE LOWER(username) = LOWER(:n)"
+            ),
+            {"n": n},
+        )
+        .mappings()
+        .first()
+    )
     if row:
-        return int(row["telegram_id"]), {"tg_username": row["username"], "tg_first_name": row["first_name"]}
+        return int(row["telegram_id"]), {
+            "tg_username": row["username"],
+            "tg_first_name": row["first_name"],
+        }
     return None, {}
 
 
 def _gd_player_completions(conn, uid: int) -> list[dict]:
-    rows = conn.execute(
-        text("""
+    rows = (
+        conn.execute(
+            text("""
             SELECT l.id, l.name, l.position, l.difficulty, MAX(lc.completed_at) AS completed_at
             FROM level_completions lc
             JOIN levels l ON l.id = lc.level_id
@@ -5633,12 +8152,17 @@ def _gd_player_completions(conn, uid: int) -> list[dict]:
             GROUP BY l.id
             ORDER BY l.position ASC
         """),
-        {"uid": uid},
-    ).mappings().all()
+            {"uid": uid},
+        )
+        .mappings()
+        .all()
+    )
     out = []
     for r in rows:
         d = dict(r)
-        d["difficulty_key"] = _gd_norm_difficulty(d.get("difficulty"), d.get("position"))
+        d["difficulty_key"] = _gd_norm_difficulty(
+            d.get("difficulty"), d.get("position")
+        )
         d["difficulty"] = GD_DIFFICULTY_LABELS.get(d["difficulty_key"], "Unknown")
         if d.get("completed_at"):
             d["completed_at"] = str(d["completed_at"])[:19]
@@ -5664,7 +8188,9 @@ def get_gd_player_profile(nick: str) -> dict | None:
                 # so the persona branch does not hide them, deduped by level.
                 if account_uid is not None:
                     try:
-                        seen = {int(c["id"]) for c in completions if c.get("id") is not None}
+                        seen = {
+                            int(c["id"]) for c in completions if c.get("id") is not None
+                        }
                         for c in _gd_player_completions(conn, int(account_uid)):
                             if int(c["id"]) not in seen:
                                 completions.append(c)
@@ -5673,9 +8199,12 @@ def get_gd_player_profile(nick: str) -> dict | None:
                         print(f"get_gd_player_profile: account merge skipped: {exc}")
             elif account_uid is not None:
                 player_name = (
-                    src.get("gd_nickname") or src.get("display_name")
-                    or src.get("tg_first_name") or src.get("tg_username")
-                    or src.get("username") or nick
+                    src.get("gd_nickname")
+                    or src.get("display_name")
+                    or src.get("tg_first_name")
+                    or src.get("tg_username")
+                    or src.get("username")
+                    or nick
                 )
                 completions = _gd_player_completions(conn, int(account_uid))
             else:
@@ -5710,7 +8239,9 @@ def _gd_shift_positions(conn, position: int, exclude_id: int | None = None) -> N
     """
     if exclude_id is not None:
         conn.execute(
-            text("UPDATE levels SET position = position + 1 WHERE position >= :pos AND id != :lid"),
+            text(
+                "UPDATE levels SET position = position + 1 WHERE position >= :pos AND id != :lid"
+            ),
             {"pos": position, "lid": exclude_id},
         )
     else:
@@ -5728,9 +8259,11 @@ def _gd_compact_positions(conn) -> None:
     to a dense sequence starting from 1, ordered by current position (stable
     by id for ties), so placeholder slots never accumulate.
     """
-    rows = conn.execute(
-        text("SELECT id FROM levels ORDER BY position ASC, id ASC")
-    ).mappings().all()
+    rows = (
+        conn.execute(text("SELECT id FROM levels ORDER BY position ASC, id ASC"))
+        .mappings()
+        .all()
+    )
     for new_pos, row in enumerate(rows, start=1):
         conn.execute(
             text("UPDATE levels SET position = :pos WHERE id = :lid"),
@@ -5742,14 +8275,22 @@ def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int |
     try:
         diff = _gd_norm_difficulty(difficulty, position)
         with get_db_engine().connect() as conn:
-            existing = conn.execute(
-                text("SELECT id, position FROM levels WHERE LOWER(TRIM(name)) = :key"),
-                {"key": _gd_norm_name(name)},
-            ).mappings().first()
+            existing = (
+                conn.execute(
+                    text(
+                        "SELECT id, position FROM levels WHERE LOWER(TRIM(name)) = :key"
+                    ),
+                    {"key": _gd_norm_name(name)},
+                )
+                .mappings()
+                .first()
+            )
             if existing:
                 _gd_shift_positions(conn, position, exclude_id=existing["id"])
                 conn.execute(
-                    text("UPDATE levels SET position=:pos, difficulty=:diff WHERE id=:lid"),
+                    text(
+                        "UPDATE levels SET position=:pos, difficulty=:diff WHERE id=:lid"
+                    ),
                     {"lid": existing["id"], "pos": position, "diff": diff},
                 )
                 _gd_compact_positions(conn)
@@ -5757,10 +8298,16 @@ def add_gd_level(name: str, position: int, difficulty: str = "Unknown") -> int |
                 conn.commit()
                 return int(existing["id"])
             _gd_shift_positions(conn, position)
-            result = conn.execute(
-                text("INSERT INTO levels (name, position, difficulty) VALUES (:nm, :pos, :diff) RETURNING id"),
-                {"nm": name, "pos": position, "diff": diff},
-            ).mappings().first()
+            result = (
+                conn.execute(
+                    text(
+                        "INSERT INTO levels (name, position, difficulty) VALUES (:nm, :pos, :diff) RETURNING id"
+                    ),
+                    {"nm": name, "pos": position, "diff": diff},
+                )
+                .mappings()
+                .first()
+            )
             new_id = int(result["id"]) if result else None
             _gd_compact_positions(conn)
             if new_id:
@@ -5798,7 +8345,7 @@ LICHESS_TIMEOUT_SECONDS = 8
 
 def fetch_lichess_user(username: str) -> dict | None:
     """Fetch Lichess user profile (synchronous for Vercel).
-    
+
     Returns:
         User dict with username, title, online fields, or None if not found.
     """
@@ -5855,10 +8402,16 @@ def get_chess_account(user_id: int) -> dict | None:
     """Get linked chess account for user."""
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT lichess_username, linked_at FROM chess_accounts WHERE user_id = :user_id"),
-                {"user_id": user_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT lichess_username, linked_at FROM chess_accounts WHERE user_id = :user_id"
+                    ),
+                    {"user_id": user_id},
+                )
+                .mappings()
+                .first()
+            )
 
             if row:
                 return {
@@ -5875,10 +8428,16 @@ def get_user_coins(user_id: int) -> dict | None:
     """Get user coins and last puzzle time."""
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT balance, last_puzzle_at FROM user_coins WHERE user_id = :user_id"),
-                {"user_id": user_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT balance, last_puzzle_at FROM user_coins WHERE user_id = :user_id"
+                    ),
+                    {"user_id": user_id},
+                )
+                .mappings()
+                .first()
+            )
 
             if row:
                 return {
@@ -5895,10 +8454,14 @@ def update_user_coins(user_id: int, balance_delta: int, puzzle_time: datetime) -
     """Update user coins balance and puzzle timestamp."""
     try:
         with get_db_engine().connect() as conn:
-            existing = conn.execute(
-                text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
-                {"user_id": user_id},
-            ).mappings().first()
+            existing = (
+                conn.execute(
+                    text("SELECT user_id FROM user_coins WHERE user_id = :user_id"),
+                    {"user_id": user_id},
+                )
+                .mappings()
+                .first()
+            )
 
             if existing:
                 conn.execute(
@@ -5948,16 +8511,32 @@ def _puzzle_cooldown_remaining_hours(user_id: int) -> float | None:
     return _PUZZLE_COOLDOWN_HOURS - elapsed.total_seconds() / 3600
 
 
-def log_chess_game(user_id: int, lichess_username: str, puzzle_id: str, puzzle_rating: int | None, puzzle_themes: str | None) -> int:
+def log_chess_game(
+    user_id: int,
+    lichess_username: str,
+    puzzle_id: str,
+    puzzle_rating: int | None,
+    puzzle_themes: str | None,
+) -> int:
     """Log a chess game/puzzle attempt to history."""
     try:
         with get_db_engine().connect() as conn:
-            result = conn.execute(
-                text(
-                    "INSERT INTO chess_games (user_id, lichess_username, puzzle_id, puzzle_rating, puzzle_themes) VALUES (:user_id, :username, :puzzle_id, :rating, :themes) RETURNING id"
-                ),
-                {"user_id": user_id, "username": lichess_username, "puzzle_id": puzzle_id, "rating": puzzle_rating, "themes": puzzle_themes},
-            ).mappings().first()
+            result = (
+                conn.execute(
+                    text(
+                        "INSERT INTO chess_games (user_id, lichess_username, puzzle_id, puzzle_rating, puzzle_themes) VALUES (:user_id, :username, :puzzle_id, :rating, :themes) RETURNING id"
+                    ),
+                    {
+                        "user_id": user_id,
+                        "username": lichess_username,
+                        "puzzle_id": puzzle_id,
+                        "rating": puzzle_rating,
+                        "themes": puzzle_themes,
+                    },
+                )
+                .mappings()
+                .first()
+            )
 
             conn.commit()
             return result["id"] if result else 0
@@ -5966,7 +8545,9 @@ def log_chess_game(user_id: int, lichess_username: str, puzzle_id: str, puzzle_r
         return 0
 
 
-def link_chess_account(user_id: int, lichess_username: str, force: bool = False) -> bool:
+def link_chess_account(
+    user_id: int, lichess_username: str, force: bool = False
+) -> bool:
     """Link or update chess account for user.
 
     Args:
@@ -5977,19 +8558,29 @@ def link_chess_account(user_id: int, lichess_username: str, force: bool = False)
     try:
         with get_db_engine().connect() as conn:
             # Check if another user has this lichess account
-            existing = conn.execute(
-                text("SELECT user_id FROM chess_accounts WHERE lichess_username = :username"),
-                {"username": lichess_username},
-            ).mappings().first()
+            existing = (
+                conn.execute(
+                    text(
+                        "SELECT user_id FROM chess_accounts WHERE lichess_username = :username"
+                    ),
+                    {"username": lichess_username},
+                )
+                .mappings()
+                .first()
+            )
 
             if existing and existing["user_id"] != user_id and not force:
                 return False
 
             # Check if user already has an account linked
-            current = conn.execute(
-                text("SELECT user_id FROM chess_accounts WHERE user_id = :user_id"),
-                {"user_id": user_id},
-            ).mappings().first()
+            current = (
+                conn.execute(
+                    text("SELECT user_id FROM chess_accounts WHERE user_id = :user_id"),
+                    {"user_id": user_id},
+                )
+                .mappings()
+                .first()
+            )
 
             if force and existing:
                 # Take over the account linked to another user
@@ -5997,7 +8588,11 @@ def link_chess_account(user_id: int, lichess_username: str, force: bool = False)
                     text(
                         "UPDATE chess_accounts SET user_id = :new_user, linked_at = :now WHERE lichess_username = :username"
                     ),
-                    {"new_user": user_id, "now": datetime.utcnow(), "username": lichess_username},
+                    {
+                        "new_user": user_id,
+                        "now": datetime.utcnow(),
+                        "username": lichess_username,
+                    },
                 )
             elif current:
                 # Update existing
@@ -6005,7 +8600,11 @@ def link_chess_account(user_id: int, lichess_username: str, force: bool = False)
                     text(
                         "UPDATE chess_accounts SET lichess_username = :username, linked_at = :now WHERE user_id = :user_id"
                     ),
-                    {"username": lichess_username, "now": datetime.utcnow(), "user_id": user_id},
+                    {
+                        "username": lichess_username,
+                        "now": datetime.utcnow(),
+                        "user_id": user_id,
+                    },
                 )
             else:
                 # Insert new
@@ -6013,7 +8612,11 @@ def link_chess_account(user_id: int, lichess_username: str, force: bool = False)
                     text(
                         "INSERT INTO chess_accounts (user_id, lichess_username, linked_at) VALUES (:user_id, :username, :now)"
                     ),
-                    {"user_id": user_id, "username": lichess_username, "now": datetime.utcnow()},
+                    {
+                        "user_id": user_id,
+                        "username": lichess_username,
+                        "now": datetime.utcnow(),
+                    },
                 )
 
             conn.commit()
@@ -6067,9 +8670,13 @@ def _fetch_lichess_puzzle() -> dict | None:
         puzzle_id = puzzle.get("id", "unknown")
         solution = puzzle.get("solution", "")
         if isinstance(solution, list):
-            solution_moves = [str(m).strip().lower() for m in solution if str(m).strip()]
+            solution_moves = [
+                str(m).strip().lower() for m in solution if str(m).strip()
+            ]
         else:
-            solution_moves = [m.strip().lower() for m in str(solution).split() if m.strip()]
+            solution_moves = [
+                m.strip().lower() for m in str(solution).split() if m.strip()
+            ]
         fen = _derive_puzzle_fen(game.get("pgn", ""), puzzle.get("initialPly", 0))
         if not fen:
             return None
@@ -6160,37 +8767,64 @@ def normalize_command(text: str | None) -> str:
     return first_token.split("@", maxsplit=1)[0].lower()
 
 
-def _handle_budget_family_command(chat_id: int, user_id: str, name: str, args: list[str]) -> None:
+def _handle_budget_family_command(
+    chat_id: int, user_id: str, name: str, args: list[str]
+) -> None:
     """Handle /family subcommands directly in the webhook (create/join/info/leave)."""
     import random as _rnd
 
-    sub = (args[0].lower() if args else "help")
+    sub = args[0].lower() if args else "help"
     engine = get_db_engine()
     st = str(user_id)
 
     if sub == "create":
         fam_name = " ".join(args[1:]).strip()[:255] if len(args) > 1 else ""
         if not fam_name:
-            send_telegram_message(chat_id, "Укажите название семьи: /family create <название>")
+            send_telegram_message(
+                chat_id, "Укажите название семьи: /family create <название>"
+            )
             return
         with engine.connect() as conn:
-            row = conn.execute(text("SELECT id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT id FROM family_members WHERE user_id = :u"), {"u": st}
+                )
+                .mappings()
+                .first()
+            )
             if row:
                 send_telegram_message(chat_id, "❌ Вы уже состоите в семье.")
                 return
             code = "".join(_rnd.choices("0123456789", k=6))
             for _ in range(50):
-                exists = conn.execute(text("SELECT 1 FROM families WHERE invite_code = :c"), {"c": code}).mappings().first()
+                exists = (
+                    conn.execute(
+                        text("SELECT 1 FROM families WHERE invite_code = :c"),
+                        {"c": code},
+                    )
+                    .mappings()
+                    .first()
+                )
                 if not exists:
                     break
                 code = "".join(_rnd.choices("0123456789", k=6))
             conn.execute(
-                text("INSERT INTO families (name, admin_id, invite_code) VALUES (:n, :a, :c)"),
+                text(
+                    "INSERT INTO families (name, admin_id, invite_code) VALUES (:n, :a, :c)"
+                ),
                 {"n": fam_name, "a": st, "c": code},
             )
-            fam_id = conn.execute(text("SELECT id FROM families WHERE invite_code = :c"), {"c": code}).mappings().first()["id"]
+            fam_id = (
+                conn.execute(
+                    text("SELECT id FROM families WHERE invite_code = :c"), {"c": code}
+                )
+                .mappings()
+                .first()["id"]
+            )
             conn.execute(
-                text("INSERT INTO family_members (family_id, user_id, display_name) VALUES (:f, :u, :d)"),
+                text(
+                    "INSERT INTO family_members (family_id, user_id, display_name) VALUES (:f, :u, :d)"
+                ),
                 {"f": fam_id, "u": st, "d": name or "Участник"},
             )
             conn.commit()
@@ -6202,21 +8836,38 @@ def _handle_budget_family_command(chat_id: int, user_id: str, name: str, args: l
             parse_mode="HTML",
         )
     elif sub == "join":
-        code = (args[1].strip() if len(args) > 1 else "")
+        code = args[1].strip() if len(args) > 1 else ""
         if not code:
-            send_telegram_message(chat_id, "Укажите код приглашения: /family join <код>")
+            send_telegram_message(
+                chat_id, "Укажите код приглашения: /family join <код>"
+            )
             return
         with engine.connect() as conn:
-            row = conn.execute(text("SELECT id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT id FROM family_members WHERE user_id = :u"), {"u": st}
+                )
+                .mappings()
+                .first()
+            )
             if row:
                 send_telegram_message(chat_id, "❌ Вы уже состоите в семье.")
                 return
-            fam = conn.execute(text("SELECT id, name FROM families WHERE invite_code = :c"), {"c": code}).mappings().first()
+            fam = (
+                conn.execute(
+                    text("SELECT id, name FROM families WHERE invite_code = :c"),
+                    {"c": code},
+                )
+                .mappings()
+                .first()
+            )
             if not fam:
                 send_telegram_message(chat_id, "❌ Неверный код приглашения.")
                 return
             conn.execute(
-                text("INSERT INTO family_members (family_id, user_id, display_name) VALUES (:f, :u, :d)"),
+                text(
+                    "INSERT INTO family_members (family_id, user_id, display_name) VALUES (:f, :u, :d)"
+                ),
                 {"f": fam["id"], "u": st, "d": name or "Участник"},
             )
             conn.commit()
@@ -6226,15 +8877,37 @@ def _handle_budget_family_command(chat_id: int, user_id: str, name: str, args: l
         )
     elif sub == "info":
         with engine.connect() as conn:
-            row = conn.execute(text("SELECT family_id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT family_id FROM family_members WHERE user_id = :u"),
+                    {"u": st},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 send_telegram_message(chat_id, "❌ Вы не состоите ни в одной семье.")
                 return
-            fam = conn.execute(text("SELECT id, name, admin_id, invite_code FROM families WHERE id = :f"), {"f": row["family_id"]}).mappings().first()
-            members = conn.execute(
-                text("SELECT user_id, display_name FROM family_members WHERE family_id = :f ORDER BY joined_at"),
-                {"f": row["family_id"]},
-            ).mappings().all()
+            fam = (
+                conn.execute(
+                    text(
+                        "SELECT id, name, admin_id, invite_code FROM families WHERE id = :f"
+                    ),
+                    {"f": row["family_id"]},
+                )
+                .mappings()
+                .first()
+            )
+            members = (
+                conn.execute(
+                    text(
+                        "SELECT user_id, display_name FROM family_members WHERE family_id = :f ORDER BY joined_at"
+                    ),
+                    {"f": row["family_id"]},
+                )
+                .mappings()
+                .all()
+            )
         lines = "\n".join(
             f"• {m['display_name']} {'(админ)' if str(m['user_id']) == str(fam['admin_id']) else ''}"
             for m in members
@@ -6247,11 +8920,25 @@ def _handle_budget_family_command(chat_id: int, user_id: str, name: str, args: l
         )
     elif sub == "leave":
         with engine.connect() as conn:
-            row = conn.execute(text("SELECT family_id FROM family_members WHERE user_id = :u"), {"u": st}).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT family_id FROM family_members WHERE user_id = :u"),
+                    {"u": st},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 send_telegram_message(chat_id, "❌ Вы не состоите ни в одной семье.")
                 return
-            adm = conn.execute(text("SELECT admin_id FROM families WHERE id = :f"), {"f": row["family_id"]}).mappings().first()
+            adm = (
+                conn.execute(
+                    text("SELECT admin_id FROM families WHERE id = :f"),
+                    {"f": row["family_id"]},
+                )
+                .mappings()
+                .first()
+            )
             if adm and str(adm["admin_id"]) == st:
                 send_telegram_message(
                     chat_id,
@@ -6259,7 +8946,9 @@ def _handle_budget_family_command(chat_id: int, user_id: str, name: str, args: l
                 )
                 return
             conn.execute(
-                text("DELETE FROM family_members WHERE user_id = :u AND family_id = :f"),
+                text(
+                    "DELETE FROM family_members WHERE user_id = :u AND family_id = :f"
+                ),
                 {"u": st, "f": row["family_id"]},
             )
             conn.commit()
@@ -6282,7 +8971,10 @@ def _fetch_family_info_via_api(user_id: str) -> dict | None:
     try:
         resp = requests.get(
             f"https://bank-bot-ruby.vercel.app/api/budget/family/status?user_id={user_id}",
-            headers={"X-User-Id": user_id, "X-Budget-Sig": _budget_sign_user_id(user_id)},
+            headers={
+                "X-User-Id": user_id,
+                "X-Budget-Sig": _budget_sign_user_id(user_id),
+            },
             timeout=10,
         )
         data = resp.json()
@@ -6305,7 +8997,10 @@ def _create_transaction_via_api(family_id: int, txn_data: dict) -> bool:
         resp = requests.post(
             "https://bank-bot-ruby.vercel.app/api/budget/transactions",
             json=payload,
-            headers={"X-User-Id": str(txn_data["payer_id"]), "X-Budget-Sig": _budget_sign_user_id(txn_data["payer_id"])},
+            headers={
+                "X-User-Id": str(txn_data["payer_id"]),
+                "X-Budget-Sig": _budget_sign_user_id(txn_data["payer_id"]),
+            },
             timeout=10,
         )
         return resp.status_code == 201
@@ -6321,10 +9016,14 @@ def get_conversion_rate(bot_name: str) -> float:
     try:
         db = get_db_engine()
         with db.connect() as conn:
-            row = conn.execute(
-                text("SELECT k FROM conversion_rates WHERE bot_name = :bn LIMIT 1"),
-                {"bn": bot_name},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT k FROM conversion_rates WHERE bot_name = :bn LIMIT 1"),
+                    {"bn": bot_name},
+                )
+                .mappings()
+                .first()
+            )
             if row:
                 return float(row["k"])
     except Exception:
@@ -6480,7 +9179,11 @@ def parse_chaometer_drink_message(text: str) -> dict | None:
     """Parse Чайометр drink result message (not profile)."""
     if not text or "ты выпил" not in text or "л." not in text:
         return None
-    match = re.search(r"(.+?), ты выпил\(а\)\s*([\d.]+)\s*л\..*?всего\s*[-–]\s*([\d.]+)\s*л", text, re.IGNORECASE | re.DOTALL)
+    match = re.search(
+        r"(.+?), ты выпил\(а\)\s*([\d.]+)\s*л\..*?всего\s*[-–]\s*([\d.]+)\s*л",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
     if not match:
         return None
     player = match.group(1).strip().split("\n")[-1].strip()
@@ -6563,7 +9266,10 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
         )
         if response.status_code != 200:
             # Retry without parse_mode if entity parsing failed
-            if "can't parse entities" in (response.text or "") and "parse_mode" in payload:
+            if (
+                "can't parse entities" in (response.text or "")
+                and "parse_mode" in payload
+            ):
                 retry = {k: v for k, v in payload.items() if k != "parse_mode"}
                 try:
                     requests.post(
@@ -6574,7 +9280,11 @@ def send_telegram_message(chat_id: int, text: str, **extra_payload) -> None:
                 except Exception:
                     pass
             else:
-                log_error("SEND_MSG", "error", f"chat_id={chat_id} status={response.status_code} resp={response.text[:200]}")
+                log_error(
+                    "SEND_MSG",
+                    "error",
+                    f"chat_id={chat_id} status={response.status_code} resp={response.text[:200]}",
+                )
     except Exception as exc:
         log_error("SEND_MSG", "error", f"EXCEPTION: {exc}")
 
@@ -6601,6 +9311,7 @@ def log_error(module: str, error_type: str, message: str, context: str = "") -> 
     """
     import traceback as _tb
     from datetime import datetime as _dt
+
     depth = getattr(_ERROR_LOG_REENTRY, "depth", 0)
     _ERROR_LOG_REENTRY.depth = depth + 1
     try:
@@ -6611,7 +9322,9 @@ def log_error(module: str, error_type: str, message: str, context: str = "") -> 
                 if _check_ai_rate(f"log_error:{module}", 1, 300):
                     recommendation = _static_recommendation(module, error_type)
                 else:
-                    recommendation = _get_ai_recommendation(module, error_type, message, context)
+                    recommendation = _get_ai_recommendation(
+                        module, error_type, message, context
+                    )
             except Exception:
                 recommendation = _static_recommendation(module, error_type)
         entry = {
@@ -6635,10 +9348,13 @@ def log_error(module: str, error_type: str, message: str, context: str = "") -> 
         _ERROR_LOG_REENTRY.depth = depth
 
 
-def _get_ai_recommendation(module: str, error_type: str, message: str, context: str = "") -> str:
+def _get_ai_recommendation(
+    module: str, error_type: str, message: str, context: str = ""
+) -> str:
     """Get AI-generated fix recommendation for an error (Gemini primary, Groq fallback)."""
     # Try to get relevant code snippet from error traceback
     import traceback
+
     code_snippet = ""
     try:
         tb = traceback.format_exc()
@@ -6685,7 +9401,10 @@ def _static_recommendation(module: str, error_type: str) -> str:
         ("DB", "table_missing"): "Выполнить миграцию 009_phase2_tables_supabase.sql",
         ("DB", "connection"): "Проверить DATABASE_URL в Vercel env vars",
         ("Chess", "lichess_api"): "Lichess API недоступен, повторить позже",
-        ("Chess", "history_query"): "Таблица chess_games — перезапустить бот (автосоздание)",
+        (
+            "Chess",
+            "history_query",
+        ): "Таблица chess_games — перезапустить бот (автосоздание)",
         ("Chess", "fen_derivation"): "Проверить python-chess в requirements.txt",
         ("Chess", "fen_empty"): "Lichess API мог изменить формат ответа",
         ("GD", "gd_api"): "GD API (boomlings.com) недоступен",
@@ -6703,7 +9422,11 @@ def _static_recommendation(module: str, error_type: str) -> str:
 
 
 def send_telegram_poll(
-    chat_id: int, question: str, options: list[str], correct_option_id: int, explanation: str
+    chat_id: int,
+    question: str,
+    options: list[str],
+    correct_option_id: int,
+    explanation: str,
 ) -> None:
     """Send a Telegram Poll (quiz type) from the Vercel webhook runtime."""
 
@@ -6744,7 +9467,11 @@ def set_response_mode(chat_id: int, mode: str) -> None:
 def build_short_start_text(name: str, user_id: int) -> str:
     """Build the old short `/start` response."""
     is_admin = user_id == ADMIN_TELEGRAM_ID
-    admin_section = "\n\nАдмин:\n/errors — журнал ошибок\n/clear_errors — очистить ошибки" if is_admin else ""
+    admin_section = (
+        "\n\nАдмин:\n/errors — журнал ошибок\n/clear_errors — очистить ошибки"
+        if is_admin
+        else ""
+    )
 
     return f"""[BANK] LucasTeam Hub (LTHub)
 Привет, {name}!
@@ -6829,12 +9556,21 @@ def api_hub_popularity():
     """
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("SELECT module, SUM(actions) AS actions, COUNT(DISTINCT user_id) AS users "
-                     "FROM web_activity_log GROUP BY module")
-            ).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT module, SUM(actions) AS actions, COUNT(DISTINCT user_id) AS users "
+                        "FROM web_activity_log GROUP BY module"
+                    )
+                )
+                .mappings()
+                .all()
+            )
         popularity = {
-            r["module"]: {"actions": int(r["actions"] or 0), "users": int(r["users"] or 0)}
+            r["module"]: {
+                "actions": int(r["actions"] or 0),
+                "users": int(r["users"] or 0),
+            }
             for r in rows
         }
         return jsonify({"ok": True, "popularity": popularity})
@@ -7301,7 +10037,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     [5, 10, 15, 20, 30].forEach(function (m) {
                         var btn = document.createElement('button');
                         btn.className = 'oge-chip' + (m === CUR_TARGET ? ' active' : '');
-                        btn.textContent = m + ' \u043C\u0438\u043D';
+                        btn.textContent = m + ' \u043c\u0438\u043d';
                         btn.onclick = function () { setTarget(m); };
                         el.appendChild(btn);
                     });
@@ -7320,7 +10056,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var token = localStorage.getItem('web_token');
                     var uid = localStorage.getItem('web_user_id') || '';
                     if (!token || uid.indexOf('u') !== 0) {
-                        list.innerHTML = '<div class="oge-plan-empty">\u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u2014 \u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u0441\u0430\u043C \u0441\u043E\u0441\u0442\u0430\u0432\u0438\u0442 \u043F\u043B\u0430\u043D \u043D\u0430 \u0434\u0435\u043D\u044C.</div>';
+                        list.innerHTML = '<div class="oge-plan-empty">\u0412\u043e\u0439\u0434\u0438\u0442\u0435 \u2014 \u0418\u0418-\u043a\u0443\u0440\u0430\u0442\u043e\u0440 \u0441\u0430\u043c \u0441\u043e\u0441\u0442\u0430\u0432\u0438\u0442 \u043f\u043b\u0430\u043d \u043d\u0430 \u0434\u0435\u043d\u044c.</div>';
                         return;
                     }
                     fetch('/api/study/recommendations', { headers: curAuth() })
@@ -7334,7 +10070,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                             if (p && p.ok) { PLAN = p; renderWidgetPlan(p); renderCurPlan(p); }
                         })
                         .catch(function () {
-                            list.innerHTML = '<div class="oge-plan-empty">\u041F\u043B\u0430\u043D \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D</div>';
+                            list.innerHTML = '<div class="oge-plan-empty">\u041f\u043b\u0430\u043d \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d</div>';
                         });
                     pollToday();
                 }
@@ -7351,12 +10087,12 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         var t = it.target || 5, d = Math.min(it.done || 0, t);
                         var prog = (d > 0 && d < t) ? ' <span class="oi-badge">' + d + '/' + t + '</span>' : '';
                         var okmark = d >= t ? ' \u2705' : '';
-                        html += '<div class="oge-item" data-i="' + i + '" style="cursor:pointer" title="\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0437\u0430\u0434\u0430\u043D\u0438\u044E">' +
+                        html += '<div class="oge-item" data-i="' + i + '" style="cursor:pointer" title="\u041f\u0435\u0440\u0435\u0439\u0442\u0438 \u043a \u0437\u0430\u0434\u0430\u043d\u0438\u044e">' +
                             okmark + escHtml(it.label) + ' \u2014 ' + escHtml(it.text) +
-                            ' <span class="oi-badge">' + it.minutes + '\u043C</span>' + prog +
-                            (it.tab ? ' <span class="oi-badge">\u2192 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u044C</span>' : '') + '</div>';
+                            ' <span class="oi-badge">' + it.minutes + '\u043c</span>' + prog +
+                            (it.tab ? ' <span class="oi-badge">\u2192 \u0432\u044b\u043f\u043e\u043b\u043d\u0438\u0442\u044c</span>' : '') + '</div>';
                     });
-                    html += '<div class="oge-plan-empty">\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u043E ' + p.done + ' \u0438\u0437 ' + p.items.length + ' \u00B7 \u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u0430</div>';
+                    html += '<div class="oge-plan-empty">\u0410\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u0437\u0430\u043a\u0440\u044b\u0442\u043e ' + p.done + ' \u0438\u0437 ' + p.items.length + ' \u00b7 \u043d\u0430\u0436\u043c\u0438\u0442\u0435, \u0447\u0442\u043e\u0431\u044b \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u043a\u0443\u0440\u0430\u0442\u043e\u0440\u0430</div>';
                     list.innerHTML = html;
                     Array.prototype.forEach.call(list.querySelectorAll('.oge-item'), function (el, i) {
                         el.onclick = function () { goItem(p.items[i]); };
@@ -7376,27 +10112,27 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     var h = '';
                     p.items.forEach(function (it) {
                         var t = it.target || 5, d = Math.min(it.done || 0, t), ok = d >= t;
-                        h += '<div class="cur-item' + (ok ? ' done' : '') + '" style="cursor:pointer" title="\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0437\u0430\u0434\u0430\u043D\u0438\u044E">' +
-                            '<span>' + (ok ? '\u2705' : '\u2B1C') + '</span>' +
+                        h += '<div class="cur-item' + (ok ? ' done' : '') + '" style="cursor:pointer" title="\u041f\u0435\u0440\u0435\u0439\u0442\u0438 \u043a \u0437\u0430\u0434\u0430\u043d\u0438\u044e">' +
+                            '<span>' + (ok ? '\u2705' : '\u2b1c') + '</span>' +
                             '<span>' + escHtml((it.label || '') + ' \u2014 ' + it.text) + '</span>' +
                             '<span style="margin-left:auto;color:var(--bb-muted);white-space:nowrap">' +
-                            (ok ? '\u2705 \u0433\u043E\u0442\u043E\u0432\u043E' : d + '/' + t + ' \u043A\u0430\u0440\u0442' + (it.tab ? ' \u00B7 \u2192 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u044C' : '')) + '</span></div>';
+                            (ok ? '\u2705 \u0433\u043e\u0442\u043e\u0432\u043e' : d + '/' + t + ' \u043a\u0430\u0440\u0442' + (it.tab ? ' \u00b7 \u2192 \u0432\u044b\u043f\u043e\u043b\u043d\u0438\u0442\u044c' : '')) + '</span></div>';
                     });
                     el.innerHTML = h;
                     Array.prototype.forEach.call(el.querySelectorAll('.cur-item'), function (row, i) {
                         row.onclick = function () { goItem(p.items[i]); };
                     });
                     if (p.items.length && p.done >= p.items.length) {
-                        h += '<div class="oge-today-line">\U0001F389 \u041F\u043B\u0430\u043D \u0434\u043D\u044F \u043F\u043E\u043B\u043D\u043E\u0441\u0442\u044C\u044E \u0437\u0430\u043A\u0440\u044B\u0442! \u0422\u0430\u043A \u0434\u0435\u0440\u0436\u0430\u0442\u044C.</div>';
+                        h += '<div class="oge-today-line">\U0001f389 \u041f\u043b\u0430\u043d \u0434\u043d\u044f \u043f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e \u0437\u0430\u043a\u0440\u044b\u0442! \u0422\u0430\u043a \u0434\u0435\u0440\u0436\u0430\u0442\u044c.</div>';
                     } else {
-                        h += '<div class="oge-today-line">\U0001F4A1 \u0417\u0430\u0447\u0451\u0442 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439: \u00AB\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0438\u00BB - \u0432\u0435\u0440\u043D\u044B\u0439 \u043E\u0442\u0432\u0435\u0442 \u043D\u0430 \u0441\u043B\u0430\u0431\u0443\u044E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443 (\u043E\u0434\u0438\u043D \u0440\u0430\u0437 \u0432 \u0434\u0435\u043D\u044C); \u00AB\u0438\u0437\u0443\u0447\u0438\u0442\u044C \u043D\u043E\u0432\u044B\u0435\u00BB - \u043F\u0435\u0440\u0432\u0430\u044F \u0440\u0430\u0431\u043E\u0442\u0430 \u0441 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u043E\u0439. \u0417\u0430\u043A\u0440\u044B\u0442\u043E ' +
+                        h += '<div class="oge-today-line">\U0001f4a1 \u0417\u0430\u0447\u0451\u0442 \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439: \u00ab\u0438\u0441\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043e\u0448\u0438\u0431\u043a\u0438\u00bb - \u0432\u0435\u0440\u043d\u044b\u0439 \u043e\u0442\u0432\u0435\u0442 \u043d\u0430 \u0441\u043b\u0430\u0431\u0443\u044e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443 (\u043e\u0434\u0438\u043d \u0440\u0430\u0437 \u0432 \u0434\u0435\u043d\u044c); \u00ab\u0438\u0437\u0443\u0447\u0438\u0442\u044c \u043d\u043e\u0432\u044b\u0435\u00bb - \u043f\u0435\u0440\u0432\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430 \u0441 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u043e\u0439. \u0417\u0430\u043a\u0440\u044b\u0442\u043e ' +
                             p.done + ' \u0438\u0437 ' + p.items.length + '.</div>';
                     }
                     el.innerHTML = h;
                 }
                 function regenPlan() {
                     var l = document.getElementById('oge-plan-list');
-                    if (l) l.innerHTML = '<div class="oge-plan-empty">\u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0441\u043E\u0431\u0438\u0440\u0430\u0435\u0442 \u043F\u043B\u0430\u043D\u2026</div>';
+                    if (l) l.innerHTML = '<div class="oge-plan-empty">\u041a\u0443\u0440\u0430\u0442\u043e\u0440 \u0441\u043e\u0431\u0438\u0440\u0430\u0435\u0442 \u043f\u043b\u0430\u043d\u2026</div>';
                     fetch('/api/study/plan', { method: 'POST', headers: curAuth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ minutes: CUR_TARGET }) })
                         .then(function (r) { return r.ok ? r.json() : null; })
                         .then(function (p) {
@@ -7423,7 +10159,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         .then(function (r) { return r.json(); })
                         .then(function (d) {
                             var el = document.getElementById('oge-today-line');
-                            if (el && d && d.ok) el.textContent = '\u0421\u0435\u0433\u043E\u0434\u043D\u044F \u043E\u0442\u043C\u0435\u0447\u0435\u043D\u043E \u043A\u0430\u0440\u0442\u043E\u0447\u0435\u043A: ' + d.touched;
+                            if (el && d && d.ok) el.textContent = '\u0421\u0435\u0433\u043e\u0434\u043d\u044f \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043e \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a: ' + d.touched;
                         }).catch(function () {});
                     clearTimeout(todayTimer);
                     todayTimer = setTimeout(pollToday, 60000);
@@ -7477,15 +10213,15 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         .then(function (res) {
                             btn.disabled = false;
                             if (status && status.parentNode) status.parentNode.removeChild(status);
-                            if (res.st === 401) { bubble('assistant', '\U0001F510 \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 \u2014 \u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u0432\u0435\u0434\u0451\u0442 \u043F\u0435\u0440\u0435\u043F\u0438\u0441\u043A\u0443 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0435.'); return; }
-                            if (res.j && res.j.actions && res.j.actions.length) bubble('sys', '\U0001F50E \u041A\u0443\u0440\u0430\u0442\u043E\u0440 ' + res.j.actions.join(', ') + '.');
+                            if (res.st === 401) { bubble('assistant', '\U0001f510 \u0412\u043e\u0439\u0434\u0438\u0442\u0435 \u043d\u0430 \u0441\u0430\u0439\u0442\u0435 \u2014 \u043a\u0443\u0440\u0430\u0442\u043e\u0440 \u0432\u0435\u0434\u0451\u0442 \u043f\u0435\u0440\u0435\u043f\u0438\u0441\u043a\u0443 \u0432 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u0435.'); return; }
+                            if (res.j && res.j.actions && res.j.actions.length) bubble('sys', '\U0001f50e \u041a\u0443\u0440\u0430\u0442\u043e\u0440 ' + res.j.actions.join(', ') + '.');
                             if (res.j && res.j.reply) bubble('assistant', res.j.reply);
-                            else bubble('assistant', '\u274C \u041A\u0443\u0440\u0430\u0442\u043E\u0440 \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.');
+                            else bubble('assistant', '\u274c \u041a\u0443\u0440\u0430\u0442\u043e\u0440 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d.');
                         })
                         .catch(function () {
                             btn.disabled = false;
                             if (status && status.parentNode) status.parentNode.removeChild(status);
-                            bubble('assistant', '\u274C \u041D\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u043A\u0443\u0440\u0430\u0442\u043E\u0440\u043E\u043C.');
+                            bubble('assistant', '\u274c \u041d\u0435\u0442 \u0441\u0432\u044f\u0437\u0438 \u0441 \u043a\u0443\u0440\u0430\u0442\u043e\u0440\u043e\u043c.');
                         });
                 }
                 var curSend = document.getElementById('cur-send');
@@ -7666,7 +10402,11 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
 </body>
 </html>"""
     html = html.replace("__MUSIC_VER__", BUILD_TAG)
-    return html, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}
+    return (
+        html,
+        200,
+        {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"},
+    )
 
 
 @app.route("/gd")
@@ -8837,16 +11577,18 @@ def api_gd_user(nick: str):
     data = fetch_gd_user(nick)
     if not data:
         return jsonify({"error": "Игрок не найден в Geometry Dash"}), 404
-    return jsonify({
-        "username": data.get("username"),
-        "stars": data.get("stars", 0),
-        "demons": data.get("demons", 0),
-        "creator_points": data.get("creator_points", 0),
-        "coins": data.get("coins", 0),
-        "user_coins": data.get("user_coins", 0),
-        "diamonds": data.get("diamonds", 0),
-        "rank": data.get("rank"),
-    })
+    return jsonify(
+        {
+            "username": data.get("username"),
+            "stars": data.get("stars", 0),
+            "demons": data.get("demons", 0),
+            "creator_points": data.get("creator_points", 0),
+            "coins": data.get("coins", 0),
+            "user_coins": data.get("user_coins", 0),
+            "diamonds": data.get("diamonds", 0),
+            "rank": data.get("rank"),
+        }
+    )
 
 
 @app.route("/api/gd/leaderboard")
@@ -8855,19 +11597,32 @@ def api_gd_leaderboard():
     levels = get_gd_leaderboard(limit)
     # External difficulty enrichment is only needed for levels we cannot place
     # locally (no position => no tier). Bounded by cache + 5s timeout per level.
-    needs = [lv for lv in levels if (lv.get("difficulty_key") in (None, "unknown")
-                                     and not (lv.get("position") or 0))]
+    needs = [
+        lv
+        for lv in levels
+        if (
+            lv.get("difficulty_key") in (None, "unknown")
+            and not (lv.get("position") or 0)
+        )
+    ]
     if needs:
         from concurrent.futures import ThreadPoolExecutor
+
         try:
             with ThreadPoolExecutor(max_workers=3) as pool:
-                diffs = list(pool.map(lambda lv: get_gd_difficulty_name(lv.get("name") or ""), needs))
+                diffs = list(
+                    pool.map(
+                        lambda lv: get_gd_difficulty_name(lv.get("name") or ""), needs
+                    )
+                )
             want = {id(lv): d for lv, d in zip(needs, diffs)}
             for lv in levels:
                 if id(lv) in want and want[id(lv)] not in (None, "Unknown", "unknown"):
                     key = want[id(lv)]
                     lv["difficulty_key"] = key
-                    lv["difficulty"] = GD_DIFFICULTY_LABELS.get(key, lv.get("difficulty"))
+                    lv["difficulty"] = GD_DIFFICULTY_LABELS.get(
+                        key, lv.get("difficulty")
+                    )
         except Exception as exc:
             print(f"GD leaderboard difficulty enrich error: {exc}")
     return jsonify(levels)
@@ -8880,17 +11635,19 @@ def api_gd_level_completions(level_id: int):
         return jsonify({"error": "Уровень не найден"}), 404
     completions = get_gd_level_completions(level_id)
     diff_key = _gd_norm_difficulty(lvl.get("difficulty"), lvl.get("position"))
-    return jsonify({
-        "level": {
-            "id": lvl["id"],
-            "name": lvl.get("name"),
-            "position": lvl.get("position"),
-            "difficulty": GD_DIFFICULTY_LABELS.get(diff_key, "Unknown"),
-            "difficulty_key": diff_key,
-            "color": GD_DIFFICULTY_COLORS.get(diff_key),
-        },
-        "completions": completions,
-    })
+    return jsonify(
+        {
+            "level": {
+                "id": lvl["id"],
+                "name": lvl.get("name"),
+                "position": lvl.get("position"),
+                "difficulty": GD_DIFFICULTY_LABELS.get(diff_key, "Unknown"),
+                "difficulty_key": diff_key,
+                "color": GD_DIFFICULTY_COLORS.get(diff_key),
+            },
+            "completions": completions,
+        }
+    )
 
 
 @app.route("/api/gd/admin/level/<int:level_id>", methods=["DELETE"])
@@ -8900,17 +11657,35 @@ def api_gd_admin_level_delete(level_id: int):
         return jsonify({"error": "Нет прав администратора"}), 403
     try:
         with get_db_engine().connect() as conn:
-            lvl = conn.execute(
-                text("SELECT id FROM levels WHERE id = :lid"), {"lid": level_id}
-            ).mappings().first()
+            lvl = (
+                conn.execute(
+                    text("SELECT id FROM levels WHERE id = :lid"), {"lid": level_id}
+                )
+                .mappings()
+                .first()
+            )
             if not lvl:
                 return jsonify({"error": "Уровень не найден"}), 404
-            affected = conn.execute(
-                text("SELECT DISTINCT user_id AS uid FROM level_completions WHERE level_id = :lid"),
+            affected = (
+                conn.execute(
+                    text(
+                        "SELECT DISTINCT user_id AS uid FROM level_completions WHERE level_id = :lid"
+                    ),
+                    {"lid": level_id},
+                )
+                .mappings()
+                .all()
+            )
+            conn.execute(
+                text("DELETE FROM level_completions WHERE level_id = :lid"),
                 {"lid": level_id},
-            ).mappings().all()
-            conn.execute(text("DELETE FROM level_completions WHERE level_id = :lid"), {"lid": level_id})
-            conn.execute(text("UPDATE player_stats SET hardest_level_id = NULL WHERE hardest_level_id = :lid"), {"lid": level_id})
+            )
+            conn.execute(
+                text(
+                    "UPDATE player_stats SET hardest_level_id = NULL WHERE hardest_level_id = :lid"
+                ),
+                {"lid": level_id},
+            )
             conn.execute(text("DELETE FROM levels WHERE id = :lid"), {"lid": level_id})
             _gd_compact_positions(conn)
             for u in affected:
@@ -8942,30 +11717,51 @@ def api_gd_admin_level_update(level_id: int):
         difficulty = _gd_norm_difficulty(difficulty, position)
     try:
         with get_db_engine().connect() as conn:
-            lvl = conn.execute(
-                text("SELECT id, position FROM levels WHERE id = :lid"), {"lid": level_id}
-            ).mappings().first()
+            lvl = (
+                conn.execute(
+                    text("SELECT id, position FROM levels WHERE id = :lid"),
+                    {"lid": level_id},
+                )
+                .mappings()
+                .first()
+            )
             if not lvl:
                 return jsonify({"error": "Уровень не найден"}), 404
-            duplicate = conn.execute(
-                text("SELECT id FROM levels WHERE LOWER(TRIM(name)) = :key AND id != :lid"),
-                {"key": _gd_norm_name(name), "lid": level_id},
-            ).mappings().first()
+            duplicate = (
+                conn.execute(
+                    text(
+                        "SELECT id FROM levels WHERE LOWER(TRIM(name)) = :key AND id != :lid"
+                    ),
+                    {"key": _gd_norm_name(name), "lid": level_id},
+                )
+                .mappings()
+                .first()
+            )
             if duplicate:
-                return jsonify({"error": "Уровень с таким названием уже есть в топе"}), 409
-            old_row = conn.execute(
-                text("SELECT name FROM levels WHERE id = :lid"), {"lid": level_id}
-            ).mappings().first()
+                return jsonify(
+                    {"error": "Уровень с таким названием уже есть в топе"}
+                ), 409
+            old_row = (
+                conn.execute(
+                    text("SELECT name FROM levels WHERE id = :lid"), {"lid": level_id}
+                )
+                .mappings()
+                .first()
+            )
             old_name = (old_row["name"] or "").strip() if old_row else ""
             _gd_shift_positions(conn, position, exclude_id=level_id)
             conn.execute(
-                text("UPDATE levels SET name=:nm, position=:pos, difficulty=COALESCE(:diff, difficulty) WHERE id=:lid"),
+                text(
+                    "UPDATE levels SET name=:nm, position=:pos, difficulty=COALESCE(:diff, difficulty) WHERE id=:lid"
+                ),
                 {"lid": level_id, "nm": name, "pos": position, "diff": difficulty},
             )
             # Sync submission names so victors list stays linked
             if old_name and old_name != name:
                 conn.execute(
-                    text("UPDATE submissions SET level_name = :nm WHERE level_name = :old AND status = 'approved'"),
+                    text(
+                        "UPDATE submissions SET level_name = :nm WHERE level_name = :old AND status = 'approved'"
+                    ),
                     {"nm": name, "old": old_name},
                 )
             _gd_compact_positions(conn)
@@ -8986,15 +11782,17 @@ def api_gd_my_stats():
     stats = get_gd_build_player_stats(uid)
     if not stats:
         return jsonify({"error": "Нет данных о пользователе"}), 404
-    return jsonify({
-        "total_approved": int(stats.get("total_approved") or 0),
-        "total_rejected": int(stats.get("total_rejected") or 0),
-        "hardest_level": get_gd_hardest_level_name(uid),
-        "completions": get_gd_user_completions_count(uid),
-        "submissions": get_gd_submission_counts(uid),
-        "points": int(stats.get("points") or 0),
-        "demons_count": int(stats.get("demons_count") or 0),
-    })
+    return jsonify(
+        {
+            "total_approved": int(stats.get("total_approved") or 0),
+            "total_rejected": int(stats.get("total_rejected") or 0),
+            "hardest_level": get_gd_hardest_level_name(uid),
+            "completions": get_gd_user_completions_count(uid),
+            "submissions": get_gd_submission_counts(uid),
+            "points": int(stats.get("points") or 0),
+            "demons_count": int(stats.get("demons_count") or 0),
+        }
+    )
 
 
 def _gd_web_uid(user_id_raw: str | None) -> int | None:
@@ -9049,7 +11847,9 @@ def api_gd_submit():
     token = _auth_token_from_request() or (request.form.get("token") or "").strip()
     web_user = _get_session_user(token or None)
     if not web_user:
-        return jsonify({"error": "Для отправки рекорда нужно войти в аккаунт (анонимам запрещено)"}), 401
+        return jsonify(
+            {"error": "Для отправки рекорда нужно войти в аккаунт (анонимам запрещено)"}
+        ), 401
     uid = int(web_user["id"])
     level_name = (request.form.get("level_name") or "").strip()
     if not level_name:
@@ -9070,7 +11870,9 @@ def api_gd_submit():
         except (TypeError, ValueError):
             attempts = None
         if attempts is not None and attempts < 1:
-            return jsonify({"error": "Кол-во попыток должно быть положительным числом"}), 400
+            return jsonify(
+                {"error": "Кол-во попыток должно быть положительным числом"}
+            ), 400
 
     # GD-ник берём из аккаунта; если пуст — из запроса (клиент запрашивает у игрока при первой отправке).
     gd_nick = (web_user.get("gd_nickname") or "").strip()
@@ -9080,12 +11882,19 @@ def api_gd_submit():
             gd_nick = submitted_nick[:50]
             _save_gd_nickname(uid, gd_nick)
         else:
-            return jsonify({"error": "Укажите ваш GD-ник для таблицы лидеров", "gd_nickname_required": True}), 400
+            return jsonify(
+                {
+                    "error": "Укажите ваш GD-ник для таблицы лидеров",
+                    "gd_nickname_required": True,
+                }
+            ), 400
     # В лидерборде показываем именно GD-ник из аккаунта.
     username = gd_nick
 
     # Co-op на двоих: необязательный GD-ник напарника под тем же общим пруфом.
-    partner_nick, coop_error = _gd_norm_coop_partner(request.form.get("partner_nick"), gd_nick)
+    partner_nick, coop_error = _gd_norm_coop_partner(
+        request.form.get("partner_nick"), gd_nick
+    )
     if coop_error:
         return jsonify({"error": coop_error}), 400
 
@@ -9094,7 +11903,9 @@ def api_gd_submit():
     media_url = (request.form.get("media_url") or "").strip()
     if media_file and media_file.filename:
         if media_url:
-            return jsonify({"error": "Укажите только один источник медиа: файл ИЛИ внешнюю ссылку"}), 400
+            return jsonify(
+                {"error": "Укажите только один источник медиа: файл ИЛИ внешнюю ссылку"}
+            ), 400
         media_data = media_file.read()
         if not media_data:
             return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
@@ -9103,35 +11914,77 @@ def api_gd_submit():
         filename = (media_file.filename or "").lower()
         media_mime = (media_file.mimetype or "").lower()
         # Строгий allowlist медиа-типов: отсекаем text/html и SVG (XSS-векторы через data:-URL).
-        if filename.endswith(".svg") or media_mime in ("image/svg+xml", "text/html", "application/html"):
-            return jsonify({"error": "Недопустимый тип файла (разрешены только видео/фото)"}), 400
-        is_video = media_mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".mkv"))
-        is_photo = media_mime in ("image/png", "image/jpeg", "image/gif", "image/webp") or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+        if filename.endswith(".svg") or media_mime in (
+            "image/svg+xml",
+            "text/html",
+            "application/html",
+        ):
+            return jsonify(
+                {"error": "Недопустимый тип файла (разрешены только видео/фото)"}
+            ), 400
+        is_video = media_mime.startswith("video/") or filename.endswith(
+            (".mp4", ".mov", ".webm", ".mkv")
+        )
+        is_photo = media_mime in (
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+        ) or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
         if is_video:
             media_type = "video"
             if not media_mime.startswith("video/"):
-                ext = next((e for e in (".mp4", ".mov", ".webm", ".mkv") if filename.endswith(e)), ".mp4")
+                ext = next(
+                    (
+                        e
+                        for e in (".mp4", ".mov", ".webm", ".mkv")
+                        if filename.endswith(e)
+                    ),
+                    ".mp4",
+                )
                 media_mime = "video/" + ext[1:]
         elif is_photo:
             media_type = "photo"
             if media_mime not in ("image/png", "image/jpeg", "image/gif", "image/webp"):
-                ext = next((e for e in (".png", ".jpg", ".jpeg", ".gif", ".webp") if filename.endswith(e)), ".png")
+                ext = next(
+                    (
+                        e
+                        for e in (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                        if filename.endswith(e)
+                    ),
+                    ".png",
+                )
                 media_mime = "image/" + ext[1:]
         else:
-            return jsonify({"error": "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)"}), 400
+            return jsonify(
+                {
+                    "error": "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)"
+                }
+            ), 400
         # Храним файл как data-URL (веб не имеет Telegram file_id); тип ограничен allowlist выше.
-        media_ref = f"data:{media_mime};base64,{base64.b64encode(media_data).decode('ascii')}"
+        media_ref = (
+            f"data:{media_mime};base64,{base64.b64encode(media_data).decode('ascii')}"
+        )
     elif media_url:
         # Внешняя ссылка: только http/https; ложится в media_file_id как есть (href экранируется на рендере).
         if len(media_url) > 2048:
-            return jsonify({"error": "Ссылка слишком длинная (макс. 2048 символов)"}), 400
+            return jsonify(
+                {"error": "Ссылка слишком длинная (макс. 2048 символов)"}
+            ), 400
         try:
             from urllib.parse import urlparse
+
             parsed = urlparse(media_url)
         except Exception:
             parsed = None
-        if not parsed or parsed.scheme not in ("http", "https") or not getattr(parsed, "netloc", ""):
-            return jsonify({"error": "Ссылка должна начинаться с http:// или https://"}), 400
+        if (
+            not parsed
+            or parsed.scheme not in ("http", "https")
+            or not getattr(parsed, "netloc", "")
+        ):
+            return jsonify(
+                {"error": "Ссылка должна начинаться с http:// или https://"}
+            ), 400
         low = media_url.lower()
         if any(bad in low for bad in ("javascript:", "data:", "file:", "vbscript:")):
             return jsonify({"error": "Недопустимая ссылка"}), 400
@@ -9140,7 +11993,17 @@ def api_gd_submit():
     else:
         return jsonify({"error": "Прикрепите видео или фото с прохождением"}), 400
 
-    sub_id = create_gd_submission(uid, username, level_name, media_ref, media_type, status="pending", difficulty=difficulty, attempts=attempts, partner_nick=partner_nick)
+    sub_id = create_gd_submission(
+        uid,
+        username,
+        level_name,
+        media_ref,
+        media_type,
+        status="pending",
+        difficulty=difficulty,
+        attempts=attempts,
+        partner_nick=partner_nick,
+    )
     if not sub_id:
         return jsonify({"error": "Ошибка создания заявки"}), 500
     return jsonify({"ok": True, "submission_id": sub_id})
@@ -9157,12 +12020,14 @@ def api_gd_moderate():
         if s.get("submitted_at"):
             s["submitted_at"] = str(s["submitted_at"])[:19]
     total_pages = max((total + per_page - 1) // per_page, 1)
-    return jsonify({
-        "submissions": submissions,
-        "total": total,
-        "total_pages": total_pages,
-        "page": page,
-    })
+    return jsonify(
+        {
+            "submissions": submissions,
+            "total": total,
+            "total_pages": total_pages,
+            "page": page,
+        }
+    )
 
 
 @app.route("/api/gd/moderate/reject", methods=["POST"])
@@ -9201,20 +12066,36 @@ def api_gd_moderate_approve():
         return jsonify({"error": "Позиция должна быть положительным числом"}), 400
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT level_name, difficulty FROM submissions WHERE id = :sid AND status = 'pending'"),
-                {"sid": sub_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT level_name, difficulty FROM submissions WHERE id = :sid AND status = 'pending'"
+                    ),
+                    {"sid": sub_id},
+                )
+                .mappings()
+                .first()
+            )
             # A level already in the list keeps whatever the admin has set:
             # add_gd_level overwrites difficulty, so approving another run must
             # not reset it (it used to reset it to "Unknown" every time).
             cur_diff = None
             if row:
-                cur = conn.execute(
-                    text("SELECT difficulty FROM levels WHERE LOWER(TRIM(name)) = :key"),
-                    {"key": _gd_norm_name(row["level_name"])},
-                ).mappings().first()
-                cur_diff = _gd_norm_difficulty(cur["difficulty"]) if cur and cur.get("difficulty") else None
+                cur = (
+                    conn.execute(
+                        text(
+                            "SELECT difficulty FROM levels WHERE LOWER(TRIM(name)) = :key"
+                        ),
+                        {"key": _gd_norm_name(row["level_name"])},
+                    )
+                    .mappings()
+                    .first()
+                )
+                cur_diff = (
+                    _gd_norm_difficulty(cur["difficulty"])
+                    if cur and cur.get("difficulty")
+                    else None
+                )
     except Exception as exc:
         print(f"approve fetch error: {exc}")
         return jsonify({"error": "Ошибка базы данных"}), 500
@@ -9228,7 +12109,9 @@ def api_gd_moderate_approve():
         suggested = cur_diff
     level_id = add_gd_level(level_name, position, suggested or "Unknown")
     if not level_id:
-        return jsonify({"error": f"Ошибка при добавлении уровня {level_name} в топ"}), 500
+        return jsonify(
+            {"error": f"Ошибка при добавлении уровня {level_name} в топ"}
+        ), 500
     if approve_gd_submission_db(sub_id, admin_id):
         return jsonify({"ok": True, "level_id": level_id})
     return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
@@ -9248,34 +12131,71 @@ def _gd_admin_build_media() -> tuple[str | None, str | None, str | None]:
             return None, None, "Файл слишком большой (макс. 16 МБ)"
         filename = (media_file.filename or "").lower()
         media_mime = (media_file.mimetype or "").lower()
-        if filename.endswith(".svg") or media_mime in ("image/svg+xml", "text/html", "application/html"):
+        if filename.endswith(".svg") or media_mime in (
+            "image/svg+xml",
+            "text/html",
+            "application/html",
+        ):
             return None, None, "Недопустимый тип файла (разрешены только фото/видео)"
-        is_video = media_mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".mkv"))
-        is_photo = media_mime in ("image/png", "image/jpeg", "image/gif", "image/webp") or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+        is_video = media_mime.startswith("video/") or filename.endswith(
+            (".mp4", ".mov", ".webm", ".mkv")
+        )
+        is_photo = media_mime in (
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+        ) or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
         if is_video:
             media_type = "video"
             if not media_mime.startswith("video/"):
-                ext = next((e for e in (".mp4", ".mov", ".webm", ".mkv") if filename.endswith(e)), ".mp4")
+                ext = next(
+                    (
+                        e
+                        for e in (".mp4", ".mov", ".webm", ".mkv")
+                        if filename.endswith(e)
+                    ),
+                    ".mp4",
+                )
                 media_mime = "video/" + ext[1:]
         elif is_photo:
             media_type = "photo"
             if media_mime not in ("image/png", "image/jpeg", "image/gif", "image/webp"):
-                ext = next((e for e in (".png", ".jpg", ".jpeg", ".gif", ".webp") if filename.endswith(e)), ".png")
+                ext = next(
+                    (
+                        e
+                        for e in (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                        if filename.endswith(e)
+                    ),
+                    ".png",
+                )
                 media_mime = "image/" + ext[1:]
         else:
-            return None, None, "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)"
+            return (
+                None,
+                None,
+                "Допустимы только видео (mp4/mov/webm/mkv) или фото (png/jpg/gif/webp)",
+            )
         import base64 as _b64
-        media_ref = f"data:{media_mime};base64,{_b64.b64encode(media_data).decode('ascii')}"
+
+        media_ref = (
+            f"data:{media_mime};base64,{_b64.b64encode(media_data).decode('ascii')}"
+        )
         return media_ref, media_type, None
     if media_url:
         if len(media_url) > 2048:
             return None, None, "Ссылка слишком длинная (макс. 2048 символов)"
         try:
             from urllib.parse import urlparse
+
             parsed = urlparse(media_url)
         except Exception:
             parsed = None
-        if not parsed or parsed.scheme not in ("http", "https") or not getattr(parsed, "netloc", ""):
+        if (
+            not parsed
+            or parsed.scheme not in ("http", "https")
+            or not getattr(parsed, "netloc", "")
+        ):
             return None, None, "Ссылка должна начинаться с http:// или https://"
         low = media_url.lower()
         if any(bad in low for bad in ("javascript:", "data:", "file:", "vbscript:")):
@@ -9318,29 +12238,51 @@ def api_gd_admin_add_completion(nick: str):
     try:
         with get_db_engine().begin() as conn:
             uid = _gd_admin_player_uid(conn, nick)
-            lv = conn.execute(
-                text("SELECT id, name FROM levels WHERE id = :lid"), {"lid": level_id},
-            ).mappings().first()
+            lv = (
+                conn.execute(
+                    text("SELECT id, name FROM levels WHERE id = :lid"),
+                    {"lid": level_id},
+                )
+                .mappings()
+                .first()
+            )
             if uid is not None:
-                dup = conn.execute(
-                    text("SELECT 1 FROM level_completions WHERE user_id = :u AND level_id = :l"),
-                    {"u": uid, "l": level_id},
-                ).mappings().first()
+                dup = (
+                    conn.execute(
+                        text(
+                            "SELECT 1 FROM level_completions WHERE user_id = :u AND level_id = :l"
+                        ),
+                        {"u": uid, "l": level_id},
+                    )
+                    .mappings()
+                    .first()
+                )
             else:
                 dup = None
             if uid is None:
-                return jsonify({"error": "Игрок не найден (нет привязанного аккаунта)"}), 404
+                return jsonify(
+                    {"error": "Игрок не найден (нет привязанного аккаунта)"}
+                ), 404
             if not lv:
                 return jsonify({"error": "Уровень не найден"}), 404
             if dup:
-                return jsonify({"error": "Этот уровень уже отмечен как пройденный у игрока"}), 400
+                return jsonify(
+                    {"error": "Этот уровень уже отмечен как пройденный у игрока"}
+                ), 400
             pname = nick or _gd_account_name(conn, uid)
             conn.execute(
                 text("""
                     INSERT INTO submissions (user_id, username, level_name, media_file_id, media_type, status, reviewed_at, reviewed_by)
                     VALUES (:u, :n, :ln, :mf, :mt, 'approved', CURRENT_TIMESTAMP, :r)
                 """),
-                {"u": uid, "n": pname, "ln": lv["name"], "mf": media_ref, "mt": media_type, "r": admin.get("id") or 0},
+                {
+                    "u": uid,
+                    "n": pname,
+                    "ln": lv["name"],
+                    "mf": media_ref,
+                    "mt": media_type,
+                    "r": admin.get("id") or 0,
+                },
             )
             conn.execute(
                 text("""
@@ -9362,7 +12304,9 @@ def api_gd_admin_add_completion(nick: str):
         print(f"admin add completion error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     profile = get_gd_player_profile(nick)
-    return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
+    return jsonify(
+        {"ok": True, "profile": profile} if profile else {"ok": True, "profile": None}
+    )
 
 
 @app.route("/api/gd/admin/player/<nick>/level/<int:level_id>/media", methods=["POST"])
@@ -9377,25 +12321,38 @@ def api_gd_admin_set_completion_media(nick: str, level_id: int):
         return jsonify({"error": "Укажите медиа: ссылку на видео/фото или файл"}), 400
     try:
         with get_db_engine().begin() as conn:
-            lv = conn.execute(
-                text("SELECT id, name FROM levels WHERE id = :lid"), {"lid": level_id},
-            ).mappings().first()
+            lv = (
+                conn.execute(
+                    text("SELECT id, name FROM levels WHERE id = :lid"),
+                    {"lid": level_id},
+                )
+                .mappings()
+                .first()
+            )
             if not lv:
                 return jsonify({"error": "Уровень не найден"}), 404
-            sub = conn.execute(
-                text("""
+            sub = (
+                conn.execute(
+                    text("""
                     SELECT s.id FROM submissions s
                     WHERE s.status = 'approved'
                       AND LOWER(TRIM(s.level_name)) = LOWER(TRIM(:nm))
                       AND LOWER(s.username) = LOWER(:nick)
                     ORDER BY s.id DESC LIMIT 1
                 """),
-                {"nm": lv["name"], "nick": nick},
-            ).mappings().first()
+                    {"nm": lv["name"], "nick": nick},
+                )
+                .mappings()
+                .first()
+            )
             if not sub:
-                return jsonify({"error": "Approved-прохождение игрока на этом уровне не найдено"}), 404
+                return jsonify(
+                    {"error": "Approved-прохождение игрока на этом уровне не найдено"}
+                ), 404
             conn.execute(
-                text("UPDATE submissions SET media_file_id = :mf, media_type = :mt WHERE id = :sid"),
+                text(
+                    "UPDATE submissions SET media_file_id = :mf, media_type = :mt WHERE id = :sid"
+                ),
                 {"mf": media_ref, "mt": media_type, "sid": sub["id"]},
             )
     except Exception as exc:
@@ -9410,7 +12367,9 @@ def api_gd_admin_remove_completion(nick: str):
     if _web_admin_session() is None:
         return jsonify({"error": "Нет прав администратора"}), 403
     try:
-        level_id = int(request.args.get("level_id") or request.form.get("level_id") or 0)
+        level_id = int(
+            request.args.get("level_id") or request.form.get("level_id") or 0
+        )
     except (TypeError, ValueError):
         level_id = 0
     if level_id < 1:
@@ -9418,25 +12377,42 @@ def api_gd_admin_remove_completion(nick: str):
     try:
         with get_db_engine().begin() as conn:
             uid = _gd_admin_player_uid(conn, nick)
-            lv = conn.execute(
-                text("SELECT name FROM levels WHERE id = :lid"), {"lid": level_id},
-            ).mappings().first()
+            lv = (
+                conn.execute(
+                    text("SELECT name FROM levels WHERE id = :lid"),
+                    {"lid": level_id},
+                )
+                .mappings()
+                .first()
+            )
             if uid is None:
-                return jsonify({"error": "Игрок не найден (нет привязанного аккаунта)"}), 404
+                return jsonify(
+                    {"error": "Игрок не найден (нет привязанного аккаунта)"}
+                ), 404
             if not lv:
                 return jsonify({"error": "Уровень не найден"}), 404
             del_compl = conn.execute(
-                text("DELETE FROM level_completions WHERE user_id = :u AND level_id = :l"),
+                text(
+                    "DELETE FROM level_completions WHERE user_id = :u AND level_id = :l"
+                ),
                 {"u": uid, "l": level_id},
             )
             del_subs = conn.execute(
-                text("DELETE FROM submissions WHERE user_id = :u AND status = 'approved' AND LOWER(TRIM(level_name)) = LOWER(TRIM(:nm))"),
+                text(
+                    "DELETE FROM submissions WHERE user_id = :u AND status = 'approved' AND LOWER(TRIM(level_name)) = LOWER(TRIM(:nm))"
+                ),
                 {"u": uid, "nm": lv["name"]},
             )
-            total = conn.execute(
-                text("SELECT COUNT(*) AS c FROM submissions WHERE user_id = :u AND status = 'approved'"),
-                {"u": uid},
-            ).mappings().first()
+            total = (
+                conn.execute(
+                    text(
+                        "SELECT COUNT(*) AS c FROM submissions WHERE user_id = :u AND status = 'approved'"
+                    ),
+                    {"u": uid},
+                )
+                .mappings()
+                .first()
+            )
             conn.execute(
                 text("""
                     INSERT INTO player_stats (user_id, total_approved) VALUES (:u, :c)
@@ -9451,7 +12427,9 @@ def api_gd_admin_remove_completion(nick: str):
         print(f"admin remove completion error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
     profile = get_gd_player_profile(nick)
-    return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
+    return jsonify(
+        {"ok": True, "profile": profile} if profile else {"ok": True, "profile": None}
+    )
 
 
 @app.route("/api/gd/admin/player/<nick>/nick", methods=["PUT", "POST"])
@@ -9459,7 +12437,9 @@ def api_gd_admin_rename_player(nick: str):
     """Admin: rename a GD persona (merges it with the target nick if it exists)."""
     if _web_admin_session() is None:
         return jsonify({"error": "Нет прав администратора"}), 403
-    new_nick = (request.form.get("new_nick") or request.args.get("new_nick") or "").strip()
+    new_nick = (
+        request.form.get("new_nick") or request.args.get("new_nick") or ""
+    ).strip()
     if not new_nick or len(new_nick) > 64:
         return jsonify({"error": "Укажите корректный новый ник"}), 400
     try:
@@ -9471,10 +12451,13 @@ def api_gd_admin_rename_player(nick: str):
     if not renamed:
         return jsonify({"error": "Персона не найдена"}), 404
     profile = get_gd_player_profile(new_nick)
-    return jsonify({"ok": True, "profile": profile} if profile else {"ok": True, "profile": None})
+    return jsonify(
+        {"ok": True, "profile": profile} if profile else {"ok": True, "profile": None}
+    )
 
 
 # ── D&D AI Master (web) ────────────────────────────────────────────
+
 
 def _dnd_plain(text: str) -> str:
     """Strip Telegram HTML tags from D&D replies for clean web display."""
@@ -9487,35 +12470,46 @@ def api_dnd_status():
     if uid is None:
         return jsonify({"error": "unauthorized"}), 401
     try:
-        from api.dnd_runtime import find_active_session, get_session_log, get_session_players
+        from api.dnd_runtime import (
+            find_active_session,
+            get_session_log,
+            get_session_players,
+        )
+
         session = find_active_session(uid)
         if not session:
             return jsonify({"active": False})
         sid = session["id"]
         log = get_session_log(sid)
         players = get_session_players(sid)
-        return jsonify({
-            "active": True,
-            "id": sid,
-            "name": session.get("name"),
-            "scene": session.get("current_scene") or "Новая игра",
-            "log_count": len(log),
-            "last_ai_response": (session.get("last_ai_response") or "")[:300],
-            "share_code": session.get("share_code"),
-            "share_url": ("/dnd?session=" + session["share_code"]) if session.get("share_code") else None,
-            "players": [
-                {
-                    "name": p.get("player_name") or p.get("name") or "Игрок",
-                    "char_class": p.get("character_class"),
-                    "level": p.get("level"),
-                }
-                for p in players
-            ],
-            "log": log,
-        })
+        return jsonify(
+            {
+                "active": True,
+                "id": sid,
+                "name": session.get("name"),
+                "scene": session.get("current_scene") or "Новая игра",
+                "log_count": len(log),
+                "last_ai_response": (session.get("last_ai_response") or "")[:300],
+                "share_code": session.get("share_code"),
+                "share_url": ("/dnd?session=" + session["share_code"])
+                if session.get("share_code")
+                else None,
+                "players": [
+                    {
+                        "name": p.get("player_name") or p.get("name") or "Игрок",
+                        "char_class": p.get("character_class"),
+                        "level": p.get("level"),
+                    }
+                    for p in players
+                ],
+                "log": log,
+            }
+        )
     except Exception as exc:
         log_error("DND", "error", f"status error: {exc}")
-        log_error("DnD", "status_query", f"dnd status user={uid}: {exc}", "query: dnd status")
+        log_error(
+            "DnD", "status_query", f"dnd status user={uid}: {exc}", "query: dnd status"
+        )
         return jsonify({"active": False})
 
 
@@ -9528,30 +12522,33 @@ def api_dnd_start():
     uid = _web_user_id("u" + str(session_user["id"]))
     name = (data.get("name") or "").strip()[:100]
     from api.dnd_runtime import cmd_dnd_start, find_active_session, get_session_players
+
     reply = cmd_dnd_start(uid, uid, name)
     session = find_active_session(uid)
     if not session:
         return jsonify({"ok": True, "reply": _dnd_plain(reply)})
     code = session.get("share_code")
     players = get_session_players(session["id"])
-    return jsonify({
-        "ok": True,
-        "active": True,
-        "id": session["id"],
-        "name": session.get("name"),
-        "scene": session.get("current_scene") or "Новая игра",
-        "share_code": code,
-        "share_url": ("/dnd?session=" + code) if code else None,
-        "players": [
-            {
-                "name": p.get("player_name") or p.get("name") or "Игрок",
-                "char_class": p.get("character_class"),
-                "level": p.get("level"),
-            }
-            for p in players
-        ],
-        "reply": _dnd_plain(reply),
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "active": True,
+            "id": session["id"],
+            "name": session.get("name"),
+            "scene": session.get("current_scene") or "Новая игра",
+            "share_code": code,
+            "share_url": ("/dnd?session=" + code) if code else None,
+            "players": [
+                {
+                    "name": p.get("player_name") or p.get("name") or "Игрок",
+                    "char_class": p.get("character_class"),
+                    "level": p.get("level"),
+                }
+                for p in players
+            ],
+            "reply": _dnd_plain(reply),
+        }
+    )
 
 
 @app.route("/api/dnd/join", methods=["POST"])
@@ -9565,23 +12562,28 @@ def api_dnd_join():
     if not code:
         return jsonify({"error": "Укажите код сессии"}), 400
     from api.dnd_runtime import find_session_by_code, join_session
+
     session = find_session_by_code(code)
     if not session or session.get("status") != "active":
         return jsonify({"error": "Сессия не найдена или завершена"}), 404
     reply = join_session(uid, session["id"], name or None)
-    return jsonify({
-        "ok": True,
-        "reply": _dnd_plain(reply),
-        "session_id": session["id"],
-        "share_code": session.get("share_code"),
-        "share_url": ("/dnd?session=" + (session.get("share_code") or "")),
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "reply": _dnd_plain(reply),
+            "session_id": session["id"],
+            "share_code": session.get("share_code"),
+            "share_url": ("/dnd?session=" + (session.get("share_code") or "")),
+        }
+    )
 
 
 @app.route("/api/dnd/act", methods=["POST"])
 def api_dnd_act():
     data = request.get_json(silent=True) or {}
-    if _check_ai_rate("dnd:" + request.remote_addr) or _check_db_rate("dnd:" + (request.remote_addr or ""), 15, 60):
+    if _check_ai_rate("dnd:" + request.remote_addr) or _check_db_rate(
+        "dnd:" + (request.remote_addr or ""), 15, 60
+    ):
         return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
@@ -9590,6 +12592,7 @@ def api_dnd_act():
     if not text:
         return jsonify({"error": "Пустое действие"}), 400
     from api.dnd_runtime import handle_free_text
+
     reply = handle_free_text(uid, uid, text)
     if reply is None:
         return jsonify({"error": "Нет активной D&D сессии. Начните новую сессию."}), 400
@@ -9599,7 +12602,9 @@ def api_dnd_act():
 @app.route("/api/dnd/roll", methods=["POST"])
 def api_dnd_roll():
     data = request.get_json(silent=True) or {}
-    if _check_ai_rate("dnd_roll:" + (request.remote_addr or ""), max_requests=20, window=60):
+    if _check_ai_rate(
+        "dnd_roll:" + (request.remote_addr or ""), max_requests=20, window=60
+    ):
         return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     uid = _dnd_require_auth(data.get("user_id", ""))
     if uid is None:
@@ -9609,6 +12614,7 @@ def api_dnd_roll():
     if not dice:
         return jsonify({"error": "Укажите кубик, например d20 или 2d6+3"}), 400
     from api.dnd_runtime import cmd_dnd_roll
+
     args = dice + (" " + purpose if purpose else "")
     reply = cmd_dnd_roll(uid, uid, args)
     return jsonify({"ok": True, "reply": _dnd_plain(reply)})
@@ -9622,6 +12628,7 @@ def api_dnd_stop():
     uid = _web_user_id("u" + str(session_user["id"]))
     try:
         from api.dnd_runtime import cmd_dnd_stop
+
         reply = cmd_dnd_stop(uid, uid)
     except Exception as exc:
         log_error("DnD", "error", f"stop error: {exc}")
@@ -9644,6 +12651,7 @@ def api_dnd_fix():
         return jsonify({"error": "Пустой текст исправления"}), 400
     try:
         from api.dnd_runtime import cmd_dnd_fix
+
         reply = cmd_dnd_fix(uid, uid, text)
     except Exception:
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -10027,7 +13035,9 @@ def debug_puzzle():
     # Test send_telegram_message
     if BOT_TOKEN:
         try:
-            resp = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+            resp = requests.get(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10
+            )
             results["getMe"] = {"status": resp.status_code, "ok": resp.ok}
         except Exception as e:
             results["getMe"] = {"error": str(e)}
@@ -10035,7 +13045,11 @@ def debug_puzzle():
     # Test DB connection
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(text("SELECT count(*) as cnt FROM chess_accounts")).mappings().first()
+            row = (
+                conn.execute(text("SELECT count(*) as cnt FROM chess_accounts"))
+                .mappings()
+                .first()
+            )
             results["chess_accounts_count"] = row["cnt"] if row else -1
     except Exception as e:
         results["db_error"] = str(e)
@@ -10090,9 +13104,10 @@ def test_puzzle(user_id):
     now = datetime.utcnow()
     if coins_data and coins_data.get("last_puzzle_at"):
         last_puzzle = coins_data["last_puzzle_at"]
-        if hasattr(last_puzzle, 'tzinfo') and last_puzzle.tzinfo is not None:
+        if hasattr(last_puzzle, "tzinfo") and last_puzzle.tzinfo is not None:
             last_puzzle = last_puzzle.replace(tzinfo=None)
         from datetime import timedelta
+
         diff = now - last_puzzle
         results["last_puzzle"] = str(last_puzzle)
         results["hours_since"] = diff.total_seconds() / 3600
@@ -10103,8 +13118,13 @@ def test_puzzle(user_id):
     # Step 4: fetch Lichess puzzle
     try:
         import requests as req
+
         puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/daily"
-        resp = req.get(puzzle_url, headers={"Accept": "application/json", "User-Agent": "LTHub"}, timeout=8)
+        resp = req.get(
+            puzzle_url,
+            headers={"Accept": "application/json", "User-Agent": "LTHub"},
+            timeout=8,
+        )
         results["lichess_status"] = resp.status_code
         if resp.status_code == 200:
             data = resp.json()
@@ -10591,7 +13611,11 @@ _TRIVIA_SESSION_TTL = 3600  # 1 hour
 def _trivia_prune_expired() -> None:
     """Remove trivia sessions older than _TRIVIA_SESSION_TTL seconds."""
     now = time.time()
-    stale = [k for k, v in _TRIVIA_SESSIONS.items() if now - v.get("_created_at", 0) > _TRIVIA_SESSION_TTL]
+    stale = [
+        k
+        for k, v in _TRIVIA_SESSIONS.items()
+        if now - v.get("_created_at", 0) > _TRIVIA_SESSION_TTL
+    ]
     for k in stale:
         _TRIVIA_SESSIONS.pop(k, None)
 
@@ -10654,13 +13678,13 @@ def _parse_ai_question(text: str) -> dict | None:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("Вопрос:"):
-            question_text = stripped[len("Вопрос:"):].strip()
+            question_text = stripped[len("Вопрос:") :].strip()
         elif re.match(r"^[1-4]\.\s", stripped):
             options.append(re.sub(r"^[1-4]\.\s*", "", stripped))
         elif stripped.startswith("Правильный ответ:"):
-            correct_answer = stripped[len("Правильный ответ:"):].strip()
+            correct_answer = stripped[len("Правильный ответ:") :].strip()
         elif stripped.startswith("Объяснение:"):
-            explanation = stripped[len("Объяснение:"):].strip()
+            explanation = stripped[len("Объяснение:") :].strip()
 
     if not question_text or len(options) < 4 or not correct_answer or not explanation:
         return None
@@ -10685,7 +13709,11 @@ def _parse_ai_question(text: str) -> dict | None:
 def _call_ai_api_fast(prompt: str, max_tokens: int = 200, timeout: float = 4.0) -> str:
     """Fast AI call with short timeout for trivia (Gemini primary, Groq fallback)."""
     resp = _ai_chat(
-        {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.7},
+        {
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": 0.7,
+        },
         timeout=timeout,
     )
     if resp is not None and resp.status_code == 200:
@@ -10718,12 +13746,22 @@ def _vercel_trivia_question() -> dict | None:
     if len(manual) >= 3:
         distractors_pool = random.sample(manual, 3)
     else:
-        same_group = [q for q in _TRIVIA_QUESTIONS if q.get("group") == q_group and q["correct_text"] != correct_text]
-        other = [q for q in _TRIVIA_QUESTIONS if q.get("group") != q_group and q["correct_text"] != correct_text]
+        same_group = [
+            q
+            for q in _TRIVIA_QUESTIONS
+            if q.get("group") == q_group and q["correct_text"] != correct_text
+        ]
+        other = [
+            q
+            for q in _TRIVIA_QUESTIONS
+            if q.get("group") != q_group and q["correct_text"] != correct_text
+        ]
         distractors_pool = [q["correct_text"] for q in same_group]
         if len(distractors_pool) < 3:
             distractors_pool += [q["correct_text"] for q in other]
-        distractors_pool = random.sample(distractors_pool, min(3, len(distractors_pool)))
+        distractors_pool = random.sample(
+            distractors_pool, min(3, len(distractors_pool))
+        )
 
     options = [correct_text] + distractors_pool
     random.shuffle(options)
@@ -10787,11 +13825,12 @@ CHARACTER_PROMPTS_AI_CHAT = {
 _VIRTUAL_PC: dict[str, dict] = {}  # user_id -> {cwd, fs, uploads}
 _VIRTUAL_PC_MAX = 50  # max concurrent virtual PCs
 
+
 def _pc_evict():
     """Evict oldest virtual PCs if over limit."""
     if len(_VIRTUAL_PC) > _VIRTUAL_PC_MAX:
         keys = list(_VIRTUAL_PC.keys())
-        for k in keys[:len(keys) - _VIRTUAL_PC_MAX]:
+        for k in keys[: len(keys) - _VIRTUAL_PC_MAX]:
             _VIRTUAL_PC.pop(k, None)
 
 
@@ -10871,7 +13910,9 @@ def _pc_list_dir(state: dict, path: str) -> str:
     if not node["children"]:
         return ""
     names = sorted(node["children"].keys())
-    return "\n".join(n + ("/" if node["children"][n]["type"] == "dir" else "") for n in names)
+    return "\n".join(
+        n + ("/" if node["children"][n]["type"] == "dir" else "") for n in names
+    )
 
 
 def _pc_write(state: dict, path: str, content: str) -> str:
@@ -10889,16 +13930,57 @@ def _pc_write(state: dict, path: str, content: str) -> str:
 
 
 _BLOCKED_MODULES = {
-    'os', 'subprocess', 'socket', 'shutil', 'pathlib', 'ctypes', 'signal',
-    'multiprocessing', 'threading', '_thread', 'sys', 'platform', 'pdb',
-    'codeop', 'compileall', 'py_compile', 'venv', 'ensurepip', 'runpy',
-    'webbrowser', 'xmlrpc', 'ftplib', 'smtplib', 'poplib', 'imaplib',
-    'nntplib', 'telnetlib', 'uuid', 'warnings', 'atexit', 'inspect',
-    'traceback', 'linecache', 'pickle', 'shelve', 'dbm', 'sqlite3',
-    'tkinter', 'turtle', 'asyncio', 'concurrent', 'logging', 'unittest',
-    'doctest', 'profile', 'pstats', 'timeit', 'zipimport', 'pkgutil',
+    "os",
+    "subprocess",
+    "socket",
+    "shutil",
+    "pathlib",
+    "ctypes",
+    "signal",
+    "multiprocessing",
+    "threading",
+    "_thread",
+    "sys",
+    "platform",
+    "pdb",
+    "codeop",
+    "compileall",
+    "py_compile",
+    "venv",
+    "ensurepip",
+    "runpy",
+    "webbrowser",
+    "xmlrpc",
+    "ftplib",
+    "smtplib",
+    "poplib",
+    "imaplib",
+    "nntplib",
+    "telnetlib",
+    "uuid",
+    "warnings",
+    "atexit",
+    "inspect",
+    "traceback",
+    "linecache",
+    "pickle",
+    "shelve",
+    "dbm",
+    "sqlite3",
+    "tkinter",
+    "turtle",
+    "asyncio",
+    "concurrent",
+    "logging",
+    "unittest",
+    "doctest",
+    "profile",
+    "pstats",
+    "timeit",
+    "zipimport",
+    "pkgutil",
 }
-_BLOCKED_KEYWORDS = {'__import__', 'eval', 'exec', 'open', '__builtins__'}
+_BLOCKED_KEYWORDS = {"__import__", "eval", "exec", "open", "__builtins__"}
 
 
 def _sandbox_preexec(cpu_seconds: int, memory_mb: int, max_filesize_mb: int = 8):
@@ -10934,8 +14016,9 @@ def _sandbox_preexec(cpu_seconds: int, memory_mb: int, max_filesize_mb: int = 8)
     return _apply
 
 
-def _run_python_sandbox(code: str, timeout: int = 10, max_output: int = 4000,
-                        memory_mb: int = 0) -> dict:
+def _run_python_sandbox(
+    code: str, timeout: int = 10, max_output: int = 4000, memory_mb: int = 0
+) -> dict:
     """Execute Python code in an isolated, restricted sandbox and report details.
 
     The child process gets a sanitized environment (no DB/API secrets) and a
@@ -10950,6 +14033,7 @@ def _run_python_sandbox(code: str, timeout: int = 10, max_output: int = 4000,
     """
     import ast
     import shutil
+
     result = {"ok": False, "stdout": "", "stderr": "", "error": "", "ms": 0}
     if not code.strip():
         result["error"] = "empty code"
@@ -10959,18 +14043,21 @@ def _run_python_sandbox(code: str, timeout: int = 10, max_output: int = 4000,
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    mod = alias.name.split('.')[0]
+                    mod = alias.name.split(".")[0]
                     if mod in _BLOCKED_MODULES:
                         result["error"] = f"Blocked: import {mod} is not allowed"
                         return result
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
-                    mod = node.module.split('.')[0]
+                    mod = node.module.split(".")[0]
                     if mod in _BLOCKED_MODULES:
                         result["error"] = f"Blocked: from {mod} import is not allowed"
                         return result
             elif isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id in _BLOCKED_KEYWORDS:
+                if (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id in _BLOCKED_KEYWORDS
+                ):
                     result["error"] = f"Blocked: {node.func.id}() is not allowed"
                     return result
     except SyntaxError:
@@ -11035,9 +14122,18 @@ def _tool_browse_web(url: str) -> str:
         return "URL must start with http:// or https://"
     import ipaddress
     from urllib.parse import urlparse
+
     # SSRF protection: block private/loopback IPs and internal metadata names.
-    _BLOCKED_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
-                      "metadata.google.internal", "instance-data", "[::1]", "::1")
+    _BLOCKED_HOSTS = (
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "169.254.169.254",
+        "metadata.google.internal",
+        "instance-data",
+        "[::1]",
+        "::1",
+    )
 
     def _blocked(hostname: str, msg: str) -> str | None:
         hostname = (hostname or "").strip().lower()
@@ -11053,23 +14149,37 @@ def _tool_browse_web(url: str) -> str:
             return msg
         return None
 
-    block = _blocked(urlparse(url).hostname or "", "Доступ к внутренним ресурсам запрещён.")
+    block = _blocked(
+        urlparse(url).hostname or "", "Доступ к внутренним ресурсам запрещён."
+    )
     if block:
         return block
     try:
-        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"},
-                            allow_redirects=False, max_redirects=0)
+        resp = requests.get(
+            url,
+            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0"},
+            allow_redirects=False,
+            max_redirects=0,
+        )
         # Follow at most 2 redirects, block redirect to internal resources.
         for _ in range(2):
             if resp.status_code in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("Location", "")
                 if not loc.startswith(("http://", "https://")):
                     break
-                redir_block = _blocked(urlparse(loc).hostname or "", "Редирект на внутренний ресурс запрещён.")
+                redir_block = _blocked(
+                    urlparse(loc).hostname or "",
+                    "Редирект на внутренний ресурс запрещён.",
+                )
                 if redir_block:
                     return redir_block
-                resp = requests.get(loc, timeout=8, headers={"User-Agent": "Mozilla/5.0"},
-                                    allow_redirects=False)
+                resp = requests.get(
+                    loc,
+                    timeout=8,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    allow_redirects=False,
+                )
             else:
                 break
     except Exception as exc:
@@ -11083,7 +14193,9 @@ def _tool_browse_web(url: str) -> str:
     return text[:3000]
 
 
-def _tool_edit_image(state: dict, path: str, operation: str, params: dict | None) -> tuple[str, str | None]:
+def _tool_edit_image(
+    state: dict, path: str, operation: str, params: dict | None
+) -> tuple[str, str | None]:
     """Edit an image with Pillow. Returns (text_result, data_uri)."""
     params = params or {}
     node = _pc_lookup(state, path)
@@ -11153,7 +14265,9 @@ def _tool_edit_image(state: dict, path: str, operation: str, params: dict | None
     return f"image saved to {out_path} and returned to the user", data_uri
 
 
-def _pc_exec_tool(state: dict, name: str, args: dict, oge_uid: int = 0) -> tuple[str, str | None]:
+def _pc_exec_tool(
+    state: dict, name: str, args: dict, oge_uid: int = 0
+) -> tuple[str, str | None]:
     """Execute a virtual-computer tool. Returns (text, data_uri_or_None)."""
     try:
         if _oge_tool_name(name) or _curator_tool_name(name):
@@ -11226,7 +14340,12 @@ AI_CHAT_TOOLS = [
             "description": "Показать содержимое директории виртуального компьютера.",
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "Абсолютный или относительный путь"}},
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Абсолютный или относительный путь",
+                    }
+                },
             },
         },
     },
@@ -11265,8 +14384,24 @@ AI_CHAT_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Путь к картинке (например /home/user/uploads/photo.jpg)"},
-                    "operation": {"type": "string", "enum": ["resize", "grayscale", "rotate", "blur", "flip", "mirror", "thumbnail", "invert", "contrast"]},
+                    "path": {
+                        "type": "string",
+                        "description": "Путь к картинке (например /home/user/uploads/photo.jpg)",
+                    },
+                    "operation": {
+                        "type": "string",
+                        "enum": [
+                            "resize",
+                            "grayscale",
+                            "rotate",
+                            "blur",
+                            "flip",
+                            "mirror",
+                            "thumbnail",
+                            "invert",
+                            "contrast",
+                        ],
+                    },
                     "params": {
                         "type": "object",
                         "description": "width, height, degrees, radius, factor, format, out",
@@ -11369,7 +14504,9 @@ AI_CHAT_TOOLS_CURATOR = [
 ]
 
 
-def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str], persona: str = "") -> str:
+def _pc_build_prompt(
+    char_name: str, user_id: str, uploads: list[str], persona: str = ""
+) -> str:
     """Build the agent system prompt with the virtual computer context."""
     state = _pc_state(user_id)
     fs_parts = []
@@ -11392,7 +14529,11 @@ def _pc_build_prompt(char_name: str, user_id: str, uploads: list[str], persona: 
     walk(state["fs"]["/"], "/", 0)
     fs_text = "\n".join(fs_parts[:60])
 
-    uploads_text = "\n".join(f"- {u}" for u in uploads) if uploads else "- (нет загруженных файлов)"
+    uploads_text = (
+        "\n".join(f"- {u}" for u in uploads)
+        if uploads
+        else "- (нет загруженных файлов)"
+    )
 
     return (
         intro + "\n\n"
@@ -11442,7 +14583,13 @@ def _pc_extract_reply(resp: "requests.Response") -> str:
     return str(content) if content else ""
 
 
-def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int = 0, tool_groups: list[str] | None = None) -> dict:
+def _pc_ai_chat(
+    user_id: str,
+    character: str,
+    messages: list[dict],
+    oge_uid: int = 0,
+    tool_groups: list[str] | None = None,
+) -> dict:
     """Run the agent loop: AI may call tools, results are fed back. Returns {reply, images}."""
     char_data = CHARACTER_PROMPTS_AI_CHAT.get(character)
     char_name = char_data["name"] if char_data else character
@@ -11465,7 +14612,10 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int
 
     images: list[str] = []
     if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
-        return {"reply": "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)", "images": []}
+        return {
+            "reply": "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)",
+            "images": [],
+        }
 
     groups = tool_groups or []
     available_tools = list(AI_CHAT_TOOLS)
@@ -11491,7 +14641,11 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int
         resp = _ai_call(use_tools=True)
         if resp is None:
             return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
-        if resp.status_code == 400 and "tool_use_failed" in resp.text and not fallback_done:
+        if (
+            resp.status_code == 400
+            and "tool_use_failed" in resp.text
+            and not fallback_done
+        ):
             fallback_done = True
             resp = _ai_call(use_tools=False)
         if resp is None:
@@ -11506,13 +14660,19 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int
                 if resp.status_code == 200:
                     content = _pc_extract_reply(resp)
                     if not content:
-                        return {"reply": "❌ Ошибка AI: пустой ответ модели", "images": images}
+                        return {
+                            "reply": "❌ Ошибка AI: пустой ответ модели",
+                            "images": images,
+                        }
                     return {"reply": content, "images": images}
             return {"reply": f"❌ Ошибка AI: {resp.status_code}", "images": images}
         try:
             data = resp.json()
         except Exception:
-            return {"reply": "❌ Ошибка AI: не удалось прочитать ответ модели", "images": images}
+            return {
+                "reply": "❌ Ошибка AI: не удалось прочитать ответ модели",
+                "images": images,
+            }
         if not isinstance(data, dict) or not data.get("choices"):
             return {"reply": "❌ Ошибка AI: пустой ответ модели", "images": images}
         msg = data["choices"][0].get("message")
@@ -11521,11 +14681,17 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int
         tool_calls = msg.get("tool_calls")
         content = msg.get("content")
         if isinstance(content, list):
-            content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("type") == "text")
+            content = " ".join(
+                str(part.get("text", ""))
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
         if not tool_calls:
             reply = content or "…"
             return {"reply": str(reply), "images": images}
-        ai_messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
+        ai_messages.append(
+            {"role": "assistant", "content": content or "", "tool_calls": tool_calls}
+        )
         for tc in tool_calls:
             fn = tc.get("function", {})
             name = fn.get("name", "")
@@ -11553,10 +14719,17 @@ def _pc_ai_chat(user_id: str, character: str, messages: list[dict], oge_uid: int
 @app.route("/ai_chat")
 def ai_chat_page():
     chars_json = json.dumps(
-        {k: {"name": v["name"], "emoji": v["emoji"]} for k, v in CHARACTER_PROMPTS_AI_CHAT.items()}
+        {
+            k: {"name": v["name"], "emoji": v["emoji"]}
+            for k, v in CHARACTER_PROMPTS_AI_CHAT.items()
+        }
     )
     chars_info = {
-        k: {"name": v["name"], "emoji": v["emoji"], "hint": v["prompt"].split(".")[1].strip() if "." in v["prompt"] else ""}
+        k: {
+            "name": v["name"],
+            "emoji": v["emoji"],
+            "hint": v["prompt"].split(".")[1].strip() if "." in v["prompt"] else "",
+        }
         for k, v in CHARACTER_PROMPTS_AI_CHAT.items()
     }
     chars_info_json = json.dumps(chars_info)
@@ -11807,19 +14980,37 @@ xhr.onload = function() {
 </script>
 </body>
 </html>"""
-    html = html.replace("__CHR_SEL__", opts).replace("__CHARS_JSON__", chars_json).replace("__CHARS_INFO__", chars_info_json)
-    html = html.replace("__CHAR_AVATAR__", first_char[1]["emoji"]).replace("__CHAR_NAME__", first_char[1]["name"])
-    first_hint = first_char[1]["prompt"].split(".")[1].strip() if "." in first_char[1]["prompt"] else first_char[1]["prompt"][:60]
+    html = (
+        html.replace("__CHR_SEL__", opts)
+        .replace("__CHARS_JSON__", chars_json)
+        .replace("__CHARS_INFO__", chars_info_json)
+    )
+    html = html.replace("__CHAR_AVATAR__", first_char[1]["emoji"]).replace(
+        "__CHAR_NAME__", first_char[1]["name"]
+    )
+    first_hint = (
+        first_char[1]["prompt"].split(".")[1].strip()
+        if "." in first_char[1]["prompt"]
+        else first_char[1]["prompt"][:60]
+    )
     html = html.replace("__CHAR_HINT__", first_hint)
     return html
 
 
 def _oge_tool_name(name: str) -> bool:
-    return name == "oge_subjects" or name == "oge_plan" or name == "oge_streak" \
-        or name == "oge_weak_topics" or name == "oge_countdown" or name == "oge_yesterday"
+    return (
+        name == "oge_subjects"
+        or name == "oge_plan"
+        or name == "oge_streak"
+        or name == "oge_weak_topics"
+        or name == "oge_countdown"
+        or name == "oge_yesterday"
+    )
+
 
 def _curator_tool_name(name: str) -> bool:
     return name == "curator_recommend" or name == "curator_dashboard"
+
 
 def _oge_tool_execute(name: str, oge_uid: int) -> str:
     """Execute a study/curator data tool. Returns text for the AI."""
@@ -11884,7 +15075,9 @@ def _oge_tool_execute(name: str, oge_uid: int) -> str:
                 items = json.loads(row["items_json"] or "[]")
                 done = 0
                 for it in items:
-                    if min(_item_target(it), _compute_item_done(oge_uid, it)) >= _item_target(it):
+                    if min(
+                        _item_target(it), _compute_item_done(oge_uid, it)
+                    ) >= _item_target(it):
                         done += 1
                 lines.append(f"План на сегодня: {done}/{len(items)} пунктов.")
             s = _oge_streak_info(oge_uid, now)
@@ -11906,7 +15099,9 @@ def _oge_tool_execute(name: str, oge_uid: int) -> str:
 @app.route("/api/ai_chat", methods=["POST"])
 def api_ai_chat():
     try:
-        if _check_ai_rate("ai_chat:" + request.remote_addr) or _check_db_rate("ai_chat:" + (request.remote_addr or ""), 15, 60):
+        if _check_ai_rate("ai_chat:" + request.remote_addr) or _check_db_rate(
+            "ai_chat:" + (request.remote_addr or ""), 15, 60
+        ):
             return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
         data = request.get_json(silent=True) or {}
         character = data.get("character", "olegov")
@@ -11950,8 +15145,14 @@ def api_ai_chat():
             parts = fpath.strip("/").split("/")
             node = state["fs"]["/"]
             for part in parts[:-1]:
-                node = node["children"].setdefault(part, {"type": "dir", "children": {}})
-            node["children"][parts[-1]] = {"type": "file", "content": "", "data": raw_bytes}
+                node = node["children"].setdefault(
+                    part, {"type": "dir", "children": {}}
+                )
+            node["children"][parts[-1]] = {
+                "type": "file",
+                "content": "",
+                "data": raw_bytes,
+            }
             if fpath not in state["uploads"]:
                 state["uploads"].append(fpath)
             saved_files.append(fpath)
@@ -11969,7 +15170,13 @@ def api_ai_chat():
             )
             messages = [{"role": "user", "content": note}] + (messages or [])
 
-        result = _pc_ai_chat(user_id, character, messages + [{"role": "user", "content": message}], oge_uid=oge_uid, tool_groups=tool_groups)
+        result = _pc_ai_chat(
+            user_id,
+            character,
+            messages + [{"role": "user", "content": message}],
+            oge_uid=oge_uid,
+            tool_groups=tool_groups,
+        )
         # Ensure reply is always a string
         if not isinstance(result.get("reply"), str):
             result["reply"] = str(result.get("reply", ""))
@@ -11979,12 +15186,14 @@ def api_ai_chat():
     except Exception as exc:
         print(f"API ai_chat error: {exc}")
         import traceback
+
         traceback.print_exc()
         msg = "❌ Внутренняя ошибка сервера. Попробуйте позже."
         return jsonify({"error": msg, "reply": msg, "images": []}), 500
 
 
 # ===== Chess =====
+
 
 @app.route("/chess")
 def chess_page():
@@ -12376,7 +15585,12 @@ def api_chess_stats():
     if account:
         player = fetch_lichess_user(account["lichess_username"])
         result["account"] = account
-        result["player"] = player or {"username": account["lichess_username"], "online": False, "perfs": {}, "games": {}}
+        result["player"] = player or {
+            "username": account["lichess_username"],
+            "online": False,
+            "perfs": {},
+            "games": {},
+        }
         games = result["player"].get("games", {})
         total = games.get("total", 0)
         win = games.get("win", 0)
@@ -12384,11 +15598,20 @@ def api_chess_stats():
         history = []
         try:
             with get_db_engine().connect() as conn:
-                rows = conn.execute(
-                    text("SELECT puzzle_id, puzzle_rating FROM chess_games WHERE user_id = :uid ORDER BY id DESC LIMIT 10"),
-                    {"uid": uid},
-                ).mappings().all()
-                history = [{"puzzle_id": r["puzzle_id"], "rating": r["puzzle_rating"]} for r in rows]
+                rows = (
+                    conn.execute(
+                        text(
+                            "SELECT puzzle_id, puzzle_rating FROM chess_games WHERE user_id = :uid ORDER BY id DESC LIMIT 10"
+                        ),
+                        {"uid": uid},
+                    )
+                    .mappings()
+                    .all()
+                )
+                history = [
+                    {"puzzle_id": r["puzzle_id"], "rating": r["puzzle_rating"]}
+                    for r in rows
+                ]
         except Exception as exc:
             print(f"Error loading chess history: {exc}")
         result["history"] = history
@@ -12422,7 +15645,12 @@ def api_chess_link():
     force = bool(data.get("force"))
     ok = link_chess_account(uid, profile["username"], force=force)
     if not ok:
-        return jsonify({"error": "Этот Lichess аккаунт уже привязан к другому пользователю", "conflict": True}), 409
+        return jsonify(
+            {
+                "error": "Этот Lichess аккаунт уже привязан к другому пользователю",
+                "conflict": True,
+            }
+        ), 409
     return jsonify({"ok": True, "username": profile["username"]})
 
 
@@ -12435,23 +15663,35 @@ def api_chess_puzzle():
     session_user = _get_session_user(_auth_token_from_request())
     logged_uid = _web_user_id("u" + str(session_user["id"])) if session_user else None
     now_ts = time.time()
-    stale = [k for k, v in _PENDING_PUZZLES.items() if now_ts - v.get("created_at", 0) > _PENDING_PUZZLE_TTL]
+    stale = [
+        k
+        for k, v in _PENDING_PUZZLES.items()
+        if now_ts - v.get("created_at", 0) > _PENDING_PUZZLE_TTL
+    ]
     for k in stale:
         _PENDING_PUZZLES.pop(k, None)
     account = get_chess_account(uid)
     if not account and logged_uid is None:
-        if _check_db_rate("chess_puzzle:" + (request.remote_addr or ""), 20, 60) or _check_ai_rate("chess_puzzle:" + request.remote_addr):
+        if _check_db_rate(
+            "chess_puzzle:" + (request.remote_addr or ""), 20, 60
+        ) or _check_ai_rate("chess_puzzle:" + request.remote_addr):
             return jsonify({"error": "Слишком много запросов. Подождите."}), 429
     else:
         if not account:
-            return jsonify({"error": "Сначала привяжите Lichess аккаунт в разделе «Моя статистика»"}), 400
+            return jsonify(
+                {
+                    "error": "Сначала привяжите Lichess аккаунт в разделе «Моя статистика»"
+                }
+            ), 400
         remaining = _puzzle_cooldown_remaining_hours(uid)
         if remaining is not None:
-            return jsonify({
-                "error": f"Следующая задача доступна через {remaining:.1f} ч.",
-                "cooldown": True,
-                "cooldown_hours": round(remaining, 1),
-            }), 429
+            return jsonify(
+                {
+                    "error": f"Следующая задача доступна через {remaining:.1f} ч.",
+                    "cooldown": True,
+                    "cooldown_hours": round(remaining, 1),
+                }
+            ), 429
     puzzle = _fetch_lichess_puzzle()
     if not puzzle:
         return jsonify({"error": "Не удалось загрузить задачу. Попробуйте позже."}), 502
@@ -12466,14 +15706,16 @@ def api_chess_puzzle():
         "logged_uid": logged_uid,
         "created_at": time.time(),
     }
-    return jsonify({
-        "puzzle_id": puzzle["puzzle_id"],
-        "rating": puzzle["rating"],
-        "themes": ", ".join(puzzle["themes"][:3]),
-        "fen": puzzle["fen"],
-        "turn": puzzle["turn"],
-        "link": puzzle["link"],
-    })
+    return jsonify(
+        {
+            "puzzle_id": puzzle["puzzle_id"],
+            "rating": puzzle["rating"],
+            "themes": ", ".join(puzzle["themes"][:3]),
+            "fen": puzzle["fen"],
+            "turn": puzzle["turn"],
+            "link": puzzle["link"],
+        }
+    )
 
 
 @app.route("/api/chess/puzzle/check", methods=["POST"])
@@ -12485,7 +15727,9 @@ def api_chess_puzzle_check():
         return jsonify({"error": "unauthorized"}), 401
     pending = _PENDING_PUZZLES.pop(uid, None)
     if not pending or not pending.get("web"):
-        return jsonify({"error": "Задача не найдена или устарела. Загрузите новую."}), 400
+        return jsonify(
+            {"error": "Задача не найдена или устарела. Загрузите новую."}
+        ), 400
     if time.time() - pending.get("created_at", 0) > _PENDING_PUZZLE_TTL:
         return jsonify({"error": "Задача устарела. Загрузите новую."}), 400
     if not move or not pending["solution"]:
@@ -12494,16 +15738,28 @@ def api_chess_puzzle_check():
     correct = move == first_move
     checker = _get_session_user(_auth_token_from_request())
     auth_uid = _web_user_id("u" + str(checker["id"])) if checker else None
-    if correct and pending.get("logged_uid") is not None and pending.get("logged_uid") == uid and auth_uid == uid:
+    if (
+        correct
+        and pending.get("logged_uid") is not None
+        and pending.get("logged_uid") == uid
+        and auth_uid == uid
+    ):
         try:
             update_user_coins(uid, 5, datetime.utcnow())
         except Exception as exc:
             print(f"Error awarding coins: {exc}")
-        log_chess_game(uid, pending.get("username", ""), pending["puzzle_id"], pending.get("rating"), pending.get("themes"))
+        log_chess_game(
+            uid,
+            pending.get("username", ""),
+            pending["puzzle_id"],
+            pending.get("rating"),
+            pending.get("themes"),
+        )
     return jsonify({"correct": correct, "move": first_move if correct else None})
 
 
 # ===== Web Auth (Register / Login) =====
+
 
 @app.route("/register")
 def register_page():
@@ -12533,6 +15789,8 @@ def register_page():
         .btn:disabled { background: #555; cursor: not-allowed; }
         .btn-secondary { background: var(--bb-primary); color: var(--bb-text); margin-top: 12px; }
         .btn-secondary:hover { background: var(--bb-link); }
+        .btn-gal { display: block; text-align: center; text-decoration: none; background: var(--bb-primary); color: var(--bb-text); margin-top: 12px; padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 600; }
+        .btn-gal:hover { background: var(--bb-link); }
         .info-box { background: var(--gh-bg2); border: 1px solid var(--bb-link); border-radius: 10px; padding: 14px; margin-top: 16px; font-size: 13px; color: var(--bb-muted); line-height: 1.5; }
         .info-box strong { color: var(--bb-accent); }
         .link { color: var(--bb-accent); text-decoration: none; }
@@ -12581,6 +15839,8 @@ def register_page():
             <input type="text" id="reg-lichess" placeholder="например: lucas_chess" autocomplete="off">
         </div>
         <button class="btn" onclick="doRegister()">Зарегистрироваться</button>
+        <div class="divider"></div>
+        <a class="btn btn-gal" id="gal-register" href="/auth/gal">Зарегистрироваться через GAL</a>
         <div class="info-box">
             <strong>Уже есть аккаунт?</strong>
             <a class="link" href="/login">Войти</a>
@@ -12595,6 +15855,8 @@ def register_page():
 </div>
 <div class="toast" id="toast"></div>
 <script>
+    document.getElementById('gal-register').href = '/auth/gal?redirect=' +
+        encodeURIComponent(new URLSearchParams(location.search).get('redirect') || '/');
     function showToast(msg, error) {
         var t = document.getElementById('toast');
         t.textContent = msg;
@@ -12638,7 +15900,9 @@ def register_page():
                 localStorage.setItem('web_token', r.token);
                 showToast('Аккаунт создан! +100 монет');
                 var urlParams = new URLSearchParams(location.search);
-                setTimeout(function() { window.location.href = urlParams.get('redirect') || '/'; }, 800);
+                var dest = urlParams.get('redirect') || '/';
+                if (dest.charAt(0) !== '/' || dest.charAt(1) === '/') { dest = '/'; }
+                setTimeout(function() { window.location.href = dest; }, 800);
             }
         }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
     }
@@ -12673,6 +15937,9 @@ def login_page():
         .btn:disabled { background: #555; cursor: not-allowed; }
         .btn-secondary { background: var(--bb-primary); color: var(--bb-text); margin-top: 12px; }
         .btn-secondary:hover { background: var(--bb-link); }
+        .btn-gal { display: block; text-align: center; text-decoration: none; background: var(--bb-primary); color: var(--bb-text); margin-top: 12px; padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 600; }
+        .btn-gal:hover { background: var(--bb-link); }
+        .divider { height: 1px; background: var(--bb-link); margin: 20px 0; }
         .link { color: var(--bb-accent); text-decoration: none; }
         .link:hover { text-decoration: underline; }
         .back-link { display: inline-block; margin-top: 20px; color: var(--bb-muted); text-decoration: none; font-size: 14px; }
@@ -12698,6 +15965,9 @@ def login_page():
             <input type="password" id="login-password" placeholder="ваш пароль" autocomplete="current-password">
         </div>
         <button class="btn" onclick="doLogin()">Войти</button>
+        <div class="divider"></div>
+        <a class="btn btn-gal" href="/auth/gal"
+           onclick="this.href='/auth/gal?redirect='+encodeURIComponent(new URLSearchParams(location.search).get('redirect')||'/');">Войти через GAL</a>
         <div class="info-box" style="margin-top:16px">
             Нет аккаунта? <a class="link" href="/register">Зарегистрироваться</a>
         </div>
@@ -13524,11 +16794,15 @@ def api_auth_register():
     if _check_ai_rate("register:" + ip, max_requests=_REGISTER_BURST, window=300):
         return jsonify({"error": "Слишком много запросов. Подождите."}), 429
     if _check_db_rate("reg_day:" + ip, _REGISTER_DAILY, 86400):
-        return jsonify({"error": "Слишком много регистраций за сутки с этого адреса. Попробуйте позже."}), 429
+        return jsonify(
+            {
+                "error": "Слишком много регистраций за сутки с этого адреса. Попробуйте позже."
+            }
+        ), 429
     data = request.get_json(silent=True) or {}
     login = (data.get("login") or "").strip().lower()
     password = data.get("password") or ""
-    email = ((data.get("email") or "").strip() or None)
+    email = (data.get("email") or "").strip() or None
     if not login or not password:
         return jsonify({"error": "Логин и пароль обязательны"}), 400
     if len(login) < 3:
@@ -13539,7 +16813,9 @@ def api_auth_register():
         return jsonify({"error": "Логин: только латиница, цифры и _"}), 400
     if email and not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Неверный формат email"}), 400
-    source = (data.get("source") or request.args.get("source") or request.referrer or "").strip()[:32] or None
+    source = (
+        data.get("source") or request.args.get("source") or request.referrer or ""
+    ).strip()[:32] or None
 
     display_name = (data.get("display_name") or "").strip() or login
     gd_nickname = (data.get("gd_nickname") or "").strip() or None
@@ -13556,21 +16832,33 @@ def api_auth_register():
     if gd_nickname and len(gd_nickname) > 50:
         return jsonify({"error": "GD ник слишком длинный (макс. 50 символов)"}), 400
     if lichess_nickname and len(lichess_nickname) > 50:
-        return jsonify({"error": "Lichess ник слишком длинный (макс. 50 символов)"}), 400
+        return jsonify(
+            {"error": "Lichess ник слишком длинный (макс. 50 символов)"}
+        ), 400
 
     try:
         engine = get_db_engine()
         _ensure_web_user_columns(engine)
         with engine.connect() as conn:
-            existing = conn.execute(
-                text("SELECT id FROM web_users WHERE login = :login"), {"login": login}
-            ).mappings().first()
+            existing = (
+                conn.execute(
+                    text("SELECT id FROM web_users WHERE login = :login"),
+                    {"login": login},
+                )
+                .mappings()
+                .first()
+            )
             if existing:
                 return jsonify({"error": "Логин уже занят"}), 409
             if email:
-                existing_email = conn.execute(
-                    text("SELECT id FROM web_users WHERE email = :email"), {"email": email}
-                ).mappings().first()
+                existing_email = (
+                    conn.execute(
+                        text("SELECT id FROM web_users WHERE email = :email"),
+                        {"email": email},
+                    )
+                    .mappings()
+                    .first()
+                )
                 if existing_email:
                     return jsonify({"error": "Email уже занят"}), 409
             _params = {
@@ -13587,9 +16875,14 @@ def api_auth_register():
             # may miss some of the optional ones, and a hard-coded INSERT made
             # registration fail with a 500 "no such column".
             _mapping = {
-                "login": "login", "password_hash": "hash", "display_name": "name",
-                "gd_nickname": "gd", "telegram_id": "tg", "lichess_nickname": "lichess",
-                "email": "email", "created_via": "created_via",
+                "login": "login",
+                "password_hash": "hash",
+                "display_name": "name",
+                "gd_nickname": "gd",
+                "telegram_id": "tg",
+                "lichess_nickname": "lichess",
+                "email": "email",
+                "created_via": "created_via",
             }
             _cols = _table_columns("web_users", engine)
             if _cols:
@@ -13641,14 +16934,22 @@ def api_auth_login():
     attempts = _LOGIN_ATTEMPTS.get(key, [])
     attempts = [t for t in attempts if now - t < _LOGIN_WINDOW]
     if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
-        return jsonify({"error": "Слишком много попыток. Попробуйте через 5 минут."}), 429
+        return jsonify(
+            {"error": "Слишком много попыток. Попробуйте через 5 минут."}
+        ), 429
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT id, password_hash FROM web_users WHERE login = :login"),
-                {"login": login},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT id, password_hash FROM web_users WHERE login = :login"
+                    ),
+                    {"login": login},
+                )
+                .mappings()
+                .first()
+            )
     except Exception as exc:
         log_error("AUTH", "error", f"login error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -13702,7 +17003,9 @@ def api_auth_update():
     if gd_nickname and len(gd_nickname) > 50:
         return jsonify({"error": "GD ник слишком длинный (макс. 50 символов)"}), 400
     if lichess_nickname and len(lichess_nickname) > 50:
-        return jsonify({"error": "Lichess ник слишком длинный (макс. 50 символов)"}), 400
+        return jsonify(
+            {"error": "Lichess ник слишком длинный (макс. 50 символов)"}
+        ), 400
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -13737,7 +17040,9 @@ def api_auth_logout():
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            conn.execute(text("DELETE FROM web_sessions WHERE token = :t"), {"t": token})
+            conn.execute(
+                text("DELETE FROM web_sessions WHERE token = :t"), {"t": token}
+            )
             conn.commit()
     except Exception as exc:
         log_error("AUTH", "error", f"logout error: {exc}")
@@ -13746,6 +17051,7 @@ def api_auth_logout():
 
 # ===== Social: profiles & friends =====
 
+
 def _social_relation(conn, viewer_id, target_id):
     """Relation of viewer to target user: friend | outgoing | incoming | none."""
     if viewer_id and target_id == viewer_id:
@@ -13753,20 +17059,38 @@ def _social_relation(conn, viewer_id, target_id):
     if not viewer_id:
         return "none"
     try:
-        if conn.execute(
-            text("SELECT 1 FROM web_friends WHERE user_id = :me AND friend_id = :t"),
-            {"me": viewer_id, "t": target_id},
-        ).mappings().first():
+        if (
+            conn.execute(
+                text(
+                    "SELECT 1 FROM web_friends WHERE user_id = :me AND friend_id = :t"
+                ),
+                {"me": viewer_id, "t": target_id},
+            )
+            .mappings()
+            .first()
+        ):
             return "friend"
-        if conn.execute(
-            text("SELECT 1 FROM friend_requests WHERE from_user = :me AND to_user = :t"),
-            {"me": viewer_id, "t": target_id},
-        ).mappings().first():
+        if (
+            conn.execute(
+                text(
+                    "SELECT 1 FROM friend_requests WHERE from_user = :me AND to_user = :t"
+                ),
+                {"me": viewer_id, "t": target_id},
+            )
+            .mappings()
+            .first()
+        ):
             return "outgoing"
-        if conn.execute(
-            text("SELECT 1 FROM friend_requests WHERE from_user = :t AND to_user = :me"),
-            {"me": viewer_id, "t": target_id},
-        ).mappings().first():
+        if (
+            conn.execute(
+                text(
+                    "SELECT 1 FROM friend_requests WHERE from_user = :t AND to_user = :me"
+                ),
+                {"me": viewer_id, "t": target_id},
+            )
+            .mappings()
+            .first()
+        ):
             return "incoming"
     except Exception:
         return "none"
@@ -13783,29 +17107,53 @@ def api_user_profile(login: str):
     viewer_id = viewer["id"] if viewer else None
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT id, login, display_name, gd_nickname, created_at "
-                     "FROM web_users WHERE LOWER(login) = LOWER(:l)"),
-                {"l": login},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT id, login, display_name, gd_nickname, created_at "
+                        "FROM web_users WHERE LOWER(login) = LOWER(:l)"
+                    ),
+                    {"l": login},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 return jsonify({"error": "Пользователь не найден"}), 404
             uid = row["id"]
             relation = _social_relation(conn, viewer_id, uid)
             streak_row = _get_streak_row(conn, uid)
-            day_rows = conn.execute(
-                text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :u ORDER BY day"),
-                {"u": uid},
-            ).mappings().all()
-            mod_rows = conn.execute(
-                text("SELECT module, SUM(actions) AS total, COUNT(DISTINCT day) AS days "
-                     "FROM web_activity_log WHERE user_id = :u GROUP BY module"),
-                {"u": uid},
-            ).mappings().all()
-            ach_rows = conn.execute(
-                text("SELECT code FROM web_achievements WHERE user_id = :u ORDER BY unlocked_at"),
-                {"u": uid},
-            ).mappings().all()
+            day_rows = (
+                conn.execute(
+                    text(
+                        "SELECT DISTINCT day FROM web_activity_log WHERE user_id = :u ORDER BY day"
+                    ),
+                    {"u": uid},
+                )
+                .mappings()
+                .all()
+            )
+            mod_rows = (
+                conn.execute(
+                    text(
+                        "SELECT module, SUM(actions) AS total, COUNT(DISTINCT day) AS days "
+                        "FROM web_activity_log WHERE user_id = :u GROUP BY module"
+                    ),
+                    {"u": uid},
+                )
+                .mappings()
+                .all()
+            )
+            ach_rows = (
+                conn.execute(
+                    text(
+                        "SELECT code FROM web_achievements WHERE user_id = :u ORDER BY unlocked_at"
+                    ),
+                    {"u": uid},
+                )
+                .mappings()
+                .all()
+            )
         coins_row = get_user_coins(_web_user_id("u" + str(uid)))
     except Exception as exc:
         log_error("SOCIAL", "error", f"profile load error: {exc}")
@@ -13814,45 +17162,53 @@ def api_user_profile(login: str):
     modules = []
     for r in mod_rows:
         meta = _STATS_MODULES.get(r["module"], {})
-        modules.append({
-            "key": r["module"],
-            "label": meta.get("label", r["module"]),
-            "emoji": meta.get("emoji", ""),
-            "color": meta.get("color", "#94a3b8"),
-            "url": meta.get("url", "/"),
-            "actions": int(r["total"] or 0),
-            "days": int(r["days"] or 0),
-        })
+        modules.append(
+            {
+                "key": r["module"],
+                "label": meta.get("label", r["module"]),
+                "emoji": meta.get("emoji", ""),
+                "color": meta.get("color", "#94a3b8"),
+                "url": meta.get("url", "/"),
+                "actions": int(r["total"] or 0),
+                "days": int(r["days"] or 0),
+            }
+        )
     modules.sort(key=lambda m: -m["actions"])
 
     achievements = []
     for r in ach_rows:
         meta = ACHIEVEMENTS.get(r["code"])
         if meta:
-            achievements.append({"code": r["code"], "icon": meta["icon"], "name": meta["name"]})
+            achievements.append(
+                {"code": r["code"], "icon": meta["icon"], "name": meta["name"]}
+            )
 
-    return jsonify({
-        "ok": True,
-        "profile": {
-            "id": uid,
-            "login": row["login"],
-            "display_name": row["display_name"] or row["login"],
-            "gd_nickname": row["gd_nickname"],
-            "created_at": row["created_at"].isoformat() if isinstance(row["created_at"], datetime) else str(row["created_at"]),
-            "coins": int((coins_row or {}).get("balance", 0)),
-            "streak": {
-                "current": streak_row["current_streak"] if streak_row else 0,
-                "longest": streak_row["longest_streak"] if streak_row else 0,
-                "total_days": streak_row["total_active_days"] if streak_row else 0,
+    return jsonify(
+        {
+            "ok": True,
+            "profile": {
+                "id": uid,
+                "login": row["login"],
+                "display_name": row["display_name"] or row["login"],
+                "gd_nickname": row["gd_nickname"],
+                "created_at": row["created_at"].isoformat()
+                if isinstance(row["created_at"], datetime)
+                else str(row["created_at"]),
+                "coins": int((coins_row or {}).get("balance", 0)),
+                "streak": {
+                    "current": streak_row["current_streak"] if streak_row else 0,
+                    "longest": streak_row["longest_streak"] if streak_row else 0,
+                    "total_days": streak_row["total_active_days"] if streak_row else 0,
+                },
+                "active_days": len(day_rows),
+                "total_actions": sum(m["actions"] for m in modules),
+                "modules": modules,
+                "achievements": achievements,
+                "is_self": viewer_id == uid,
+                "relation": relation,
             },
-            "active_days": len(day_rows),
-            "total_actions": sum(m["actions"] for m in modules),
-            "modules": modules,
-            "achievements": achievements,
-            "is_self": viewer_id == uid,
-            "relation": relation,
-        },
-    })
+        }
+    )
 
 
 @app.route("/api/users/search")
@@ -13867,8 +17223,9 @@ def api_users_search():
     viewer_id = viewer["id"] if viewer else None
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("""
+            rows = (
+                conn.execute(
+                    text("""
                     SELECT id, login, display_name
                     FROM web_users
                     WHERE id != :vid AND (
@@ -13877,16 +17234,21 @@ def api_users_search():
                     )
                     ORDER BY LOWER(login) LIMIT 20
                 """),
-                {"vid": viewer_id or 0, "q": "%" + q + "%"},
-            ).mappings().all()
+                    {"vid": viewer_id or 0, "q": "%" + q + "%"},
+                )
+                .mappings()
+                .all()
+            )
             users = []
             for r in rows:
-                users.append({
-                    "id": r["id"],
-                    "login": r["login"],
-                    "display_name": r["display_name"] or r["login"],
-                    "relation": _social_relation(conn, viewer_id, r["id"]),
-                })
+                users.append(
+                    {
+                        "id": r["id"],
+                        "login": r["login"],
+                        "display_name": r["display_name"] or r["login"],
+                        "relation": _social_relation(conn, viewer_id, r["id"]),
+                    }
+                )
         return jsonify({"ok": True, "users": users})
     except Exception as exc:
         log_error("SOCIAL", "error", f"search error: {exc}")
@@ -13902,43 +17264,61 @@ def api_friends():
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            friends = conn.execute(
-                text("""
+            friends = (
+                conn.execute(
+                    text("""
                     SELECT u.id, u.login, u.display_name
                     FROM web_friends f JOIN web_users u ON u.id = f.friend_id
                     WHERE f.user_id = :uid ORDER BY LOWER(u.login)
                 """),
-                {"uid": uid},
-            ).mappings().all()
-            incoming = conn.execute(
-                text("""
+                    {"uid": uid},
+                )
+                .mappings()
+                .all()
+            )
+            incoming = (
+                conn.execute(
+                    text("""
                     SELECT r.id AS req_id, u.id, u.login, u.display_name, r.created_at
                     FROM friend_requests r JOIN web_users u ON u.id = r.from_user
                     WHERE r.to_user = :uid ORDER BY r.created_at DESC
                 """),
-                {"uid": uid},
-            ).mappings().all()
-            outgoing = conn.execute(
-                text("""
+                    {"uid": uid},
+                )
+                .mappings()
+                .all()
+            )
+            outgoing = (
+                conn.execute(
+                    text("""
                     SELECT r.id AS req_id, u.id, u.login, u.display_name, r.created_at
                     FROM friend_requests r JOIN web_users u ON u.id = r.to_user
                     WHERE r.from_user = :uid ORDER BY r.created_at DESC
                 """),
-                {"uid": uid},
-            ).mappings().all()
+                    {"uid": uid},
+                )
+                .mappings()
+                .all()
+            )
 
         def _card(r):
-            card = {"id": r["id"], "login": r["login"], "display_name": r["display_name"] or r["login"]}
+            card = {
+                "id": r["id"],
+                "login": r["login"],
+                "display_name": r["display_name"] or r["login"],
+            }
             if r.keys() and "req_id" in r.keys():
                 card["req_id"] = r["req_id"]
             return card
 
-        return jsonify({
-            "ok": True,
-            "friends": [_card(r) for r in friends],
-            "incoming": [_card(r) for r in incoming],
-            "outgoing": [_card(r) for r in outgoing],
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "friends": [_card(r) for r in friends],
+                "incoming": [_card(r) for r in incoming],
+                "outgoing": [_card(r) for r in outgoing],
+            }
+        )
     except Exception as exc:
         log_error("SOCIAL", "error", f"friends list error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -13964,25 +17344,43 @@ def api_friends_request():
     try:
         engine = get_db_engine()
         with engine.begin() as conn:
-            t = conn.execute(
-                text("SELECT id FROM web_users WHERE id = :fid"),
-                {"fid": fid},
-            ).mappings().first()
+            t = (
+                conn.execute(
+                    text("SELECT id FROM web_users WHERE id = :fid"),
+                    {"fid": fid},
+                )
+                .mappings()
+                .first()
+            )
             if not t:
                 return jsonify({"error": "Пользователь не найден"}), 404
-            if conn.execute(
-                text("SELECT 1 FROM web_friends WHERE user_id = :me AND friend_id = :f"),
-                {"me": uid, "f": fid},
-            ).mappings().first():
+            if (
+                conn.execute(
+                    text(
+                        "SELECT 1 FROM web_friends WHERE user_id = :me AND friend_id = :f"
+                    ),
+                    {"me": uid, "f": fid},
+                )
+                .mappings()
+                .first()
+            ):
                 return jsonify({"error": "Вы уже друзья"}), 409
-            if conn.execute(
-                text("SELECT 1 FROM friend_requests "
-                     "WHERE (from_user = :me AND to_user = :f) OR (from_user = :f AND to_user = :me)"),
-                {"me": uid, "f": fid},
-            ).mappings().first():
+            if (
+                conn.execute(
+                    text(
+                        "SELECT 1 FROM friend_requests "
+                        "WHERE (from_user = :me AND to_user = :f) OR (from_user = :f AND to_user = :me)"
+                    ),
+                    {"me": uid, "f": fid},
+                )
+                .mappings()
+                .first()
+            ):
                 return jsonify({"error": "Заявка уже отправлена"}), 409
             conn.execute(
-                text("INSERT INTO friend_requests (from_user, to_user) VALUES (:me, :f)"),
+                text(
+                    "INSERT INTO friend_requests (from_user, to_user) VALUES (:me, :f)"
+                ),
                 {"me": uid, "f": fid},
             )
         return jsonify({"ok": True})
@@ -14005,16 +17403,26 @@ def api_friends_accept():
     try:
         engine = get_db_engine()
         with engine.begin() as conn:
-            r = conn.execute(
-                text("SELECT from_user, to_user FROM friend_requests WHERE id = :rid"),
-                {"rid": rid},
-            ).mappings().first()
+            r = (
+                conn.execute(
+                    text(
+                        "SELECT from_user, to_user FROM friend_requests WHERE id = :rid"
+                    ),
+                    {"rid": rid},
+                )
+                .mappings()
+                .first()
+            )
             if not r or r["to_user"] != uid:
                 return jsonify({"error": "Заявка не найдена"}), 403
-            conn.execute(text("DELETE FROM friend_requests WHERE id = :rid"), {"rid": rid})
             conn.execute(
-                text("INSERT INTO web_friends (user_id, friend_id) VALUES (:a, :b), (:b, :a) "
-                     "ON CONFLICT DO NOTHING"),
+                text("DELETE FROM friend_requests WHERE id = :rid"), {"rid": rid}
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO web_friends (user_id, friend_id) VALUES (:a, :b), (:b, :a) "
+                    "ON CONFLICT DO NOTHING"
+                ),
                 {"a": r["from_user"], "b": r["to_user"]},
             )
         return jsonify({"ok": True})
@@ -14064,7 +17472,9 @@ def api_friends_cancel():
         engine = get_db_engine()
         with engine.begin() as conn:
             res = conn.execute(
-                text("DELETE FROM friend_requests WHERE id = :rid AND from_user = :uid"),
+                text(
+                    "DELETE FROM friend_requests WHERE id = :rid AND from_user = :uid"
+                ),
                 {"rid": rid, "uid": uid},
             )
             if res.rowcount == 0:
@@ -14090,8 +17500,10 @@ def api_friends_remove():
         engine = get_db_engine()
         with engine.begin() as conn:
             conn.execute(
-                text("DELETE FROM web_friends WHERE (user_id = :a AND friend_id = :b) "
-                     "OR (user_id = :b AND friend_id = :a)"),
+                text(
+                    "DELETE FROM web_friends WHERE (user_id = :a AND friend_id = :b) "
+                    "OR (user_id = :b AND friend_id = :a)"
+                ),
                 {"a": uid, "b": fid},
             )
         return jsonify({"ok": True})
@@ -14115,7 +17527,9 @@ def api_friends_weekly():
                 for r in conn.execute(
                     text("SELECT friend_id FROM web_friends WHERE user_id = :uid"),
                     {"uid": uid},
-                ).mappings().all()
+                )
+                .mappings()
+                .all()
             ]
             ids = sorted(set(friend_ids))
             totals = {}
@@ -14124,17 +17538,29 @@ def api_friends_weekly():
                 ph = ",".join(f":u{i}" for i in range(len(ids)))
                 params = {f"u{i}": v for i, v in enumerate(ids)}
                 params["cut"] = cutoff
-                for r in conn.execute(
-                    text(f"SELECT user_id, SUM(actions) AS total FROM web_activity_log "
-                         f"WHERE day >= :cut AND user_id IN ({ph}) GROUP BY user_id"),
-                    params,
-                ).mappings().all():
+                for r in (
+                    conn.execute(
+                        text(
+                            f"SELECT user_id, SUM(actions) AS total FROM web_activity_log "
+                            f"WHERE day >= :cut AND user_id IN ({ph}) GROUP BY user_id"
+                        ),
+                        params,
+                    )
+                    .mappings()
+                    .all()
+                ):
                     totals[int(r["user_id"])] = int(r["total"] or 0)
                 name_params = {f"n{i}": v for i, v in enumerate(ids)}
-                for r in conn.execute(
-                    text(f"SELECT id, login, display_name FROM web_users WHERE id IN ({ph.replace(':u', ':n')})"),
-                    name_params,
-                ).mappings().all():
+                for r in (
+                    conn.execute(
+                        text(
+                            f"SELECT id, login, display_name FROM web_users WHERE id IN ({ph.replace(':u', ':n')})"
+                        ),
+                        name_params,
+                    )
+                    .mappings()
+                    .all()
+                ):
                     names[int(r["id"])] = {
                         "login": r["login"],
                         "display_name": r["display_name"] or r["login"],
@@ -14158,6 +17584,7 @@ def api_friends_weekly():
 
 # ===== Admin Panel (WEB-07) =====
 
+
 def _admin_require():
     """Return current web admin or abort with 401/403."""
     user = _web_admin_session()
@@ -14172,18 +17599,42 @@ def api_admin_stats():
         return jsonify({"error": "Нет доступа"}), 403
     try:
         with get_db_engine().connect() as conn:
-            wu = conn.execute(text("SELECT COUNT(*) AS c FROM web_users")).mappings().first()
-            adm = conn.execute(text("SELECT COUNT(*) AS c FROM web_users WHERE is_admin = TRUE")).mappings().first()
-            coins = conn.execute(text("SELECT COALESCE(SUM(balance),0) AS s FROM user_coins")).mappings().first()
-            tg = conn.execute(text("SELECT COUNT(*) AS c FROM users")).mappings().first()
-            tx = conn.execute(text("SELECT COUNT(*) AS c FROM web_coin_log")).mappings().first()
-        return jsonify({
-            "web_users": int(wu["c"] or 0),
-            "admins": int(adm["c"] or 0),
-            "total_coins": int(coins["s"] or 0),
-            "telegram_users": int(tg["c"] or 0),
-            "coin_tx": int(tx["c"] or 0),
-        })
+            wu = (
+                conn.execute(text("SELECT COUNT(*) AS c FROM web_users"))
+                .mappings()
+                .first()
+            )
+            adm = (
+                conn.execute(
+                    text("SELECT COUNT(*) AS c FROM web_users WHERE is_admin = TRUE")
+                )
+                .mappings()
+                .first()
+            )
+            coins = (
+                conn.execute(
+                    text("SELECT COALESCE(SUM(balance),0) AS s FROM user_coins")
+                )
+                .mappings()
+                .first()
+            )
+            tg = (
+                conn.execute(text("SELECT COUNT(*) AS c FROM users")).mappings().first()
+            )
+            tx = (
+                conn.execute(text("SELECT COUNT(*) AS c FROM web_coin_log"))
+                .mappings()
+                .first()
+            )
+        return jsonify(
+            {
+                "web_users": int(wu["c"] or 0),
+                "admins": int(adm["c"] or 0),
+                "total_coins": int(coins["s"] or 0),
+                "telegram_users": int(tg["c"] or 0),
+                "coin_tx": int(tx["c"] or 0),
+            }
+        )
     except Exception as exc:
         log_error("ADMIN", "error", f"stats error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -14197,8 +17648,9 @@ def api_admin_users():
     try:
         with get_db_engine().connect() as conn:
             if q:
-                rows = conn.execute(
-                    text("""
+                rows = (
+                    conn.execute(
+                        text("""
                         SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id,
                                u.lichess_nickname, u.is_admin, u.created_at
                         FROM web_users u
@@ -14206,38 +17658,53 @@ def api_admin_users():
                            OR COALESCE(LOWER(u.gd_nickname), '') LIKE :p
                         ORDER BY u.created_at DESC LIMIT 100
                     """),
-                    {"p": f"%{q}%"},
-                ).mappings().all()
+                        {"p": f"%{q}%"},
+                    )
+                    .mappings()
+                    .all()
+                )
             else:
-                rows = conn.execute(
-                    text("""
+                rows = (
+                    conn.execute(
+                        text("""
                         SELECT u.id, u.login, u.display_name, u.gd_nickname, u.telegram_id,
                                u.lichess_nickname, u.is_admin, u.created_at
                         FROM web_users u
                         ORDER BY u.created_at DESC LIMIT 100
                     """),
-                ).mappings().all()
+                    )
+                    .mappings()
+                    .all()
+                )
         result = []
         for r in rows:
-            result.append({
-                "id": r["id"],
-                "login": r["login"],
-                "display_name": r["display_name"],
-                "gd_nickname": r["gd_nickname"],
-                "telegram_id": r["telegram_id"],
-                "lichess_nickname": r["lichess_nickname"],
-                "is_admin": bool(r["is_admin"]),
-                "created_at": str(r["created_at"]) if r["created_at"] else None,
-                "balance": 0,
-            })
+            result.append(
+                {
+                    "id": r["id"],
+                    "login": r["login"],
+                    "display_name": r["display_name"],
+                    "gd_nickname": r["gd_nickname"],
+                    "telegram_id": r["telegram_id"],
+                    "lichess_nickname": r["lichess_nickname"],
+                    "is_admin": bool(r["is_admin"]),
+                    "created_at": str(r["created_at"]) if r["created_at"] else None,
+                    "balance": 0,
+                }
+            )
         # Batch-fetch coin balances: user_coins stores _web_user_id('u<id>')
         if result:
             ids = [_web_user_id("u" + str(u["id"])) for u in result]
             with get_db_engine().connect() as conn:
-                coins = conn.execute(
-                    text("SELECT user_id, balance FROM user_coins WHERE user_id IN :ids").bindparams(bindparam("ids", expanding=True)),
-                    {"ids": ids},
-                ).mappings().all()
+                coins = (
+                    conn.execute(
+                        text(
+                            "SELECT user_id, balance FROM user_coins WHERE user_id IN :ids"
+                        ).bindparams(bindparam("ids", expanding=True)),
+                        {"ids": ids},
+                    )
+                    .mappings()
+                    .all()
+                )
             coin_map = {int(c["user_id"]): int(c["balance"] or 0) for c in coins}
             for u in result:
                 u["balance"] = coin_map.get(_web_user_id("u" + str(u["id"])), 0)
@@ -14254,21 +17721,39 @@ def api_admin_user_coins(user_id):
     uid = _web_user_id("u" + str(user_id))
     try:
         with get_db_engine().connect() as conn:
-            coins = conn.execute(
-                text("SELECT COALESCE(balance, 0) AS b FROM user_coins WHERE user_id = :uid"),
-                {"uid": uid},
-            ).mappings().first()
-            log = conn.execute(
-                text("SELECT amount, description, created_at FROM web_coin_log WHERE user_id = :uid ORDER BY created_at DESC LIMIT 50"),
-                {"uid": uid},
-            ).mappings().all()
-        return jsonify({
-            "balance": int(coins["b"] or 0) if coins else 0,
-            "log": [
-                {"amount": int(r["amount"] or 0), "description": r["description"] or "", "created_at": str(r["created_at"]) if r["created_at"] else None}
-                for r in log
-            ],
-        })
+            coins = (
+                conn.execute(
+                    text(
+                        "SELECT COALESCE(balance, 0) AS b FROM user_coins WHERE user_id = :uid"
+                    ),
+                    {"uid": uid},
+                )
+                .mappings()
+                .first()
+            )
+            log = (
+                conn.execute(
+                    text(
+                        "SELECT amount, description, created_at FROM web_coin_log WHERE user_id = :uid ORDER BY created_at DESC LIMIT 50"
+                    ),
+                    {"uid": uid},
+                )
+                .mappings()
+                .all()
+            )
+        return jsonify(
+            {
+                "balance": int(coins["b"] or 0) if coins else 0,
+                "log": [
+                    {
+                        "amount": int(r["amount"] or 0),
+                        "description": r["description"] or "",
+                        "created_at": str(r["created_at"]) if r["created_at"] else None,
+                    }
+                    for r in log
+                ],
+            }
+        )
     except Exception as exc:
         log_error("ADMIN", "error", f"user coins error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -14276,8 +17761,13 @@ def api_admin_user_coins(user_id):
 
 # Таблицы, где user_id — это id Telegram, а не веб-аккаунта: их не трогаем.
 _ADMIN_TG_KEYED_TABLES = {
-    "submissions", "player_stats", "level_completions", "game_states",
-    "user_preferences", "infection_status", "daily_prayer_log",
+    "submissions",
+    "player_stats",
+    "level_completions",
+    "game_states",
+    "user_preferences",
+    "infection_status",
+    "daily_prayer_log",
 }
 
 
@@ -14292,32 +17782,61 @@ def _admin_user_ref_columns(conn) -> list[tuple[str, str, bool]]:
     refs: list[tuple[str, str, bool]] = []
     try:
         if dialect == "sqlite":
-            tables = [str(r[0]) for r in conn.execute(
-                text("SELECT name FROM sqlite_master WHERE type = 'table'")).all()]
+            tables = [
+                str(r[0])
+                for r in conn.execute(
+                    text("SELECT name FROM sqlite_master WHERE type = 'table'")
+                ).all()
+            ]
         else:
-            tables = [str(r[0]) for r in conn.execute(text(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = current_schema()")).all()]
+            tables = [
+                str(r[0])
+                for r in conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = current_schema()"
+                    )
+                ).all()
+            ]
     except Exception:
         return refs
     for table in tables:
-        if table == "web_users" or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table or ""):
+        if table == "web_users" or not re.match(
+            r"^[A-Za-z_][A-Za-z0-9_]*$", table or ""
+        ):
             continue
         try:
             if dialect == "sqlite":
                 for c in conn.execute(text(f"PRAGMA table_info({table})")).all():
                     col = str(c[1])
                     if col.lower() in names:
-                        refs.append((table, col, str(c[2] or "").upper().startswith(("TEXT", "CHAR", "CLOB"))))
+                        refs.append(
+                            (
+                                table,
+                                col,
+                                str(c[2] or "")
+                                .upper()
+                                .startswith(("TEXT", "CHAR", "CLOB")),
+                            )
+                        )
             else:
-                rows = conn.execute(text(
-                    "SELECT column_name, data_type FROM information_schema.columns "
-                    "WHERE table_schema = current_schema() AND table_name = :t "
-                    "AND column_name IN ('user_id', 'from_user', 'to_user', 'friend_id')"),
-                    {"t": table}).all()
+                rows = conn.execute(
+                    text(
+                        "SELECT column_name, data_type FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() AND table_name = :t "
+                        "AND column_name IN ('user_id', 'from_user', 'to_user', 'friend_id')"
+                    ),
+                    {"t": table},
+                ).all()
                 for col, dtype in rows:
-                    refs.append((table, str(col), str(dtype).lower() in
-                                 ("text", "character varying", "character", "citext")))
+                    refs.append(
+                        (
+                            table,
+                            str(col),
+                            str(dtype).lower()
+                            in ("text", "character varying", "character", "citext"),
+                        )
+                    )
         except Exception:
             continue
     return refs
@@ -14339,9 +17858,14 @@ def api_admin_user_delete(user_id):
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT id, login FROM web_users WHERE id = :id"),
-                {"id": user_id}).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT id, login FROM web_users WHERE id = :id"),
+                    {"id": user_id},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 return jsonify({"error": "Пользователь не найден"}), 404
             refs = _admin_user_ref_columns(conn)
@@ -14351,13 +17875,17 @@ def api_admin_user_delete(user_id):
         for table, column, is_text in refs:
             if table in _ADMIN_TG_KEYED_TABLES:
                 continue
-            vals = [str(user_id), str(hashed)] if is_text else [int(user_id), int(hashed)]
+            vals = (
+                [str(user_id), str(hashed)] if is_text else [int(user_id), int(hashed)]
+            )
             try:
                 with engine.begin() as conn:
                     res = conn.execute(
-                        text(f"DELETE FROM {table} WHERE {column} IN :vals")
-                        .bindparams(bindparam("vals", expanding=True)),
-                        {"vals": vals})
+                        text(f"DELETE FROM {table} WHERE {column} IN :vals").bindparams(
+                            bindparam("vals", expanding=True)
+                        ),
+                        {"vals": vals},
+                    )
                     if res.rowcount:
                         removed[f"{table}.{column}"] = int(res.rowcount)
             except Exception as exc:
@@ -14385,7 +17913,9 @@ def api_admin_coins_award():
         return jsonify({"error": "Укажите пользователя"}), 400
     if amount == 0:
         return jsonify({"error": "Сумма не может быть нулевой"}), 400
-    if not _award_web_coins(user_id, amount, data.get("description") or "Начисление админом"):
+    if not _award_web_coins(
+        user_id, amount, data.get("description") or "Начисление админом"
+    ):
         return jsonify({"error": "Не удалось начислить монеты"}), 500
     return jsonify({"success": True, "user_id": user_id, "amount": amount})
 
@@ -14422,7 +17952,9 @@ def api_admin_set_admin():
 def api_admin_errors():
     if not _admin_require():
         return jsonify({"error": "Нет доступа"}), 403
-    return jsonify({"count": len(_ERROR_LOG), "errors": list(reversed(_ERROR_LOG[-50:]))})
+    return jsonify(
+        {"count": len(_ERROR_LOG), "errors": list(reversed(_ERROR_LOG[-50:]))}
+    )
 
 
 @app.route("/api/admin/errors/clear", methods=["POST"])
@@ -14436,7 +17968,9 @@ def api_admin_errors_clear():
 @app.route("/api/feedback", methods=["POST"])
 def api_feedback_submit():
     """Submit a suggestion or bug report (any web user or anonymous)."""
-    if _check_ai_rate("feedback:" + (request.remote_addr or ""), max_requests=5, window=60):
+    if _check_ai_rate(
+        "feedback:" + (request.remote_addr or ""), max_requests=5, window=60
+    ):
         return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     data = request.get_json(silent=True) or {}
     category = (data.get("category") or "").strip().lower()
@@ -14452,17 +17986,20 @@ def api_feedback_submit():
     author_name = (user.get("display_name") or login) if user else None
     try:
         with get_db_engine().connect() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO web_feedback (user_id, login, author_name, category, module, message)
                 VALUES (:uid, :login, :name, :cat, :mod, :msg)
-            """), {
-                "uid": user_id,
-                "login": login,
-                "name": author_name,
-                "cat": category,
-                "mod": module or None,
-                "msg": message[:4000],
-            })
+            """),
+                {
+                    "uid": user_id,
+                    "login": login,
+                    "name": author_name,
+                    "cat": category,
+                    "mod": module or None,
+                    "msg": message[:4000],
+                },
+            )
             conn.commit()
     except Exception as exc:
         log_error("FEEDBACK", "error", f"submit error: {exc}")
@@ -14481,20 +18018,40 @@ def api_admin_feedback():
     try:
         with get_db_engine().connect() as conn:
             if status:
-                rows = conn.execute(text("""
+                rows = (
+                    conn.execute(
+                        text("""
                     SELECT id, login, author_name, category, module, message, status, created_at
                     FROM web_feedback WHERE status = :s ORDER BY created_at DESC LIMIT 200
-                """), {"s": status}).mappings().all()
+                """),
+                        {"s": status},
+                    )
+                    .mappings()
+                    .all()
+                )
             elif category:
-                rows = conn.execute(text("""
+                rows = (
+                    conn.execute(
+                        text("""
                     SELECT id, login, author_name, category, module, message, status, created_at
                     FROM web_feedback WHERE category = :c ORDER BY created_at DESC LIMIT 200
-                """), {"c": category}).mappings().all()
+                """),
+                        {"c": category},
+                    )
+                    .mappings()
+                    .all()
+                )
             else:
-                rows = conn.execute(text("""
+                rows = (
+                    conn.execute(
+                        text("""
                     SELECT id, login, author_name, category, module, message, status, created_at
                     FROM web_feedback ORDER BY (status = 'open') DESC, created_at DESC LIMIT 200
-                """)).mappings().all()
+                """)
+                    )
+                    .mappings()
+                    .all()
+                )
         return jsonify({"count": len(rows), "items": [dict(r) for r in rows]})
     except Exception as exc:
         log_error("FEEDBACK", "error", f"list error: {exc}")
@@ -14796,6 +18353,7 @@ def admin_page():
 
 
 # ===== Trivia =====
+
 
 @app.route("/trivia")
 def trivia_page():
@@ -15274,9 +18832,18 @@ def emperors_page():
     from core.history.terms import TERMS as _H_TERMS, categories as _H_CATS
 
     terms_json = json.dumps(
-        {"by_id": {t.id: {"id": t.id, "category": t.category, "term": t.term,
-                           "definition": t.definition} for t in _H_TERMS},
-         "categories": _H_CATS()},
+        {
+            "by_id": {
+                t.id: {
+                    "id": t.id,
+                    "category": t.category,
+                    "term": t.term,
+                    "definition": t.definition,
+                }
+                for t in _H_TERMS
+            },
+            "categories": _H_CATS(),
+        },
         ensure_ascii=False,
     )
     history_data = json.dumps(
@@ -15290,15 +18857,33 @@ def emperors_page():
                 for r in _RULERS
             ],
             "events": [
-                {"year": ev.year, "title": ev.title, "emperor": ev.emperor_id, "note": ev.note, "importance": ev.importance, "topic": classify_topic(ev.title, ev.note)}
+                {
+                    "year": ev.year,
+                    "title": ev.title,
+                    "emperor": ev.emperor_id,
+                    "note": ev.note,
+                    "importance": ev.importance,
+                    "topic": classify_topic(ev.title, ev.note),
+                }
                 for ev in _HISTORY_EVENTS
             ],
             "persons": [
-                {"name": p.name, "emperor": p.emperor_id, "description": p.description, "importance": p.importance, "topic": classify_topic(p.name, p.description)}
+                {
+                    "name": p.name,
+                    "emperor": p.emperor_id,
+                    "description": p.description,
+                    "importance": p.importance,
+                    "topic": classify_topic(p.name, p.description),
+                }
                 for p in _HISTORY_PERSONS
             ],
             "terms": [
-                {"id": t.id, "category": t.category, "term": t.term, "definition": t.definition}
+                {
+                    "id": t.id,
+                    "category": t.category,
+                    "term": t.term,
+                    "definition": t.definition,
+                }
                 for t in _H_TERMS
             ],
             "topic_order": list(_HISTORY_TOPIC_ORDER),
@@ -16591,9 +20176,14 @@ function diffInfo() {
         })();
     </script>
 </html>"""
-    html = (html.replace("__DATA__", history_data)
-                .replace("__PANEL_TERMS__", TERMS_FRAGMENT.replace("__TERMS_DATA__", terms_json)))
-    return html.replace("</html>", OGE_CURATOR_WIDGET + "</html>"), 200, {"Content-Type": "text/html; charset=utf-8"}
+    html = html.replace("__DATA__", history_data).replace(
+        "__PANEL_TERMS__", TERMS_FRAGMENT.replace("__TERMS_DATA__", terms_json)
+    )
+    return (
+        html.replace("</html>", OGE_CURATOR_WIDGET + "</html>"),
+        200,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
 
 
 MATH_PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -17443,7 +21033,13 @@ def physics_page():
     topics_map = formulas_by_topic()
     physics_data = {
         "formulas": [
-            {"id": f.id, "topic": f.topic, "title": f.title, "formula": f.formula, "note": f.note}
+            {
+                "id": f.id,
+                "topic": f.topic,
+                "title": f.title,
+                "formula": f.formula,
+                "note": f.note,
+            }
             for f in FORMULAS
         ],
         "tasks": [
@@ -17478,7 +21074,13 @@ def math_page():
     topics_map = formulas_by_topic()
     math_data = {
         "formulas": [
-            {"id": f.id, "topic": f.topic, "title": f.title, "formula": f.formula, "note": f.note}
+            {
+                "id": f.id,
+                "topic": f.topic,
+                "title": f.title,
+                "formula": f.formula,
+                "note": f.note,
+            }
             for f in FORMULAS
         ],
         "tasks": [
@@ -18120,11 +21722,16 @@ def informatics_page():
 </body>
 </html>"""
 
-    html = (html
-            .replace("__TOPICS_DATA__", topics_data)
-            .replace("__TOPIC_NAMES__", json.dumps(dict(topic_names), ensure_ascii=False))
-            .replace("__FIRST_TOPIC__", first_topic_id))
-    return html.replace("</html>", OGE_CURATOR_WIDGET + "</html>"), 200, {"Content-Type": "text/html; charset=utf-8"}
+    html = (
+        html.replace("__TOPICS_DATA__", topics_data)
+        .replace("__TOPIC_NAMES__", json.dumps(dict(topic_names), ensure_ascii=False))
+        .replace("__FIRST_TOPIC__", first_topic_id)
+    )
+    return (
+        html.replace("</html>", OGE_CURATOR_WIDGET + "</html>"),
+        200,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
 
 
 RUSSIAN_PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -18475,6 +22082,7 @@ loadCat(); loadTasks(); renderEssay(); loadServer();
 </html>
 """
 
+
 @app.route("/russian")
 def russian_page():
     import json
@@ -18483,7 +22091,13 @@ def russian_page():
 
     russian_data = {
         "rules": [
-            {"id": r.id, "category": r.category, "title": r.title, "rule": r.rule, "example": r.example}
+            {
+                "id": r.id,
+                "category": r.category,
+                "title": r.title,
+                "rule": r.rule,
+                "example": r.example,
+            }
             for r in RULES
         ],
         "tasks": [
@@ -18499,10 +22113,18 @@ def russian_page():
             for t in TASKS
         ],
         "essay": [
-            {"id": c.id, "code": c.code, "name": c.name, "description": c.description, "tips": list(c.tips)}
+            {
+                "id": c.id,
+                "code": c.code,
+                "name": c.name,
+                "description": c.description,
+                "tips": list(c.tips),
+            }
             for c in ESSAY_CRITERIA
         ],
-        "categories": {cat: [r.id for r in rs] for cat, rs in rules_by_category().items()},
+        "categories": {
+            cat: [r.id for r in rs] for cat, rs in rules_by_category().items()
+        },
         "categories_tasks": sorted({t.topic for t in TASKS}),
     }
     russian_json = json.dumps(russian_data, ensure_ascii=False)
@@ -18515,9 +22137,9 @@ def terms_page():
     """Terms now live inside the unified History page."""
     return redirect("/emperors?tab=terms")
 
+
 _EXAM_SESSION_TTL = 3600  # 1 hour
 _EXAM_SESSIONS: dict = {}
-
 
 
 def _exam_prune_expired() -> None:
@@ -18525,8 +22147,10 @@ def _exam_prune_expired() -> None:
     now = time.time()
     try:
         with get_db_engine().begin() as conn:
-            conn.execute(text("DELETE FROM exam_sessions WHERE created_at < :cutoff"),
-                         {"cutoff": now - _EXAM_SESSION_TTL})
+            conn.execute(
+                text("DELETE FROM exam_sessions WHERE created_at < :cutoff"),
+                {"cutoff": now - _EXAM_SESSION_TTL},
+            )
     except Exception as exc:
         log_error("EXAM", "error", f"prune expired sessions failed: {exc}")
 
@@ -18536,11 +22160,22 @@ def _exam_session_save(sid: str, items: list) -> None:
     try:
         engine = get_db_engine()
         with engine.begin() as conn:
-            conn.execute(text("CREATE TABLE IF NOT EXISTS exam_sessions (sid VARCHAR(64) PRIMARY KEY, items_json TEXT NOT NULL, created_at REAL NOT NULL)"))
-            conn.execute(text(
-                "INSERT INTO exam_sessions (sid, items_json, created_at) VALUES (:sid, :items, :now)"
-                " ON CONFLICT (sid) DO UPDATE SET items_json = EXCLUDED.items_json, created_at = EXCLUDED.created_at"
-            ), {"sid": sid, "items": json.dumps(items, ensure_ascii=False), "now": time.time()})
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS exam_sessions (sid VARCHAR(64) PRIMARY KEY, items_json TEXT NOT NULL, created_at REAL NOT NULL)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO exam_sessions (sid, items_json, created_at) VALUES (:sid, :items, :now)"
+                    " ON CONFLICT (sid) DO UPDATE SET items_json = EXCLUDED.items_json, created_at = EXCLUDED.created_at"
+                ),
+                {
+                    "sid": sid,
+                    "items": json.dumps(items, ensure_ascii=False),
+                    "now": time.time(),
+                },
+            )
     except Exception as exc:
         log_error("EXAM", "error", f"session save failed: {exc}")
 
@@ -18549,16 +22184,28 @@ def _exam_session_load(sid: str) -> dict | None:
     """Load exam session from DB. Returns None if expired or missing."""
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(text(
-                "SELECT items_json, created_at FROM exam_sessions WHERE sid = :sid"
-            ), {"sid": sid}).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT items_json, created_at FROM exam_sessions WHERE sid = :sid"
+                    ),
+                    {"sid": sid},
+                )
+                .mappings()
+                .first()
+            )
         if not row:
             return None
         if time.time() - row["created_at"] > _EXAM_SESSION_TTL:
             with get_db_engine().begin() as conn:
-                conn.execute(text("DELETE FROM exam_sessions WHERE sid = :sid"), {"sid": sid})
+                conn.execute(
+                    text("DELETE FROM exam_sessions WHERE sid = :sid"), {"sid": sid}
+                )
             return None
-        return {"items": json.loads(row["items_json"]), "_created_at": row["created_at"]}
+        return {
+            "items": json.loads(row["items_json"]),
+            "_created_at": row["created_at"],
+        }
     except Exception:
         return None
 
@@ -18607,64 +22254,119 @@ def _due_s_to_ms(value):
     return v * 1000.0 if v < 1e12 else v
 
 
-def _study_tally_daily(conn, uid, module: str, correct_n: int = 0, wrong_n: int = 0) -> None:
+def _study_tally_daily(
+    conn, uid, module: str, correct_n: int = 0, wrong_n: int = 0
+) -> None:
     """Increment today's per-day correct/wrong tally for OGE study statistics."""
     if correct_n == 0 and wrong_n == 0:
         return
     day = _day_str()
     try:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             INSERT INTO study_daily (user_id, day, module, correct, wrong)
             VALUES (:u, :d, :m, :c, :w)
             ON CONFLICT (user_id, day, module) DO UPDATE SET
                 correct = study_daily.correct + excluded.correct,
                 wrong = study_daily.wrong + excluded.wrong
-        """), {
-            "u": uid, "d": day, "m": module,
-            "c": int(correct_n), "w": int(wrong_n),
-        })
+        """),
+            {
+                "u": uid,
+                "d": day,
+                "m": module,
+                "c": int(correct_n),
+                "w": int(wrong_n),
+            },
+        )
     except Exception as exc:
         log_error("STUDY", "error", f"daily tally error: {exc}")
 
 
 def _study_record_one(conn, uid, module: str, key: str, correct: bool) -> None:
     """Upsert one study_progress card applying standard SM-2 scheduling."""
-    row = conn.execute(
-        text("SELECT reps, interval_days, ease, streak FROM study_progress WHERE user_id=:u AND module=:m AND card_key=:k"),
-        {"u": uid, "m": module, "k": key},
-    ).mappings().first()
+    row = (
+        conn.execute(
+            text(
+                "SELECT reps, interval_days, ease, streak FROM study_progress WHERE user_id=:u AND module=:m AND card_key=:k"
+            ),
+            {"u": uid, "m": module, "k": key},
+        )
+        .mappings()
+        .first()
+    )
     now = time.time()
     if row:
-        reps, interval, ease, streak = int(row["reps"]), float(row["interval_days"]), float(row["ease"]), int(row["streak"])
+        reps, interval, ease, streak = (
+            int(row["reps"]),
+            float(row["interval_days"]),
+            float(row["ease"]),
+            int(row["streak"]),
+        )
         if correct:
             reps += 1
             streak += 1
             ease = min(3.0, round(ease + 0.1, 2))
-            interval = 1 if reps == 1 else 3 if reps == 2 else 7 if reps == 3 else round(interval * ease)
+            interval = (
+                1
+                if reps == 1
+                else 3
+                if reps == 2
+                else 7
+                if reps == 3
+                else round(interval * ease)
+            )
             due = now + interval * 86400
         else:
             reps, interval, streak = 0, 0, 0
             ease = max(1.3, round(ease - 0.2, 2))
             due = now + 60
-        conn.execute(text("""
+        conn.execute(
+            text("""
             UPDATE study_progress SET reps=:r, interval_days=:i, ease=:e, streak=:s, due=:d,
                    correct_count=correct_count+:c, wrong_count=wrong_count+:w, counter=counter+:co,
                    updated_at=:t, last_correct_at=COALESCE(:lc, last_correct_at)
             WHERE user_id=:u AND module=:m AND card_key=:k
-        """), {"r": reps, "i": interval, "e": ease, "s": streak, "d": due,
-               "c": 1 if correct else 0, "w": 0 if correct else 1,
-               "co": 1 if correct else -1, "t": now, "lc": now if correct else None,
-               "u": uid, "m": module, "k": key})
+        """),
+            {
+                "r": reps,
+                "i": interval,
+                "e": ease,
+                "s": streak,
+                "d": due,
+                "c": 1 if correct else 0,
+                "w": 0 if correct else 1,
+                "co": 1 if correct else -1,
+                "t": now,
+                "lc": now if correct else None,
+                "u": uid,
+                "m": module,
+                "k": key,
+            },
+        )
     else:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             INSERT INTO study_progress (user_id, module, card_key, reps, interval_days, ease, due, streak,
                                         correct_count, wrong_count, counter, updated_at, created_at, last_correct_at)
             VALUES (:u, :m, :k, :r, :i, :e, :d, :s, :c, :w, :co, :t, :ct, :lc)
-        """), {"u": uid, "m": module, "k": key,
-               "r": 1 if correct else 0, "i": 1 if correct else 0, "e": 2.5,
-               "d": now + (86400 if correct else 60), "s": 1 if correct else 0,
-                "c": 1 if correct else 0, "w": 0 if correct else 1,
-                "co": 1 if correct else -1, "t": now, "ct": now, "lc": now if correct else 0})
+        """),
+            {
+                "u": uid,
+                "m": module,
+                "k": key,
+                "r": 1 if correct else 0,
+                "i": 1 if correct else 0,
+                "e": 2.5,
+                "d": now + (86400 if correct else 60),
+                "s": 1 if correct else 0,
+                "c": 1 if correct else 0,
+                "w": 0 if correct else 1,
+                "co": 1 if correct else -1,
+                "t": now,
+                "ct": now,
+                "lc": now if correct else 0,
+            },
+        )
     _study_tally_daily(conn, uid, module, 1 if correct else 0, 0 if correct else 1)
 
 
@@ -18681,16 +22383,23 @@ def api_exam_mixed():
     from core.physics.formulas import TASKS as physics_tasks
 
     pool = []
-    for module, tasks in (("math", math_tasks), ("russian", ru_tasks), ("informatics", info_tasks()), ("physics", physics_tasks)):
+    for module, tasks in (
+        ("math", math_tasks),
+        ("russian", ru_tasks),
+        ("informatics", info_tasks()),
+        ("physics", physics_tasks),
+    ):
         for t in tasks:
-            pool.append({
-                "module": module,
-                "key": t.id,
-                "question": t.question,
-                "hint": getattr(t, "hint", "") or "",
-                "_answer": str(t.answer),
-                "_explanation": getattr(t, "explanation", "") or "",
-            })
+            pool.append(
+                {
+                    "module": module,
+                    "key": t.id,
+                    "question": t.question,
+                    "hint": getattr(t, "hint", "") or "",
+                    "_answer": str(t.answer),
+                    "_explanation": getattr(t, "explanation", "") or "",
+                }
+            )
     if len(pool) > n:
         items = random.sample(pool, n)
     else:
@@ -18698,12 +22407,19 @@ def api_exam_mixed():
     sid = secrets.token_hex(6)
     _exam_session_save(sid, items)
     try:
-        _EXAM_SESSIONS[sid]={"items":list(items)}
+        _EXAM_SESSIONS[sid] = {"items": list(items)}
     except Exception:
         pass
     _exam_prune_expired()
-    safe = [{"idx": i, "module": it["module"], "question": it["question"], "hint": it["hint"]}
-            for i, it in enumerate(items)]
+    safe = [
+        {
+            "idx": i,
+            "module": it["module"],
+            "question": it["question"],
+            "hint": it["hint"],
+        }
+        for i, it in enumerate(items)
+    ]
     return jsonify({"sid": sid, "items": safe})
 
 
@@ -18735,8 +22451,14 @@ def api_exam_check():
                 recorded = True
             except Exception as exc:
                 log_error("EXAM", "error", f"progress record error: {exc}")
-    return jsonify({"ok": True, "correct": ok,
-                    "explanation": it["_explanation"], "recorded": recorded})
+    return jsonify(
+        {
+            "ok": True,
+            "correct": ok,
+            "explanation": it["_explanation"],
+            "recorded": recorded,
+        }
+    )
 
 
 _QUIZ_SESSIONS: dict = {}
@@ -18746,7 +22468,11 @@ _QUIZ_SESSION_TTL = 3600  # 1 hour
 def _quiz_prune_expired() -> None:
     """Remove quiz sessions older than _QUIZ_SESSION_TTL seconds."""
     now = time.time()
-    stale = [k for k, v in _QUIZ_SESSIONS.items() if now - v.get("_created_at", 0) > _QUIZ_SESSION_TTL]
+    stale = [
+        k
+        for k, v in _QUIZ_SESSIONS.items()
+        if now - v.get("_created_at", 0) > _QUIZ_SESSION_TTL
+    ]
     for k in stale:
         _QUIZ_SESSIONS.pop(k, None)
 
@@ -18769,61 +22495,129 @@ def api_quiz_generate():
         from core.history import EVENTS, PERSONS
         from core.history.emperors import emperor_by_id
         from core.history.terms import TERMS
+
         def _emperor_answer(emperor_id: str) -> str:
             if not emperor_id:
                 return ""
             e = emperor_by_id(emperor_id)
             return e.name if e else emperor_id
+
         for ev in EVENTS:
-            pool.append({"key": "event::" + ev.title, "question": ev.title,
-                         "_answer": _emperor_answer(ev.emperor_id), "type": "mcq",
-                         "context": ev.note})
+            pool.append(
+                {
+                    "key": "event::" + ev.title,
+                    "question": ev.title,
+                    "_answer": _emperor_answer(ev.emperor_id),
+                    "type": "mcq",
+                    "context": ev.note,
+                }
+            )
         for p in PERSONS:
-            pool.append({"key": "person::" + p.name, "question": p.name,
-                         "_answer": _emperor_answer(p.emperor_id), "type": "mcq",
-                         "context": p.description})
+            pool.append(
+                {
+                    "key": "person::" + p.name,
+                    "question": p.name,
+                    "_answer": _emperor_answer(p.emperor_id),
+                    "type": "mcq",
+                    "context": p.description,
+                }
+            )
         for t in TERMS:
-            pool.append({"key": "term::" + t.term, "question": t.definition,
-                         "_answer": t.term, "type": "mcq", "context": t.category})
+            pool.append(
+                {
+                    "key": "term::" + t.term,
+                    "question": t.definition,
+                    "_answer": t.term,
+                    "type": "mcq",
+                    "context": t.category,
+                }
+            )
     elif module == "informatics":
         from core.informatics.tasks import get_all_tasks as info_tasks
+
         for t in info_tasks():
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
+            pool.append(
+                {
+                    "key": t.id,
+                    "question": t.question,
+                    "_answer": str(t.answer),
+                    "type": "text",
+                    "explanation": getattr(t, "explanation", ""),
+                    "hint": getattr(t, "hint", ""),
+                }
+            )
     elif module == "math":
         from core.mathematics.formulas import TASKS as mt, FORMULAS as mf
+
         for t in mt:
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
+            pool.append(
+                {
+                    "key": t.id,
+                    "question": t.question,
+                    "_answer": str(t.answer),
+                    "type": "text",
+                    "explanation": getattr(t, "explanation", ""),
+                    "hint": getattr(t, "hint", ""),
+                }
+            )
         for f in mf:
-            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
-                         "_answer": f.formula, "type": "mcq",
-                         "context": f.note})
+            pool.append(
+                {
+                    "key": "formula::" + f.id,
+                    "question": "Какая формула: " + f.title + "?",
+                    "_answer": f.formula,
+                    "type": "mcq",
+                    "context": f.note,
+                }
+            )
     elif module == "russian":
         from core.russian.rules import TASKS as rt, RULES as rr
+
         for t in rt:
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
+            pool.append(
+                {
+                    "key": t.id,
+                    "question": t.question,
+                    "_answer": str(t.answer),
+                    "type": "text",
+                    "explanation": getattr(t, "explanation", ""),
+                    "hint": getattr(t, "hint", ""),
+                }
+            )
         for r in rr:
-            pool.append({"key": "rule::" + r.id, "question": r.title,
-                         "_answer": r.rule, "type": "mcq", "context": r.example})
+            pool.append(
+                {
+                    "key": "rule::" + r.id,
+                    "question": r.title,
+                    "_answer": r.rule,
+                    "type": "mcq",
+                    "context": r.example,
+                }
+            )
     elif module == "physics":
         from core.physics.formulas import TASKS as pt, FORMULAS as pf
+
         for t in pt:
-            pool.append({"key": t.id, "question": t.question,
-                         "_answer": str(t.answer), "type": "text",
-                         "explanation": getattr(t, "explanation", ""),
-                         "hint": getattr(t, "hint", "")})
+            pool.append(
+                {
+                    "key": t.id,
+                    "question": t.question,
+                    "_answer": str(t.answer),
+                    "type": "text",
+                    "explanation": getattr(t, "explanation", ""),
+                    "hint": getattr(t, "hint", ""),
+                }
+            )
         for f in pf:
-            pool.append({"key": "formula::" + f.id, "question": "Какая формула: " + f.title + "?",
-                         "_answer": f.formula, "type": "mcq",
-                         "context": f.note})
+            pool.append(
+                {
+                    "key": "formula::" + f.id,
+                    "question": "Какая формула: " + f.title + "?",
+                    "_answer": f.formula,
+                    "type": "mcq",
+                    "context": f.note,
+                }
+            )
 
     if not pool:
         return jsonify({"ok": False, "error": "empty pool"}), 400
@@ -18837,10 +22631,17 @@ def api_quiz_generate():
                 engine = get_db_engine()
                 with engine.connect() as conn:
                     for item in pool:
-                        row = conn.execute(text(
-                            "SELECT reps, streak, correct_count, wrong_count FROM study_progress "
-                            "WHERE user_id=:u AND module=:m AND card_key=:k"
-                        ), {"u": uid, "m": module, "k": item["key"]}).mappings().first()
+                        row = (
+                            conn.execute(
+                                text(
+                                    "SELECT reps, streak, correct_count, wrong_count FROM study_progress "
+                                    "WHERE user_id=:u AND module=:m AND card_key=:k"
+                                ),
+                                {"u": uid, "m": module, "k": item["key"]},
+                            )
+                            .mappings()
+                            .first()
+                        )
                         if row:
                             w = 1.0
                             if int(row["streak"]) < 3:
@@ -18882,12 +22683,22 @@ def api_quiz_generate():
 
     safe_items = []
     for i, it in enumerate(items):
-        q = {"idx": i, "key": it["key"], "question": it["question"], "type": it.get("type", "text"),
-             "hint": it.get("hint", ""), "explanation": it.get("explanation", ""),
-             "context": it.get("context", "")}
+        q = {
+            "idx": i,
+            "key": it["key"],
+            "question": it["question"],
+            "type": it.get("type", "text"),
+            "hint": it.get("hint", ""),
+            "explanation": it.get("explanation", ""),
+            "context": it.get("context", ""),
+        }
         if it.get("type") == "mcq":
             correct = it["_answer"]
-            distractors = [p["_answer"] for p in pool if p["_answer"] != correct and p.get("type") == "mcq"]
+            distractors = [
+                p["_answer"]
+                for p in pool
+                if p["_answer"] != correct and p.get("type") == "mcq"
+            ]
             distractors = list(set(distractors))
             random.shuffle(distractors)
             options = [correct] + distractors[:3]
@@ -18898,7 +22709,9 @@ def api_quiz_generate():
             it["correct_idx"] = correct_idx
         safe_items.append(q)
 
-    return jsonify({"ok": True, "sid": sid, "items": safe_items, "module": module, "algo": algo})
+    return jsonify(
+        {"ok": True, "sid": sid, "items": safe_items, "module": module, "algo": algo}
+    )
 
 
 @app.route("/api/quiz/check", methods=["POST"])
@@ -18945,12 +22758,21 @@ def api_quiz_check():
                 newly = _check_web_achievements(conn, user["id"])
                 conn.commit()
                 unlocked_detail = [
-                    {"code": code, "icon": ACHIEVEMENTS[code]["icon"], "name": ACHIEVEMENTS[code]["name"]}
+                    {
+                        "code": code,
+                        "icon": ACHIEVEMENTS[code]["icon"],
+                        "name": ACHIEVEMENTS[code]["name"],
+                    }
                     for code in newly
                 ]
         except Exception as exc:
             log_error("QUIZ", "error", f"activity record error: {exc}")
-    resp = {"ok": True, "correct": ok, "recorded": recorded, "unlocked": unlocked_detail}
+    resp = {
+        "ok": True,
+        "correct": ok,
+        "recorded": recorded,
+        "unlocked": unlocked_detail,
+    }
     if it.get("type") == "mcq":
         resp["answer"] = it.get("correct_idx")
     else:
@@ -18965,16 +22787,25 @@ def _exam_build_catalog():
     from core.mathematics.formulas import TASKS as _mt
     from core.russian.rules import TASKS as _rt
     from core.physics.formulas import TASKS as _pt
+
     pool = []
-    for module, tasks in (("math", _mt), ("russian", _rt), ("informatics", _info_tasks()), ("physics", _pt)):
+    for module, tasks in (
+        ("math", _mt),
+        ("russian", _rt),
+        ("informatics", _info_tasks()),
+        ("physics", _pt),
+    ):
         for t in tasks:
-            pool.append({
-                "key": t.id, "question": t.question,
-                "module": module,
-                "hint": getattr(t, "hint", "") or "",
-                "_answer": str(t.answer),
-                "_explanation": getattr(t, "explanation", "") or "",
-            })
+            pool.append(
+                {
+                    "key": t.id,
+                    "question": t.question,
+                    "module": module,
+                    "hint": getattr(t, "hint", "") or "",
+                    "_answer": str(t.answer),
+                    "_explanation": getattr(t, "explanation", "") or "",
+                }
+            )
     return pool
 
 
@@ -18986,16 +22817,25 @@ def _exam_student_context(uid, now):
         engine = get_db_engine()
         with engine.connect() as conn:
             for mod in OGE_MODULES:
-                rows = conn.execute(text(
-                    "SELECT card_key, streak, correct_count, wrong_count "
-                    "FROM study_progress WHERE user_id=:u AND module=:m"
-                ), {"u": uid, "m": mod}).mappings().all()
+                rows = (
+                    conn.execute(
+                        text(
+                            "SELECT card_key, streak, correct_count, wrong_count "
+                            "FROM study_progress WHERE user_id=:u AND module=:m"
+                        ),
+                        {"u": uid, "m": mod},
+                    )
+                    .mappings()
+                    .all()
+                )
                 total = len(rows)
                 mastered = sum(1 for r in rows if int(r["streak"]) >= 3)
                 if total:
                     lines.append(f"{mod}: {total} cards, {mastered} mastered")
                 for r in rows:
-                    if int(r["streak"]) < 0 or int(r["wrong_count"]) > int(r["correct_count"]):
+                    if int(r["streak"]) < 0 or int(r["wrong_count"]) > int(
+                        r["correct_count"]
+                    ):
                         weak_keys.append(r["card_key"])
     except Exception as exc:
         log_error("EXAM", "error", f"student context error: {exc}")
@@ -19039,10 +22879,14 @@ def api_exam_ai_batch():
 
     result_items = []
     for i, it in enumerate(picked):
-        result_items.append({
-            "key": it["key"], "module": it["module"], "question": it["question"],
-            "hint": it.get("hint", ""),
-        })
+        result_items.append(
+            {
+                "key": it["key"],
+                "module": it["module"],
+                "question": it["question"],
+                "hint": it.get("hint", ""),
+            }
+        )
 
     sid = secrets.token_hex(6)
     _exam_session_save(sid, picked)
@@ -19079,7 +22923,11 @@ def api_exam_ai_record():
                 newly = _check_web_achievements(conn, user["id"])
                 conn.commit()
                 unlocked_detail = [
-                    {"code": code, "icon": ACHIEVEMENTS[code]["icon"], "name": ACHIEVEMENTS[code]["name"]}
+                    {
+                        "code": code,
+                        "icon": ACHIEVEMENTS[code]["icon"],
+                        "name": ACHIEVEMENTS[code]["name"],
+                    }
                     for code in newly
                 ]
         except Exception as exc:
@@ -19093,7 +22941,9 @@ def api_exam_ai_record():
 @app.route("/exam")
 def exam_page():
     auth_token_present = bool(_get_session_user(_auth_token_from_request()))
-    html = EXAM_PAGE_TEMPLATE.replace("__AUTH_HINT__", "on" if auth_token_present else "off")
+    html = EXAM_PAGE_TEMPLATE.replace(
+        "__AUTH_HINT__", "on" if auth_token_present else "off"
+    )
     return html
 
 
@@ -19137,23 +22987,23 @@ input[type=text]{width:100%;padding:11px;border-radius:10px;border:1px solid var
 </head>
 <body>
 <div class="container">
-<div class="header"><h1>\U0001F3AF \u042D\u043A\u0437\u0430\u043C\u0435\u043D\u0430\u0442\u043E\u0440</h1><a href="/">\u2190 \u041D\u0430 \u0433\u043B\u0430\u0432\u043D\u0443\u044E</a></div>
+<div class="header"><h1>\U0001f3af \u042d\u043a\u0437\u0430\u043c\u0435\u043d\u0430\u0442\u043e\u0440</h1><a href="/">\u2190 \u041d\u0430 \u0433\u043b\u0430\u0432\u043d\u0443\u044e</a></div>
 <div class="card" id="start-card">
-<h2>\U0001F4DA \u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441\u044B</h2>
-<p class="muted">\u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u0430\u043D\u0430\u043B\u0438\u0437\u0438\u0440\u0443\u0435\u0442 \u0442\u0432\u043E\u0438 \u0441\u043B\u0430\u0431\u044B\u0435 \u043C\u0435\u0441\u0442\u0430 \u0438 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0432\u043E\u043F\u0440\u043E\u0441\u044B \u0438\u0437 \u0411\u0414 \u043F\u043E\u0434 \u0442\u0432\u043E\u0439 \u0443\u0440\u043E\u0432\u0435\u043D\u044C. \u0412\u043E\u043F\u0440\u043E\u0441\u044B \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u044E\u0442\u0441\u044F \u0432\u043F\u0435\u0440\u0435\u0434\u043A\u0443.</p>
+<h2>\U0001f4da \u0418\u0418-\u043a\u0443\u0440\u0430\u0442\u043e\u0440 \u043f\u043e\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0432\u043e\u043f\u0440\u043e\u0441\u044b</h2>
+<p class="muted">\u0418\u0418-\u043a\u0443\u0440\u0430\u0442\u043e\u0440 \u0430\u043d\u0430\u043b\u0438\u0437\u0438\u0440\u0443\u0435\u0442 \u0442\u0432\u043e\u0438 \u0441\u043b\u0430\u0431\u044b\u0435 \u043c\u0435\u0441\u0442\u0430 \u0438 \u043f\u043e\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0432\u043e\u043f\u0440\u043e\u0441\u044b \u0438\u0437 \u0411\u0414 \u043f\u043e\u0434 \u0442\u0432\u043e\u0439 \u0443\u0440\u043e\u0432\u0435\u043d\u044c. \u0412\u043e\u043f\u0440\u043e\u0441\u044b \u0433\u0435\u043d\u0435\u0440\u0438\u0440\u0443\u044e\u0442\u0441\u044f \u0432\u043f\u0435\u0440\u0435\u0434\u043a\u0443.</p>
 <p class="muted" id="auth-note"></p>
-<button class="btn green" id="start">\u041D\u0430\u0447\u0430\u0442\u044C</button>
+<button class="btn green" id="start">\u041d\u0430\u0447\u0430\u0442\u044c</button>
 </div>
 <div class="card" id="quiz" style="display:none;">
 <div class="progress-mini" id="status"></div>
 <span class="modtag" id="modtag"></span>
 <h2 id="q"></h2>
 <div id="opts"></div>
-<input type="text" id="ans" placeholder="\u0412\u0430\u0448 \u043E\u0442\u0432\u0435\u0442" style="display:none;">
-<button class="btn" id="check" style="display:none;">\u041E\u0442\u0432\u0435\u0442\u0438\u0442\u044C</button>
+<input type="text" id="ans" placeholder="\u0412\u0430\u0448 \u043e\u0442\u0432\u0435\u0442" style="display:none;">
+<button class="btn" id="check" style="display:none;">\u041e\u0442\u0432\u0435\u0442\u0438\u0442\u044c</button>
 <div id="fb"></div>
 <div id="hint-box" style="display:none;"></div>
-<button class="btn green" id="next" style="display:none;">\u0414\u0430\u043B\u044C\u0448\u0435 \u2192</button>
+<button class="btn green" id="next" style="display:none;">\u0414\u0430\u043b\u044c\u0448\u0435 \u2192</button>
 <div class="prefetch-note" id="prefetch-status"></div>
 </div>
 <div id="result"></div>
@@ -19169,15 +23019,15 @@ var examSid = null;
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 document.getElementById('auth-note').textContent = AUTH_HINT === 'on'
-  ? '\u2713 \u0412\u044B \u0432\u043E\u0448\u043B\u0438 \u2014 \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F.'
-  : '\u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0442\u044C \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0442\u0440\u0435\u0441\u0441.';
+  ? '\u2713 \u0412\u044b \u0432\u043e\u0448\u043b\u0438 \u2014 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0441\u044f.'
+  : '\u0412\u043e\u0439\u0434\u0438\u0442\u0435 \u043d\u0430 \u0441\u0430\u0439\u0442\u0435, \u0447\u0442\u043e\u0431\u044b \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u0442\u044c \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0442\u0440\u0435\u0441\u0441.';
 
-var modNames = {math:'\u041C\u0430\u0442\u0435\u043C\u0430\u0442\u0438\u043A\u0430',russian:'\u0420\u0443\u0441\u0441\u043A\u0438\u0439 \u044F\u0437\u044B\u043A',informatics:'\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0442\u0438\u043A\u0430',physics:'\u0424\u0438\u0437\u0438\u043A\u0430',history:'\u0418\u0441\u0442\u043E\u0440\u0438\u044F'};
+var modNames = {math:'\u041c\u0430\u0442\u0435\u043c\u0430\u0442\u0438\u043a\u0430',russian:'\u0420\u0443\u0441\u0441\u043a\u0438\u0439 \u044f\u0437\u044b\u043a',informatics:'\u0418\u043d\u0444\u043e\u0440\u043c\u0430\u0442\u0438\u043a\u0430',physics:'\u0424\u0438\u0437\u0438\u043a\u0430',history:'\u0418\u0441\u0442\u043e\u0440\u0438\u044f'};
 
 function prefetch() {
   if (prefetching || queue.length > 2) return;
   prefetching = true;
-  document.getElementById('prefetch-status').textContent = '\u23F3 \u0418\u0418 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0435...';
+  document.getElementById('prefetch-status').textContent = '\u23f3 \u0418\u0418 \u043f\u043e\u0434\u0431\u0438\u0440\u0430\u0435\u0442 \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0435...';
   fetch('/api/exam/ai-batch', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-Auth-Token': localStorage.getItem('web_token') || ''},
@@ -19187,9 +23037,9 @@ function prefetch() {
     document.getElementById('prefetch-status').textContent = '';
     if (d.ok && d.items && d.items.length) {
       d.items.forEach(function(it, i){ queue.push({q: it, sid: d.sid, idx: i}); });
-      document.getElementById('prefetch-status').textContent = '\u2713 \u0415\u0449\u0451 ' + d.items.length + ' \u0432\u043E\u043F\u0440\u043E\u0441\u043E\u0432 \u0433\u043E\u0442\u043E\u0432\u043E';
+      document.getElementById('prefetch-status').textContent = '\u2713 \u0415\u0449\u0451 ' + d.items.length + ' \u0432\u043e\u043f\u0440\u043e\u0441\u043e\u0432 \u0433\u043e\u0442\u043e\u0432\u043e';
     }
-  }).catch(function(){ prefetching = false; document.getElementById('prefetch-status').textContent = '\u274C \u0421\u0435\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430'; });
+  }).catch(function(){ prefetching = false; document.getElementById('prefetch-status').textContent = '\u274c \u0421\u0435\u0442\u044c \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430'; });
 }
 
 document.getElementById('start').onclick = function() {
@@ -19208,7 +23058,7 @@ document.getElementById('start').onclick = function() {
     } else if (waited > 15000) {
       clearInterval(waitInterval);
       document.getElementById('quiz').style.display = 'none';
-      document.getElementById('result').innerHTML = '<div class="card"><h2>\u274C \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0432\u043E\u043F\u0440\u043E\u0441\u044B</h2><p class="muted">\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0451 \u0440\u0430\u0437.</p></div>';
+      document.getElementById('result').innerHTML = '<div class="card"><h2>\u274c \u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0432\u043e\u043f\u0440\u043e\u0441\u044b</h2><p class="muted">\u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0451 \u0440\u0430\u0437.</p></div>';
       document.getElementById('start-card').style.display = '';
     } else {
       waited += 300;
@@ -19220,8 +23070,8 @@ function showNext() {
   if (queue.length === 0) {
     document.getElementById('quiz').style.display = 'none';
     var pct = total ? Math.round(score / total * 100) : 0;
-    document.getElementById('result').innerHTML = '<div class="card"><h2>\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442: ' + score + ' / ' + total + ' (' + pct + '%)</h2>'
-      + '<p class="muted">\u0418\u0418-\u043A\u0443\u0440\u0430\u0442\u043E\u0440 \u043F\u043E\u0434\u0431\u0438\u0440\u0430\u043B \u0432\u043E\u043F\u0440\u043E\u0441\u044B \u0438\u0437 \u0411\u0414 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u0442\u0432\u043E\u0438\u0445 \u0441\u043B\u0430\u0431\u044B\u0445 \u043C\u0435\u0441\u0442.</p></div>';
+    document.getElementById('result').innerHTML = '<div class="card"><h2>\u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442: ' + score + ' / ' + total + ' (' + pct + '%)</h2>'
+      + '<p class="muted">\u0418\u0418-\u043a\u0443\u0440\u0430\u0442\u043e\u0440 \u043f\u043e\u0434\u0431\u0438\u0440\u0430\u043b \u0432\u043e\u043f\u0440\u043e\u0441\u044b \u0438\u0437 \u0411\u0414 \u0441 \u0443\u0447\u0451\u0442\u043e\u043c \u0442\u0432\u043e\u0438\u0445 \u0441\u043b\u0430\u0431\u044b\u0445 \u043c\u0435\u0441\u0442.</p></div>';
     return;
   }
   var entry = queue.shift();
@@ -19230,7 +23080,7 @@ function showNext() {
   it._examIdx = entry.idx;
   seen.push(it.key);
   total++;
-  document.getElementById('status').textContent = '\u0412\u043E\u043F\u0440\u043E\u0441 ' + total;
+  document.getElementById('status').textContent = '\u0412\u043e\u043f\u0440\u043e\u0441 ' + total;
   document.getElementById('modtag').textContent = modNames[it.module] || it.module;
   document.getElementById('q').textContent = it.question;
   document.getElementById('fb').innerHTML = '';
@@ -19278,7 +23128,7 @@ function showNext() {
   if (it.hint) {
     var hb = document.getElementById('hint-box');
     hb.style.display = 'block';
-    hb.innerHTML = '<button class="mcq-btn" style="font-style:italic;color:var(--bb-muted);" onclick="this.nextElementSibling.style.display=\\'block\\';this.style.display=\\'none\\';">\U0001F4A1 \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443</button><div class="hint-text" style="display:none;">' + esc(it.hint) + '</div>';
+    hb.innerHTML = '<button class="mcq-btn" style="font-style:italic;color:var(--bb-muted);" onclick="this.nextElementSibling.style.display=\\'block\\';this.style.display=\\'none\\';">\U0001f4a1 \u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0443</button><div class="hint-text" style="display:none;">' + esc(it.hint) + '</div>';
   }
 
   prefetch();
@@ -19289,8 +23139,8 @@ function showFeedback(ok, it, serverResp) {
   var ansText = serverResp.answer !== undefined ? serverResp.answer : '';
   var fb = document.getElementById('fb');
   fb.innerHTML = (ok
-    ? '<span class="ok">\u2705 \u0412\u0435\u0440\u043D\u043E!</span>'
-    : '<span class="bad">\u274C \u041D\u0435\u0432\u0435\u0440\u043E. \u041E\u0442\u0432\u0435\u0442: ' + esc(String(ansText)) + '</span>')
+    ? '<span class="ok">\u2705 \u0412\u0435\u0440\u043d\u043e!</span>'
+    : '<span class="bad">\u274c \u041d\u0435\u0432\u0435\u0440\u043e. \u041e\u0442\u0432\u0435\u0442: ' + esc(String(ansText)) + '</span>')
     + (serverResp.explanation ? '<div class="explain">' + esc(serverResp.explanation) + '</div>' : '');
   document.getElementById('next').style.display = '';
   fetch('/api/exam/ai-record', {method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token': localStorage.getItem('web_token') || ''},
@@ -19507,7 +23357,12 @@ def achievements_page():
 # ---------------------------------------------------------------------------
 _MUSIC_ALLOWED = {".mid", ".midi", ".mp3", ".wav"}
 _MUSIC_MAX_BYTES = 8 * 1024 * 1024
-_MUSIC_MIME = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".mid": "audio/midi", ".midi": "audio/midi"}
+_MUSIC_MIME = {
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".mid": "audio/midi",
+    ".midi": "audio/midi",
+}
 
 
 def _music_save_upload(field):
@@ -19533,7 +23388,9 @@ def _music_save_upload(field):
 def _music_send(out_path):
     ext = os.path.splitext(out_path)[1].lower()
     mime = _MUSIC_MIME.get(ext, "application/octet-stream")
-    return send_file(out_path, mimetype=mime, as_attachment=True, download_name="music" + ext)
+    return send_file(
+        out_path, mimetype=mime, as_attachment=True, download_name="music" + ext
+    )
 
 
 @app.route("/api/music/analyze", methods=["POST"])
@@ -19542,6 +23399,7 @@ def api_music_analyze():
     if auth_resp:
         return auth_resp
     from core.music import analyze, audio_utils
+
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
@@ -19561,6 +23419,7 @@ def api_music_change_tempo():
     if auth_resp:
         return auth_resp
     from core.music import change_tempo
+
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
@@ -19594,6 +23453,7 @@ def api_music_change_key():
     if auth_resp:
         return auth_resp
     from core.music import change_key
+
     path, err = _music_save_upload("file")
     if err:
         return jsonify({"error": err}), 400
@@ -19624,6 +23484,7 @@ def api_music_overlay():
     if auth_resp:
         return auth_resp
     from core.music import overlay
+
     files = request.files.getlist("files")
     if len(files) < 2:
         return jsonify({"error": "нужно минимум 2 файла для наложения"}), 400
@@ -19638,7 +23499,9 @@ def api_music_overlay():
         if not data:
             return jsonify({"error": "Пустой файл: " + fn}), 400
         if len(data) > _MUSIC_MAX_BYTES:
-            return jsonify({"error": "Файл слишком большой: " + fn + " (макс. ~8 МБ)"}), 400
+            return jsonify(
+                {"error": "Файл слишком большой: " + fn + " (макс. ~8 МБ)"}
+            ), 400
         p = os.path.join(d, "in%d%s" % (i, ext))
         with open(p, "wb") as fp:
             fp.write(data)
@@ -20066,8 +23929,17 @@ document.getElementById('o-run').onclick=async function(){
 </script>
 </body>
 </html>"""
-    html = html.replace("__AUDIO_SERVICE_URL__", json.dumps(os.environ.get("AUDIO_SERVICE_URL", "https://audioservice.vercel.app")))
-    return html, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}
+    html = html.replace(
+        "__AUDIO_SERVICE_URL__",
+        json.dumps(
+            os.environ.get("AUDIO_SERVICE_URL", "https://audioservice.vercel.app")
+        ),
+    )
+    return (
+        html,
+        200,
+        {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"},
+    )
 
 
 @app.route("/stats")
@@ -20427,7 +24299,9 @@ def api_emperors_progress():
             engine = get_db_engine()
             with engine.connect() as conn:
                 rows = conn.execute(
-                    text("SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count, counter FROM emperors_progress WHERE user_id = :uid"),
+                    text(
+                        "SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count, counter FROM emperors_progress WHERE user_id = :uid"
+                    ),
                     {"uid": uid},
                 ).mappings()
                 for r in rows:
@@ -20464,11 +24338,15 @@ def api_emperors_progress_save():
         engine = get_db_engine()
         with engine.begin() as conn:
             if data.get("reset"):
-                conn.execute(text("DELETE FROM emperors_progress WHERE user_id = :uid"), {"uid": uid})
+                conn.execute(
+                    text("DELETE FROM emperors_progress WHERE user_id = :uid"),
+                    {"uid": uid},
+                )
             else:
                 for key, rec in cards.items():
-                    conn.execute(text(
-                        """
+                    conn.execute(
+                        text(
+                            """
                         INSERT INTO emperors_progress (user_id, card_key, reps, interval_days, ease, due, correct_count, wrong_count, counter, updated_at)
                         VALUES (:uid, :key, :reps, :interval, :ease, :due, :correct, :wrong, :counter, :ts)
                         ON CONFLICT (user_id, card_key) DO UPDATE SET
@@ -20481,18 +24359,20 @@ def api_emperors_progress_save():
                             counter = EXCLUDED.counter,
                             updated_at = EXCLUDED.updated_at
                         """
-                    ), {
-                        "uid": uid,
-                        "key": key,
-                        "reps": int(rec.get("reps", 0)),
-                        "interval": int(rec.get("interval", 0)),
-                        "ease": float(rec.get("ease", 2.5)),
-                        "due": _due_ms_to_s(rec.get("due", 0)),
-                        "correct": int(rec.get("correct", 0)),
-                        "wrong": int(rec.get("wrong", 0)),
-                        "counter": int(rec.get("counter", 0)),
-                        "ts": time.time(),
-                    })
+                        ),
+                        {
+                            "uid": uid,
+                            "key": key,
+                            "reps": int(rec.get("reps", 0)),
+                            "interval": int(rec.get("interval", 0)),
+                            "ease": float(rec.get("ease", 2.5)),
+                            "due": _due_ms_to_s(rec.get("due", 0)),
+                            "correct": int(rec.get("correct", 0)),
+                            "wrong": int(rec.get("wrong", 0)),
+                            "counter": int(rec.get("counter", 0)),
+                            "ts": time.time(),
+                        },
+                    )
         return jsonify({"ok": True, "uid": uid, "saved": len(cards)})
     except Exception as exc:
         log_error("EMPERORS", "error", f"progress POST error: {exc}")
@@ -20555,23 +24435,32 @@ def api_study_progress_save():
         with engine.begin() as conn:
             if data.get("reset"):
                 conn.execute(
-                    text("DELETE FROM study_progress WHERE user_id = :uid AND module = :module"),
+                    text(
+                        "DELETE FROM study_progress WHERE user_id = :uid AND module = :module"
+                    ),
                     {"uid": uid, "module": module},
                 )
             else:
                 for key, rec in cards.items():
                     new_c = int(rec.get("correct", 0))
                     new_w = int(rec.get("wrong", 0))
-                    prior = conn.execute(
-                        text("SELECT correct_count, wrong_count FROM study_progress "
-                             "WHERE user_id=:u AND module=:m AND card_key=:k"),
-                        {"u": uid, "m": module, "k": key},
-                    ).mappings().first()
+                    prior = (
+                        conn.execute(
+                            text(
+                                "SELECT correct_count, wrong_count FROM study_progress "
+                                "WHERE user_id=:u AND module=:m AND card_key=:k"
+                            ),
+                            {"u": uid, "m": module, "k": key},
+                        )
+                        .mappings()
+                        .first()
+                    )
                     d_c = new_c - int(prior["correct_count"] or 0) if prior else new_c
                     d_w = new_w - int(prior["wrong_count"] or 0) if prior else new_w
                     if d_c > 0 or d_w > 0:
                         _study_tally_daily(conn, uid, module, max(0, d_c), max(0, d_w))
-                    conn.execute(text("""
+                    conn.execute(
+                        text("""
                         INSERT INTO study_progress
                             (user_id, module, card_key, reps, interval_days, ease, due, streak,
                              correct_count, wrong_count, counter, updated_at, created_at, last_correct_at)
@@ -20589,20 +24478,22 @@ def api_study_progress_save():
                             updated_at = EXCLUDED.updated_at,
                             created_at = CASE WHEN study_progress.created_at = 0 THEN :ts ELSE study_progress.created_at END,
                             last_correct_at = CASE WHEN :correct > 0 THEN :ts ELSE study_progress.last_correct_at END
-                    """), {
-                        "uid": uid,
-                        "module": module,
-                        "key": key,
-                        "reps": int(rec.get("reps", 0)),
-                        "interval": float(rec.get("interval", 0)),
-                        "ease": float(rec.get("ease", 2.5)),
-                        "due": _due_ms_to_s(rec.get("due", 0)),
-                        "streak": int(rec.get("streak", 0)),
-                        "correct": new_c,
-                        "wrong": new_w,
-                        "counter": int(rec.get("counter", 0)),
-                        "ts": time.time(),
-                    })
+                    """),
+                        {
+                            "uid": uid,
+                            "module": module,
+                            "key": key,
+                            "reps": int(rec.get("reps", 0)),
+                            "interval": float(rec.get("interval", 0)),
+                            "ease": float(rec.get("ease", 2.5)),
+                            "due": _due_ms_to_s(rec.get("due", 0)),
+                            "streak": int(rec.get("streak", 0)),
+                            "correct": new_c,
+                            "wrong": new_w,
+                            "counter": int(rec.get("counter", 0)),
+                            "ts": time.time(),
+                        },
+                    )
         # --- achievements: record study activity and unlock OGE-module achievements ---
         unlocked_detail = []
         try:
@@ -20612,13 +24503,24 @@ def api_study_progress_save():
                 newly = _check_web_achievements(conn, web_uid)
                 conn.commit()
             unlocked_detail = [
-                {"code": code, "icon": ACHIEVEMENTS[code]["icon"], "name": ACHIEVEMENTS[code]["name"]}
+                {
+                    "code": code,
+                    "icon": ACHIEVEMENTS[code]["icon"],
+                    "name": ACHIEVEMENTS[code]["name"],
+                }
                 for code in newly
             ]
         except Exception as exc:
             log_error("STUDY", "error", f"achievement hook error: {exc}")
-        return jsonify({"ok": True, "uid": uid, "module": module, "saved": len(cards),
-                        "unlocked_detail": unlocked_detail})
+        return jsonify(
+            {
+                "ok": True,
+                "uid": uid,
+                "module": module,
+                "saved": len(cards),
+                "unlocked_detail": unlocked_detail,
+            }
+        )
     except Exception as exc:
         log_error("STUDY", "error", f"progress POST error: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -20630,8 +24532,12 @@ def _oge_stats_payload(web_user_id):
     """Comprehensive study statistics: per-module readiness, streak, today summary, forecast."""
     user = _get_session_user(_auth_token_from_request())
     if not user:
-        return {"modules": {}, "streak": {"current": 0, "best": 0},
-                "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0}, "forecast": []}
+        return {
+            "modules": {},
+            "streak": {"current": 0, "best": 0},
+            "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0},
+            "forecast": [],
+        }
     uid = _web_user_id("u" + str(web_user_id))
     now = time.time()
     today_start = now - (now % 86400)
@@ -20646,11 +24552,18 @@ def _oge_stats_payload(web_user_id):
         engine = get_db_engine()
         with engine.connect() as conn:
             for mod, meta in OGE_MODULES.items():
-                rows = conn.execute(text("""
+                rows = (
+                    conn.execute(
+                        text("""
                     SELECT card_key, reps, interval_days, ease, streak, due,
                            correct_count, wrong_count, updated_at, created_at, last_correct_at
                     FROM study_progress WHERE user_id=:u AND module=:m
-                """), {"u": uid, "m": mod}).mappings().all()
+                """),
+                        {"u": uid, "m": mod},
+                    )
+                    .mappings()
+                    .all()
+                )
                 started = len(rows)
                 mastered = 0
                 weak = 0
@@ -20696,14 +24609,23 @@ def _oge_stats_payload(web_user_id):
                     "readiness": readiness,
                     "correct": total_correct,
                     "wrong": total_wrong,
-                    "accuracy": round(total_correct / max(1, total_correct + total_wrong) * 100),
+                    "accuracy": round(
+                        total_correct / max(1, total_correct + total_wrong) * 100
+                    ),
                 }
             # Streak calculation
-            streak_rows = conn.execute(text("""
+            streak_rows = (
+                conn.execute(
+                    text("""
                 SELECT DISTINCT CAST(updated_at / 86400 AS INTEGER) AS day_num
                 FROM study_progress WHERE user_id=:u AND updated_at > 0
                 ORDER BY day_num DESC LIMIT 60
-            """), {"u": uid}).mappings().all()
+            """),
+                    {"u": uid},
+                )
+                .mappings()
+                .all()
+            )
             day_nums = [int(r["day_num"]) for r in streak_rows]
             current_streak = 0
             best_streak = 0
@@ -20733,19 +24655,33 @@ def _oge_stats_payload(web_user_id):
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            today_rows = conn.execute(text("""
+            today_rows = (
+                conn.execute(
+                    text("""
                 SELECT created_at, last_correct_at
                 FROM study_progress WHERE user_id=:u
-            """), {"u": uid}).mappings().all()
+            """),
+                    {"u": uid},
+                )
+                .mappings()
+                .all()
+            )
             for r in today_rows:
                 ca = float(r["created_at"] or 0)
                 lc = float(r["last_correct_at"] or 0)
                 if ca >= today_start or lc >= today_start:
                     today_cards += 1
-            daily_rows = conn.execute(text("""
+            daily_rows = (
+                conn.execute(
+                    text("""
                 SELECT COALESCE(SUM(correct), 0) AS c, COALESCE(SUM(wrong), 0) AS w
                 FROM study_daily WHERE user_id=:u AND day=:d
-            """), {"u": uid, "d": _day_str()}).mappings().first()
+            """),
+                    {"u": uid, "d": _day_str()},
+                )
+                .mappings()
+                .first()
+            )
             if daily_rows:
                 today_correct = int(daily_rows["c"] or 0)
                 today_wrong = int(daily_rows["w"] or 0)
@@ -20760,9 +24696,16 @@ def _oge_stats_payload(web_user_id):
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            due_rows = conn.execute(text("""
+            due_rows = (
+                conn.execute(
+                    text("""
                 SELECT due FROM study_progress WHERE user_id=:u AND due > :now
-            """), {"u": uid, "now": now}).mappings().all()
+            """),
+                    {"u": uid, "now": now},
+                )
+                .mappings()
+                .all()
+            )
             day_buckets = {}
             for r in due_rows:
                 d = float(r["due"] or 0)
@@ -20778,16 +24721,22 @@ def _oge_stats_payload(web_user_id):
                 introduced.append(new_today)
             cumulative_learned = 0
             for i in range(14):
-                fdate = (date.today() + __import__("datetime").timedelta(days=i)).isoformat()
-                learned_delta = introduced[i - MASTERY_GAP] if (i - MASTERY_GAP) >= 0 else 0
+                fdate = (
+                    date.today() + __import__("datetime").timedelta(days=i)
+                ).isoformat()
+                learned_delta = (
+                    introduced[i - MASTERY_GAP] if (i - MASTERY_GAP) >= 0 else 0
+                )
                 cumulative_learned += learned_delta
-                forecast.append({
-                    "date": fdate,
-                    "due": day_buckets.get(i, 0),
-                    "new": introduced[i],
-                    "learned": cumulative_learned,
-                    "learned_delta": learned_delta,
-                })
+                forecast.append(
+                    {
+                        "date": fdate,
+                        "due": day_buckets.get(i, 0),
+                        "new": introduced[i],
+                        "learned": cumulative_learned,
+                        "learned_delta": learned_delta,
+                    }
+                )
     except Exception as exc:
         log_error("STUDY", "error", f"forecast error: {exc}")
     overall_readiness = round(total_mastered / max(1, total_cards) * 100)
@@ -20795,11 +24744,13 @@ def _oge_stats_payload(web_user_id):
     days_to_learn_all = 0
     if total_unseen and pace:
         import math
+
         days_to_learn_all = math.ceil(total_unseen / pace) + MASTERY_GAP
     # Trend: cumulative learned (last_correct_at <= day_end) per day over last 30 days, per module.
     trend = []
     try:
         import datetime as _dt
+
         now_day = int(now / 86400)
         TREND_DAYS = 30
         for off in range(TREND_DAYS - 1, -1, -1):
@@ -20807,7 +24758,7 @@ def _oge_stats_payload(web_user_id):
             day_date = _dt.date.fromtimestamp(day_end).isoformat()
             per_mod = {}
             tcount = 0
-            for (mod, lc) in all_rows:
+            for mod, lc in all_rows:
                 if lc and lc <= day_end:
                     per_mod[mod] = per_mod.get(mod, 0) + 1
                     tcount += 1
@@ -20818,8 +24769,14 @@ def _oge_stats_payload(web_user_id):
         "modules": modules,
         "overall_readiness": overall_readiness,
         "streak": {"current": current_streak, "best": best_streak},
-        "today": {"cards": today_cards, "correct": today_correct, "wrong": today_wrong,
-                  "correct_rate": round(today_correct / max(1, today_correct + today_wrong) * 100)},
+        "today": {
+            "cards": today_cards,
+            "correct": today_correct,
+            "wrong": today_wrong,
+            "correct_rate": round(
+                today_correct / max(1, today_correct + today_wrong) * 100
+            ),
+        },
         "forecast": forecast,
         "total_unseen": total_unseen,
         "days_to_learn_all": days_to_learn_all,
@@ -20833,25 +24790,80 @@ def _oge_stats_payload(web_user_id):
 # display metadata used by the general statistics view.
 
 _STATS_MODULES = {
-    "history": {"label": "История", "emoji": "📜", "color": "#8b5cf6", "url": "/emperors"},
-    "informatics": {"label": "Информатика", "emoji": "💻", "color": "#06b6d4", "url": "/informatics"},
+    "history": {
+        "label": "История",
+        "emoji": "📜",
+        "color": "#8b5cf6",
+        "url": "/emperors",
+    },
+    "informatics": {
+        "label": "Информатика",
+        "emoji": "💻",
+        "color": "#06b6d4",
+        "url": "/informatics",
+    },
     "math": {"label": "Математика", "emoji": "📐", "color": "#f59e0b", "url": "/math"},
-    "russian": {"label": "Русский язык", "emoji": "📝", "color": "#ec4899", "url": "/russian"},
+    "russian": {
+        "label": "Русский язык",
+        "emoji": "📝",
+        "color": "#ec4899",
+        "url": "/russian",
+    },
     "physics": {"label": "Физика", "emoji": "⚛️", "color": "#10b981", "url": "/physics"},
-    "emperors": {"label": "История (императоры)", "emoji": "👑", "color": "#8b5cf6", "url": "/emperors"},
+    "emperors": {
+        "label": "История (императоры)",
+        "emoji": "👑",
+        "color": "#8b5cf6",
+        "url": "/emperors",
+    },
     "canon": {"label": "Канон", "emoji": "📖", "color": "#f59e0b", "url": "/canon"},
     "quiz": {"label": "Квизы", "emoji": "❓", "color": "#06b6d4", "url": "/stats"},
     "exam": {"label": "Экзамен", "emoji": "🎓", "color": "#ec4899", "url": "/exam"},
     "chess": {"label": "Шахматы", "emoji": "♟️", "color": "#10b981", "url": "/chess"},
     "gd": {"label": "Geometry Dash", "emoji": "🟦", "color": "#22d3ee", "url": "/gd"},
-    "trivia": {"label": "Викторина", "emoji": "🧠", "color": "#facc15", "url": "/trivia"},
-    "verbs": {"label": "Неправ. глаголы", "emoji": "🔤", "color": "#a78bfa", "url": "/irregular_verbs"},
-    "reading": {"label": "Чтение", "emoji": "📚", "color": "#34d399", "url": "/reading_trainer.html"},
-    "family": {"label": "Семейный бюджет", "emoji": "💰", "color": "#ef4444", "url": "/family"},
+    "trivia": {
+        "label": "Викторина",
+        "emoji": "🧠",
+        "color": "#facc15",
+        "url": "/trivia",
+    },
+    "verbs": {
+        "label": "Неправ. глаголы",
+        "emoji": "🔤",
+        "color": "#a78bfa",
+        "url": "/irregular_verbs",
+    },
+    "reading": {
+        "label": "Чтение",
+        "emoji": "📚",
+        "color": "#34d399",
+        "url": "/reading_trainer.html",
+    },
+    "family": {
+        "label": "Семейный бюджет",
+        "emoji": "💰",
+        "color": "#ef4444",
+        "url": "/family",
+    },
     "dnd": {"label": "DnD", "emoji": "🐉", "color": "#fb7185", "url": "/dnd"},
-    "prayer": {"label": "Молитва дня", "emoji": "🙏", "color": "#c084fc", "url": "/daily_prayer"},
-    "ai_chat": {"label": "ИИ-чат", "emoji": "🤖", "color": "#38bdf8", "url": "/ai_chat"},
-    "reading_trainer": {"label": "Тренажёр чтения", "emoji": "📖", "color": "#34d399", "url": "/reading_trainer.html"},
+    "prayer": {
+        "label": "Молитва дня",
+        "emoji": "🙏",
+        "color": "#c084fc",
+        "url": "/daily_prayer",
+    },
+    "ai_chat": {
+        "label": "ИИ-чат",
+        "emoji": "🤖",
+        "color": "#38bdf8",
+        "url": "/ai_chat",
+    },
+    "reading_trainer": {
+        "label": "Тренажёр чтения",
+        "emoji": "📖",
+        "color": "#34d399",
+        "url": "/reading_trainer.html",
+    },
     "system": {"label": "Прочее", "emoji": "✨", "color": "#94a3b8", "url": "/"},
 }
 
@@ -20869,34 +24881,54 @@ def api_stats():
     try:
         with get_db_engine().connect() as conn:
             streak_row = _get_streak_row(conn, web_uid)
-            day_rows = conn.execute(
-                text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :u ORDER BY day"),
-                {"u": web_uid},
-            ).mappings().all()
-            mod_rows = conn.execute(
-                text("SELECT module, SUM(actions) AS total, COUNT(DISTINCT day) AS days "
-                     "FROM web_activity_log WHERE user_id = :u GROUP BY module"),
-                {"u": web_uid},
-            ).mappings().all()
-            ev_rows = conn.execute(
-                text("SELECT event, count FROM web_events WHERE user_id = :u ORDER BY count DESC"),
-                {"u": web_uid},
-            ).mappings().all()
+            day_rows = (
+                conn.execute(
+                    text(
+                        "SELECT DISTINCT day FROM web_activity_log WHERE user_id = :u ORDER BY day"
+                    ),
+                    {"u": web_uid},
+                )
+                .mappings()
+                .all()
+            )
+            mod_rows = (
+                conn.execute(
+                    text(
+                        "SELECT module, SUM(actions) AS total, COUNT(DISTINCT day) AS days "
+                        "FROM web_activity_log WHERE user_id = :u GROUP BY module"
+                    ),
+                    {"u": web_uid},
+                )
+                .mappings()
+                .all()
+            )
+            ev_rows = (
+                conn.execute(
+                    text(
+                        "SELECT event, count FROM web_events WHERE user_id = :u ORDER BY count DESC"
+                    ),
+                    {"u": web_uid},
+                )
+                .mappings()
+                .all()
+            )
 
         calendar = [r["day"] for r in day_rows]
         modules = []
         for r in mod_rows:
             key = r["module"]
             meta = _STATS_MODULES.get(key, {})
-            modules.append({
-                "key": key,
-                "label": meta.get("label", key),
-                "emoji": meta.get("emoji", ""),
-                "color": meta.get("color", "#94a3b8"),
-                "url": meta.get("url", "/"),
-                "actions": int(r["total"] or 0),
-                "days": int(r["days"] or 0),
-            })
+            modules.append(
+                {
+                    "key": key,
+                    "label": meta.get("label", key),
+                    "emoji": meta.get("emoji", ""),
+                    "color": meta.get("color", "#94a3b8"),
+                    "url": meta.get("url", "/"),
+                    "actions": int(r["total"] or 0),
+                    "days": int(r["days"] or 0),
+                }
+            )
         modules.sort(key=lambda m: -m["actions"])
         events = [{"event": r["event"], "count": int(r["count"] or 0)} for r in ev_rows]
         total_actions = sum(m["actions"] for m in modules)
@@ -20907,19 +24939,21 @@ def api_stats():
         except Exception as exc:
             log_error("STATS", "error", f"oge block error: {exc}")
 
-        return jsonify({
-            "ok": True,
-            "streak": {
-                "current": streak_row["current_streak"] if streak_row else 0,
-                "longest": streak_row["longest_streak"] if streak_row else 0,
-                "total_days": streak_row["total_active_days"] if streak_row else 0,
-            },
-            "calendar": calendar,
-            "modules": modules,
-            "events": events,
-            "totals": {"actions": total_actions, "active_days": len(calendar)},
-            "oge": oge,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "streak": {
+                    "current": streak_row["current_streak"] if streak_row else 0,
+                    "longest": streak_row["longest_streak"] if streak_row else 0,
+                    "total_days": streak_row["total_active_days"] if streak_row else 0,
+                },
+                "calendar": calendar,
+                "modules": modules,
+                "events": events,
+                "totals": {"actions": total_actions, "active_days": len(calendar)},
+                "oge": oge,
+            }
+        )
     except Exception as exc:
         log_error("STATS", "error", f"error: {exc}")
         return jsonify({"ok": False, "error": "server error"}), 500
@@ -20931,16 +24965,18 @@ def api_study_stats():
     token = _auth_token_from_request()
     user = _get_session_user(token) if token else None
     if not user:
-        return jsonify({
-            "modules": {},
-            "streak": {"current": 0, "best": 0},
-            "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0},
-            "forecast": [],
-            "trend": [],
-            "overall_readiness": 0,
-            "total_unseen": 0,
-            "days_to_learn_all": 0,
-        })
+        return jsonify(
+            {
+                "modules": {},
+                "streak": {"current": 0, "best": 0},
+                "today": {"cards": 0, "correct": 0, "wrong": 0, "correct_rate": 0},
+                "forecast": [],
+                "trend": [],
+                "overall_readiness": 0,
+                "total_unseen": 0,
+                "days_to_learn_all": 0,
+            }
+        )
     return jsonify(_oge_stats_payload(user["id"]))
 
 
@@ -20956,27 +24992,40 @@ def api_study_due_cards():
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            rows = conn.execute(text("""
+            rows = (
+                conn.execute(
+                    text("""
                 SELECT module, card_key, reps, ease, due, streak, correct_count, wrong_count
                 FROM study_progress WHERE user_id=:u AND due <= :now AND (reps > 0 OR due <= :now)
                 ORDER BY due ASC LIMIT 100
-            """), {"u": uid, "now": now}).mappings().all()
+            """),
+                    {"u": uid, "now": now},
+                )
+                .mappings()
+                .all()
+            )
             for r in rows:
                 mod = r["module"]
                 meta = OGE_MODULES.get(mod, {})
                 overdue_min = round((now - float(r["due"])) / 60)
-                due.append({
-                    "module": mod,
-                    "label": meta.get("label", mod),
-                    "emoji": meta.get("emoji", ""),
-                    "url": meta.get("url", "/"),
-                    "key": r["card_key"],
-                    "reps": int(r["reps"]),
-                    "streak": int(r["streak"]),
-                    "ease": float(r["ease"]),
-                    "overdue_min": overdue_min,
-                    "accuracy": round(int(r["correct_count"]) / max(1, int(r["correct_count"]) + int(r["wrong_count"])) * 100),
-                })
+                due.append(
+                    {
+                        "module": mod,
+                        "label": meta.get("label", mod),
+                        "emoji": meta.get("emoji", ""),
+                        "url": meta.get("url", "/"),
+                        "key": r["card_key"],
+                        "reps": int(r["reps"]),
+                        "streak": int(r["streak"]),
+                        "ease": float(r["ease"]),
+                        "overdue_min": overdue_min,
+                        "accuracy": round(
+                            int(r["correct_count"])
+                            / max(1, int(r["correct_count"]) + int(r["wrong_count"]))
+                            * 100
+                        ),
+                    }
+                )
     except Exception as exc:
         log_error("STUDY", "error", f"due-cards error: {exc}")
     return jsonify({"due": due, "total": len(due)})
@@ -20989,13 +25038,16 @@ def _oge_subjects_payload(uid, now: float) -> list:
         try:
             engine = get_db_engine()
             with engine.connect() as conn:
-                rows = conn.execute(text("""
+                rows = conn.execute(
+                    text("""
                     SELECT module,
                            SUM(CASE WHEN due > 0 AND due <= :now THEN 1 ELSE 0 END) AS due_cnt,
                            SUM(CASE WHEN streak = 0 AND wrong_count > correct_count THEN 1 ELSE 0 END) AS weak_cnt,
                            COUNT(*) AS started_cnt
                     FROM study_progress WHERE user_id = :uid GROUP BY module
-                """), {"uid": uid, "now": now}).mappings()
+                """),
+                    {"uid": uid, "now": now},
+                ).mappings()
                 for r in rows:
                     stats[r["module"]] = {
                         "due": int(r["due_cnt"] or 0),
@@ -21023,19 +25075,21 @@ def _oge_subjects_payload(uid, now: float) -> list:
         else:
             action = "Поддерживать форму"
             url = meta["url"]
-        subjects.append({
-            "module": module,
-            "label": meta["label"],
-            "emoji": meta["emoji"],
-            "url": meta["url"],
-            "due": s["due"],
-            "weak": s["weak"],
-            "started": s["started"],
-            "total": total,
-            "urgency": round(urgency, 2),
-            "score": round(score, 1),
-            "next_action": {"text": action, "url": url},
-        })
+        subjects.append(
+            {
+                "module": module,
+                "label": meta["label"],
+                "emoji": meta["emoji"],
+                "url": meta["url"],
+                "due": s["due"],
+                "weak": s["weak"],
+                "started": s["started"],
+                "total": total,
+                "urgency": round(urgency, 2),
+                "score": round(score, 1),
+                "next_action": {"text": action, "url": url},
+            }
+        )
     subjects.sort(key=lambda x: x["score"], reverse=True)
     return subjects
 
@@ -21079,14 +25133,17 @@ def api_study_ai_plan():
         "из 3-5 пунктов на основе статистики ученика. Приоритет: близкие даты экзаменов и просроченные "
         "повторения. Формат: каждый пункт с новой строки в виде «Предмет — действие (время)», без markdown "
         "и без вступлений. В конце добавь одну строку-совет дня.\n\n"
-        "Статистика ученика:\n" + "\n".join(stat_lines) +
-        "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
+        "Статистика ученика:\n"
+        + "\n".join(stat_lines)
+        + "\n\nДаты экзаменов ОГЭ:\n"
+        + "\n".join(exam_lines)
     )
     plan = call_ai_api(prompt, max_tokens=400, temperature=0.6)
     if plan and not plan.startswith("❌"):
         _OGE_AI_PLAN_CACHE[uid] = {"date": today, "plan": plan}
         return jsonify({"ok": True, "source": "ai", "plan": plan})
     return jsonify({"ok": False, "source": "fallback", "plan": ""})
+
 
 # ---------------- OGE curator: persistent daily plan + chat (OGE-08/09) ----------------
 
@@ -21100,7 +25157,8 @@ def _ensure_oge_curator_tables(engine):
     global _OGE_CURATOR_TABLES_ERR
     try:
         with engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS oge_daily_plans (
                     user_id INTEGER NOT NULL,
                     plan_date TEXT NOT NULL,
@@ -21111,8 +25169,10 @@ def _ensure_oge_curator_tables(engine):
                     created_at REAL NOT NULL DEFAULT 0,
                     PRIMARY KEY (user_id, plan_date)
                 )
-            """))
-            conn.execute(text("""
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS oge_chat_messages (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -21120,8 +25180,13 @@ def _ensure_oge_curator_tables(engine):
                     content TEXT NOT NULL,
                     created_at REAL NOT NULL DEFAULT 0
                 )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_oge_chat_user ON oge_chat_messages(user_id, id)"))
+            """)
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_oge_chat_user ON oge_chat_messages(user_id, id)"
+                )
+            )
     except Exception as exc:
         _OGE_CURATOR_TABLES_ERR = "DDL: " + str(exc)[:400]
         log_error("OGE", "error", f"curator tables skipped: {exc}")
@@ -21232,26 +25297,30 @@ def _plan_items_rule_based(subjects, minutes, ease):
         unstarted = max(0, int(s.get("total", 0)) - int(s.get("started", 0)))
         if weak > 0:
             target = max(3, min(per, weak))
-            items.append({
-                "module": s["module"],
-                "label": f"{s['emoji']} {s['label']}",
-                "text": f"\U0001F6E0 Исправить ошибки: {target} слабых карточек",
-                "url": s["next_action"]["url"],
-                "minutes": max(per, target * 2),
-                "cards": target,
-                "kind": "fix",
-            })
+            items.append(
+                {
+                    "module": s["module"],
+                    "label": f"{s['emoji']} {s['label']}",
+                    "text": f"\U0001f6e0 Исправить ошибки: {target} слабых карточек",
+                    "url": s["next_action"]["url"],
+                    "minutes": max(per, target * 2),
+                    "cards": target,
+                    "kind": "fix",
+                }
+            )
         else:
             target = max(3, min(max(per, 3), unstarted)) if unstarted else max(3, per)
-            items.append({
-                "module": s["module"],
-                "label": f"{s['emoji']} {s['label']}",
-                "text": f"\u2728 Изучить новые: {target} карточек",
-                "url": s["next_action"]["url"],
-                "minutes": max(per, target * 2),
-                "cards": target,
-                "kind": "new",
-            })
+            items.append(
+                {
+                    "module": s["module"],
+                    "label": f"{s['emoji']} {s['label']}",
+                    "text": f"\u2728 Изучить новые: {target} карточек",
+                    "url": s["next_action"]["url"],
+                    "minutes": max(per, target * 2),
+                    "cards": target,
+                    "kind": "new",
+                }
+            )
     return items
 
 
@@ -21260,10 +25329,17 @@ def _yesterday_completion(uid, today):
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            y = conn.execute(text(
-                "SELECT items_json, done_count FROM oge_daily_plans "
-                "WHERE user_id=:u AND plan_date=:d"
-            ), {"u": uid, "d": _prev_day(today)}).mappings().first()
+            y = (
+                conn.execute(
+                    text(
+                        "SELECT items_json, done_count FROM oge_daily_plans "
+                        "WHERE user_id=:u AND plan_date=:d"
+                    ),
+                    {"u": uid, "d": _prev_day(today)},
+                )
+                .mappings()
+                .first()
+            )
         if not y:
             return None
         total = len(json.loads(y["items_json"] or "[]"))
@@ -21304,8 +25380,10 @@ def _plan_items_ai(subjects, minutes, ratio):
         "minutes - реалистичная оценка времени на пункт в минутах (учти чтение, разбор теории/ошибок и "
         "тренировку; обычно 5-25, до 40); распредели бюджет по пунктам. "
         "формулируй text не нужно - текст построит система." + hard + "\n\n"
-        "Статистика ученика:\n" + "\n".join(stat_lines) +
-        "\n\nДаты экзаменов ОГЭ:\n" + "\n".join(exam_lines)
+        "Статистика ученика:\n"
+        + "\n".join(stat_lines)
+        + "\n\nДаты экзаменов ОГЭ:\n"
+        + "\n".join(exam_lines)
     )
     raw = call_ai_api(prompt, max_tokens=500, temperature=0.5)
     if not raw or raw.startswith("❌"):
@@ -21342,19 +25420,21 @@ def _plan_items_ai(subjects, minutes, ratio):
         topic = _norm_topic(it.get("topic"))
         suffix = f" (тема «{topic}»)" if topic else ""
         if kind == "fix":
-            text = f"\U0001F6E0 Исправить ошибки: {cards} слабых карточек{suffix}"
+            text = f"\U0001f6e0 Исправить ошибки: {cards} слабых карточек{suffix}"
         else:
             text = f"\u2728 Изучить новые: {cards} карточек{suffix}"
-        items.append({
-            "module": mod,
-            "label": f"{s['emoji']} {s['label']}",
-            "text": text,
-            "url": s["url"],
-            "minutes": minutes,
-            "cards": cards,
-            "kind": kind,
-            "topic": topic,
-        })
+        items.append(
+            {
+                "module": mod,
+                "label": f"{s['emoji']} {s['label']}",
+                "text": text,
+                "url": s["url"],
+                "minutes": minutes,
+                "cards": cards,
+                "kind": kind,
+                "topic": topic,
+            }
+        )
     return items or None
 
 
@@ -21375,20 +25455,36 @@ def _generate_plan(uid, today, minutes):
 
 
 def _upsert_plan(conn, uid, today, minutes, items, source):
-    conn.execute(text("""
+    conn.execute(
+        text("""
         INSERT INTO oge_daily_plans (user_id, plan_date, target_minutes, items_json, source, done_count, created_at)
         VALUES (:u, :d, :m, :j, :s, 0, :t)
         ON CONFLICT (user_id, plan_date) DO UPDATE SET
             target_minutes=:m, items_json=:j, source=:s, done_count=0, created_at=:t
-    """), {"u": uid, "d": today, "m": minutes, "j": json.dumps(items, ensure_ascii=False),
-           "s": source, "t": time.time()})
+    """),
+        {
+            "u": uid,
+            "d": today,
+            "m": minutes,
+            "j": json.dumps(items, ensure_ascii=False),
+            "s": source,
+            "t": time.time(),
+        },
+    )
 
 
 def _load_plan_row(conn, uid, day):
-    return conn.execute(text(
-        "SELECT plan_date, target_minutes, items_json, source, done_count "
-        "FROM oge_daily_plans WHERE user_id=:u AND plan_date=:d"
-    ), {"u": uid, "d": day}).mappings().first()
+    return (
+        conn.execute(
+            text(
+                "SELECT plan_date, target_minutes, items_json, source, done_count "
+                "FROM oge_daily_plans WHERE user_id=:u AND plan_date=:d"
+            ),
+            {"u": uid, "d": day},
+        )
+        .mappings()
+        .first()
+    )
 
 
 def _auto_plan_done(items, uid):
@@ -21409,7 +25505,9 @@ def _plan_item_tab(it):
             return "terms"
         if any(k in text for k in ("хронологи", "даты", "год")):
             return "chrono"
-        if any(k in text for k in ("сопостав", "соотнес", "правител", "личн", "персон")):
+        if any(
+            k in text for k in ("сопостав", "соотнес", "правител", "личн", "персон")
+        ):
             return "match"
         return "study"
     if mod == "math":
@@ -21454,9 +25552,12 @@ def _snapshot_auto_done(uid, today, payload_row):
         auto = _auto_plan_done(items, uid)
         if int(payload_row["done_count"] or 0) != auto:
             with get_db_engine().begin() as conn:
-                conn.execute(text(
-                    "UPDATE oge_daily_plans SET done_count=:v WHERE user_id=:u AND plan_date=:d"
-                ), {"v": auto, "u": uid, "d": today})
+                conn.execute(
+                    text(
+                        "UPDATE oge_daily_plans SET done_count=:v WHERE user_id=:u AND plan_date=:d"
+                    ),
+                    {"v": auto, "u": uid, "d": today},
+                )
     except Exception as exc:
         log_error("OGE", "error", f"auto-done snapshot error: {exc}")
 
@@ -21477,8 +25578,16 @@ def api_study_plan_get():
             row = _load_plan_row(conn, uid, today)
     except Exception as exc:
         log_error("OGE", "error", f"plan load error: {exc}")
-        return jsonify({"ok": False, "error": "db", "detail": (_OGE_CURATOR_TABLES_ERR or str(exc))[:400]}), 500
-    if row and (not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])):
+        return jsonify(
+            {
+                "ok": False,
+                "error": "db",
+                "detail": (_OGE_CURATOR_TABLES_ERR or str(exc))[:400],
+            }
+        ), 500
+    if row and (
+        not minutes_arg or _clamp_minutes(minutes_arg) == int(row["target_minutes"])
+    ):
         payload = _plan_payload(row, uid)
         _snapshot_auto_done(uid, today, row)
         return jsonify(payload)
@@ -21505,7 +25614,9 @@ def api_study_plan_regenerate():
     engine = get_db_engine()
     with engine.connect() as conn:
         row = _load_plan_row(conn, uid, today)
-    minutes = _clamp_minutes(data.get("minutes") or (row["target_minutes"] if row else 10))
+    minutes = _clamp_minutes(
+        data.get("minutes") or (row["target_minutes"] if row else 10)
+    )
     items, source = _generate_plan(uid, today, minutes)
     with engine.begin() as conn:
         _upsert_plan(conn, uid, today, minutes, items, source)
@@ -21528,9 +25639,12 @@ def api_study_today():
     day_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
     try:
         with get_db_engine().connect() as conn:
-            n = conn.execute(text(
-                "SELECT COUNT(*) AS c FROM study_progress WHERE user_id=:u AND updated_at >= :t"
-            ), {"u": uid, "t": day_start}).scalar()
+            n = conn.execute(
+                text(
+                    "SELECT COUNT(*) AS c FROM study_progress WHERE user_id=:u AND updated_at >= :t"
+                ),
+                {"u": uid, "t": day_start},
+            ).scalar()
         return jsonify({"ok": True, "touched": int(n or 0)})
     except Exception as exc:
         log_error("OGE", "error", f"today stats error: {exc}")
@@ -21548,11 +25662,18 @@ def _oge_weak_topics_summary(uid):
     try:
         with get_db_engine().connect() as conn:
             for mod, meta in OGE_MODULES.items():
-                rows = conn.execute(text(
-                    "SELECT card_key, correct_count, wrong_count FROM study_progress"
-                    " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
-                    " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
-                ), {"u": uid, "m": mod}).mappings().all()
+                rows = (
+                    conn.execute(
+                        text(
+                            "SELECT card_key, correct_count, wrong_count FROM study_progress"
+                            " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
+                            " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
+                        ),
+                        {"u": uid, "m": mod},
+                    )
+                    .mappings()
+                    .all()
+                )
                 if not rows:
                     continue
                 weak = []
@@ -21572,10 +25693,17 @@ def _oge_streak_info(uid, now):
     result = {"current": 0, "best": 0, "accuracy": 0, "total_answers": 0}
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(text(
-                "SELECT correct_count, wrong_count, updated_at FROM study_progress"
-                " WHERE user_id=:u AND updated_at > 0"
-            ), {"u": uid}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT correct_count, wrong_count, updated_at FROM study_progress"
+                        " WHERE user_id=:u AND updated_at > 0"
+                    ),
+                    {"u": uid},
+                )
+                .mappings()
+                .all()
+            )
             if not rows:
                 return result
             total_c = sum(int(r["correct_count"] or 0) for r in rows)
@@ -21616,6 +25744,7 @@ def _oge_streak_info(uid, now):
 
 def _oge_exam_countdown(now):
     import datetime as _dt
+
     lines = []
     for mod, meta in OGE_MODULES.items():
         exam = OGE_EXAM_DATES.get(mod)
@@ -21634,14 +25763,22 @@ def _oge_exam_countdown(now):
 
 def _oge_yesterday_summary(uid):
     import datetime as _dt
+
     yesterday = (_dt.datetime.now() - _dt.timedelta(days=1)).strftime("%Y-%m-%d")
     result = {"touched": 0, "correct": 0, "wrong": 0}
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(text(
-                "SELECT correct_count, wrong_count FROM study_progress"
-                " WHERE user_id=:u AND DATE(updated_at, 'unixepoch') = :d"
-            ), {"u": uid, "d": yesterday}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT correct_count, wrong_count FROM study_progress"
+                        " WHERE user_id=:u AND DATE(updated_at, 'unixepoch') = :d"
+                    ),
+                    {"u": uid, "d": yesterday},
+                )
+                .mappings()
+                .all()
+            )
             result["touched"] = len(rows)
             result["correct"] = sum(int(r["correct_count"] or 0) for r in rows)
             result["wrong"] = sum(int(r["wrong_count"] or 0) for r in rows)
@@ -21658,12 +25795,16 @@ def _curator_fallback_reply(subjects, plan_lines):
         m = re.match(r"^\d+\) \[(.*?)\] (.*?) \((\d+) карточек", line)
         if m:
             done = "✅" in line or "прогресс" in line
-            items.append({
-                "label": m.group(1),
-                "text": m.group(2).replace("исправить ошибки: ", "").replace("изучить новые: ", ""),
-                "minutes": min(30, max(5, round(int(m.group(3)) * 1.5))),
-                "done": done,
-            })
+            items.append(
+                {
+                    "label": m.group(1),
+                    "text": m.group(2)
+                    .replace("исправить ошибки: ", "")
+                    .replace("изучить новые: ", ""),
+                    "minutes": min(30, max(5, round(int(m.group(3)) * 1.5))),
+                    "done": done,
+                }
+            )
     if items:
         parts = []
         for it in items:
@@ -21680,15 +25821,32 @@ def _curator_fallback_reply(subjects, plan_lines):
         reply_parts.append(f"Советую сейчас: {nxt['label']} — {act}.")
     if plan_lines:
         reply_parts.append(plan_lines[0])
-    reply_parts.append("⚠️ ИИ временно недоступен — это автоподсказка; напишите ещё раз чуть позже.")
+    reply_parts.append(
+        "⚠️ ИИ временно недоступен — это автоподсказка; напишите ещё раз чуть позже."
+    )
     return " ".join(reply_parts)
 
 
 _CURATOR_TOOLS = {
-    "stats", "progress", "plan", "card", "due", "weak", "topics",
-    "mastered", "streak", "due_cards", "recommend", "exam",
-    "achievements", "coins", "activity", "daily_log", "textbooks",
-    "history_detail", "trivia_stats",
+    "stats",
+    "progress",
+    "plan",
+    "card",
+    "due",
+    "weak",
+    "topics",
+    "mastered",
+    "streak",
+    "due_cards",
+    "recommend",
+    "exam",
+    "achievements",
+    "coins",
+    "activity",
+    "daily_log",
+    "textbooks",
+    "history_detail",
+    "trivia_stats",
 }
 
 
@@ -21734,7 +25892,7 @@ def _iter_json_objects(text):
                     end = i
                     break
         if end is not None:
-            yield text[start.start():end + 1]
+            yield text[start.start() : end + 1]
 
 
 def _is_serialized_json(text):
@@ -21753,57 +25911,59 @@ def _curator_tool_action(directive):
     """Human-readable description of what the curator looked up (for the chat UI)."""
     tool = str(directive.get("tool") or "")
     if tool == "stats":
-        return "смотрит твою статистику \U0001F4CA"
+        return "смотрит твою статистику \U0001f4ca"
     if tool == "plan":
-        return "сверяется с планом на день \U0001F4CC"
+        return "сверяется с планом на день \U0001f4cc"
     if tool == "card":
         key = str(directive.get("key") or "")
-        return f"проверяет карточку {key} \U0001F0CF"
+        return f"проверяет карточку {key} \U0001f0cf"
     if tool == "due":
         module = str(directive.get("module") or "")
         meta = OGE_MODULES.get(module)
-        return f"смотрит повторение: {meta['label'] if meta else 'все'} \U0001F504"
+        return f"смотрит повторение: {meta['label'] if meta else 'все'} \U0001f504"
     if tool == "weak":
-        return "ищет слабые темы \U0001F50D"
+        return "ищет слабые темы \U0001f50d"
     if tool == "topics":
         module = str(directive.get("module") or "")
         meta = OGE_MODULES.get(module)
-        return f"листает темы предмета {meta['label'] if meta else ''} \U0001F4DA"
+        return f"листает темы предмета {meta['label'] if meta else ''} \U0001f4da"
     if tool == "mastered":
         module = str(directive.get("module") or "")
         meta = OGE_MODULES.get(module)
-        return f"подбирает выученное для повторения: {meta['label'] if meta else 'все'} \U0001F3AF"
+        return f"подбирает выученное для повторения: {meta['label'] if meta else 'все'} \U0001f3af"
     if tool == "streak":
-        return "смотрит серию и точность \U0001F525"
+        return "смотрит серию и точность \U0001f525"
     if tool == "due_cards":
         module = str(directive.get("module") or "")
         meta = OGE_MODULES.get(module)
-        return f"ищет просроченные карточки: {meta['label'] if meta else 'все'} \U000023F3"
+        return (
+            f"ищет просроченные карточки: {meta['label'] if meta else 'все'} \U000023f3"
+        )
     if tool == "recommend":
-        return "подбирает следующий шаг \U0001F4A1"
+        return "подбирает следующий шаг \U0001f4a1"
     if tool == "exam":
-        return "сверяется с обратным отсчётом до экзаменов \U0001F3C6"
+        return "сверяется с обратным отсчётом до экзаменов \U0001f3c6"
     if tool == "achievements":
-        return "смотрит твои достижения \U0001F3C6"
+        return "смотрит твои достижения \U0001f3c6"
     if tool == "coins":
-        return "проверяет баланс монет \U0001FA99"
+        return "проверяет баланс монет \U0001fa99"
     if tool == "activity":
-        return "смотрит твою активность за неделю \U0001F4C5"
+        return "смотрит твою активность за неделю \U0001f4c5"
     if tool == "daily_log":
-        return "сверяет сегодняшние результаты \U0001F4DD"
+        return "сверяет сегодняшние результаты \U0001f4dd"
     if tool == "textbooks":
-        return "проверяет, где лежат учебники \U0001F4DA"
+        return "проверяет, где лежат учебники \U0001f4da"
     if tool == "history_detail":
-        return "углубляется в прогресс по Истории \U0001F3DB"
+        return "углубляется в прогресс по Истории \U0001f3db"
     if tool == "trivia_stats":
-        return "смотрит статистику викторины \U0001F9E0"
+        return "смотрит статистику викторины \U0001f9e0"
     module = str(directive.get("module") or "")
     meta = OGE_MODULES.get(module)
     topic = str(directive.get("topic") or "").strip()
     scope = meta["label"] if meta else "все предметы"
     if topic:
-        return f"листает журнал: {scope}, тема \u00AB{topic}\u00BB \U0001F4D6"
-    return f"листает журнал по предмету {scope} \U0001F4D6"
+        return f"листает журнал: {scope}, тема \u00ab{topic}\u00bb \U0001f4d6"
+    return f"листает журнал по предмету {scope} \U0001f4d6"
 
 
 def _card_display_name(key):
@@ -21824,7 +25984,11 @@ def _curator_card_report(row):
         due_s = "к повторению сейчас"
     else:
         hrs = (due - time.time()) / 3600
-        due_s = f"примерно через {hrs:.0f} ч" if hrs < 48 else f"примерно через {hrs / 24:.0f} дн"
+        due_s = (
+            f"примерно через {hrs:.0f} ч"
+            if hrs < 48
+            else f"примерно через {hrs / 24:.0f} дн"
+        )
     streak = int(row["streak"] or 0)
     return (
         f"Карточка {key} ({label}, тип {key.split('::', 1)[0]}): "
@@ -21844,16 +26008,25 @@ def _cur_tool_progress(directive, uid, today):
     blocks = []
     with get_db_engine().connect() as conn:
         for mod in mods:
-            rows = conn.execute(text(
-                "SELECT card_key, streak, correct_count, wrong_count, due "
-                "FROM study_progress WHERE user_id=:u AND module=:m"
-            ), {"u": uid, "m": mod}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT card_key, streak, correct_count, wrong_count, due "
+                        "FROM study_progress WHERE user_id=:u AND module=:m"
+                    ),
+                    {"u": uid, "m": mod},
+                )
+                .mappings()
+                .all()
+            )
             total_cards = OGE_MODULES[mod]["total"]
             label = OGE_MODULES[mod]["label"]
             if topic:
                 rows = [r for r in rows if topic in str(r["card_key"]).lower()]
                 if not rows:
-                    blocks.append(f"{label}: по теме «{directive.get('topic')}» записей в журнале нет.")
+                    blocks.append(
+                        f"{label}: по теме «{directive.get('topic')}» записей в журнале нет."
+                    )
                     continue
             if not rows:
                 blocks.append(f"{label}: карточки ещё не начаты (всего {total_cards}).")
@@ -21862,28 +26035,37 @@ def _cur_tool_progress(directive, uid, today):
             due_cnt = sum(1 for r in rows if r["due"] and 0 < float(r["due"]) <= now)
             weak_names = [
                 f"{_card_display_name(r['card_key'])} ({int(r['correct_count'] or 0)}✓/{int(r['wrong_count'] or 0)}✗)"
-                for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0)
+                for r in rows
+                if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0)
             ][:5]
             types = {}
             for r in rows:
                 t = str(r["card_key"]).split("::", 1)[0]
                 types[t] = types.get(t, 0) + 1
             type_line = ", ".join(f"{t}: {n}" for t, n in sorted(types.items()))
-            b = [f"{label}] карточек в журнале: {len(rows)} из {total_cards},"
-                 f" выучено (серия 3+): {mastered}, к повторению сегодня: {due_cnt}."
-                 f" По типам: {type_line}."]
+            b = [
+                f"{label}] карточек в журнале: {len(rows)} из {total_cards},"
+                f" выучено (серия 3+): {mastered}, к повторению сегодня: {due_cnt}."
+                f" По типам: {type_line}."
+            ]
             if weak_names:
                 b.append(
                     "Слабые карточки (ошибок больше, чем верных): "
                     + "; ".join(weak_names)
                     + f". Всего слабых {sum(1 for r in rows if int(r['wrong_count'] or 0) > int(r['correct_count'] or 0))};"
-                      " повторение одной карточки занимает ~1 минуту."
+                    " повторение одной карточки занимает ~1 минуту."
                 )
             all_keys = sorted({str(r["card_key"]) for r in rows})
             shown = ", ".join(all_keys[:20]) + (" …" if len(all_keys) > 20 else "")
-            b.append(f"Ключи ({len(all_keys)}): {shown}. Любую можно запросить инструментом card.")
+            b.append(
+                f"Ключи ({len(all_keys)}): {shown}. Любую можно запросить инструментом card."
+            )
             blocks.append(" ".join(b))
-    return "\n".join(blocks) if blocks else "Журнал пока пуст — ученик ещё не начинал занятия."
+    return (
+        "\n".join(blocks)
+        if blocks
+        else "Журнал пока пуст — ученик ещё не начинал занятия."
+    )
 
 
 def _cur_tool_due(directive, uid, today):
@@ -21893,16 +26075,25 @@ def _cur_tool_due(directive, uid, today):
     blocks = []
     with get_db_engine().connect() as conn:
         for mod in mods:
-            rows = conn.execute(text(
-                "SELECT card_key, streak, due, correct_count, wrong_count FROM study_progress"
-                " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
-                " ORDER BY due ASC"
-            ), {"u": uid, "m": mod, "now": now_t}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT card_key, streak, due, correct_count, wrong_count FROM study_progress"
+                        " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
+                        " ORDER BY due ASC"
+                    ),
+                    {"u": uid, "m": mod, "now": now_t},
+                )
+                .mappings()
+                .all()
+            )
             if not rows:
                 continue
             label = OGE_MODULES[mod]["label"]
             names = [_card_display_name(r["card_key"]) for r in rows[:10]]
-            blocks.append(f"{label} — к повторению {len(rows)}: {', '.join(names)}{'...' if len(rows) > 10 else ''}.")
+            blocks.append(
+                f"{label} — к повторению {len(rows)}: {', '.join(names)}{'...' if len(rows) > 10 else ''}."
+            )
     return "\n".join(blocks) if blocks else "Нет карточек на повторение сейчас."
 
 
@@ -21910,11 +26101,18 @@ def _cur_tool_weak(directive, uid, today):
     blocks = []
     with get_db_engine().connect() as conn:
         for mod, meta in OGE_MODULES.items():
-            rows = conn.execute(text(
-                "SELECT card_key, correct_count, wrong_count FROM study_progress"
-                " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
-                " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
-            ), {"u": uid, "m": mod}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT card_key, correct_count, wrong_count FROM study_progress"
+                        " WHERE user_id=:u AND module=:m AND wrong_count > correct_count"
+                        " ORDER BY (wrong_count - correct_count) DESC LIMIT 5"
+                    ),
+                    {"u": uid, "m": mod},
+                )
+                .mappings()
+                .all()
+            )
             if not rows:
                 continue
             items = []
@@ -21929,22 +26127,37 @@ def _cur_tool_weak(directive, uid, today):
 def _cur_tool_topics(directive, uid, today):
     module = str(directive.get("module") or "").strip()
     if module not in OGE_MODULES:
-        return f"Неизвестный предмет: {module}. Доступны: {', '.join(OGE_MODULES.keys())}"
+        return (
+            f"Неизвестный предмет: {module}. Доступны: {', '.join(OGE_MODULES.keys())}"
+        )
     meta = OGE_MODULES[module]
     with get_db_engine().connect() as conn:
-        rows = conn.execute(text(
-            "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
-            " WHERE user_id=:u AND module=:m"
-        ), {"u": uid, "m": module}).mappings().all()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
+                    " WHERE user_id=:u AND module=:m"
+                ),
+                {"u": uid, "m": module},
+            )
+            .mappings()
+            .all()
+        )
     now_t = time.time()
     total = meta["total"]
     if not rows:
         return f"{meta['label']}: ещё не начато ({total} карточек всего)."
     mastered = sum(1 for r in rows if int(r["streak"] or 0) >= 3)
-    due_cnt = sum(1 for r in rows if float(r["due"] or 0) > 0 and float(r["due"]) <= now_t)
-    weak = sum(1 for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0))
-    return (f"{meta['label']}: {len(rows)}/{total} начато, {mastered} выучено, "
-            f"{due_cnt} к повторению, {weak} слабых.")
+    due_cnt = sum(
+        1 for r in rows if float(r["due"] or 0) > 0 and float(r["due"]) <= now_t
+    )
+    weak = sum(
+        1 for r in rows if int(r["wrong_count"] or 0) > int(r["correct_count"] or 0)
+    )
+    return (
+        f"{meta['label']}: {len(rows)}/{total} начато, {mastered} выучено, "
+        f"{due_cnt} к повторению, {weak} слабых."
+    )
 
 
 def _cur_tool_mastered(directive, uid, today):
@@ -21954,17 +26167,30 @@ def _cur_tool_mastered(directive, uid, today):
     blocks = []
     with get_db_engine().connect() as conn:
         for mod in mods:
-            rows = conn.execute(text(
-                "SELECT card_key FROM study_progress"
-                " WHERE user_id=:u AND module=:m AND streak >= 3"
-                " ORDER BY updated_at DESC"
-            ), {"u": uid, "m": mod}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT card_key FROM study_progress"
+                        " WHERE user_id=:u AND module=:m AND streak >= 3"
+                        " ORDER BY updated_at DESC"
+                    ),
+                    {"u": uid, "m": mod},
+                )
+                .mappings()
+                .all()
+            )
             if not rows:
                 continue
             label = OGE_MODULES[mod]["label"]
             names = ", ".join(_card_display_name(r["card_key"]) for r in rows[:15])
-            blocks.append(f"{label} — выучено {len(rows)}: {names}{'...' if len(rows) > 15 else ''}.")
-    return "\n".join(blocks) if blocks else "Выученных карточек пока нет — начни с новых тем."
+            blocks.append(
+                f"{label} — выучено {len(rows)}: {names}{'...' if len(rows) > 15 else ''}."
+            )
+    return (
+        "\n".join(blocks)
+        if blocks
+        else "Выученных карточек пока нет — начни с новых тем."
+    )
 
 
 def _cur_tool_streak(directive, uid, today):
@@ -21976,8 +26202,10 @@ def _cur_tool_streak(directive, uid, today):
         yest_line = f" Вчера тронуто {yest['touched']} карточек, точность {acc}%."
     if not streak["total_answers"]:
         return "Занятий ещё не было — начни с лёгкой темы, и серия появится 🚀"
-    return (f"Серия учёбы: {streak['current']} дн. (рекорд {streak['best']}), "
-            f"точность {streak['accuracy']}% на {streak['total_answers']} ответов.{yest_line}")
+    return (
+        f"Серия учёбы: {streak['current']} дн. (рекорд {streak['best']}), "
+        f"точность {streak['accuracy']}% на {streak['total_answers']} ответов.{yest_line}"
+    )
 
 
 def _cur_tool_due_cards(directive, uid, today):
@@ -21988,11 +26216,18 @@ def _cur_tool_due_cards(directive, uid, today):
     blocks = []
     with get_db_engine().connect() as conn:
         for mod in mods:
-            rows = conn.execute(text(
-                "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
-                " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
-                " ORDER BY due ASC LIMIT 15"
-            ), {"u": uid, "m": mod, "now": now_t}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT card_key, streak, correct_count, wrong_count, due FROM study_progress"
+                        " WHERE user_id=:u AND module=:m AND due > 0 AND due <= :now"
+                        " ORDER BY due ASC LIMIT 15"
+                    ),
+                    {"u": uid, "m": mod, "now": now_t},
+                )
+                .mappings()
+                .all()
+            )
             if not rows:
                 continue
             label = OGE_MODULES[mod]["label"]
@@ -22025,9 +26260,13 @@ def _cur_tool_achievements(directive, uid, today):
     """Показать достижения ученика: открытые и ближайшие закрытые."""
     engine = get_db_engine()
     with engine.connect() as conn:
-        unlocked = conn.execute(text(
-            "SELECT code FROM web_achievements WHERE user_id=:u"
-        ), {"u": uid}).scalars().all()
+        unlocked = (
+            conn.execute(
+                text("SELECT code FROM web_achievements WHERE user_id=:u"), {"u": uid}
+            )
+            .scalars()
+            .all()
+        )
     unlocked_set = set(unlocked)
     lines = [f"Открыто достижений: {len(unlocked_set)} из {len(ACHIEVEMENTS)}."]
     # Show last 5 unlocked
@@ -22046,7 +26285,9 @@ def _cur_tool_achievements(directive, uid, today):
     if locked:
         lines.append("Ближайшие закрытые:")
         for code, ach in locked[:3]:
-            lines.append(f"  {ach.get('icon', '🔒')} {ach.get('name', code)} — {ach.get('desc', '')}")
+            lines.append(
+                f"  {ach.get('icon', '🔒')} {ach.get('name', code)} — {ach.get('desc', '')}"
+            )
     return "\n".join(lines)
 
 
@@ -22054,20 +26295,33 @@ def _cur_tool_coins(directive, uid, today):
     """Показать баланс монет и последние транзакции."""
     engine = get_db_engine()
     with engine.connect() as conn:
-        row = conn.execute(text(
-            "SELECT balance FROM user_coins WHERE user_id=:u"
-        ), {"u": uid}).mappings().first()
+        row = (
+            conn.execute(
+                text("SELECT balance FROM user_coins WHERE user_id=:u"), {"u": uid}
+            )
+            .mappings()
+            .first()
+        )
         balance = int(row["balance"]) if row else 0
-        txns = conn.execute(text(
-            "SELECT amount, description, created_at FROM web_coin_log"
-            " WHERE user_id=:u ORDER BY created_at DESC LIMIT 5"
-        ), {"u": uid}).mappings().all()
+        txns = (
+            conn.execute(
+                text(
+                    "SELECT amount, description, created_at FROM web_coin_log"
+                    " WHERE user_id=:u ORDER BY created_at DESC LIMIT 5"
+                ),
+                {"u": uid},
+            )
+            .mappings()
+            .all()
+        )
     lines = [f"Баланс: {balance} монет."]
     if txns:
         lines.append("Последние операции:")
         for t in txns:
             desc = t["description"] or "—"
-            lines.append(f"  {'+' if t['amount'] > 0 else ''}{t['amount']} монет — {desc}")
+            lines.append(
+                f"  {'+' if t['amount'] > 0 else ''}{t['amount']} монет — {desc}"
+            )
     else:
         lines.append("Транзакций пока нет.")
     return "\n".join(lines)
@@ -22077,14 +26331,28 @@ def _cur_tool_activity(directive, uid, today):
     """Показать активность за последние 14 дней (дни, модули, действия)."""
     engine = get_db_engine()
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT day, module, actions FROM web_activity_log"
-            " WHERE user_id=:u ORDER BY day DESC LIMIT 30"
-        ), {"u": uid}).mappings().all()
-        streak = conn.execute(text(
-            "SELECT current_streak, longest_streak, total_active_days FROM web_streak"
-            " WHERE user_id=:u"
-        ), {"u": uid}).mappings().first()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT day, module, actions FROM web_activity_log"
+                    " WHERE user_id=:u ORDER BY day DESC LIMIT 30"
+                ),
+                {"u": uid},
+            )
+            .mappings()
+            .all()
+        )
+        streak = (
+            conn.execute(
+                text(
+                    "SELECT current_streak, longest_streak, total_active_days FROM web_streak"
+                    " WHERE user_id=:u"
+                ),
+                {"u": uid},
+            )
+            .mappings()
+            .first()
+        )
     # Aggregate by day
     by_day: dict[str, int] = {}
     by_module: dict[str, int] = {}
@@ -22096,8 +26364,10 @@ def _cur_tool_activity(directive, uid, today):
         by_module[mod] = by_module.get(mod, 0) + act
     lines = []
     if streak:
-        lines.append(f"Серия: {streak['current_streak']} дн. (рекорд {streak['longest_streak']}), "
-                      f"всего активных дней: {streak['total_active_days']}.")
+        lines.append(
+            f"Серия: {streak['current_streak']} дн. (рекорд {streak['longest_streak']}), "
+            f"всего активных дней: {streak['total_active_days']}."
+        )
     # Last 7 days summary
     recent_days = sorted(by_day.keys(), reverse=True)[:7]
     if recent_days:
@@ -22116,20 +26386,37 @@ def _cur_tool_daily_log(directive, uid, today):
     """Показать сегодняшнюю и вчерашнюю статистику (верно/ошибки) по модулям."""
     engine = get_db_engine()
     with engine.connect() as conn:
-        today_rows = conn.execute(text(
-            "SELECT module, correct, wrong FROM study_daily"
-            " WHERE user_id=:u AND day=:d"
-        ), {"u": uid, "d": today}).mappings().all()
+        today_rows = (
+            conn.execute(
+                text(
+                    "SELECT module, correct, wrong FROM study_daily"
+                    " WHERE user_id=:u AND day=:d"
+                ),
+                {"u": uid, "d": today},
+            )
+            .mappings()
+            .all()
+        )
         # Yesterday
         from datetime import date, timedelta
+
         try:
             yest = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
         except Exception:
             yest = ""
-        yest_rows = conn.execute(text(
-            "SELECT module, correct, wrong FROM study_daily"
-            " WHERE user_id=:u AND day=:d"
-        ), {"u": uid, "d": yest}).mappings().all() if yest else []
+        yest_rows = (
+            conn.execute(
+                text(
+                    "SELECT module, correct, wrong FROM study_daily"
+                    " WHERE user_id=:u AND day=:d"
+                ),
+                {"u": uid, "d": yest},
+            )
+            .mappings()
+            .all()
+            if yest
+            else []
+        )
     lines = []
     if today_rows:
         lines.append(f"Сегодня ({today}):")
@@ -22150,10 +26437,17 @@ def _cur_tool_textbooks(directive, uid, today):
     """Показать учебники ученика (где лежат: дом/школа/рюкзак)."""
     engine = get_db_engine()
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT subject, title, location FROM textbooks"
-            " WHERE user_id=:u ORDER BY subject, title"
-        ), {"u": uid}).mappings().all()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT subject, title, location FROM textbooks"
+                    " WHERE user_id=:u ORDER BY subject, title"
+                ),
+                {"u": uid},
+            )
+            .mappings()
+            .all()
+        )
     if not rows:
         return "Учебники ещё не добавлены. Зайди в раздел «Учебники», чтобы отметить, где лежат учебники."
     loc_labels = {"home": "дом", "school": "школа", "backpack": "рюкзак"}
@@ -22176,11 +26470,18 @@ def _cur_tool_history_detail(directive, uid, today):
     module = "history"
     engine = get_db_engine()
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count, streak"
-            " FROM study_progress WHERE user_id=:u AND module=:m"
-            " ORDER BY due ASC"
-        ), {"u": uid, "m": module}).mappings().all()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT card_key, reps, interval_days, ease, due, correct_count, wrong_count, streak"
+                    " FROM study_progress WHERE user_id=:u AND module=:m"
+                    " ORDER BY due ASC"
+                ),
+                {"u": uid, "m": module},
+            )
+            .mappings()
+            .all()
+        )
     if not rows:
         return "По Истории пока нет данных. Начни с изучения карточек!"
     # Categorize by card prefix
@@ -22197,19 +26498,29 @@ def _cur_tool_history_detail(directive, uid, today):
             cats[prefix]["due"] += 1
         if (r["correct_count"] or 0) < (r["wrong_count"] or 0):
             cats[prefix]["weak"] += 1
-    cat_labels = {"emperor": "Императоры", "event": "События", "person": "Личности",
-                  "term": "Термины", "ruler": "Правители", "other": "Прочее"}
+    cat_labels = {
+        "emperor": "Императоры",
+        "event": "События",
+        "person": "Личности",
+        "term": "Термины",
+        "ruler": "Правители",
+        "other": "Прочее",
+    }
     lines = ["Прогресс по Истории:"]
     for prefix, data in sorted(cats.items()):
         label = cat_labels.get(prefix, prefix)
-        lines.append(f"  {label}: {data['total']} карточек, "
-                     f"{data['mastered']} выучено, {data['due']} на повторение, "
-                     f"{data['weak']} слабых")
+        lines.append(
+            f"  {label}: {data['total']} карточек, "
+            f"{data['mastered']} выучено, {data['due']} на повторение, "
+            f"{data['weak']} слабых"
+        )
     total = sum(d["total"] for d in cats.values())
     mastered = sum(d["mastered"] for d in cats.values())
     due = sum(d["due"] for d in cats.values())
-    lines.append(f"Итого: {total} карточек, {mastered} выучено ({round(100*mastered/max(1,total))}%), "
-                 f"{due} на повторение сегодня.")
+    lines.append(
+        f"Итого: {total} карточек, {mastered} выучено ({round(100 * mastered / max(1, total))}%), "
+        f"{due} на повторение сегодня."
+    )
     return "\n".join(lines)
 
 
@@ -22217,15 +26528,24 @@ def _cur_tool_trivia_stats(directive, uid, today):
     """Показать статистику викторины (викторина: сколько вопросов, серия)."""
     engine = get_db_engine()
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT event, count FROM web_events WHERE user_id=:u"
-            " AND event LIKE 'trivia%'"
-        ), {"u": uid}).mappings().all()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT event, count FROM web_events WHERE user_id=:u"
+                    " AND event LIKE 'trivia%'"
+                ),
+                {"u": uid},
+            )
+            .mappings()
+            .all()
+        )
     events = {r["event"]: int(r["count"] or 0) for r in rows}
     total = events.get("trivia_answered", 0)
     correct = events.get("trivia_correct", 0)
     if total == 0:
-        return "Викторину ещё не запускали. Попробуй — это весело и полезно для эрудиции!"
+        return (
+            "Викторину ещё не запускали. Попробуй — это весело и полезно для эрудиции!"
+        )
     acc = round(100 * correct / max(1, total))
     lines = [f"Викторина: {total} вопросов отвечено, {correct} верных ({acc}%)."]
     if "trivia_streak_best" in events:
@@ -22263,14 +26583,20 @@ def _curator_tool_data(directive, uid, today):
             if not row:
                 return "План на сегодня ещё не составлен."
             items = json.loads(row["items_json"] or "[]")
-            lines = [f"План на {row['plan_date']} (выполнено {row['done_count']} из {len(items)}),"
-                     f" целевые {row['target_minutes']} мин/день:"]
+            lines = [
+                f"План на {row['plan_date']} (выполнено {row['done_count']} из {len(items)}),"
+                f" целевые {row['target_minutes']} мин/день:"
+            ]
             for i, it in enumerate(items, 1):
-                lines.append(f"{i}) [{it.get('label', '')}] {it.get('text', '')} ({it.get('minutes', 5)} мин)")
+                lines.append(
+                    f"{i}) [{it.get('label', '')}] {it.get('text', '')} ({it.get('minutes', 5)} мин)"
+                )
             return "\n".join(lines)
 
         if tool == "stats":
-            lines = ["Статистика по предметам (начато/всего, к повторению сегодня, слабых тем):"]
+            lines = [
+                "Статистика по предметам (начато/всего, к повторению сегодня, слабых тем):"
+            ]
             for s in _oge_subjects_payload(uid, time.time()):
                 lines.append(
                     f"- {s['label']}: начато {s['started']}/{s['total']},"
@@ -22308,13 +26634,23 @@ _CURATOR_HANDLERS = {
 
 
 def _chat_history(conn, uid, limit=_OGE_CHAT_CONTEXT):
-    rows = conn.execute(text(
-        "SELECT role, content, created_at FROM ("
-        " SELECT id, role, content, created_at FROM oge_chat_messages"
-        " WHERE user_id=:u ORDER BY id DESC LIMIT :l"
-        ") t ORDER BY id ASC"
-    ).bindparams(bindparam("l")), {"u": uid, "l": limit}).mappings().all()
-    return [{"role": r["role"], "content": r["content"], "ts": float(r["created_at"] or 0)} for r in rows]
+    rows = (
+        conn.execute(
+            text(
+                "SELECT role, content, created_at FROM ("
+                " SELECT id, role, content, created_at FROM oge_chat_messages"
+                " WHERE user_id=:u ORDER BY id DESC LIMIT :l"
+                ") t ORDER BY id ASC"
+            ).bindparams(bindparam("l")),
+            {"u": uid, "l": limit},
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        {"role": r["role"], "content": r["content"], "ts": float(r["created_at"] or 0)}
+        for r in rows
+    ]
 
 
 def _chat_insert(conn, uid, role, content, ts) -> None:
@@ -22349,6 +26685,7 @@ def api_study_chat_history():
         log_error("OGE", "error", f"chat history error: {exc}")
         return jsonify({"ok": True, "messages": []})
 
+
 @app.route("/api/study/chat", methods=["POST"])
 def api_study_chat_post():
     """Curator chat: persists both sides, feeds progress + plan + history into the prompt."""
@@ -22363,7 +26700,9 @@ def api_study_chat_post():
     msg = msg[:2000]
     now = time.time()
     if uid in _last_chat_ts and now - _last_chat_ts[uid] < _OGE_RATE_LIMIT:
-        return jsonify({"ok": False, "error": "Подождите немного перед следующим сообщением."}), 429
+        return jsonify(
+            {"ok": False, "error": "Подождите немного перед следующим сообщением."}
+        ), 429
     _last_chat_ts[uid] = now
     today = time.strftime("%Y-%m-%d")
     budget_lines, plan_lines = [], []
@@ -22377,9 +26716,12 @@ def api_study_chat_post():
             with engine.begin() as conn:
                 row = _load_plan_row(conn, uid, today)
                 if row and int(row["target_minutes"]) != _new_min:
-                    conn.execute(text(
-                        "UPDATE oge_daily_plans SET target_minutes=:m WHERE user_id=:u AND plan_date=:d"
-                    ), {"m": _new_min, "u": uid, "d": today})
+                    conn.execute(
+                        text(
+                            "UPDATE oge_daily_plans SET target_minutes=:m WHERE user_id=:u AND plan_date=:d"
+                        ),
+                        {"m": _new_min, "u": uid, "d": today},
+                    )
                     minutes = _new_min
         except Exception as exc:
             log_error("OGE", "error", f"plan minutes update failed: {exc}")
@@ -22427,14 +26769,15 @@ def api_study_chat_post():
     except Exception:
         history = []
     if len(history) > 20:
-        old_part = history[:len(history) - 6]
-        recent = history[len(history) - 6:]
+        old_part = history[: len(history) - 6]
+        recent = history[len(history) - 6 :]
         old_summary = " ".join(h["content"][:100] for h in old_part[:8])
         summary_call = call_ai_api(
             "Кратко (3-5 предложений) опиши суть этого диалога:\n" + old_summary,
-            max_tokens=200, temperature=0.3
+            max_tokens=200,
+            temperature=0.3,
         )
-        if summary_call and not summary_call.startswith("\u274C"):
+        if summary_call and not summary_call.startswith("\u274c"):
             history = [{"role": "system", "content": summary_call}] + recent
         else:
             history = recent
@@ -22449,12 +26792,16 @@ def api_study_chat_post():
     weak_t = _oge_weak_topics_summary(uid)
     countdown = _oge_exam_countdown(now)
     yesterday = _oge_yesterday_summary(uid)
-    streak_line = f"Серия учёбы: {streak['current']} дн. (рекорд: {streak['best']}), точность: {streak['accuracy']}% ({streak['total_answers']} ответов)." if streak["total_answers"] else ""
+    streak_line = (
+        f"Серия учёбы: {streak['current']} дн. (рекорд: {streak['best']}), точность: {streak['accuracy']}% ({streak['total_answers']} ответов)."
+        if streak["total_answers"]
+        else ""
+    )
     weak_line = "Слабые темы:\n" + "\n".join(weak_t) if weak_t else ""
     countdown_line = "До экзаменов: " + ", ".join(countdown) if countdown else ""
     yest_line = ""
     if yesterday["touched"]:
-        yest_line = f"Вчера: тронуто {yesterday['touched']} карточек, точность {round(100*yesterday['correct']/max(1,yesterday['correct']+yesterday['wrong']))}%."
+        yest_line = f"Вчера: тронуто {yesterday['touched']} карточек, точность {round(100 * yesterday['correct'] / max(1, yesterday['correct'] + yesterday['wrong']))}%."
     prompt = (
         "Ты — ИИ-куратор Луки, готовишь его к ОГЭ по 5 предметам. Говори по-русски, "
         "кратко (до 150 слов), по-дружески и конкретно. Всегда предлагай конкретный следующий шаг "
@@ -22489,9 +26836,12 @@ def api_study_chat_post():
         "Если данные не нужны — отвечай сразу текстом на русском, БЕЗ JSON.\n"
         "НИКОГДА не показывай JSON-объект ученику — это технический вызов инструмента.\n\n"
         "ДАННЫЕ УЧЕНИКА:\n"
-        + "\n".join(budget_lines) + "\n"
-        + "\n".join(subj_lines) + "\n"
-        + "\n".join(plan_lines) + "\n"
+        + "\n".join(budget_lines)
+        + "\n"
+        + "\n".join(subj_lines)
+        + "\n"
+        + "\n".join(plan_lines)
+        + "\n"
         + (streak_line + "\n" if streak_line else "")
         + (weak_line + "\n" if weak_line else "")
         + (countdown_line + "\n" if countdown_line else "")
@@ -22502,9 +26852,9 @@ def api_study_chat_post():
     reply = None
     for _attempt in range(3):
         reply = call_ai_api(prompt, max_tokens=500, temperature=0.7)
-        if reply and not reply.startswith("\u274C"):
+        if reply and not reply.startswith("\u274c"):
             break
-        time.sleep(min(4, 1 * (2 ** _attempt)))
+        time.sleep(min(4, 1 * (2**_attempt)))
     actions = []
     if reply and not reply.startswith("❌"):
         directive = _tool_directive(reply)
@@ -22515,15 +26865,20 @@ def api_study_chat_post():
                 prompt
                 + "\n\nСистема передала данные по запросу "
                 + json.dumps(directive, ensure_ascii=False)
-                + ":\n" + data_text
+                + ":\n"
+                + data_text
                 + "\n\nДай ученику финальный краткий ответ (до 150 слов), используя эти данные. Без JSON."
             )
             second = None
             for _a2 in range(2):
                 second = call_ai_api(followup, max_tokens=500, temperature=0.7)
-                if second and not second.startswith("\u274C") and not _tool_directive(second):
+                if (
+                    second
+                    and not second.startswith("\u274c")
+                    and not _tool_directive(second)
+                ):
                     break
-                time.sleep(min(2, 1 * (2 ** _a2)))
+                time.sleep(min(2, 1 * (2**_a2)))
             if second and not second.startswith("❌") and not _tool_directive(second):
                 reply = second
             else:
@@ -22532,20 +26887,26 @@ def api_study_chat_post():
         log_error("OGE", "info", "curator AI unavailable, using rule fallback")
         reply = _curator_fallback_reply(subjects, plan_lines)
     if _is_serialized_json(reply):
-        log_error("OGE", "info", "curator returned raw JSON, hiding it with rule fallback")
+        log_error(
+            "OGE", "info", "curator returned raw JSON, hiding it with rule fallback"
+        )
         reply = _curator_fallback_reply(subjects, plan_lines)
     try:
         with engine.begin() as conn:
             _chat_insert(conn, uid, "user", msg, now)
             _chat_insert(conn, uid, "assistant", reply, time.time())
-            conn.execute(text(
-                "DELETE FROM oge_chat_messages WHERE user_id=:u AND id NOT IN ("
-                "SELECT id FROM oge_chat_messages WHERE user_id=:u ORDER BY id DESC LIMIT :k)"
-            ).bindparams(bindparam("k")), {"u": uid, "k": _OGE_CHAT_KEEP})
+            conn.execute(
+                text(
+                    "DELETE FROM oge_chat_messages WHERE user_id=:u AND id NOT IN ("
+                    "SELECT id FROM oge_chat_messages WHERE user_id=:u ORDER BY id DESC LIMIT :k)"
+                ).bindparams(bindparam("k")),
+                {"u": uid, "k": _OGE_CHAT_KEEP},
+            )
     except Exception as exc:
         log_error("OGE", "error", f"chat persist error: {exc}")
         return jsonify({"ok": False, "error": "storage failed"}), 500
     return jsonify({"ok": True, "reply": reply, "actions": actions})
+
 
 @app.route("/api/study/hint", methods=["GET"])
 def api_study_hint():
@@ -22568,10 +26929,17 @@ def api_study_hint():
     pref_cnt = {"formula": 0, "rule": 0, "task": 0, "term": 0}
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(text(
-                "SELECT card_key FROM study_progress "
-                "WHERE user_id=:u AND module=:m AND due>0 AND due<=:n LIMIT 120"
-            ), {"u": uid, "m": module, "n": now}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT card_key FROM study_progress "
+                        "WHERE user_id=:u AND module=:m AND due>0 AND due<=:n LIMIT 120"
+                    ),
+                    {"u": uid, "m": module, "n": now},
+                )
+                .mappings()
+                .all()
+            )
             for r in rows:
                 p = str(r["card_key"]).split("::", 1)[0]
                 if p in pref_cnt:
@@ -22583,7 +26951,12 @@ def api_study_hint():
         if not pref_cnt[dominant]:
             dominant = "formula"
         mode = "tasks" if dominant == "task" else "flash"
-        noun = {"formula": "формул", "rule": "правил", "term": "терминов", "task": "задач"}[dominant]
+        noun = {
+            "formula": "формул",
+            "rule": "правил",
+            "term": "терминов",
+            "task": "задач",
+        }[dominant]
         hint_text = f"Повторите {s['due']} просроченных карточек ({noun})"
         url = meta["url"] + ("?algo=flash" if mode == "flash" else "")
     elif s["weak"] > 0:
@@ -22600,11 +26973,15 @@ def api_study_hint():
         url = "/exam"
     return jsonify(dict(base, text=hint_text, url=url, mode=mode))
 
+
 @app.route("/api/trivia/question", methods=["POST"])
 def api_trivia_question():
-    if _check_ai_rate("trivia:" + (request.remote_addr or ""), max_requests=30, window=60):
+    if _check_ai_rate(
+        "trivia:" + (request.remote_addr or ""), max_requests=30, window=60
+    ):
         return jsonify({"error": "Слишком много запросов."}), 429
     import random
+
     q = random.choice(_TRIVIA_QUESTIONS)
     correct = q["correct_text"]
     group = q.get("group", "")
@@ -22612,17 +26989,36 @@ def api_trivia_question():
     if len(manual) >= 3:
         distractors = random.sample(manual, 3)
     else:
-        same = [x["correct_text"] for x in _TRIVIA_QUESTIONS if x.get("group") == group and x["correct_text"] != correct]
-        pool = same if len(same) >= 3 else [x["correct_text"] for x in _TRIVIA_QUESTIONS if x["correct_text"] != correct]
+        same = [
+            x["correct_text"]
+            for x in _TRIVIA_QUESTIONS
+            if x.get("group") == group and x["correct_text"] != correct
+        ]
+        pool = (
+            same
+            if len(same) >= 3
+            else [
+                x["correct_text"]
+                for x in _TRIVIA_QUESTIONS
+                if x["correct_text"] != correct
+            ]
+        )
         distractors = random.sample(pool, min(3, len(pool)))
     options = [correct] + distractors
     random.shuffle(options)
     correct_index = options.index(correct)
-    session = {"options": options, "correct_index": correct_index, "explanation": q["explanation"], "_created_at": time.time()}
+    session = {
+        "options": options,
+        "correct_index": correct_index,
+        "explanation": q["explanation"],
+        "_created_at": time.time(),
+    }
     session_id = secrets.token_hex(6)
     _TRIVIA_SESSIONS[session_id] = session
     _trivia_prune_expired()
-    return jsonify({"id": q["id"], "session_id": session_id, "text": q["text"], "options": options})
+    return jsonify(
+        {"id": q["id"], "session_id": session_id, "text": q["text"], "options": options}
+    )
 
 
 @app.route("/api/trivia/answer", methods=["POST"])
@@ -22636,7 +27032,14 @@ def api_trivia_answer():
     answer_idx = data.get("answer_index")
     session = _TRIVIA_SESSIONS.get(session_id)
     if not session:
-        return jsonify({"correct": False, "correct_text": "", "explanation": "Вопрос не найден или устарел.", "expired": True}), 410
+        return jsonify(
+            {
+                "correct": False,
+                "correct_text": "",
+                "explanation": "Вопрос не найден или устарел.",
+                "expired": True,
+            }
+        ), 410
     correct_index = session["correct_index"]
     is_correct = (
         isinstance(answer_idx, int)
@@ -22651,12 +27054,14 @@ def api_trivia_answer():
             coins_awarded = _award_web_coins(user["id"], 1, "Тривия: правильный ответ")
         except Exception as exc:
             log_error("TRIVIA", "error", f"coin award error: {exc}")
-    return jsonify({
-        "correct": is_correct,
-        "correct_text": session["options"][correct_index],
-        "explanation": session["explanation"],
-        "coins": 1 if (is_correct and coins_awarded) else 0,
-    })
+    return jsonify(
+        {
+            "correct": is_correct,
+            "correct_text": session["options"][correct_index],
+            "explanation": session["explanation"],
+            "coins": 1 if (is_correct and coins_awarded) else 0,
+        }
+    )
 
 
 # ── Daily Prayer ──────────────────────────────────────────────────────────
@@ -22839,12 +27244,16 @@ def api_daily_prayer():
     try:
         with get_db_engine().connect() as conn:
             existing = conn.execute(
-                text("SELECT 1 FROM daily_prayer_log WHERE user_id = :uid AND prayer_date = :d"),
+                text(
+                    "SELECT 1 FROM daily_prayer_log WHERE user_id = :uid AND prayer_date = :d"
+                ),
                 {"uid": uid, "d": today},
             ).first()
             if not existing:
                 conn.execute(
-                    text("INSERT INTO daily_prayer_log (user_id, prayer_date) VALUES (:uid, :d) ON CONFLICT DO NOTHING"),
+                    text(
+                        "INSERT INTO daily_prayer_log (user_id, prayer_date) VALUES (:uid, :d) ON CONFLICT DO NOTHING"
+                    ),
                     {"uid": uid, "d": today},
                 )
                 conn.commit()
@@ -22865,15 +27274,18 @@ def api_daily_prayer():
                 already = True
     except Exception as exc:
         log_error("DAILY_PRAYER", "error", f"error: {exc}")
-    return jsonify({
-        "prayer": _prayer_for_day(uid, today),
-        "already": already,
-        "unlocked_detail": unlocked_detail,
-    })
+    return jsonify(
+        {
+            "prayer": _prayer_for_day(uid, today),
+            "already": already,
+            "unlocked_detail": unlocked_detail,
+        }
+    )
 
 
 # ── Achievements Module ────────────────────────────────────────────────────
 # Единая система достижений и серий по всему порталу.
+
 
 def _require_web_user():
     """Resolve the current web user id (web_users.id) or None."""
@@ -22890,9 +27302,9 @@ def api_achievements_activity():
     if not uid:
         return jsonify({"error": "auth required"}), 401
     # BUG-06: защита от накрутки лидерборда / DoS — лимит частоты + верхняя граница.
-    if _check_ai_rate("ach_activity:" + str(uid), max_requests=60, window=60) or _check_db_rate(
-        "ach_activity:" + str(uid), max_requests=120, window=60
-    ):
+    if _check_ai_rate(
+        "ach_activity:" + str(uid), max_requests=60, window=60
+    ) or _check_db_rate("ach_activity:" + str(uid), max_requests=120, window=60):
         return jsonify({"error": "Слишком часто. Попробуйте позже."}), 429
     data = request.get_json(silent=True) or {}
     module = str(data.get("module", "")).strip() or "system"
@@ -22910,19 +27322,21 @@ def api_achievements_activity():
             _record_events(conn, uid, events)
             newly = _check_web_achievements(conn, uid)
             conn.commit()
-        return jsonify({
-            "ok": True,
-            "streak": {"current": streak, "longest": longest, "total_days": total},
-            "unlocked": newly,
-            "unlocked_detail": [
-                {
-                    "code": code,
-                    "icon": ACHIEVEMENTS[code]["icon"],
-                    "name": ACHIEVEMENTS[code]["name"],
-                }
-                for code in newly
-            ],
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "streak": {"current": streak, "longest": longest, "total_days": total},
+                "unlocked": newly,
+                "unlocked_detail": [
+                    {
+                        "code": code,
+                        "icon": ACHIEVEMENTS[code]["icon"],
+                        "name": ACHIEVEMENTS[code]["name"],
+                    }
+                    for code in newly
+                ],
+            }
+        )
     except Exception as exc:
         log_error("ACHIEVEMENTS", "error", f"activity error: {exc}")
         return jsonify({"ok": False, "error": "server error"}), 500
@@ -22937,18 +27351,34 @@ def api_achievements_list():
     try:
         with get_db_engine().connect() as conn:
             streak_row = _get_streak_row(conn, uid)
-            unlocked_rows = conn.execute(
-                text("SELECT code FROM web_achievements WHERE user_id = :user_id"),
-                {"user_id": uid},
-            ).mappings().all()
-            day_rows = conn.execute(
-                text("SELECT DISTINCT day FROM web_activity_log WHERE user_id = :user_id ORDER BY day"),
-                {"user_id": uid},
-            ).mappings().all()
-            module_rows = conn.execute(
-                text("SELECT DISTINCT module FROM web_activity_log WHERE user_id = :user_id"),
-                {"user_id": uid},
-            ).mappings().all()
+            unlocked_rows = (
+                conn.execute(
+                    text("SELECT code FROM web_achievements WHERE user_id = :user_id"),
+                    {"user_id": uid},
+                )
+                .mappings()
+                .all()
+            )
+            day_rows = (
+                conn.execute(
+                    text(
+                        "SELECT DISTINCT day FROM web_activity_log WHERE user_id = :user_id ORDER BY day"
+                    ),
+                    {"user_id": uid},
+                )
+                .mappings()
+                .all()
+            )
+            module_rows = (
+                conn.execute(
+                    text(
+                        "SELECT DISTINCT module FROM web_activity_log WHERE user_id = :user_id"
+                    ),
+                    {"user_id": uid},
+                )
+                .mappings()
+                .all()
+            )
         unlocked = {r["code"] for r in unlocked_rows}
         active_days = [r["day"] for r in day_rows]
         modules = sorted({r["module"] for r in module_rows})
@@ -22963,19 +27393,21 @@ def api_achievements_list():
             }
             for code, a in ACHIEVEMENTS.items()
         ]
-        return jsonify({
-            "ok": True,
-            "achievements": achievements,
-            "unlocked_count": len(unlocked),
-            "total_count": len(ACHIEVEMENTS),
-            "streak": {
-                "current": streak_row["current_streak"] if streak_row else 0,
-                "longest": streak_row["longest_streak"] if streak_row else 0,
-                "total_days": streak_row["total_active_days"] if streak_row else 0,
-            },
-            "calendar": active_days,
-            "modules": modules,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "achievements": achievements,
+                "unlocked_count": len(unlocked),
+                "total_count": len(ACHIEVEMENTS),
+                "streak": {
+                    "current": streak_row["current_streak"] if streak_row else 0,
+                    "longest": streak_row["longest_streak"] if streak_row else 0,
+                    "total_days": streak_row["total_active_days"] if streak_row else 0,
+                },
+                "calendar": active_days,
+                "modules": modules,
+            }
+        )
     except Exception as exc:
         log_error("ACHIEVEMENTS", "error", f"list error: {exc}")
         return jsonify({"ok": False, "error": "server error"}), 500
@@ -22984,13 +27416,18 @@ def api_achievements_list():
 # ── Canon Module ──────────────────────────────────────────────────────────
 # Полный текст канона и структурированные данные из core.canon (source of truth).
 
+
 def _canon_doc_effective() -> str:
     """Текст канона: БД-overlay (canon_doc) или файл canon.md."""
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT content FROM canon_doc ORDER BY id DESC LIMIT 1")
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT content FROM canon_doc ORDER BY id DESC LIMIT 1")
+                )
+                .mappings()
+                .first()
+            )
             if row:
                 return row["content"]
     except Exception as exc:
@@ -23002,19 +27439,25 @@ def _canon_doc_effective() -> str:
 def canon_page():
     canon_text = _canon_doc_effective()
     version = CANON_VERSION
-    body_html = render_markdown(canon_text) if canon_text else "<p>Текст канона недоступен.</p>"
+    body_html = (
+        render_markdown(canon_text) if canon_text else "<p>Текст канона недоступен.</p>"
+    )
 
     # Произведения: пробуем БД (approved + content + id), фолбэк — статика.
     _db_works: list[dict] = []
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("""
+            rows = (
+                conn.execute(
+                    text("""
                     SELECT id, title, kind, author, date, canon_level, url, content,
                            (audio_data IS NOT NULL OR audio_url IS NOT NULL) AS has_audio, COALESCE(view_count, 0) AS view_count
                     FROM canon_works WHERE status = 'approved' ORDER BY id
                 """),
-            ).mappings().all()
+                )
+                .mappings()
+                .all()
+            )
             _db_works = [dict(r) for r in rows]
             for w in _db_works:
                 w["has_audio"] = bool(w.get("has_audio"))
@@ -23280,10 +27723,12 @@ def api_canon_works():
     # Пытаемся читать из БД (approved-произведения, включая content).
     try:
         with get_db_engine().connect() as conn:
-            sql = ("SELECT id, title, kind, author, date, canon_level, url, content, "
-                   "audio_name, audio_mime, audio_size, COALESCE(view_count, 0) AS view_count, "
-                   "(audio_data IS NOT NULL OR audio_url IS NOT NULL) AS has_audio "
-                   "FROM canon_works WHERE status = 'approved'")
+            sql = (
+                "SELECT id, title, kind, author, date, canon_level, url, content, "
+                "audio_name, audio_mime, audio_size, COALESCE(view_count, 0) AS view_count, "
+                "(audio_data IS NOT NULL OR audio_url IS NOT NULL) AS has_audio "
+                "FROM canon_works WHERE status = 'approved'"
+            )
             params: dict = {}
             if level != "all":
                 sql += " AND canon_level = :level"
@@ -23329,19 +27774,25 @@ def api_canon_work_detail(work_id):
     """Полный текст одной канонической работы."""
     try:
         with get_db_engine().begin() as conn:
-            row = conn.execute(
-                text("""
+            row = (
+                conn.execute(
+                    text("""
                     SELECT id, title, kind, author, date, canon_level, url, content, status,
                            audio_name, audio_mime, audio_size,
                            COALESCE(view_count, 0) AS view_count,
                            (audio_data IS NOT NULL OR audio_url IS NOT NULL) AS has_audio
                     FROM canon_works WHERE id = :wid
                 """),
-                {"wid": work_id},
-            ).mappings().first()
+                    {"wid": work_id},
+                )
+                .mappings()
+                .first()
+            )
             if row and row["status"] == "approved":
                 conn.execute(
-                    text("UPDATE canon_works SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :wid"),
+                    text(
+                        "UPDATE canon_works SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :wid"
+                    ),
                     {"wid": work_id},
                 )
         if not row or row["status"] != "approved":
@@ -23357,22 +27808,24 @@ def api_canon_work_detail(work_id):
         work = CANON_WORKS[work_id]
     except IndexError:
         return jsonify({"error": "Произведение не найдено"}), 404
-    return jsonify({
-        "id": work_id,
-        "title": work.title,
-        "kind": work.kind,
-        "author": work.author,
-        "date": work.date,
-        "canon_level": work.canon_level,
-        "url": work.url,
-        "content": "",
-        "status": "approved",
-        "audio_name": None,
-        "audio_mime": None,
-        "audio_size": None,
-        "view_count": 0,
-        "has_audio": False,
-    })
+    return jsonify(
+        {
+            "id": work_id,
+            "title": work.title,
+            "kind": work.kind,
+            "author": work.author,
+            "date": work.date,
+            "canon_level": work.canon_level,
+            "url": work.url,
+            "content": "",
+            "status": "approved",
+            "audio_name": None,
+            "audio_mime": None,
+            "audio_size": None,
+            "view_count": 0,
+            "has_audio": False,
+        }
+    )
 
 
 @app.route("/api/canon/documents")
@@ -23380,24 +27833,34 @@ def api_canon_documents():
     """Эффективный текст канона: БД-overlay (canon_doc) или файл canon.md."""
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT content, updated_at FROM canon_doc ORDER BY id DESC LIMIT 1")
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT content, updated_at FROM canon_doc ORDER BY id DESC LIMIT 1"
+                    )
+                )
+                .mappings()
+                .first()
+            )
         if row:
-            return jsonify({
-                "text": row["content"],
-                "version": CANON_VERSION,
-                "source": "db",
-                "updated_at": str(row["updated_at"]) if row["updated_at"] else None,
-            })
+            return jsonify(
+                {
+                    "text": row["content"],
+                    "version": CANON_VERSION,
+                    "source": "db",
+                    "updated_at": str(row["updated_at"]) if row["updated_at"] else None,
+                }
+            )
     except Exception as exc:
         log_error("CANON", "error", f"doc overlay error: {exc}")
-    return jsonify({
-        "text": load_canon_text(),
-        "version": CANON_VERSION,
-        "source": "file",
-        "updated_at": None,
-    })
+    return jsonify(
+        {
+            "text": load_canon_text(),
+            "version": CANON_VERSION,
+            "source": "file",
+            "updated_at": None,
+        }
+    )
 
 
 # ── Canon Request Files ─────────────────────────────────────────────────────
@@ -23499,17 +27962,25 @@ def api_canon_request_submit():
         file_name = upload.filename.strip()[:255]
         file_mime = _canon_request_file_mime(file_name, upload.mimetype or "")
         if not file_mime:
-            return jsonify({
-                "error": "Файл не поддерживается. Допустимо: mp3/ogg/wav/m4a/aac, "
-                         "pdf/txt/md/doc/docx/odt/rtf, png/jpg/webp/gif",
-            }), 400
+            return jsonify(
+                {
+                    "error": "Файл не поддерживается. Допустимо: mp3/ogg/wav/m4a/aac, "
+                    "pdf/txt/md/doc/docx/odt/rtf, png/jpg/webp/gif",
+                }
+            ), 400
         if kind == "track" and file_mime not in _ALLOWED_AUDIO_MIME:
-            return jsonify({"error": "Для трека нужен аудиофайл (mp3, ogg, wav, m4a, aac)"}), 400
+            return jsonify(
+                {"error": "Для трека нужен аудиофайл (mp3, ogg, wav, m4a, aac)"}
+            ), 400
         file_data = upload.read()
         if not file_data:
             return jsonify({"error": "Пустой файл"}), 400
         if len(file_data) > _MAX_REQUEST_FILE_BYTES:
-            return jsonify({"error": f"Файл слишком большой (макс. {_MAX_REQUEST_FILE_BYTES // (1024 * 1024)} МБ)"}), 400
+            return jsonify(
+                {
+                    "error": f"Файл слишком большой (макс. {_MAX_REQUEST_FILE_BYTES // (1024 * 1024)} МБ)"
+                }
+            ), 400
         file_size = len(file_data)
 
     if kind == "track" and not file_data:
@@ -23550,6 +28021,7 @@ def api_canon_request_submit():
 
 # ── Admin Canon Moderation ────────────────────────────────────────────────
 
+
 @app.route("/api/admin/canon/requests")
 def api_admin_canon_requests():
     """Список заявок на канонизацию (только админ)."""
@@ -23568,14 +28040,28 @@ def api_admin_canon_requests():
     try:
         with get_db_engine().connect() as conn:
             if status:
-                rows = conn.execute(
-                    text(select_sql + " WHERE r.status = :s ORDER BY r.created_at DESC LIMIT 200"),
-                    {"s": status},
-                ).mappings().all()
+                rows = (
+                    conn.execute(
+                        text(
+                            select_sql
+                            + " WHERE r.status = :s ORDER BY r.created_at DESC LIMIT 200"
+                        ),
+                        {"s": status},
+                    )
+                    .mappings()
+                    .all()
+                )
             else:
-                rows = conn.execute(
-                    text(select_sql + " ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200"),
-                ).mappings().all()
+                rows = (
+                    conn.execute(
+                        text(
+                            select_sql
+                            + " ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200"
+                        ),
+                    )
+                    .mappings()
+                    .all()
+                )
         items = []
         for r in rows:
             d = dict(r)
@@ -23597,10 +28083,16 @@ def api_admin_canon_request_file(req_id):
         return jsonify({"error": "Нет доступа"}), 403
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT file_data, file_name, file_mime FROM canon_requests WHERE id = :rid"),
-                {"rid": req_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT file_data, file_name, file_mime FROM canon_requests WHERE id = :rid"
+                    ),
+                    {"rid": req_id},
+                )
+                .mappings()
+                .first()
+            )
     except Exception as exc:
         log_error("CANON", "error", f"request file error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -23626,14 +28118,22 @@ def api_admin_canon_request_approve(req_id):
     data = request.get_json(silent=True) or {}
     try:
         with get_db_engine().begin() as conn:
-            row = conn.execute(
-                text("SELECT * FROM canon_requests WHERE id = :rid AND status = 'pending'"),
-                {"rid": req_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT * FROM canon_requests WHERE id = :rid AND status = 'pending'"
+                    ),
+                    {"rid": req_id},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 return jsonify({"error": "Заявка не найдена или уже обработана"}), 404
             # Файл трека из заявки сразу становится аудио произведения.
-            attach_audio = row["kind"] == "track" and row["file_mime"] in _ALLOWED_AUDIO_MIME
+            attach_audio = (
+                row["kind"] == "track" and row["file_mime"] in _ALLOWED_AUDIO_MIME
+            )
             conn.execute(
                 text("""
                     INSERT INTO canon_works
@@ -23662,7 +28162,11 @@ def api_admin_canon_request_approve(req_id):
                     SET status = 'approved', reviewer_id = :rv, review_note = :note, reviewed_at = NOW()
                     WHERE id = :id
                 """),
-                {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
+                {
+                    "rv": user.get("id"),
+                    "note": (data.get("review_note") or "")[:500] or None,
+                    "id": req_id,
+                },
             )
     except Exception as exc:
         log_error("CANON", "error", f"approve error: {exc}")
@@ -23685,7 +28189,11 @@ def api_admin_canon_request_reject(req_id):
                     SET status = 'rejected', reviewer_id = :rv, review_note = :note, reviewed_at = NOW()
                     WHERE id = :id AND status = 'pending'
                 """),
-                {"rv": user.get("id"), "note": (data.get("review_note") or "")[:500] or None, "id": req_id},
+                {
+                    "rv": user.get("id"),
+                    "note": (data.get("review_note") or "")[:500] or None,
+                    "id": req_id,
+                },
             )
     except Exception as exc:
         log_error("CANON", "error", f"reject error: {exc}")
@@ -23741,7 +28249,15 @@ def api_admin_canon_work_update(work_id):
 # ── Canon Audio (upload / delete / stream) ──────────────────────────────────
 
 _MAX_AUDIO_BYTES = 8 * 1024 * 1024  # ~лимит тела запроса (8MB, Supabase BYTEA до 256MB)
-_ALLOWED_AUDIO_MIME = {"audio/mpeg", "audio/mp3", "audio/ogg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac"}
+_ALLOWED_AUDIO_MIME = {
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/ogg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mp4",
+    "audio/aac",
+}
 
 
 def _canon_audio_mime(filename: str) -> str | None:
@@ -23768,7 +28284,9 @@ def api_admin_canon_work_audio_upload(work_id):
     filename = (upload.filename or "").strip()
     mime = _canon_audio_mime(filename) or (upload.mimetype or "")
     if mime not in _ALLOWED_AUDIO_MIME:
-        return jsonify({"error": "Недопустимый формат аудио (mp3/ogg/wav/m4a/aac)"}), 400
+        return jsonify(
+            {"error": "Недопустимый формат аудио (mp3/ogg/wav/m4a/aac)"}
+        ), 400
     data = upload.read()
     if not data:
         return jsonify({"error": "Пустой файл"}), 400
@@ -23796,7 +28314,14 @@ def api_admin_canon_work_audio_upload(work_id):
     except Exception as exc:
         log_error("CANON", "error", f"audio upload error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
-    return jsonify({"ok": True, "audio_name": filename[:255] or "audio", "audio_mime": mime, "audio_size": len(data)})
+    return jsonify(
+        {
+            "ok": True,
+            "audio_name": filename[:255] or "audio",
+            "audio_mime": mime,
+            "audio_size": len(data),
+        }
+    )
 
 
 @app.route("/api/admin/canon/works/<int:work_id>/audio", methods=["DELETE"])
@@ -23828,13 +28353,17 @@ def api_canon_work_audio(work_id):
     """Потоковая отдача аудиофайла трека (redirect to Supabase Storage если audio_url задан)."""
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("""
+            row = (
+                conn.execute(
+                    text("""
                     SELECT audio_data, audio_mime, audio_name, audio_url, status
                     FROM canon_works WHERE id = :wid
                 """),
-                {"wid": work_id},
-            ).mappings().first()
+                    {"wid": work_id},
+                )
+                .mappings()
+                .first()
+            )
     except Exception as exc:
         log_error("CANON", "error", f"audio stream error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -23842,16 +28371,24 @@ def api_canon_work_audio(work_id):
         return jsonify({"error": "Аудио не найдено"}), 404
     # Redirect to Supabase Storage if audio_url is set
     if row["audio_url"]:
-        return ("", 302, {"Location": row["audio_url"], "Cache-Control": "public, max-age=86400"})
+        return (
+            "",
+            302,
+            {"Location": row["audio_url"], "Cache-Control": "public, max-age=86400"},
+        )
     if not row["audio_data"]:
         return jsonify({"error": "Аудио не найдено"}), 404
     mime = row["audio_mime"] or "audio/mpeg"
     name = row["audio_name"] or "audio"
-    return (row["audio_data"], 200, {
-        "Content-Type": mime,
-        "Content-Disposition": f'inline; filename="{_html_escape(name)}"',
-        "Cache-Control": "public, max-age=86400",
-    })
+    return (
+        row["audio_data"],
+        200,
+        {
+            "Content-Type": mime,
+            "Content-Disposition": f'inline; filename="{_html_escape(name)}"',
+            "Cache-Control": "public, max-age=86400",
+        },
+    )
 
 
 @app.route("/api/admin/canon/works", methods=["GET"])
@@ -23861,12 +28398,16 @@ def api_admin_canon_works_list():
         return jsonify({"error": "Нет доступа"}), 403
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("""
+            rows = (
+                conn.execute(
+                    text("""
                     SELECT id, title, kind, author, date, canon_level, url, status
                     FROM canon_works ORDER BY id
                 """),
-            ).mappings().all()
+                )
+                .mappings()
+                .all()
+            )
         return jsonify({"count": len(rows), "items": [dict(r) for r in rows]})
     except Exception as exc:
         log_error("CANON", "error", f"admin works list error: {exc}")
@@ -23880,9 +28421,13 @@ def api_admin_canon_doc_get():
         return jsonify({"error": "Нет доступа"}), 403
     try:
         with get_db_engine().connect() as conn:
-            row = conn.execute(
-                text("SELECT content FROM canon_doc ORDER BY id DESC LIMIT 1")
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT content FROM canon_doc ORDER BY id DESC LIMIT 1")
+                )
+                .mappings()
+                .first()
+            )
         content = row["content"] if row else load_canon_text()
         return jsonify({"content": content, "source": "db" if row else "file"})
     except Exception as exc:
@@ -23904,10 +28449,16 @@ def api_admin_canon_doc_put():
         return jsonify({"error": "Текст слишком длинный"}), 400
     try:
         with get_db_engine().connect() as conn:
-            existing = conn.execute(text("SELECT id FROM canon_doc ORDER BY id DESC LIMIT 1")).mappings().first()
+            existing = (
+                conn.execute(text("SELECT id FROM canon_doc ORDER BY id DESC LIMIT 1"))
+                .mappings()
+                .first()
+            )
             if existing:
                 conn.execute(
-                    text("UPDATE canon_doc SET content = :c, updated_by = :u, updated_at = NOW() WHERE id = :id"),
+                    text(
+                        "UPDATE canon_doc SET content = :c, updated_by = :u, updated_at = NOW() WHERE id = :id"
+                    ),
                     {"c": content, "u": user.get("id"), "id": existing["id"]},
                 )
             else:
@@ -23960,17 +28511,39 @@ def api_canon_search():
 # ── Textbook Tracker ────────────────────────────────────────────────────
 
 _TEXTBOOK_SUBJECTS = [
-    "Математика", "Русский язык", "Литература", "Физика", "Химия",
-    "Биология", "История", "Обществознание", "География", "Английский язык",
-    "Информатика", "ОБЖ", "Музыка", "ИЗО", "Физкультура",
+    "Математика",
+    "Русский язык",
+    "Литература",
+    "Физика",
+    "Химия",
+    "Биология",
+    "История",
+    "Обществознание",
+    "География",
+    "Английский язык",
+    "Информатика",
+    "ОБЖ",
+    "Музыка",
+    "ИЗО",
+    "Физкультура",
 ]
 
 _TEXTBOOK_COLORS = {
-    "Математика": "#f59e0b", "Русский язык": "#ec4899", "Литература": "#a78bfa",
-    "Физика": "#10b981", "Химия": "#f97316", "Биология": "#22c55e",
-    "История": "#8b5cf6", "Обществознание": "#ef4444", "География": "#3b82f6",
-    "Английский язык": "#06b6d4", "Информатика": "#0ea5e9", "ОБЖ": "#78716c",
-    "Музыка": "#e879f9", "ИЗО": "#fb923c", "Физкультура": "#4ade80",
+    "Математика": "#f59e0b",
+    "Русский язык": "#ec4899",
+    "Литература": "#a78bfa",
+    "Физика": "#10b981",
+    "Химия": "#f97316",
+    "Биология": "#22c55e",
+    "История": "#8b5cf6",
+    "Обществознание": "#ef4444",
+    "География": "#3b82f6",
+    "Английский язык": "#06b6d4",
+    "Информатика": "#0ea5e9",
+    "ОБЖ": "#78716c",
+    "Музыка": "#e879f9",
+    "ИЗО": "#fb923c",
+    "Физкультура": "#4ade80",
 }
 
 
@@ -23982,12 +28555,28 @@ def api_textbooks_list():
         return jsonify({"error": "Не авторизован"}), 401
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("SELECT id, subject, title, location FROM textbooks WHERE user_id = :uid ORDER BY subject, title"),
-                {"uid": user["id"]},
-            ).mappings().all()
-        items = [{"id": r["id"], "subject": r["subject"], "title": r["title"], "location": r["location"]} for r in rows]
-        return jsonify({"items": items, "subjects": _TEXTBOOK_SUBJECTS, "colors": _TEXTBOOK_COLORS})
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT id, subject, title, location FROM textbooks WHERE user_id = :uid ORDER BY subject, title"
+                    ),
+                    {"uid": user["id"]},
+                )
+                .mappings()
+                .all()
+            )
+        items = [
+            {
+                "id": r["id"],
+                "subject": r["subject"],
+                "title": r["title"],
+                "location": r["location"],
+            }
+            for r in rows
+        ]
+        return jsonify(
+            {"items": items, "subjects": _TEXTBOOK_SUBJECTS, "colors": _TEXTBOOK_COLORS}
+        )
     except Exception as exc:
         log_error("TEXTBOOK", "error", f"list error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
@@ -24013,14 +28602,22 @@ def api_textbooks_create():
         return jsonify({"error": "Неизвестная локация"}), 400
     try:
         with get_db_engine().begin() as conn:
-            existing = conn.execute(
-                text("SELECT id FROM textbooks WHERE user_id = :uid AND subject = :subj AND title = :title LIMIT 1"),
-                {"uid": user["id"], "subj": subject, "title": title},
-            ).mappings().first()
+            existing = (
+                conn.execute(
+                    text(
+                        "SELECT id FROM textbooks WHERE user_id = :uid AND subject = :subj AND title = :title LIMIT 1"
+                    ),
+                    {"uid": user["id"], "subj": subject, "title": title},
+                )
+                .mappings()
+                .first()
+            )
             if existing:
                 return jsonify({"error": "Такой учебник уже добавлен"}), 409
             result = conn.execute(
-                text("INSERT INTO textbooks (user_id, subject, title, location) VALUES (:uid, :subj, :title, :loc) RETURNING id"),
+                text(
+                    "INSERT INTO textbooks (user_id, subject, title, location) VALUES (:uid, :subj, :title, :loc) RETURNING id"
+                ),
                 {"uid": user["id"], "subj": subject, "title": title, "loc": location},
             )
             new_id = result.mappings().first()["id"]
@@ -24043,7 +28640,9 @@ def api_textbooks_move(tb_id):
     try:
         with get_db_engine().begin() as conn:
             result = conn.execute(
-                text("UPDATE textbooks SET location = :loc WHERE id = :id AND user_id = :uid"),
+                text(
+                    "UPDATE textbooks SET location = :loc WHERE id = :id AND user_id = :uid"
+                ),
                 {"loc": location, "id": tb_id, "uid": user["id"]},
             )
             if result.rowcount == 0:
@@ -24336,22 +28935,29 @@ loadBooks();
 
 # ── Canon Work Page ──────────────────────────────────────────────────────
 
+
 @app.route("/canon/work/<int:work_id>")
 def canon_work_page(work_id):
     """Страница с полным текстом одного канонического произведения."""
     try:
         with get_db_engine().begin() as conn:
-            row = conn.execute(
-                text("""
+            row = (
+                conn.execute(
+                    text("""
                     SELECT id, title, kind, author, date, canon_level, url, content, status,
                            audio_name, audio_mime, audio_size, audio_url, COALESCE(view_count, 0) AS view_count
                     FROM canon_works WHERE id = :wid
                 """),
-                {"wid": work_id},
-            ).mappings().first()
+                    {"wid": work_id},
+                )
+                .mappings()
+                .first()
+            )
             if row and row["status"] == "approved":
                 conn.execute(
-                    text("UPDATE canon_works SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :wid"),
+                    text(
+                        "UPDATE canon_works SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :wid"
+                    ),
                     {"wid": work_id},
                 )
     except Exception as exc:
@@ -24380,7 +28986,11 @@ def canon_work_page(work_id):
         }
     else:
         work = dict(row)
-        work["has_audio"] = True if work.get("audio_size") or work.get("audio_name") or work.get("audio_url") else False
+        work["has_audio"] = (
+            True
+            if work.get("audio_size") or work.get("audio_name") or work.get("audio_url")
+            else False
+        )
     has_audio = bool(work.get("has_audio")) and work["kind"] == "track"
 
     level_label = {
@@ -24394,17 +29004,21 @@ def canon_work_page(work_id):
         "article": "📜 Статья",
         "archive": "🗄 Архив",
     }.get(work["kind"], work["kind"])
-    content_html = render_markdown(work["content"]) if work["content"] else (
-        "<p><em>Текст произведения пока не добавлен. "
-        "Ссылка на оригинал открывается ниже, если доступна.</em></p>"
+    content_html = (
+        render_markdown(work["content"])
+        if work["content"]
+        else (
+            "<p><em>Текст произведения пока не добавлен. "
+            "Ссылка на оригинал открывается ниже, если доступна.</em></p>"
+        )
     )
     audio_html = ""
     if has_audio:
         audio_html = f"""
         <div class="audio-card" id="audio">
             <h3>🎧 Аудиозапись трека</h3>
-            <audio controls preload="metadata" src="/api/canon/work/{work['id']}/audio"></audio>
-            <div class="audio-meta">{_html_escape(work.get('audio_name') or 'audio')} · {format_bytes(work.get('audio_size') or 0)}</div>
+            <audio controls preload="metadata" src="/api/canon/work/{work["id"]}/audio"></audio>
+            <div class="audio-meta">{_html_escape(work.get("audio_name") or "audio")} · {format_bytes(work.get("audio_size") or 0)}</div>
         </div>"""
     meta = [work["author"], work["date"]]
     meta = " · ".join(x for x in meta if x)
@@ -24413,9 +29027,15 @@ def canon_work_page(work_id):
     nav_html = ""
     try:
         with get_db_engine().connect() as conn:
-            rows = conn.execute(
-                text("SELECT id, title FROM canon_works WHERE status = 'approved' ORDER BY id")
-            ).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT id, title FROM canon_works WHERE status = 'approved' ORDER BY id"
+                    )
+                )
+                .mappings()
+                .all()
+            )
         ids = [r["id"] for r in rows]
     except Exception:
         ids = list(range(len(CANON_WORKS)))
@@ -24434,7 +29054,7 @@ def canon_work_page(work_id):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{_html_escape(work['title'])} — Канон — LTHub</title>
+    <title>{_html_escape(work["title"])} — Канон — LTHub</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: 'Segoe UI', Arial, sans-serif; background: var(--gh-bg); min-height: 100vh; color: var(--gh-text2); padding: 24px; }}
@@ -24466,18 +29086,18 @@ def canon_work_page(work_id):
 <body>
     <div class="container">
         <div class="header">
-            <h1>📖 {_html_escape(work['title'])}</h1>
+            <h1>📖 {_html_escape(work["title"])}</h1>
             <a href="/canon">← Канон</a>
         </div>
         <div class="meta">
-            {kind_label} · {meta or 'Автор неизвестен'}
-            <span class="badge badge-{work['canon_level']}">{level_label[1]}</span>
-            {('<span style="color:var(--gh-muted);">👁 ' + str(work.get('view_count') or 0) + '</span>') if (work.get('view_count') or 0) > 0 else ''}
+            {kind_label} · {meta or "Автор неизвестен"}
+            <span class="badge badge-{work["canon_level"]}">{level_label[1]}</span>
+            {('<span style="color:var(--gh-muted);">👁 ' + str(work.get("view_count") or 0) + "</span>") if (work.get("view_count") or 0) > 0 else ""}
         </div>
         {audio_html}
-        {('<div class="section-title">📜 Текст</div>' if work['kind'] == 'article' and not has_audio else '')}
+        {('<div class="section-title">📜 Текст</div>' if work["kind"] == "article" and not has_audio else "")}
         <div class="content">{content_html}</div>
-{"<a class='source-link' href='" + _html_escape(work['url']) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") else ""}
+{"<a class='source-link' href='" + _html_escape(work["url"]) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") else ""}
         <div class="nav">{nav_html}</div>
     </div>
 </body>
@@ -24486,6 +29106,7 @@ def canon_work_page(work_id):
 
 
 # ── Canon Request Page ───────────────────────────────────────────────────
+
 
 @app.route("/canon/request")
 def canon_request_page():
@@ -24661,6 +29282,7 @@ def canon_request_page():
 
 
 # ── Admin Canon Page ─────────────────────────────────────────────────────
+
 
 @app.route("/admin/canon")
 def admin_canon_page():
@@ -24918,7 +29540,9 @@ def admin_canon_page():
 import re as _re
 
 
-def _generate_verb_exercise(verbs: str, count: int, mode: int, wishes: str) -> list[dict] | None:
+def _generate_verb_exercise(
+    verbs: str, count: int, mode: int, wishes: str
+) -> list[dict] | None:
     prompt = (
         f"Ты — генератор заданий на неправильные глаголы английского языка.\n"
         f"Сгенерируй ровно {count} неправильных глаголов из списка: {verbs}\n"
@@ -24930,11 +29554,12 @@ def _generate_verb_exercise(verbs: str, count: int, mode: int, wishes: str) -> l
     text = _call_ai_api_fast(prompt, max_tokens=2000, timeout=10.0)
     if not text or text == "❌":
         return None
-    match = _re.search(r'\[.*\]', text, _re.DOTALL)
+    match = _re.search(r"\[.*\]", text, _re.DOTALL)
     if not match:
         return None
     try:
         import json as _json
+
         tasks = _json.loads(match.group())
         if not isinstance(tasks, list) or len(tasks) < 1:
             return None
@@ -25366,7 +29991,9 @@ def _verb_gen_locked(key: str, now: float) -> bool:
     accumulate one entry per distinct caller for the lifetime of the server.
     """
     if len(VERB_GEN_LOCK) > _VERB_GEN_LOCK_MAX:
-        for stale in [k for k, ts in VERB_GEN_LOCK.items() if now - ts >= _VERB_GEN_COOLDOWN]:
+        for stale in [
+            k for k, ts in VERB_GEN_LOCK.items() if now - ts >= _VERB_GEN_COOLDOWN
+        ]:
             VERB_GEN_LOCK.pop(stale, None)
     seen = VERB_GEN_LOCK.get(key)
     return seen is not None and now - seen < _VERB_GEN_COOLDOWN
@@ -25398,7 +30025,9 @@ def api_verbs_generate():
         lock_keys.append(f"verbs_gen_uid:{_web_user_id('u' + str(session_user['id']))}")
     if any(_verb_gen_locked(k, now) for k in lock_keys):
         return jsonify({"error": "Подождите 10 секунд между генерациями"}), 429
-    if _check_ai_rate("verbs_gen:" + ip, 5, 60) or _check_db_rate("verbs_gen_" + ip, 60, 3600):
+    if _check_ai_rate("verbs_gen:" + ip, 5, 60) or _check_db_rate(
+        "verbs_gen_" + ip, 60, 3600
+    ):
         return jsonify({"error": "Слишком много генераций. Подождите минуту."}), 429
     for k in lock_keys:
         VERB_GEN_LOCK[k] = now
@@ -25406,18 +30035,32 @@ def api_verbs_generate():
     if not tasks:
         for k in lock_keys:
             VERB_GEN_LOCK.pop(k, None)
-        return jsonify({"error": "AI не смог сгенерировать задание. Проверьте глаголы и попробуйте ещё раз."}), 503
+        return jsonify(
+            {
+                "error": "AI не смог сгенерировать задание. Проверьте глаголы и попробуйте ещё раз."
+            }
+        ), 503
     ex_id = random.randint(100000, 999999)
     while _load_verb_exercise(ex_id) is not None:
         ex_id = random.randint(100000, 999999)
     try:
-        ex_data = {"id": ex_id, "teacher_id": uid, "verbs": verbs, "task_count": count, "mode": mode, "wishes": wishes, "tasks": tasks}
+        ex_data = {
+            "id": ex_id,
+            "teacher_id": uid,
+            "verbs": verbs,
+            "task_count": count,
+            "mode": mode,
+            "wishes": wishes,
+            "tasks": tasks,
+        }
         _save_verb_exercise(ex_data)
     except Exception as exc:
         for k in lock_keys:
             VERB_GEN_LOCK.pop(k, None)
         log_error("VERBS", "error", f"save exercise error: {exc}")
-        return jsonify({"error": "Не удалось сохранить задание. Попробуйте ещё раз."}), 500
+        return jsonify(
+            {"error": "Не удалось сохранить задание. Попробуйте ещё раз."}
+        ), 500
     share_url = request.host_url.rstrip("/") + "/irregular_verbs/exercise/" + str(ex_id)
     # build a display-safe preview (blank fields per mode) for the teacher
     preview = []
@@ -25436,7 +30079,9 @@ def api_verbs_generate():
         else:
             d = dict(t)
         preview.append(d)
-    return jsonify({"id": ex_id, "share_url": share_url, "tasks": tasks, "preview": preview})
+    return jsonify(
+        {"id": ex_id, "share_url": share_url, "tasks": tasks, "preview": preview}
+    )
 
 
 @app.route("/api/verbs/exercises", methods=["GET"])
@@ -25448,7 +30093,13 @@ def api_verbs_exercises():
     exercises = _load_teacher_exercises(uid)
     result = []
     for ex in exercises:
-        result.append({"id": ex["id"], "task_count": ex["task_count"], "student_count": ex.get("student_count", 0)})
+        result.append(
+            {
+                "id": ex["id"],
+                "task_count": ex["task_count"],
+                "student_count": ex.get("student_count", 0),
+            }
+        )
     return jsonify(result)
 
 
@@ -25491,14 +30142,27 @@ def api_verbs_exercise_results(ex_id):
         for d in s.get("details", []):
             parts = []
             if not d.get("inf_correct") and d.get("inf_correct_val"):
-                parts.append(f"Infinitive: был {d.get('inf_correct_val','?')}, ввели «{d.get('inf','')}»")
+                parts.append(
+                    f"Infinitive: был {d.get('inf_correct_val', '?')}, ввели «{d.get('inf', '')}»"
+                )
             if not d.get("past_correct") and d.get("past_correct_val"):
-                parts.append(f"Past: был {d.get('past_correct_val','?')}, ввели «{d.get('past','')}»")
+                parts.append(
+                    f"Past: был {d.get('past_correct_val', '?')}, ввели «{d.get('past', '')}»"
+                )
             if not d.get("pp_correct") and d.get("pp_correct_val"):
-                parts.append(f"PP: был {d.get('pp_correct_val','?')}, ввели «{d.get('pp','')}»")
+                parts.append(
+                    f"PP: был {d.get('pp_correct_val', '?')}, ввели «{d.get('pp', '')}»"
+                )
             if parts:
                 errors.append(", ".join(parts))
-        formatted.append({"name": s.get("name", ""), "score": s.get("score", 0), "total": s.get("total", 0), "errors": errors})
+        formatted.append(
+            {
+                "name": s.get("name", ""),
+                "score": s.get("score", 0),
+                "total": s.get("total", 0),
+                "errors": errors,
+            }
+        )
     return jsonify({"exercise_id": ex_id, "submissions": formatted})
 
 
@@ -25527,8 +30191,14 @@ def api_verbs_submit():
     details = []
     for i, task in enumerate(tasks):
         ans = answers[i] if i < len(answers) else {}
-        d = {"inf": task.get("inf", ""), "past": task.get("past", ""), "pp": task.get("pp", ""),
-             "inf_correct": True, "past_correct": True, "pp_correct": True}
+        d = {
+            "inf": task.get("inf", ""),
+            "past": task.get("past", ""),
+            "pp": task.get("pp", ""),
+            "inf_correct": True,
+            "past_correct": True,
+            "pp_correct": True,
+        }
         for field in ("inf", "past", "pp"):
             if field in ans:
                 total_fields += 1
@@ -25542,7 +30212,17 @@ def api_verbs_submit():
         d["past_correct_val"] = task.get("past", "")
         d["pp_correct_val"] = task.get("pp", "")
         details.append(d)
-    _save_verb_submission(ex_id, {"user_id": uid, "name": name, "score": correct_fields, "total": total_fields, "details": details, "timestamp": time.time()})
+    _save_verb_submission(
+        ex_id,
+        {
+            "user_id": uid,
+            "name": name,
+            "score": correct_fields,
+            "total": total_fields,
+            "details": details,
+            "timestamp": time.time(),
+        },
+    )
     return jsonify({"score": correct_fields, "total": total_fields, "details": details})
 
 
@@ -25585,7 +30265,11 @@ def telegram_webhook(secret: str):
         name = user.get("first_name") or user.get("username") or "LucasTeam"
         command = normalize_command(msg_text)
 
-        log_error("WEBHOOK", "info", f"command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}")
+        log_error(
+            "WEBHOOK",
+            "info",
+            f"command='{command}' text='{msg_text[:50]}' user_id={user_id} chat_id={chat_id}",
+        )
 
         # Universe Module: auto-infect on mention (команды не заражают)
         if msg_text and not command and "@olegchekmarev12" in msg_text.lower():
@@ -25594,17 +30278,14 @@ def telegram_webhook(secret: str):
                     get_db_engine(), user_id, only_if_healthy=True
                 )
                 if outcome == "infected":
-                    log_error("UNIVERSE", "info", f"auto-infected {user_id} via mention")
+                    log_error(
+                        "UNIVERSE", "info", f"auto-infected {user_id} via mention"
+                    )
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"auto-infect error: {exc}")
 
         # Universe Module: infected user message modification
-        if (
-            msg_text
-            and not command
-            and chat_id
-            and not message.get("reply_to_message")
-        ):
+        if msg_text and not command and chat_id and not message.get("reply_to_message"):
             try:
                 infection = universe.load_infection(get_db_engine(), user_id)
                 if universe.is_symptomatic(infection):
@@ -25642,6 +30323,7 @@ def telegram_webhook(secret: str):
             dnd_reply = None
             try:
                 from api.dnd_runtime import handle_free_text
+
                 dnd_reply = handle_free_text(user_id, chat_id, msg_text)
             except Exception as exc:
                 log_error("DND", "error", f"handle_free_text error: {exc}")
@@ -25670,8 +30352,15 @@ def telegram_webhook(secret: str):
             # Prevents awarding coins to an arbitrary profile by replying to a user message.
             if not reply_from.get("is_bot"):
                 _record_parsing_result(
-                    user_id, "not_bot", 0, 0, "unknown", replied_text or "", False,
-                    chat_id=chat_id, message_id=reply_msg_id,
+                    user_id,
+                    "not_bot",
+                    0,
+                    0,
+                    "unknown",
+                    replied_text or "",
+                    False,
+                    chat_id=chat_id,
+                    message_id=reply_msg_id,
                 )
                 send_telegram_message(
                     chat_id,
@@ -25708,12 +30397,18 @@ def telegram_webhook(secret: str):
                     if diff < 0:
                         diff = track_value
                     if diff == 0:
-                        send_telegram_message(chat_id, f"ℹ️ {game}: значение не изменилось с прошлого раза ({prev_value:.1f}).")
+                        send_telegram_message(
+                            chat_id,
+                            f"ℹ️ {game}: значение не изменилось с прошлого раза ({prev_value:.1f}).",
+                        )
                         return jsonify({"ok": True})
                     rate = parsed.get("rate", 1.0)
                     coins = int(diff * rate)
                     if coins <= 0:
-                        send_telegram_message(chat_id, f"ℹ️ {game}: прирост {diff:.1f} слишком мал для начисления.")
+                        send_telegram_message(
+                            chat_id,
+                            f"ℹ️ {game}: прирост {diff:.1f} слишком мал для начисления.",
+                        )
                         return jsonify({"ok": True})
                     set_game_state(target_user_id, game, metric, track_value)
                     description = f"Парсинг {game}: +{coins} (прирост {diff:.1f})"
@@ -25725,7 +30420,9 @@ def telegram_webhook(secret: str):
                     # Delta (earned amount) — use directly
                     coins = parsed["coins"]
                     if coins <= 0:
-                        send_telegram_message(chat_id, "❌ Сумма начисления должна быть положительной")
+                        send_telegram_message(
+                            chat_id, "❌ Сумма начисления должна быть положительной"
+                        )
                         return jsonify({"ok": True})
                     if game == "GDcards":
                         detail = f"{game}: {parsed['orbs']} orbs × {parsed['rate']}"
@@ -25738,15 +30435,26 @@ def telegram_webhook(secret: str):
                     description = f"Парсинг {game}: +{coins}"
 
                 recorded = _record_parsing_result(
-                    target_user_id, game, amount, coins, parsed.get("type", "balance"), replied_text, True,
-                    chat_id=chat_id, message_id=reply_msg_id,
+                    target_user_id,
+                    game,
+                    amount,
+                    coins,
+                    parsed.get("type", "balance"),
+                    replied_text,
+                    True,
+                    chat_id=chat_id,
+                    message_id=reply_msg_id,
                 )
                 if not recorded:
-                    send_telegram_message(chat_id, "ℹ️ Это сообщение уже было распарсено ранее.")
+                    send_telegram_message(
+                        chat_id, "ℹ️ Это сообщение уже было распарсено ранее."
+                    )
                     return jsonify({"ok": True})
 
                 if add_user_balance(target_user_id, coins, description):
-                    mention = f"**{target_name}**" if target_id else f"**{target_name}**"
+                    mention = (
+                        f"**{target_name}**" if target_id else f"**{target_name}**"
+                    )
                     send_telegram_message(
                         chat_id,
                         f"✅ Начислено {coins} очков {mention}\n({detail})",
@@ -25756,8 +30464,15 @@ def telegram_webhook(secret: str):
                 return jsonify({"ok": True})
             elif chat_id:
                 _record_parsing_result(
-                    user_id, "unknown", 0, 0, "unknown", replied_text or "", False,
-                    chat_id=chat_id, message_id=reply_msg_id,
+                    user_id,
+                    "unknown",
+                    0,
+                    0,
+                    "unknown",
+                    replied_text or "",
+                    False,
+                    chat_id=chat_id,
+                    message_id=reply_msg_id,
                 )
                 send_telegram_message(
                     chat_id,
@@ -25772,14 +30487,20 @@ def telegram_webhook(secret: str):
             try:
                 position = int(text_stripped)
                 if position < 1:
-                    send_telegram_message(chat_id, "❌ Позиция должна быть положительным числом.")
+                    send_telegram_message(
+                        chat_id, "❌ Позиция должна быть положительным числом."
+                    )
                 else:
                     sub_id = approve_state["sub_id"]
                     level_name = approve_state["level_name"]
                     difficulty = get_gd_difficulty_name(level_name)
                     level_id = add_gd_level(level_name, position, difficulty)
                     if not level_id:
-                        send_telegram_message(chat_id, f"❌ Ошибка при добавлении уровня **{level_name}** в топ.", parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id,
+                            f"❌ Ошибка при добавлении уровня **{level_name}** в топ.",
+                            parse_mode="Markdown",
+                        )
                     else:
                         if approve_gd_submission_db(sub_id, user_id):
                             send_telegram_message(
@@ -25789,11 +30510,20 @@ def telegram_webhook(secret: str):
                                 parse_mode="Markdown",
                             )
                         else:
-                            send_telegram_message(chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}.")
-                            log_error("GD", "approve_failed", f"GD approve failed sub_id={sub_id}", "approve_gd_submission_db returned False")
+                            send_telegram_message(
+                                chat_id, f"❌ Ошибка подтверждения заявки #{sub_id}."
+                            )
+                            log_error(
+                                "GD",
+                                "approve_failed",
+                                f"GD approve failed sub_id={sub_id}",
+                                "approve_gd_submission_db returned False",
+                            )
                 _GD_APPROVE_STATE.pop(user_id, None)
             except ValueError:
-                send_telegram_message(chat_id, "❌ Пожалуйста, введите число — позицию в топе.")
+                send_telegram_message(
+                    chat_id, "❌ Пожалуйста, введите число — позицию в топе."
+                )
             return jsonify({"ok": True})
 
         # AI response on reply to bot message or @mention
@@ -25875,9 +30605,19 @@ def telegram_webhook(secret: str):
                 },
             )
         elif command == "/family" and chat_id:
-            _handle_budget_family_command(chat_id, str(user_id), name, (msg_text or "").split()[1:])
+            _handle_budget_family_command(
+                chat_id, str(user_id), name, (msg_text or "").split()[1:]
+            )
         elif command == "/addexpense" and chat_id:
-            _ADDE_LOG.append({"user_id": user_id, "name": name, "chat_id": chat_id, "text": msg_text[:100], "time": datetime.now().isoformat()})
+            _ADDE_LOG.append(
+                {
+                    "user_id": user_id,
+                    "name": name,
+                    "chat_id": chat_id,
+                    "text": msg_text[:100],
+                    "time": datetime.now().isoformat(),
+                }
+            )
             _ADDE_LOG[:] = _ADDE_LOG[-50:]
             now_ts = datetime.now().timestamp()
             last_ts = _ADDE_COOLDOWN.get(user_id, 0)
@@ -25954,17 +30694,21 @@ def telegram_webhook(secret: str):
             )
         elif command == "/errors" and chat_id:
             if user_id != ADMIN_TELEGRAM_ID:
-                send_telegram_message(chat_id, "❌ Только админ может просматривать ошибки.")
+                send_telegram_message(
+                    chat_id, "❌ Только админ может просматривать ошибки."
+                )
             elif not _ERROR_LOG:
                 send_telegram_message(chat_id, "✅ Ошибок нет — всё чисто!")
             else:
                 recent = _ERROR_LOG[-10:]
-                lines = [f"📋 **Ошибки** ({len(_ERROR_LOG)} всего, последние {len(recent)}):\n"]
+                lines = [
+                    f"📋 **Ошибки** ({len(_ERROR_LOG)} всего, последние {len(recent)}):\n"
+                ]
                 for e in reversed(recent):
                     lines.append(f"🕐 {e['time']} | 🔴 {e['module']}/{e['error_type']}")
                     lines.append(f"   {e['message'][:100]}")
                     lines.append(f"   💡 {e['recommendation']}")
-                    tb = e.get('traceback', '')
+                    tb = e.get("traceback", "")
                     if tb:
                         lines.append(f"   📎 `{tb[-150:]}`")
                     lines.append("")
@@ -26241,7 +30985,9 @@ def telegram_webhook(secret: str):
             if len(args) < 2:
                 # Show current character and available options
                 current = get_user_character(user_id)
-                chars = "\n".join([f"• {k} {CHARACTER_EMOJI.get(k, '')}" for k in CHARACTER_PROMPTS])
+                chars = "\n".join(
+                    [f"• {k} {CHARACTER_EMOJI.get(k, '')}" for k in CHARACTER_PROMPTS]
+                )
                 send_telegram_message(
                     chat_id,
                     f"🎭 Текущий характер: **{current}** {CHARACTER_EMOJI.get(current, '')}\n\n"
@@ -26262,8 +31008,7 @@ def telegram_webhook(secret: str):
                     chars = ", ".join(CHARACTER_PROMPTS.keys())
                     send_telegram_message(
                         chat_id,
-                        f"❌ Неизвестный характер: {character}\n\n"
-                        f"Доступные: {chars}",
+                        f"❌ Неизвестный характер: {character}\n\nДоступные: {chars}",
                     )
         elif command == "/character_all" and chat_id:
             if not check_admin(user_id):
@@ -26286,7 +31031,9 @@ def telegram_webhook(secret: str):
                             f"✅ Глобальный характер изменён на: **{character}** {emoji}",
                         )
                     else:
-                        send_telegram_message(chat_id, f"❌ Неизвестный характер: {character}")
+                        send_telegram_message(
+                            chat_id, f"❌ Неизвестный характер: {character}"
+                        )
         elif command in ["/generate_prayer", "/pray"] and chat_id:
             send_telegram_message(chat_id, "🙏 Сочиняю молитву...")
             prompt = (
@@ -26381,13 +31128,18 @@ def telegram_webhook(secret: str):
         # Trivia command - use static questions with Telegram poll for Vercel
         elif command == "/trivia" and chat_id:
             import importlib.util
+
             spec = importlib.util.spec_from_file_location(
-                "trivia_questions", os.path.join(os.path.dirname(__file__), "..", "bot", "trivia", "questions.py")
+                "trivia_questions",
+                os.path.join(
+                    os.path.dirname(__file__), "..", "bot", "trivia", "questions.py"
+                ),
             )
             trivia_questions = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(trivia_questions)
 
             import asyncio
+
             question = asyncio.run(trivia_questions.generate_trivia_question())
             question_text = question["text"]
             options = question["options"]
@@ -26436,9 +31188,14 @@ def telegram_webhook(secret: str):
             )
             inline_keyboard = []
             for i, opt in enumerate(options):
-                inline_keyboard.append([
-                    {"text": f"✅ {opt}", "callback_data": f"trivia_{i}_{correct_index}"}
-                ])
+                inline_keyboard.append(
+                    [
+                        {
+                            "text": f"✅ {opt}",
+                            "callback_data": f"trivia_{i}_{correct_index}",
+                        }
+                    ]
+                )
             send_telegram_message(
                 chat_id,
                 "⚠️ Для ответа нажмите на кнопку с вариантом ниже. Правильный ответ даст +10 монет.",
@@ -26482,7 +31239,7 @@ def telegram_webhook(secret: str):
                     send_telegram_message(
                         chat_id,
                         "❌ Укажите ник Lichess: `/chess_link <ник>`",
-                        parse_mode="Markdown"
+                        parse_mode="Markdown",
                     )
                 else:
                     # Send "checking" status
@@ -26518,8 +31275,16 @@ def telegram_webhook(secret: str):
                                 "❌ Этот Lichess аккаунт уже привязан к другому пользователю.",
                             )
                         else:
-                            title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
-                            online_text = "онлайн" if lichess_user.get("online") else "оффлайн/неизвестно"
+                            title_prefix = (
+                                f"{lichess_user['title']} "
+                                if lichess_user.get("title")
+                                else ""
+                            )
+                            online_text = (
+                                "онлайн"
+                                if lichess_user.get("online")
+                                else "оффлайн/неизвестно"
+                            )
                             success_msg = (
                                 "♟ **Lichess аккаунт привязан!**\n\n"
                                 f"Аккаунт: **{title_prefix}{lichess_user['username']}**\n"
@@ -26527,7 +31292,9 @@ def telegram_webhook(secret: str):
                                 "Теперь можно использовать шахматные команды LTHub.\n\n"
                                 f"[🌐 Открыть веб-версию](https://bank-bot-ruby.vercel.app/chess?user_id={user_id})"
                             )
-                            send_telegram_message(chat_id, success_msg, parse_mode="Markdown")
+                            send_telegram_message(
+                                chat_id, success_msg, parse_mode="Markdown"
+                            )
 
         # /chess_rating
         elif command == "/chess_rating" and chat_id:
@@ -26552,27 +31319,43 @@ def telegram_webhook(secret: str):
                             "❌ Не удалось загрузить данные Lichess. Попробуйте позже.",
                         )
                     else:
-                        title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
-                        online_text = "🟢 онлайн" if lichess_user.get("online") else "⚫ оффлайн"
+                        title_prefix = (
+                            f"{lichess_user['title']} "
+                            if lichess_user.get("title")
+                            else ""
+                        )
+                        online_text = (
+                            "🟢 онлайн" if lichess_user.get("online") else "⚫ оффлайн"
+                        )
                         perfs = lichess_user.get("perfs", {})
 
                         rating_parts = []
                         rating_parts.append(f"**Статус:** {online_text}\n")
 
                         if "bullet" in perfs:
-                            rating_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
+                            rating_parts.append(
+                                f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)"
+                            )
                         if "blitz" in perfs:
-                            rating_parts.append(f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                            rating_parts.append(
+                                f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)"
+                            )
                         if "rapid" in perfs:
-                            rating_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                            rating_parts.append(
+                                f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)"
+                            )
                         if "classical" in perfs:
-                            rating_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
+                            rating_parts.append(
+                                f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)"
+                            )
 
                         rating_msg = (
                             f"♟ **Рейтинги {title_prefix}{lichess_user['username']}**\n\n"
                             + "\n".join(rating_parts)
                         )
-                        send_telegram_message(chat_id, rating_msg, parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id, rating_msg, parse_mode="Markdown"
+                        )
                 except Exception as exc:
                     print(f"Error fetching ratings: {exc}")
                     send_telegram_message(
@@ -26603,7 +31386,11 @@ def telegram_webhook(secret: str):
                             "❌ Не удалось загрузить данные Lichess. Попробуйте позже.",
                         )
                     else:
-                        title_prefix = f"{lichess_user['title']} " if lichess_user.get("title") else ""
+                        title_prefix = (
+                            f"{lichess_user['title']} "
+                            if lichess_user.get("title")
+                            else ""
+                        )
                         perfs = lichess_user.get("perfs", {})
                         games = lichess_user.get("games", {})
 
@@ -26612,7 +31399,11 @@ def telegram_webhook(secret: str):
                         loss = games.get("loss", 0)
                         draw = games.get("draw", 0)
 
-                        winrate = round((win / total_games * 100), 1) if total_games > 0 else 0
+                        winrate = (
+                            round((win / total_games * 100), 1)
+                            if total_games > 0
+                            else 0
+                        )
 
                         stats_parts = []
                         stats_parts.append(f"**Всего игр:** {total_games}")
@@ -26621,13 +31412,21 @@ def telegram_webhook(secret: str):
                         stats_parts.append(f"🤝 **Ничьих:** {draw}\n")
 
                         if "bullet" in perfs:
-                            stats_parts.append(f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)")
+                            stats_parts.append(
+                                f"🎯 **Пуля:** {perfs['bullet'].get('rating', '?')} ({perfs['bullet'].get('games', 0)} игр)"
+                            )
                         if "blitz" in perfs:
-                            stats_parts.append(f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)")
+                            stats_parts.append(
+                                f"⚡ **Блиц:** {perfs['blitz'].get('rating', '?')} ({perfs['blitz'].get('games', 0)} игр)"
+                            )
                         if "rapid" in perfs:
-                            stats_parts.append(f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)")
+                            stats_parts.append(
+                                f"⏱️ **Рапид:** {perfs['rapid'].get('rating', '?')} ({perfs['rapid'].get('games', 0)} игр)"
+                            )
                         if "classical" in perfs:
-                            stats_parts.append(f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)")
+                            stats_parts.append(
+                                f"⏳ **Классика:** {perfs['classical'].get('rating', '?')} ({perfs['classical'].get('games', 0)} игр)"
+                            )
 
                         stats_msg = (
                             f"♟ **Статистика {title_prefix}{lichess_user['username']}**\n\n"
@@ -26671,8 +31470,13 @@ def telegram_webhook(secret: str):
                 try:
                     # Fetch random puzzle from Lichess (not daily — random each time)
                     puzzle_url = f"{LICHESS_API_BASE_URL}/puzzle/next"
-                    headers = {"Accept": "application/json", "User-Agent": "LTHub/ChessModule"}
-                    response = requests.get(puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS)
+                    headers = {
+                        "Accept": "application/json",
+                        "User-Agent": "LTHub/ChessModule",
+                    }
+                    response = requests.get(
+                        puzzle_url, headers=headers, timeout=LICHESS_TIMEOUT_SECONDS
+                    )
 
                     if response.status_code != 200:
                         send_telegram_message(
@@ -26698,6 +31502,7 @@ def telegram_webhook(secret: str):
                         import io
 
                         import chess.pgn
+
                         pgn_text = game.get("pgn", "")
                         pgn_io = io.StringIO(pgn_text)
                         pgn_game = chess.pgn.read_game(pgn_io)
@@ -26715,10 +31520,20 @@ def telegram_webhook(secret: str):
                                 fen = board.mirror().fen()
                     except Exception as fen_exc:
                         print(f"Error deriving FEN from PGN: {fen_exc}")
-                        log_error("Chess", "fen_derivation", f"FEN parse error: {fen_exc}", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
+                        log_error(
+                            "Chess",
+                            "fen_derivation",
+                            f"FEN parse error: {fen_exc}",
+                            f"pgn={pgn_text[:80]}... initialPly={initial_ply}",
+                        )
 
                     if not fen:
-                        log_error("Chess", "fen_empty", "Empty FEN after derivation", f"pgn={pgn_text[:80]}... initialPly={initial_ply}")
+                        log_error(
+                            "Chess",
+                            "fen_empty",
+                            "Empty FEN after derivation",
+                            f"pgn={pgn_text[:80]}... initialPly={initial_ply}",
+                        )
                         send_telegram_message(
                             chat_id,
                             "❌ Не удалось отобразить доску. Попробуйте позже.",
@@ -26761,22 +31576,39 @@ def telegram_webhook(secret: str):
                                         [
                                             {
                                                 "text": "🔗 Решить на Lichess",
-                                                "url": puzzle_url_link
+                                                "url": puzzle_url_link,
                                             }
                                         ]
                                     ]
-                                }
+                                },
                             },
                             timeout=10,
                         )
                         if photo_response.status_code != 200:
-                            print(f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}")
-                            send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                            print(
+                                f"Error sending photo: status={photo_response.status_code}, response={photo_response.text}"
+                            )
+                            send_telegram_message(
+                                chat_id,
+                                puzzle_msg
+                                + f"\n\n[Открыть на Lichess]({puzzle_url_link})",
+                                parse_mode="Markdown",
+                            )
                     except Exception as photo_exc:
                         print(f"Error sending photo: {photo_exc}")
-                        send_telegram_message(chat_id, puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})", parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id,
+                            puzzle_msg + f"\n\n[Открыть на Lichess]({puzzle_url_link})",
+                            parse_mode="Markdown",
+                        )
 
-                    log_chess_game(user_id, account["lichess_username"], puzzle_id, rating if isinstance(rating, int) else None, themes)
+                    log_chess_game(
+                        user_id,
+                        account["lichess_username"],
+                        puzzle_id,
+                        rating if isinstance(rating, int) else None,
+                        themes,
+                    )
                 except Exception as exc:
                     print(f"Error fetching puzzle: {exc}")
                     send_telegram_message(
@@ -26796,13 +31628,17 @@ def telegram_webhook(secret: str):
             else:
                 try:
                     with get_db_engine().connect() as conn:
-                        rows = conn.execute(
-                            text(
-                                "SELECT puzzle_id, puzzle_rating, puzzle_themes, solved, solved_at, created_at "
-                                "FROM chess_games WHERE user_id = :user_id ORDER BY created_at DESC LIMIT 10"
-                            ),
-                            {"user_id": user_id},
-                        ).mappings().all()
+                        rows = (
+                            conn.execute(
+                                text(
+                                    "SELECT puzzle_id, puzzle_rating, puzzle_themes, solved, solved_at, created_at "
+                                    "FROM chess_games WHERE user_id = :user_id ORDER BY created_at DESC LIMIT 10"
+                                ),
+                                {"user_id": user_id},
+                            )
+                            .mappings()
+                            .all()
+                        )
 
                     if not rows:
                         send_telegram_message(
@@ -26812,17 +31648,28 @@ def telegram_webhook(secret: str):
                     else:
                         coins = get_user_coins(user_id)
                         balance = coins["balance"] if coins else 0
-                        lines = [f"📋 **История задач** ({account['lichess_username']})\n💰 Баланс: {balance} монет\n"]
+                        lines = [
+                            f"📋 **История задач** ({account['lichess_username']})\n💰 Баланс: {balance} монет\n"
+                        ]
                         for r in rows:
                             status = "✅" if r["solved"] else "⏳"
                             rating = r["puzzle_rating"] or "?"
                             themes = r["puzzle_themes"] or "—"
                             link = f"https://lichess.org/training/{r['puzzle_id']}"
-                            lines.append(f"{status} [{r['puzzle_id']}]({link}) | Рейтинг: {rating} | {themes}")
-                        send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                            lines.append(
+                                f"{status} [{r['puzzle_id']}]({link}) | Рейтинг: {rating} | {themes}"
+                            )
+                        send_telegram_message(
+                            chat_id, "\n".join(lines), parse_mode="Markdown"
+                        )
                 except Exception as exc:
                     print(f"Error fetching chess history: {exc}")
-                    log_error("Chess", "history_query", f"chess_history user={user_id}: {exc}", f"query: chess_games WHERE user_id={user_id}")
+                    log_error(
+                        "Chess",
+                        "history_query",
+                        f"chess_history user={user_id}: {exc}",
+                        f"query: chess_games WHERE user_id={user_id}",
+                    )
                     send_telegram_message(
                         chat_id,
                         "❌ Ошибка загрузки истории. Попробуйте позже.",
@@ -26836,11 +31683,14 @@ def telegram_webhook(secret: str):
             user_move = msg_text.strip().lower()
             # UCI move validation: 4-5 chars, letters+digits (e.g. e2e4, g1f3, e7e8q)
             import re
-            if not re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', user_move):
+
+            if not re.match(r"^[a-h][1-8][a-h][1-8][qrbn]?$", user_move):
                 return jsonify({"ok": True})
             if time.time() - pending.get("created_at", 0) > 1800:
                 _PENDING_PUZZLES.pop(user_id, None)
-                send_telegram_message(chat_id, "⏰ Задача устарела. Загрузите новую: /puzzle")
+                send_telegram_message(
+                    chat_id, "⏰ Задача устарела. Загрузите новую: /puzzle"
+                )
                 return jsonify({"ok": True})
             solution = pending["solution"]
             # Handle both string and list formats
@@ -26876,10 +31726,16 @@ def telegram_webhook(secret: str):
             pending_sub = None
             try:
                 with get_db_engine().connect() as conn:
-                    row = conn.execute(
-                        text("SELECT id, level_name FROM submissions WHERE user_id = :uid AND status = 'pending_media' ORDER BY submitted_at DESC LIMIT 1"),
-                        {"uid": user_id},
-                    ).mappings().first()
+                    row = (
+                        conn.execute(
+                            text(
+                                "SELECT id, level_name FROM submissions WHERE user_id = :uid AND status = 'pending_media' ORDER BY submitted_at DESC LIMIT 1"
+                            ),
+                            {"uid": user_id},
+                        )
+                        .mappings()
+                        .first()
+                    )
                     if row:
                         pending_sub = dict(row)
             except Exception as exc:
@@ -26900,12 +31756,17 @@ def telegram_webhook(secret: str):
                     media_file_id = message["document"].get("file_id", "")
                     media_type = "document"
                 else:
-                    send_telegram_message(chat_id, "❌ Пожалуйста, отправьте видео или фото с прохождением.")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Пожалуйста, отправьте видео или фото с прохождением.",
+                    )
                     return jsonify({"ok": True})
                 try:
                     with get_db_engine().connect() as conn:
                         conn.execute(
-                            text("UPDATE submissions SET media_file_id = :mfid, media_type = :mt, status = 'pending', submitted_at = CURRENT_TIMESTAMP WHERE id = :sid"),
+                            text(
+                                "UPDATE submissions SET media_file_id = :mfid, media_type = :mt, status = 'pending', submitted_at = CURRENT_TIMESTAMP WHERE id = :sid"
+                            ),
                             {"mfid": media_file_id, "mt": media_type, "sid": sub_id},
                         )
                         conn.commit()
@@ -26916,8 +31777,16 @@ def telegram_webhook(secret: str):
                     )
                 except Exception as exc:
                     print(f"Error updating submission #{sub_id}: {exc}")
-                    send_telegram_message(chat_id, "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.")
-                    log_error("GD", "submission_save", f"GD submit save failed user={user_id}", "INSERT INTO submissions failed")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Ошибка при сохранении заявки. Убедитесь, что база данных настроена правильно, и попробуйте ещё раз.",
+                    )
+                    log_error(
+                        "GD",
+                        "submission_save",
+                        f"GD submit save failed user={user_id}",
+                        "INSERT INTO submissions failed",
+                    )
                 return jsonify({"ok": True})
 
             # Legacy in-memory fallback
@@ -26936,9 +31805,14 @@ def telegram_webhook(secret: str):
                     media_file_id = message["document"].get("file_id", "")
                     media_type = "document"
                 else:
-                    send_telegram_message(chat_id, "❌ Пожалуйста, отправьте видео или фото с прохождением.")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Пожалуйста, отправьте видео или фото с прохождением.",
+                    )
                     return jsonify({"ok": True})
-                sub_id = create_gd_submission(user_id, name, level_name, media_file_id, media_type)
+                sub_id = create_gd_submission(
+                    user_id, name, level_name, media_file_id, media_type
+                )
                 _GD_SUBMIT_STATE.pop(user_id, None)
                 if sub_id:
                     send_telegram_message(
@@ -26979,44 +31853,84 @@ def telegram_webhook(secret: str):
         elif command == "/gd_user" and chat_id:
             args = msg_text.split()[1:] if msg_text else []
             if not args:
-                send_telegram_message(chat_id, "❌ Использование: `/gd_user <ник>`\nПример: `/gd_user Riot`", parse_mode="Markdown")
+                send_telegram_message(
+                    chat_id,
+                    "❌ Использование: `/gd_user <ник>`\nПример: `/gd_user Riot`",
+                    parse_mode="Markdown",
+                )
             else:
                 username = args[0].strip()
-                send_telegram_message(chat_id, f"🔍 Ищу игрока **{username}** в Geometry Dash...", parse_mode="Markdown")
+                send_telegram_message(
+                    chat_id,
+                    f"🔍 Ищу игрока **{username}** в Geometry Dash...",
+                    parse_mode="Markdown",
+                )
                 try:
                     data = fetch_gd_user(username)
                     if not data:
-                        send_telegram_message(chat_id, f"❌ Игрок **{username}** не найден.", parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id,
+                            f"❌ Игрок **{username}** не найден.",
+                            parse_mode="Markdown",
+                        )
                     else:
-                        send_telegram_message(chat_id, format_gd_user_stats(data), parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id, format_gd_user_stats(data), parse_mode="Markdown"
+                        )
                 except Exception as exc:
                     print(f"gd_user error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных GD.")
-                    log_error("GD", "gd_api", f"GD API user lookup failed: {exc}", f"username={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}")
+                    log_error(
+                        "GD",
+                        "gd_api",
+                        f"GD API user lookup failed: {exc}",
+                        f"username={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}",
+                    )
 
         # /gd_level <id или название>
         elif command == "/gd_level" and chat_id:
             args = msg_text.split()[1:] if msg_text else []
             if not args:
-                send_telegram_message(chat_id, "❌ Использование: `/gd_level <ID или название>`\nПример: `/gd_level 10565740` или `/gd_level Bloodbath`", parse_mode="Markdown")
+                send_telegram_message(
+                    chat_id,
+                    "❌ Использование: `/gd_level <ID или название>`\nПример: `/gd_level 10565740` или `/gd_level Bloodbath`",
+                    parse_mode="Markdown",
+                )
             else:
                 query = " ".join(args).strip()
                 try:
                     level_id = int(query)
-                    send_telegram_message(chat_id, f"🔍 Ищу уровень с ID **{level_id}**...", parse_mode="Markdown")
+                    send_telegram_message(
+                        chat_id,
+                        f"🔍 Ищу уровень с ID **{level_id}**...",
+                        parse_mode="Markdown",
+                    )
                     data = fetch_gd_level(level_id)
                 except ValueError:
-                    send_telegram_message(chat_id, f"🔍 Ищу уровень **{query}**...", parse_mode="Markdown")
+                    send_telegram_message(
+                        chat_id, f"🔍 Ищу уровень **{query}**...", parse_mode="Markdown"
+                    )
                     data = search_gd_level(query)
                 try:
                     if not data:
-                        send_telegram_message(chat_id, f"❌ Уровень **{query}** не найден.", parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id,
+                            f"❌ Уровень **{query}** не найден.",
+                            parse_mode="Markdown",
+                        )
                     else:
-                        send_telegram_message(chat_id, format_gd_level_info(data), parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id, format_gd_level_info(data), parse_mode="Markdown"
+                        )
                 except Exception as exc:
                     print(f"gd_level error: {exc}")
                     send_telegram_message(chat_id, "❌ Ошибка получения данных уровня.")
-                    log_error("GD", "gd_level_api", f"GD API level lookup failed: {exc}", f"query={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}")
+                    log_error(
+                        "GD",
+                        "gd_level_api",
+                        f"GD API level lookup failed: {exc}",
+                        f"query={msg_text.split()[1] if len(msg_text.split()) > 1 else '?'}",
+                    )
 
         # /leaderboard — top by balance
         elif command == "/leaderboard" and chat_id:
@@ -27027,25 +31941,38 @@ def telegram_webhook(secret: str):
                 else:
                     lines = ["🏆 **Таблица лидеров по монетам**\n"]
                     for i, u in enumerate(top, 1):
-                        name = u["first_name"] if u["first_name"] != "—" else u["username"]
+                        name = (
+                            u["first_name"] if u["first_name"] != "—" else u["username"]
+                        )
                         lines.append(f"{i}. **{name}** — 💰 {u['balance']:,} монет")
-                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                    send_telegram_message(
+                        chat_id, "\n".join(lines), parse_mode="Markdown"
+                    )
             except Exception as exc:
                 print(f"leaderboard error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при загрузке лидеров.")
-                log_error("GD", "leaderboard", f"Leaderboard load failed: {exc}", "get_top_balances or get_gd_leaderboard query failed")
+                log_error(
+                    "GD",
+                    "leaderboard",
+                    f"Leaderboard load failed: {exc}",
+                    "get_top_balances or get_gd_leaderboard query failed",
+                )
 
         # /gd_leaderboard — GD уровень топ
         elif command == "/gd_leaderboard" and chat_id:
             levels = get_gd_leaderboard(20)
             if not levels:
-                send_telegram_message(chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни.")
+                send_telegram_message(
+                    chat_id, "📊 Топ уровней пуст. Администратор ещё не добавил уровни."
+                )
             else:
                 lines = ["🏆 Geometry Dash — Топ-20 уровней\n"]
                 for lv in levels:
                     diff = lv.get("difficulty", "Unknown")
                     completers_str = lv.get("completers") or "—"
-                    lines.append(f"#{lv['position']} {lv['name']}\n   💀 {diff}\n   ✅ Прохождений: {lv['completions']}\n   👤 {completers_str}")
+                    lines.append(
+                        f"#{lv['position']} {lv['name']}\n   💀 {diff}\n   ✅ Прохождений: {lv['completions']}\n   👤 {completers_str}"
+                    )
                 lines.append("\nИспользуйте /my_stats для просмотра своей статистики")
                 send_telegram_message(chat_id, "\n".join(lines))
 
@@ -27054,7 +31981,10 @@ def telegram_webhook(secret: str):
             try:
                 stats = get_gd_player_stats(user_id)
                 if not stats:
-                    send_telegram_message(chat_id, "📊 У вас пока нет статистики.\n\nОтправьте своё первое прохождение через /submit!")
+                    send_telegram_message(
+                        chat_id,
+                        "📊 У вас пока нет статистики.\n\nОтправьте своё первое прохождение через /submit!",
+                    )
                 else:
                     sc = get_gd_submission_counts(user_id)
                     hardest = get_gd_hardest_level_name(user_id)
@@ -27071,32 +32001,57 @@ def telegram_webhook(secret: str):
                     if sc["total"] > 0:
                         rate = (sc["approved"] / sc["total"]) * 100
                         lines.append(f"📈 **Процент одобрения:** {rate:.1f}%")
-                    send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                    send_telegram_message(
+                        chat_id, "\n".join(lines), parse_mode="Markdown"
+                    )
             except Exception as exc:
                 print(f"my_stats error: {exc}")
                 send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики.")
-                log_error("GD", "my_stats", f"my_stats load failed user={user_id}: {exc}", "get_gd_player_stats or get_gd_submission_counts failed")
+                log_error(
+                    "GD",
+                    "my_stats",
+                    f"my_stats load failed user={user_id}: {exc}",
+                    "get_gd_player_stats or get_gd_submission_counts failed",
+                )
 
         # /player_stats @username
         elif command == "/player_stats" and chat_id:
             args = msg_text.split()[1:] if msg_text else []
             if not args:
-                send_telegram_message(chat_id, "❌ Укажите пользователя: `/player_stats @username`", parse_mode="Markdown")
+                send_telegram_message(
+                    chat_id,
+                    "❌ Укажите пользователя: `/player_stats @username`",
+                    parse_mode="Markdown",
+                )
             else:
                 target = args[0].lstrip("@")
                 try:
                     with get_db_engine().connect() as conn:
-                        target_user = conn.execute(
-                            text("SELECT telegram_id FROM users WHERE username ILIKE :un LIMIT 1"),
-                            {"un": target},
-                        ).mappings().first()
+                        target_user = (
+                            conn.execute(
+                                text(
+                                    "SELECT telegram_id FROM users WHERE username ILIKE :un LIMIT 1"
+                                ),
+                                {"un": target},
+                            )
+                            .mappings()
+                            .first()
+                        )
                     if not target_user:
-                        send_telegram_message(chat_id, f"📊 Пользователь **{target}** не найден.", parse_mode="Markdown")
+                        send_telegram_message(
+                            chat_id,
+                            f"📊 Пользователь **{target}** не найден.",
+                            parse_mode="Markdown",
+                        )
                     else:
                         target_id = target_user["telegram_id"]
                         stats = get_gd_player_stats(target_id)
                         if not stats:
-                            send_telegram_message(chat_id, f"📊 У пользователя **{target}** пока нет статистики GD.", parse_mode="Markdown")
+                            send_telegram_message(
+                                chat_id,
+                                f"📊 У пользователя **{target}** пока нет статистики GD.",
+                                parse_mode="Markdown",
+                            )
                         else:
                             hardest = get_gd_hardest_level_name(target_id)
                             completed = get_gd_user_completions_count(target_id)
@@ -27106,17 +32061,30 @@ def telegram_webhook(secret: str):
                                 f"✅ **Подтверждённых прохождений:** {stats.get('total_approved', 0)}",
                                 f"🎮 **Пройдено уровней:** {completed}",
                             ]
-                            send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+                            send_telegram_message(
+                                chat_id, "\n".join(lines), parse_mode="Markdown"
+                            )
                 except Exception as exc:
                     print(f"player_stats error: {exc}")
-                    send_telegram_message(chat_id, "❌ Ошибка при загрузке статистики игрока.")
-                    log_error("GD", "player_stats", f"player_stats load failed: {exc}", f"query player_stats for user in chat {chat_id}")
+                    send_telegram_message(
+                        chat_id, "❌ Ошибка при загрузке статистики игрока."
+                    )
+                    log_error(
+                        "GD",
+                        "player_stats",
+                        f"player_stats load failed: {exc}",
+                        f"query player_stats for user in chat {chat_id}",
+                    )
 
         # /submit <level_name>
         elif command == "/submit" and chat_id:
             args = msg_text.split(maxsplit=1)
             if len(args) < 2:
-                send_telegram_message(chat_id, "❌ Использование: `/submit <название уровня>`\nПример: `/submit Tartarus`", parse_mode="Markdown")
+                send_telegram_message(
+                    chat_id,
+                    "❌ Использование: `/submit <название уровня>`\nПример: `/submit Tartarus`",
+                    parse_mode="Markdown",
+                )
             else:
                 level_name = args[1].strip()
                 # Create placeholder submission (no media yet)
@@ -27127,7 +32095,10 @@ def telegram_webhook(secret: str):
                         "❌ Ошибка при создании заявки. Попробуйте позже.",
                     )
                     return jsonify({"ok": True})
-                _GD_SUBMIT_STATE[user_id] = {"step": "awaiting_media", "level_name": level_name}
+                _GD_SUBMIT_STATE[user_id] = {
+                    "step": "awaiting_media",
+                    "level_name": level_name,
+                }
                 send_telegram_message(
                     chat_id,
                     f"🎮 **Geometry Dash — Отправка прохождения**\n\nУровень: **{level_name}**\n\nОтправьте видео или фото с прохождением уровня:",
@@ -27142,13 +32113,19 @@ def telegram_webhook(secret: str):
                 try:
                     submissions, total = get_gd_pending_submissions(0, 5)
                     if not submissions:
-                        send_telegram_message(chat_id, "✅ Все заявки обработаны! Новых заявок нет.")
+                        send_telegram_message(
+                            chat_id, "✅ Все заявки обработаны! Новых заявок нет."
+                        )
                     else:
                         total_pages = (total + 4) // 5
                         lines = ["🎮 **Geometry Dash — Модерация заявок**"]
                         lines.append(f"Страница 1/{total_pages} ({total} заявок)\n")
                         for s in submissions:
-                            ts_str = str(s.get("submitted_at", ""))[:19] if s.get("submitted_at") else ""
+                            ts_str = (
+                                str(s.get("submitted_at", ""))[:19]
+                                if s.get("submitted_at")
+                                else ""
+                            )
                             lines.append(
                                 f"📝 Заявка #{s['id']}\n"
                                 f"👤 Пользователь: {s.get('username', s['user_id'])}\n"
@@ -27158,16 +32135,38 @@ def telegram_webhook(secret: str):
                             )
                         inline_kb = []
                         if total_pages > 1:
-                            inline_kb.append([{"text": "➡️ Вперёд", "callback_data": "gd_moderate_page_1"}])
-                        inline_kb.append([
-                            {"text": "✅ Подтвердить", "callback_data": f"gd_moderate_approve_{submissions[0]['id']}"},
-                            {"text": "❌ Отклонить", "callback_data": f"gd_moderate_reject_{submissions[0]['id']}"},
-                        ])
+                            inline_kb.append(
+                                [
+                                    {
+                                        "text": "➡️ Вперёд",
+                                        "callback_data": "gd_moderate_page_1",
+                                    }
+                                ]
+                            )
+                        inline_kb.append(
+                            [
+                                {
+                                    "text": "✅ Подтвердить",
+                                    "callback_data": f"gd_moderate_approve_{submissions[0]['id']}",
+                                },
+                                {
+                                    "text": "❌ Отклонить",
+                                    "callback_data": f"gd_moderate_reject_{submissions[0]['id']}",
+                                },
+                            ]
+                        )
                         _GD_MODERATE_STATE[chat_id] = 0
-                        send_telegram_message(chat_id, "\n".join(lines), parse_mode="Markdown", reply_markup={"inline_keyboard": inline_kb})
+                        send_telegram_message(
+                            chat_id,
+                            "\n".join(lines),
+                            parse_mode="Markdown",
+                            reply_markup={"inline_keyboard": inline_kb},
+                        )
                 except Exception as exc:
                     print(f"moderate error: {exc}")
-                    send_telegram_message(chat_id, "❌ Ошибка при загрузке заявок. Попробуйте позже.")
+                    send_telegram_message(
+                        chat_id, "❌ Ошибка при загрузке заявок. Попробуйте позже."
+                    )
 
         # /add_level <name> <position> (admin only)
         elif command == "/add_level" and chat_id:
@@ -27176,16 +32175,26 @@ def telegram_webhook(secret: str):
             else:
                 args = msg_text.split()
                 if len(args) < 3:
-                    send_telegram_message(chat_id, "❌ Использование: `/add_level <название> <позиция>`\nПример: `/add_level Tartarus 1`", parse_mode="Markdown")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Использование: `/add_level <название> <позиция>`\nПример: `/add_level Tartarus 1`",
+                        parse_mode="Markdown",
+                    )
                 else:
                     try:
                         pos = int(args[-1])
                         name = " ".join(args[1:-1])
                         difficulty = get_gd_difficulty_name(name)
                         if add_gd_level(name, pos, difficulty):
-                            send_telegram_message(chat_id, f"✅ Уровень **{name}** добавлен на позицию {pos}.", parse_mode="Markdown")
+                            send_telegram_message(
+                                chat_id,
+                                f"✅ Уровень **{name}** добавлен на позицию {pos}.",
+                                parse_mode="Markdown",
+                            )
                         else:
-                            send_telegram_message(chat_id, "❌ Ошибка при добавлении уровня.")
+                            send_telegram_message(
+                                chat_id, "❌ Ошибка при добавлении уровня."
+                            )
                     except ValueError:
                         send_telegram_message(chat_id, "❌ Позиция должна быть числом.")
 
@@ -27196,17 +32205,27 @@ def telegram_webhook(secret: str):
             else:
                 args = msg_text.split()
                 if len(args) < 3:
-                    send_telegram_message(chat_id, "❌ Использование: `/set_level_position <id> <позиция>`\nПример: `/set_level_position 1 5`", parse_mode="Markdown")
+                    send_telegram_message(
+                        chat_id,
+                        "❌ Использование: `/set_level_position <id> <позиция>`\nПример: `/set_level_position 1 5`",
+                        parse_mode="Markdown",
+                    )
                 else:
                     try:
                         lid = int(args[1])
                         pos = int(args[2])
                         if set_gd_level_position(lid, pos):
-                            send_telegram_message(chat_id, f"✅ Позиция уровня #{lid} изменена на {pos}.")
+                            send_telegram_message(
+                                chat_id, f"✅ Позиция уровня #{lid} изменена на {pos}."
+                            )
                         else:
-                            send_telegram_message(chat_id, "❌ Ошибка при изменении позиции уровня.")
+                            send_telegram_message(
+                                chat_id, "❌ Ошибка при изменении позиции уровня."
+                            )
                     except ValueError:
-                        send_telegram_message(chat_id, "❌ ID и позиция должны быть числами.")
+                        send_telegram_message(
+                            chat_id, "❌ ID и позиция должны быть числами."
+                        )
 
         # ========== Universe Module ==========
         elif command == "/infect" and chat_id:
@@ -27228,7 +32247,11 @@ def telegram_webhook(secret: str):
                 else:
                     virus = infection.virus_type if infection else universe.OLEGOVIRUS
                     emoji = universe.emoji_for(virus)
-                    who = "Вы заражены" if target_id == user_id else "Пользователь заражён"
+                    who = (
+                        "Вы заражены"
+                        if target_id == user_id
+                        else "Пользователь заражён"
+                    )
                     send_telegram_message(
                         chat_id,
                         f"{emoji} {who} «{virus}»!\n"
@@ -27270,15 +32293,24 @@ def telegram_webhook(secret: str):
         elif command == "/spread" and chat_id:
             try:
                 reply_to_msg = message.get("reply_to_message")
-                target_id = (reply_to_msg.get("from") or {}).get("id") if reply_to_msg else None
+                target_id = (
+                    (reply_to_msg.get("from") or {}).get("id") if reply_to_msg else None
+                )
                 if not target_id or target_id == user_id:
-                    send_telegram_message(chat_id, "🦠 Ответь командой на сообщение того, кого хочешь заразить.")
+                    send_telegram_message(
+                        chat_id,
+                        "🦠 Ответь командой на сообщение того, кого хочешь заразить.",
+                    )
                     return jsonify({"ok": True})
-                outcome, infection = universe.spread(get_db_engine(), user_id, target_id)
+                outcome, infection = universe.spread(
+                    get_db_engine(), user_id, target_id
+                )
                 if outcome == "not_infected":
                     reply = "🦠 Ты сам не заражён. /infect сначала."
                 elif outcome == "target_infected" and infection:
-                    reply = f"🦠 Он уже заражён «{infection.virus_type}». Сначала /cure."
+                    reply = (
+                        f"🦠 Он уже заражён «{infection.virus_type}». Сначала /cure."
+                    )
                 else:
                     virus = infection.virus_type if infection else "вирус"
                     emoji = universe.emoji_for(virus)
@@ -27290,7 +32322,9 @@ def telegram_webhook(secret: str):
 
         elif command == "/tea" and chat_id:
             try:
-                outcome, minutes, _infection = universe.drink_tea(get_db_engine(), user_id)
+                outcome, minutes, _infection = universe.drink_tea(
+                    get_db_engine(), user_id
+                )
                 if outcome == "not_infected":
                     reply = "☕ Вы не заражены. Чай и так поможет!"
                 elif outcome == "cooldown":
@@ -27313,7 +32347,9 @@ def telegram_webhook(secret: str):
                 today = date.today().isoformat()
                 with get_db_engine().connect() as conn:
                     existing = conn.execute(
-                        text("SELECT 1 FROM daily_prayer_log WHERE user_id = :uid AND prayer_date = :d"),
+                        text(
+                            "SELECT 1 FROM daily_prayer_log WHERE user_id = :uid AND prayer_date = :d"
+                        ),
                         {"uid": user_id, "d": today},
                     ).first()
                     if existing:
@@ -27344,31 +32380,48 @@ def telegram_webhook(secret: str):
         # ── D&D AI Master ──────────────────────────────────────────
         elif command == "/dnd" and chat_id:
             from api.dnd_runtime import cmd_dnd
+
             send_telegram_message(chat_id, cmd_dnd(user_id, chat_id))
         elif command == "/dnd_start" and chat_id:
             from api.dnd_runtime import cmd_dnd_start
-            args = msg_text[len("/dnd_start"):].strip() if len(msg_text) > len("/dnd_start") else ""
+
+            args = (
+                msg_text[len("/dnd_start") :].strip()
+                if len(msg_text) > len("/dnd_start")
+                else ""
+            )
             reply = cmd_dnd_start(user_id, chat_id, args)
             send_telegram_message(chat_id, reply)
         elif command == "/dnd_stop" and chat_id:
             from api.dnd_runtime import cmd_dnd_stop
+
             send_telegram_message(chat_id, cmd_dnd_stop(user_id, chat_id))
         elif command == "/dnd_status" and chat_id:
             from api.dnd_runtime import cmd_dnd_status
+
             send_telegram_message(chat_id, cmd_dnd_status(user_id, chat_id))
         elif command == "/dnd_roll" and chat_id:
             from api.dnd_runtime import cmd_dnd_roll
-            args = msg_text[len("/dnd_roll"):].strip() if len(msg_text) > len("/dnd_roll") else ""
+
+            args = (
+                msg_text[len("/dnd_roll") :].strip()
+                if len(msg_text) > len("/dnd_roll")
+                else ""
+            )
             reply = cmd_dnd_roll(user_id, chat_id, args)
             if reply:
                 send_telegram_message(chat_id, reply)
         elif command == "/dnd_fix" and chat_id:
             from api.dnd_runtime import cmd_dnd_fix
-            fix_text = msg_text[len("/dnd_fix"):].strip() if len(msg_text) > len("/dnd_fix") else ""
+
+            fix_text = (
+                msg_text[len("/dnd_fix") :].strip()
+                if len(msg_text) > len("/dnd_fix")
+                else ""
+            )
             if not fix_text:
                 send_telegram_message(
-                    chat_id,
-                    "❌ Используйте: /dnd_fix <что нужно исправить>"
+                    chat_id, "❌ Используйте: /dnd_fix <что нужно исправить>"
                 )
             else:
                 send_telegram_message(chat_id, cmd_dnd_fix(user_id, chat_id, fix_text))
@@ -27379,6 +32432,7 @@ def telegram_webhook(secret: str):
         _last_error = f"WEBHOOK: {type(e).__name__}: {e}"
         print(f"Error processing update: {e}")
         import traceback
+
         traceback.print_exc()
     return jsonify({"ok": True})
 
@@ -27386,6 +32440,7 @@ def telegram_webhook(secret: str):
 # ============================================================================
 # GD Module — moderation callback handler
 # ============================================================================
+
 
 def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
     """Handle GD moderation inline button callbacks."""
@@ -27409,16 +32464,26 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
             if not check_admin(user_id):
                 requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": cq_id, "text": "🔒 Нет прав администратора", "show_alert": True},
+                    json={
+                        "callback_query_id": cq_id,
+                        "text": "🔒 Нет прав администратора",
+                        "show_alert": True,
+                    },
                     timeout=5,
                 )
                 return jsonify({"ok": True})
             sub = None
             with get_db_engine().connect() as conn:
-                row = conn.execute(
-                    text("SELECT * FROM submissions WHERE id = :sid AND status='pending'"),
-                    {"sid": sub_id},
-                ).mappings().first()
+                row = (
+                    conn.execute(
+                        text(
+                            "SELECT * FROM submissions WHERE id = :sid AND status='pending'"
+                        ),
+                        {"sid": sub_id},
+                    )
+                    .mappings()
+                    .first()
+                )
                 if row:
                     sub = dict(row)
             if not sub:
@@ -27427,7 +32492,11 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
             level_name = sub["level_name"]
             rec = get_gddl_recommendation(level_name)
             rec_text = f" (рекомендация: **#{rec}**)" if rec else ""
-            _GD_APPROVE_STATE[user_id] = {"sub_id": sub_id, "level_name": level_name, "username": sub.get("username", "")}
+            _GD_APPROVE_STATE[user_id] = {
+                "sub_id": sub_id,
+                "level_name": level_name,
+                "username": sub.get("username", ""),
+            }
             send_telegram_message(
                 chat_id,
                 f"📝 Заявка #{sub_id}: уровень **{level_name}**{rec_text}\n\n"
@@ -27439,14 +32508,20 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
             if not check_admin(user_id):
                 requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": cq_id, "text": "🔒 Нет прав администратора", "show_alert": True},
+                    json={
+                        "callback_query_id": cq_id,
+                        "text": "🔒 Нет прав администратора",
+                        "show_alert": True,
+                    },
                     timeout=5,
                 )
                 return jsonify({"ok": True})
             if reject_gd_submission_db(sub_id, user_id):
                 send_telegram_message(chat_id, f"❌ Заявка #{sub_id} отклонена!")
             else:
-                send_telegram_message(chat_id, f"❌ Ошибка отклонения заявки #{sub_id}.")
+                send_telegram_message(
+                    chat_id, f"❌ Ошибка отклонения заявки #{sub_id}."
+                )
             page = _GD_MODERATE_STATE.get(chat_id, 0)
             _gd_moderate_show_page(callback_query, chat_id, page)
     except Exception as exc:
@@ -27485,7 +32560,9 @@ def _gd_moderate_show_page(callback_query: dict, chat_id: int, page: int) -> Non
         lines = ["🎮 **Geometry Dash — Модерация заявок**"]
         lines.append(f"Страница {page + 1}/{total_pages} ({total} заявок)\n")
         for s in submissions:
-            ts_str = str(s.get("submitted_at", ""))[:19] if s.get("submitted_at") else ""
+            ts_str = (
+                str(s.get("submitted_at", ""))[:19] if s.get("submitted_at") else ""
+            )
             lines.append(
                 f"📝 Заявка #{s['id']}\n"
                 f"👤 Пользователь: {s.get('username', s['user_id'])}\n"
@@ -27496,15 +32573,27 @@ def _gd_moderate_show_page(callback_query: dict, chat_id: int, page: int) -> Non
         inline_kb = []
         nav_row = []
         if page > 0:
-            nav_row.append({"text": "⬅️ Назад", "callback_data": f"gd_moderate_page_{page - 1}"})
+            nav_row.append(
+                {"text": "⬅️ Назад", "callback_data": f"gd_moderate_page_{page - 1}"}
+            )
         if page < total_pages - 1:
-            nav_row.append({"text": "➡️ Вперёд", "callback_data": f"gd_moderate_page_{page + 1}"})
+            nav_row.append(
+                {"text": "➡️ Вперёд", "callback_data": f"gd_moderate_page_{page + 1}"}
+            )
         if nav_row:
             inline_kb.append(nav_row)
-        inline_kb.append([
-            {"text": "✅ Подтвердить", "callback_data": f"gd_moderate_approve_{submissions[0]['id']}"},
-            {"text": "❌ Отклонить", "callback_data": f"gd_moderate_reject_{submissions[0]['id']}"},
-        ])
+        inline_kb.append(
+            [
+                {
+                    "text": "✅ Подтвердить",
+                    "callback_data": f"gd_moderate_approve_{submissions[0]['id']}",
+                },
+                {
+                    "text": "❌ Отклонить",
+                    "callback_data": f"gd_moderate_reject_{submissions[0]['id']}",
+                },
+            ]
+        )
         _GD_MODERATE_STATE[chat_id] = page
         payload = {
             "chat_id": chat_id,
@@ -27550,22 +32639,32 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
             send_telegram_message(chat_id, "❌ Ошибка парсинга ответа")
             return
 
-        print(f"trivia_callback: user_id={user_id}, selected={selected_index}, correct={correct_index}")
+        print(
+            f"trivia_callback: user_id={user_id}, selected={selected_index}, correct={correct_index}"
+        )
 
         if selected_index == correct_index:
             try:
                 db = get_db_engine()
                 with db.connect() as conn:
-                    row = conn.execute(
-                        text("SELECT id, balance FROM users WHERE telegram_id = :user_id"),
-                        {"user_id": user_id},
-                    ).mappings().first()
+                    row = (
+                        conn.execute(
+                            text(
+                                "SELECT id, balance FROM users WHERE telegram_id = :user_id"
+                            ),
+                            {"user_id": user_id},
+                        )
+                        .mappings()
+                        .first()
+                    )
 
                     if row:
                         user_db_id = row["id"]
                         new_balance = int(row["balance"]) + 10
                         conn.execute(
-                            text("UPDATE users SET balance = :new_balance WHERE id = :user_db_id"),
+                            text(
+                                "UPDATE users SET balance = :new_balance WHERE id = :user_db_id"
+                            ),
                             {"new_balance": new_balance, "user_db_id": user_db_id},
                         )
                         conn.execute(
@@ -27600,7 +32699,9 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
                         send_telegram_message(chat_id, "🎉 Правильно! +10 монет")
             except Exception as db_err:
                 print(f"Error awarding trivia coins: {db_err}")
-                send_telegram_message(chat_id, "❌ Ошибка базы данных. Монеты не начислены.")
+                send_telegram_message(
+                    chat_id, "❌ Ошибка базы данных. Монеты не начислены."
+                )
         else:
             send_telegram_message(chat_id, "❌ Неправильный ответ")
     except Exception as exc:
@@ -27621,7 +32722,7 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
 
 def generate_trivia_from_canon(chat_id: int) -> str | None:
     """Generate trivia question from canon knowledge using AI.
-    
+
     Returns question string if successful, None if AI unavailable.
     """
     try:
@@ -27663,7 +32764,9 @@ def test_ai():
         if _check_ai_rate("test_ai:" + request.remote_addr):
             return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
         if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
-            return jsonify({"status": "error", "message": "GEMINI_API_KEY/GROQ_API_KEY not set"})
+            return jsonify(
+                {"status": "error", "message": "GEMINI_API_KEY/GROQ_API_KEY not set"}
+            )
 
         response = _ai_chat(
             {
@@ -27673,7 +32776,9 @@ def test_ai():
             timeout=10,
         )
         if response is None:
-            return jsonify({"status": "error", "message": "AI request failed (network)"})
+            return jsonify(
+                {"status": "error", "message": "AI request failed (network)"}
+            )
 
         return jsonify(
             {
@@ -27705,7 +32810,9 @@ def test_telegram():
     except Exception as e:
         result["getMe_error"] = str(e)
     try:
-        wh = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
+        wh = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10
+        )
         result["getWebhookInfo"] = wh.json().get("result") if wh.ok else wh.text[:200]
     except Exception as e:
         result["getWebhookInfo_error"] = str(e)
@@ -27887,7 +32994,9 @@ def reading_generate():
 
         try:
             # Parse the generated text
-            lines = [line.strip() for line in generated_text.split("\n") if line.strip()]
+            lines = [
+                line.strip() for line in generated_text.split("\n") if line.strip()
+            ]
 
             # Extract story text (first 6-7 lines before "Вопросы")
             story_lines = []
@@ -27928,7 +33037,9 @@ def reading_generate():
                     match = re.search(r"[Оо]твет[:\s]+(.+)", line)
                     if match:
                         answer = match.group(1).strip().rstrip(".")
-                        question = line[: line.lower().find("ответ")].strip().rstrip(".")
+                        question = (
+                            line[: line.lower().find("ответ")].strip().rstrip(".")
+                        )
                     else:
                         question = line.strip().rstrip(".")
                         answer = "нет ответа"
@@ -27968,6 +33079,7 @@ def reading_generate():
         except Exception as parse_err:
             print(f"Error parsing AI response: {parse_err}")
             import traceback
+
             traceback.print_exc()
             fallback_sets = get_fallback_sets()
             return jsonify(random.choice(fallback_sets))
@@ -28035,7 +33147,9 @@ def set_webhook():
         return jsonify({"error": "Нет прав администратора"}), 403
     secret = WEBHOOK_SECRET
     if not _raw_webhook_secret and not BOT_TOKEN:
-        return jsonify({"error": "WEBHOOK_SECRET or BOT_TOKEN env var not configured"}), 500
+        return jsonify(
+            {"error": "WEBHOOK_SECRET or BOT_TOKEN env var not configured"}
+        ), 500
     if not _raw_webhook_secret:
         log_error(
             "SECURITY",
@@ -28046,7 +33160,9 @@ def set_webhook():
     host = urlparse(base).hostname or ""
     allowed = host == "bank-bot-ruby.vercel.app" or host.endswith(".vercel.app")
     if not allowed:
-        return jsonify({"error": "webhook может указывать только на Vercel-домены проекта"}), 403
+        return jsonify(
+            {"error": "webhook может указывать только на Vercel-домены проекта"}
+        ), 403
     webhook_url = f"{base}/telegram/webhook/{secret}"
     redacted_url = f"{base}/telegram/webhook/***"
     drop_pending = request.args.get("drop") == "1"
@@ -28062,15 +33178,22 @@ def set_webhook():
             timeout=10,
         )
         body = r.json() if r.ok else {"ok": False, "description": r.text[:200]}
-        return jsonify({
-            "set": {"ok": body.get("ok"), "description": body.get("description")},
-            "url": redacted_url,
-            "bot_token_set": bool(BOT_TOKEN),
-        })
+        return jsonify(
+            {
+                "set": {"ok": body.get("ok"), "description": body.get("description")},
+                "url": redacted_url,
+                "bot_token_set": bool(BOT_TOKEN),
+            }
+        )
     except Exception as e:
         # Не эхоим str(e): она содержит URL с BOT_TOKEN и secret_token.
         log_error("WEBHOOK", "error", f"set_webhook failed: {type(e).__name__}")
-        return jsonify({"error": f"Не удалось вызвать Telegram API ({type(e).__name__})", "url": redacted_url})
+        return jsonify(
+            {
+                "error": f"Не удалось вызвать Telegram API ({type(e).__name__})",
+                "url": redacted_url,
+            }
+        )
 
 
 @app.route("/api/debug_webhook", methods=["GET"])
@@ -28079,19 +33202,24 @@ def debug_webhook():
     if _web_admin_session() is None:
         return jsonify({"error": "Нет прав администратора"}), 403
     try:
-        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
+        r = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10
+        )
         info = r.json().get("result", {})
-        return jsonify({
-            "token_configured": bool(BOT_TOKEN),
-            "secret_len": len(_raw_webhook_secret),
-            "webhook_url": _redact_webhook_url(info.get("url")),
-            "pending_update_count": info.get("pending_update_count"),
-            "last_error_message": info.get("last_error_message"),
-            "has_custom_certificate": info.get("has_custom_certificate"),
-            "max_connections": info.get("max_connections"),
-        })
+        return jsonify(
+            {
+                "token_configured": bool(BOT_TOKEN),
+                "secret_len": len(_raw_webhook_secret),
+                "webhook_url": _redact_webhook_url(info.get("url")),
+                "pending_update_count": info.get("pending_update_count"),
+                "last_error_message": info.get("last_error_message"),
+                "has_custom_certificate": info.get("has_custom_certificate"),
+                "max_connections": info.get("max_connections"),
+            }
+        )
     except Exception as e:
         return jsonify({"error": str(e)})
+
 
 # Error buffer for diagnostics
 _last_error: str | None = None
@@ -28106,6 +33234,7 @@ def debug_dnd():
         uid = int(request.args.get("user_id", 111))
         cid = int(request.args.get("chat_id", uid))
         from api.dnd_runtime import cmd_dnd_start
+
         reply = cmd_dnd_start(uid, cid, "diagnostic-campaign")
         return jsonify({"reply": reply, "ok": True, "error": None})
     except Exception as e:
@@ -28124,13 +33253,20 @@ def debug_last_error():
 # Lazy DB/BOT_ID init: get_db_engine() creates tables on first call;
 # _load_bot_id() is called on demand in the webhook handler.
 
+
 # Debug endpoint to test submissions table
 @app.route("/api/debug_db", methods=["GET"])
 def debug_db():
     """Debug database and GD tables."""
     if _web_admin_session() is None:
         return jsonify({"error": "Нет прав администратора"}), 403
-    result = {"db_url_set": bool(os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("SUPABASE_DB_URL"))}
+    result = {
+        "db_url_set": bool(
+            os.getenv("DATABASE_URL")
+            or os.getenv("POSTGRES_URL")
+            or os.getenv("SUPABASE_DB_URL")
+        )
+    }
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
@@ -28144,7 +33280,15 @@ def debug_db():
                     tables.append(f"{tbl}:missing")
             result["tables"] = tables
             # Try inserting into submissions
-            result_ins = conn.execute(text("INSERT INTO submissions (user_id, username, level_name, status) VALUES (0, 'test', 'test_level', 'pending_media') RETURNING id")).mappings().first()
+            result_ins = (
+                conn.execute(
+                    text(
+                        "INSERT INTO submissions (user_id, username, level_name, status) VALUES (0, 'test', 'test_level', 'pending_media') RETURNING id"
+                    )
+                )
+                .mappings()
+                .first()
+            )
             conn.commit()
             result["insert_id"] = int(result_ins["id"]) if result_ins else None
             # Cleanup
@@ -28169,7 +33313,15 @@ def debug_submissions():
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            rows = conn.execute(text("SELECT id, user_id, level_name, status, media_file_id IS NOT NULL AS has_media FROM submissions ORDER BY id DESC LIMIT 20")).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT id, user_id, level_name, status, media_file_id IS NOT NULL AS has_media FROM submissions ORDER BY id DESC LIMIT 20"
+                    )
+                )
+                .mappings()
+                .all()
+            )
             return jsonify({"submissions": [dict(r) for r in rows]})
     except Exception as e:
         return jsonify({"error": str(e)})
@@ -28210,7 +33362,9 @@ app.route("/api/budget/family/join", methods=["POST"])(api_family_join)
 
 app.route("/api/budget/transactions")(api_transactions_list)
 app.route("/api/budget/transactions", methods=["POST"])(api_transaction_create)
-app.route("/api/budget/transactions/<int:transaction_id>", methods=["DELETE"])(api_transaction_delete)
+app.route("/api/budget/transactions/<int:transaction_id>", methods=["DELETE"])(
+    api_transaction_delete
+)
 
 app.route("/api/budget/debts")(api_debts_list)
 app.route("/api/budget/debts/pay", methods=["POST"])(api_debt_pay)
@@ -28233,18 +33387,29 @@ def api_endings_process():
     if auth_resp:
         return auth_resp
     ip = request.remote_addr or ""
-    if _check_ai_rate("endings:" + ip, 3, 60) or _check_db_rate("endings_" + ip, 20, 3600):
-        return jsonify({"ok": False, "error": "Слишком много запросов. Подождите минуту."}), 429
+    if _check_ai_rate("endings:" + ip, 3, 60) or _check_db_rate(
+        "endings_" + ip, 20, 3600
+    ):
+        return jsonify(
+            {"ok": False, "error": "Слишком много запросов. Подождите минуту."}
+        ), 429
     try:
         data = request.get_json(silent=True) or {}
         text = (data.get("text") or "").strip()
         if not text or len(text) < 10:
-            return jsonify({"ok": False, "error": "Текст слишком короткий (нужно минимум 10 символов)"})
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Текст слишком короткий (нужно минимум 10 символов)",
+                }
+            )
         if len(text) > _ENDINGS_MAX_TEXT:
-            return jsonify({
-                "ok": False,
-                "error": f"Текст слишком длинный (максимум {_ENDINGS_MAX_TEXT} символов)",
-            }), 400
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": f"Текст слишком длинный (максимум {_ENDINGS_MAX_TEXT} символов)",
+                }
+            ), 400
 
         prompt = f"""You are given a Russian text. Your task: create a JSON structure that marks 5-10 words where the ending should be replaced with a blank in an exercise.
 
@@ -28278,20 +33443,48 @@ Text: {text}"""
         def _fallback_segments(src_text: str) -> list | None:
             """Deterministic fallback: split endings of long Russian words."""
             endings_pool = (
-                "ами", "ями", "ого", "его", "ому", "ему", "ими", "ыми",
-                "ая", "ое", "ые", "ий", "ый", "ой", "ее", "ие",
-                "ым", "ом", "ах", "ях", "ев", "ов", "ам", "ям",
-                "у", "ю", "ы", "и", "а", "я", "о", "е",
+                "ами",
+                "ями",
+                "ого",
+                "его",
+                "ому",
+                "ему",
+                "ими",
+                "ыми",
+                "ая",
+                "ое",
+                "ые",
+                "ий",
+                "ый",
+                "ой",
+                "ее",
+                "ие",
+                "ым",
+                "ом",
+                "ах",
+                "ях",
+                "ев",
+                "ов",
+                "ам",
+                "ям",
+                "у",
+                "ю",
+                "ы",
+                "и",
+                "а",
+                "я",
+                "о",
+                "е",
             )
-            tokens = re.split(r'(\s+)', src_text)
+            tokens = re.split(r"(\s+)", src_text)
             segments = []
             buf = ""
             blanks = 0
             for tok in tokens:
-                if not re.search(r'[А-Яа-яЁё]', tok):
+                if not re.search(r"[А-Яа-яЁё]", tok):
                     buf += tok
                     continue
-                m = re.match(r'^([^А-Яа-яЁё]*)([А-Яа-яЁё]{5,})([^А-Яа-яЁё]*)$', tok)
+                m = re.match(r"^([^А-Яа-яЁё]*)([А-Яа-яЁё]{5,})([^А-Яа-яЁё]*)$", tok)
                 if not m:
                     buf += tok
                     continue
@@ -28299,7 +33492,7 @@ Text: {text}"""
                 split = None
                 for end in endings_pool:
                     if word.endswith(end) and len(word) - len(end) >= 3:
-                        split = (word[:-len(end)], end)
+                        split = (word[: -len(end)], end)
                         break
                 if not split:
                     buf += tok
@@ -28318,8 +33511,8 @@ Text: {text}"""
             cleaned = raw.strip()
             if not cleaned:
                 return None
-            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
-            cleaned = re.sub(r'\s*```$', '', cleaned)
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
             try:
                 data = json.loads(cleaned)
                 if isinstance(data, list):
@@ -28364,22 +33557,22 @@ Text: {text}"""
                 if not item:
                     continue
                 typ = item[0]
-                if typ == 't' and item[1]:
-                    if filtered and filtered[-1][0] == 't':
+                if typ == "t" and item[1]:
+                    if filtered and filtered[-1][0] == "t":
                         filtered[-1][1] += item[1]
                     else:
-                        filtered.append(['t', item[1]])
-                elif typ == 'b':
+                        filtered.append(["t", item[1]])
+                elif typ == "b":
                     stem = item[1]
-                    ending = item[2] if len(item) > 2 and item[2] else ''
+                    ending = item[2] if len(item) > 2 and item[2] else ""
                     if ending:
-                        filtered.append(['b', stem, ending])
+                        filtered.append(["b", stem, ending])
                     else:
-                        if filtered and filtered[-1][0] == 't':
+                        if filtered and filtered[-1][0] == "t":
                             filtered[-1][1] += stem
                         else:
-                            filtered.append(['t', stem])
-            if sum(1 for s in filtered if s[0] == 'b') < 2:
+                            filtered.append(["t", stem])
+            if sum(1 for s in filtered if s[0] == "b") < 2:
                 return None
             return filtered
 
@@ -28394,23 +33587,37 @@ Text: {text}"""
         elif ai_text.startswith("❌"):
             log_error("ENDINGS", "error", f"AI недоступен: {ai_text}")
         else:
-            log_error("ENDINGS", "info", "Не удалось получить корректные сегменты от AI")
+            log_error(
+                "ENDINGS", "info", "Не удалось получить корректные сегменты от AI"
+            )
 
         fallback = _fallback_segments(text)
         if fallback:
-            return jsonify({
-                "ok": True,
-                "segments": fallback,
-                "original": text,
-                "fallback": True,
-                "notice": "AI временно недоступен — упражнение создано автоматически.",
-            })
+            return jsonify(
+                {
+                    "ok": True,
+                    "segments": fallback,
+                    "original": text,
+                    "fallback": True,
+                    "notice": "AI временно недоступен — упражнение создано автоматически.",
+                }
+            )
 
-        return jsonify({"ok": False, "error": "Не удалось создать упражнение. Попробуйте другой текст или повторите ещё раз."})
+        return jsonify(
+            {
+                "ok": False,
+                "error": "Не удалось создать упражнение. Попробуйте другой текст или повторите ещё раз.",
+            }
+        )
 
     except Exception as e:
         log_error("ENDINGS", "error", f"Error: {e}")
-        return jsonify({"ok": False, "error": "Внутренняя ошибка при создании упражнения. Попробуйте ещё раз."})
+        return jsonify(
+            {
+                "ok": False,
+                "error": "Внутренняя ошибка при создании упражнения. Попробуйте ещё раз.",
+            }
+        )
 
 
 # ── Family Circle (медиация) ──────────────────────────────────────
@@ -28424,15 +33631,24 @@ def _family_cipher():
     if not key:
         if not _FAMILY_ENCRYPTION_WARNED:
             _FAMILY_ENCRYPTION_WARNED = True
-            log_error("FAMILY", "warn", "ENCRYPTION_KEY not set — family messages stored without encryption")
+            log_error(
+                "FAMILY",
+                "warn",
+                "ENCRYPTION_KEY not set — family messages stored without encryption",
+            )
         return None
     try:
         from cryptography.fernet import Fernet
+
         return Fernet(key.encode() if isinstance(key, str) else key)
     except Exception:
         if not _FAMILY_ENCRYPTION_WARNED:
             _FAMILY_ENCRYPTION_WARNED = True
-            log_error("FAMILY", "warn", "ENCRYPTION_KEY invalid — family messages stored without encryption")
+            log_error(
+                "FAMILY",
+                "warn",
+                "ENCRYPTION_KEY invalid — family messages stored without encryption",
+            )
         return None
 
 
@@ -28527,7 +33743,9 @@ def _family_gen_room_id() -> str:
     while True:
         rid = secrets.token_hex(4).upper()
         with engine.connect() as conn:
-            row = conn.execute(text("SELECT id FROM rooms WHERE id = :rid"), {"rid": rid}).fetchone()
+            row = conn.execute(
+                text("SELECT id FROM rooms WHERE id = :rid"), {"rid": rid}
+            ).fetchone()
         if not row:
             return rid
 
@@ -28544,15 +33762,26 @@ def _family_create_room(name: str, creator_name: str) -> dict:
     raw_password = _family_gen_password()
     member_id = str(uuid.uuid4())
     with engine.begin() as conn:
-        conn.execute(text(
-            "INSERT INTO rooms (id, name, created_at, status, participants_total, spoke_count) "
-            "VALUES (:id, :name, :ts, 'active', 1, 0)"
-        ), {"id": rid, "name": name, "ts": datetime.now(timezone.utc)})
-        conn.execute(text(
-            "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
-            "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
-        ), {"id": member_id, "rid": rid, "name": creator_display, "hash": _family_hash_password(raw_password),
-            "ts": datetime.now(timezone.utc)})
+        conn.execute(
+            text(
+                "INSERT INTO rooms (id, name, created_at, status, participants_total, spoke_count) "
+                "VALUES (:id, :name, :ts, 'active', 1, 0)"
+            ),
+            {"id": rid, "name": name, "ts": datetime.now(timezone.utc)},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
+                "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
+            ),
+            {
+                "id": member_id,
+                "rid": rid,
+                "name": creator_display,
+                "hash": _family_hash_password(raw_password),
+                "ts": datetime.now(timezone.utc),
+            },
+        )
     members = [m for m in _family_room_members(rid)]
     return {
         "room_id": rid,
@@ -28565,11 +33794,14 @@ def _family_create_room(name: str, creator_name: str) -> dict:
 
 def _family_join_room(room_id: str, member_name: str, password: str) -> dict:
     from sqlalchemy.exc import IntegrityError
+
     name = _family_validate_name(member_name, "имя участника")
     password = _family_validate_password(password)
     engine = get_db_engine()
     with engine.connect() as conn:
-        room = conn.execute(text("SELECT id FROM rooms WHERE id = :rid"), {"rid": room_id}).fetchone()
+        room = conn.execute(
+            text("SELECT id FROM rooms WHERE id = :rid"), {"rid": room_id}
+        ).fetchone()
     if not room:
         raise ValueError("Комната не найдена")
     room_info = _family_get_room(room_id)
@@ -28588,14 +33820,25 @@ def _family_join_room(room_id: str, member_name: str, password: str) -> dict:
     member_id = str(uuid.uuid4())
     try:
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
-                "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
-            ), {"id": member_id, "rid": room_id, "name": name, "hash": _family_hash_password(password),
-                "ts": datetime.now(timezone.utc)})
-            conn.execute(text(
-                "UPDATE rooms SET participants_total = participants_total + 1 WHERE id = :rid"
-            ), {"rid": room_id})
+            conn.execute(
+                text(
+                    "INSERT INTO members (id, room_id, display_name, password_hash, finished, created_at) "
+                    "VALUES (:id, :rid, :name, :hash, FALSE, :ts)"
+                ),
+                {
+                    "id": member_id,
+                    "rid": room_id,
+                    "name": name,
+                    "hash": _family_hash_password(password),
+                    "ts": datetime.now(timezone.utc),
+                },
+            )
+            conn.execute(
+                text(
+                    "UPDATE rooms SET participants_total = participants_total + 1 WHERE id = :rid"
+                ),
+                {"rid": room_id},
+            )
     except IntegrityError:
         # Concurrent join with the same name — let the existing member verify instead.
         existing = _family_member_by_name(room_id, name)
@@ -28622,9 +33865,16 @@ def _family_join_room(room_id: str, member_name: str, password: str) -> dict:
 def _family_get_room(room_id: str) -> dict | None:
     engine = get_db_engine()
     with engine.connect() as conn:
-        row = conn.execute(text(
-            "SELECT id, name, status, participants_total, spoke_count FROM rooms WHERE id = :rid"
-        ), {"rid": room_id}).mappings().first()
+        row = (
+            conn.execute(
+                text(
+                    "SELECT id, name, status, participants_total, spoke_count FROM rooms WHERE id = :rid"
+                ),
+                {"rid": room_id},
+            )
+            .mappings()
+            .first()
+        )
     if not row:
         return None
     return dict(row)
@@ -28633,20 +33883,34 @@ def _family_get_room(room_id: str) -> dict | None:
 def _family_room_members(room_id: str) -> list[str]:
     engine = get_db_engine()
     with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT display_name FROM members WHERE room_id = :rid ORDER BY created_at"
-        ), {"rid": room_id}).scalars().all()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT display_name FROM members WHERE room_id = :rid ORDER BY created_at"
+                ),
+                {"rid": room_id},
+            )
+            .scalars()
+            .all()
+        )
     return list(rows)
 
 
 def _family_member_by_name(room_id: str, name: str) -> dict | None:
     engine = get_db_engine()
     with engine.connect() as conn:
-        row = conn.execute(text(
-            "SELECT id, display_name, password_hash, finished FROM members "
-            "WHERE room_id = :rid AND display_name = :name "
-            "ORDER BY created_at ASC, id ASC LIMIT 1"
-        ), {"rid": room_id, "name": name}).mappings().first()
+        row = (
+            conn.execute(
+                text(
+                    "SELECT id, display_name, password_hash, finished FROM members "
+                    "WHERE room_id = :rid AND display_name = :name "
+                    "ORDER BY created_at ASC, id ASC LIMIT 1"
+                ),
+                {"rid": room_id, "name": name},
+            )
+            .mappings()
+            .first()
+        )
     return dict(row) if row else None
 
 
@@ -28662,8 +33926,10 @@ def _family_verify_member(room_id: str, name: str, password: str) -> dict | None
             new_hash = _family_hash_password(password)
             engine = get_db_engine()
             with engine.begin() as conn:
-                conn.execute(text("UPDATE members SET password_hash = :h WHERE id = :id"),
-                             {"h": new_hash, "id": member["id"]})
+                conn.execute(
+                    text("UPDATE members SET password_hash = :h WHERE id = :id"),
+                    {"h": new_hash, "id": member["id"]},
+                )
         except Exception:
             pass
     return member
@@ -28687,54 +33953,81 @@ def _family_room_messages(room_id: str, member_id: str | None = None) -> list[di
         rows = conn.execute(text(sql), params).mappings().all()
     result = []
     for r in rows:
-        result.append({
-            "content": _family_decrypt(r["content"]),
-            "response": _family_decrypt(r["response"]) if r["response"] else None,
-            "member_name": r["display_name"],
-        })
+        result.append(
+            {
+                "content": _family_decrypt(r["content"]),
+                "response": _family_decrypt(r["response"]) if r["response"] else None,
+                "member_name": r["display_name"],
+            }
+        )
     return result
 
 
-def _family_create_message(member_id: str, content: str, response: str | None,
-                           intent_type: str | None, needs_extracted: list | None) -> None:
+def _family_create_message(
+    member_id: str,
+    content: str,
+    response: str | None,
+    intent_type: str | None,
+    needs_extracted: list | None,
+) -> None:
     engine = get_db_engine()
     msg_id = str(uuid.uuid4())
     needs_str = None
     if needs_extracted:
         needs_str = _family_encrypt(json.dumps(needs_extracted, ensure_ascii=False))
     with engine.begin() as conn:
-        conn.execute(text(
-            "INSERT INTO messages (id, member_id, content, response, intent_type, needs_extracted, created_at) "
-            "VALUES (:id, :mid, :content, :response, :intent, :needs, :ts)"
-        ), {
-            "id": msg_id,
-            "mid": member_id,
-            "content": _family_encrypt(content),
-            "response": _family_encrypt(response) if response else None,
-            "intent": intent_type,
-            "needs": needs_str,
-            "ts": datetime.now(timezone.utc),
-        })
+        conn.execute(
+            text(
+                "INSERT INTO messages (id, member_id, content, response, intent_type, needs_extracted, created_at) "
+                "VALUES (:id, :mid, :content, :response, :intent, :needs, :ts)"
+            ),
+            {
+                "id": msg_id,
+                "mid": member_id,
+                "content": _family_encrypt(content),
+                "response": _family_encrypt(response) if response else None,
+                "intent": intent_type,
+                "needs": needs_str,
+                "ts": datetime.now(timezone.utc),
+            },
+        )
 
 
-def _family_add_need(room_id: str, need_text: str, member_id: str | None = None) -> None:
+def _family_add_need(
+    room_id: str, need_text: str, member_id: str | None = None
+) -> None:
     engine = get_db_engine()
     need_id = str(uuid.uuid4())
     clean = (need_text or "").strip()[:200]
     with engine.begin() as conn:
-        conn.execute(text(
-            "INSERT INTO needs (id, room_id, need_text, member_id, created_at) "
-            "VALUES (:id, :rid, :text, :mid, :ts)"
-        ), {"id": need_id, "rid": room_id, "text": _family_encrypt(clean), "mid": member_id,
-            "ts": datetime.now(timezone.utc)})
+        conn.execute(
+            text(
+                "INSERT INTO needs (id, room_id, need_text, member_id, created_at) "
+                "VALUES (:id, :rid, :text, :mid, :ts)"
+            ),
+            {
+                "id": need_id,
+                "rid": room_id,
+                "text": _family_encrypt(clean),
+                "mid": member_id,
+                "ts": datetime.now(timezone.utc),
+            },
+        )
 
 
 def _family_room_needs_text(room_id: str, max_items: int = 40) -> str:
     engine = get_db_engine()
     with engine.connect() as conn:
-        needs = conn.execute(text(
-            "SELECT need_text FROM needs WHERE room_id = :rid ORDER BY created_at"
-        ), {"rid": room_id}).scalars().all()
+        needs = (
+            conn.execute(
+                text(
+                    "SELECT need_text FROM needs WHERE room_id = :rid ORDER BY created_at"
+                ),
+                {"rid": room_id},
+            )
+            .scalars()
+            .all()
+        )
     if not needs:
         return "Пока нет зафиксированных потребностей."
     lines = []
@@ -28749,62 +34042,94 @@ def _family_room_needs_text(room_id: str, max_items: int = 40) -> str:
 def _family_finish_member(member: dict) -> None:
     engine = get_db_engine()
     with engine.begin() as conn:
-        conn.execute(text("UPDATE members SET finished = TRUE WHERE id = :id"), {"id": member["id"]})
+        conn.execute(
+            text("UPDATE members SET finished = TRUE WHERE id = :id"),
+            {"id": member["id"]},
+        )
 
 
 def _family_count_spoken(room_id: str) -> int:
     """Number of distinct members who actually sent at least one message."""
     engine = get_db_engine()
     with engine.connect() as conn:
-        return conn.execute(text(
-            "SELECT COUNT(DISTINCT m.member_id) FROM messages m "
-            "JOIN members mem ON mem.id = m.member_id WHERE mem.room_id = :rid"
-        ), {"rid": room_id}).scalar() or 0
+        return (
+            conn.execute(
+                text(
+                    "SELECT COUNT(DISTINCT m.member_id) FROM messages m "
+                    "JOIN members mem ON mem.id = m.member_id WHERE mem.room_id = :rid"
+                ),
+                {"rid": room_id},
+            ).scalar()
+            or 0
+        )
 
 
 def _family_count_finished(room_id: str) -> int:
     engine = get_db_engine()
     with engine.connect() as conn:
-        return conn.execute(text(
-            "SELECT COUNT(*) FROM members WHERE room_id = :rid AND finished"
-        ), {"rid": room_id}).scalar() or 0
+        return (
+            conn.execute(
+                text("SELECT COUNT(*) FROM members WHERE room_id = :rid AND finished"),
+                {"rid": room_id},
+            ).scalar()
+            or 0
+        )
 
 
 def _family_recount_spoken(room_id: str) -> None:
     """Atomically recompute spoke_count from actual messages (lost-update safe)."""
     with get_db_engine().begin() as conn:
-        conn.execute(text(
-            "UPDATE rooms SET spoke_count = ("
-            "  SELECT COUNT(DISTINCT m.member_id) FROM messages m "
-            "  JOIN members mem ON mem.id = m.member_id WHERE mem.room_id = :rid"
-            ") WHERE id = :rid"
-        ), {"rid": room_id})
+        conn.execute(
+            text(
+                "UPDATE rooms SET spoke_count = ("
+                "  SELECT COUNT(DISTINCT m.member_id) FROM messages m "
+                "  JOIN members mem ON mem.id = m.member_id WHERE mem.room_id = :rid"
+                ") WHERE id = :rid"
+            ),
+            {"rid": room_id},
+        )
 
 
 def _family_save_report(room_id: str, report_text: str) -> None:
     engine = get_db_engine()
     report_id = str(uuid.uuid4())
     with engine.begin() as conn:
-        conn.execute(text(
-            "INSERT INTO final_reports (id, room_id, report_text, created_at) "
-            "VALUES (:id, :rid, :text, :ts)"
-        ), {"id": report_id, "rid": room_id, "text": _family_encrypt(report_text),
-            "ts": datetime.now(timezone.utc)})
+        conn.execute(
+            text(
+                "INSERT INTO final_reports (id, room_id, report_text, created_at) "
+                "VALUES (:id, :rid, :text, :ts)"
+            ),
+            {
+                "id": report_id,
+                "rid": room_id,
+                "text": _family_encrypt(report_text),
+                "ts": datetime.now(timezone.utc),
+            },
+        )
 
 
 def _family_get_report(room_id: str) -> str | None:
     engine = get_db_engine()
     with engine.connect() as conn:
-        row = conn.execute(text(
-            "SELECT report_text FROM final_reports WHERE room_id = :rid ORDER BY created_at DESC LIMIT 1"
-        ), {"rid": room_id}).mappings().first()
+        row = (
+            conn.execute(
+                text(
+                    "SELECT report_text FROM final_reports WHERE room_id = :rid ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"rid": room_id},
+            )
+            .mappings()
+            .first()
+        )
     if not row:
         return None
     value = _family_decrypt(row["report_text"])
     return value if value else None
 
 
-def _family_build_system_prompt(room_name: str, member_names: list[str], spoke_count: int, needs_map: str) -> str:
+def _family_build_system_prompt(
+    room_name: str, member_names: list[str], spoke_count: int, needs_map: str
+) -> str:
     if spoke_count < 2:
         advice_rule = "Запрещено давать советы «скажи другому» или «поговори с ним/ней». Фокус только на переживаниях и потребностях самого участника."
         micro_step_allowed = "запрещено"
@@ -28913,7 +34238,7 @@ def _family_pop_json_block(text: str) -> tuple[str, dict | None]:
 
     Returns (cleaned_text, parsed_dict_or_None). Only flat objects are matched.
     """
-    m = re.search(r'\{[^{}]*?(?:intent_type|needs)[^{}]*?\}\s*$', text, re.DOTALL)
+    m = re.search(r"\{[^{}]*?(?:intent_type|needs)[^{}]*?\}\s*$", text, re.DOTALL)
     if not m:
         return text, None
     try:
@@ -28941,7 +34266,9 @@ def _family_clean_needs(obj: dict | None) -> list[str]:
     return needs
 
 
-def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dict] | None) -> tuple[str, str | None, list[str]]:
+def _family_chat_dialog(
+    system_prompt: str, user_message: str, history: list[dict] | None
+) -> tuple[str, str | None, list[str]]:
     parts = [system_prompt]
     if history:
         for h in history[-20:]:
@@ -28949,8 +34276,17 @@ def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dic
     parts.append(user_message)
     full_prompt = "\n\n".join(parts)
     ai_text = call_ai_api(full_prompt, max_tokens=400)
-    if not ai_text or ai_text.startswith("❌") or ai_text.startswith("Error") or len(ai_text.strip()) < 2:
-        return "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.", None, []
+    if (
+        not ai_text
+        or ai_text.startswith("❌")
+        or ai_text.startswith("Error")
+        or len(ai_text.strip()) < 2
+    ):
+        return (
+            "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.",
+            None,
+            [],
+        )
 
     clean_text, obj = _family_pop_json_block(ai_text)
     intent_type = None
@@ -28962,7 +34298,10 @@ def _family_chat_dialog(system_prompt: str, user_message: str, history: list[dic
 
 
 def _family_generate_synthesis(system_prompt: str) -> str:
-    ai_text = call_ai_api(system_prompt + "\n\nСгенерируй финальный отчёт на основе данных выше.", max_tokens=1024)
+    ai_text = call_ai_api(
+        system_prompt + "\n\nСгенерируй финальный отчёт на основе данных выше.",
+        max_tokens=1024,
+    )
     if ai_text.startswith("❌"):
         return "Не удалось сгенерировать отчёт. Попробуйте позже."
     return ai_text
@@ -28972,9 +34311,9 @@ def _family_extract_needs(response_text: str) -> list[str]:
     needs = []
     lower = response_text.lower()[:1500]
     patterns = [
-        r'(?:тебе\s+)?важно\s+(.+)',
-        r'(?:похоже|кажется|вижу),?\s+(?:что\s+)?(?:для\s+)?(?:тебя|тебе)\s+(.+?)(?:[.?!]|$)',
-        r'(?:ценность|потребность|ценно)\s+(?:—\s+)?(.+?)(?:[.?!]|$)',
+        r"(?:тебе\s+)?важно\s+(.+)",
+        r"(?:похоже|кажется|вижу),?\s+(?:что\s+)?(?:для\s+)?(?:тебя|тебе)\s+(.+?)(?:[.?!]|$)",
+        r"(?:ценность|потребность|ценно)\s+(?:—\s+)?(.+?)(?:[.?!]|$)",
     ]
     for pattern in patterns:
         for m in re.findall(pattern, lower):
@@ -28986,16 +34325,23 @@ def _family_extract_needs(response_text: str) -> list[str]:
 
 # ── Family Circle: API ────────────────────────────────────────────
 
+
 @app.route("/api/family/rooms", methods=["POST"])
 def api_family_rooms_create():
     data = request.get_json() or {}
     try:
         name = _family_validate_room_name(data.get("name"))
-        creator_name = _family_validate_name(data.get("creator_name") or "Я", "ваше имя")
+        creator_name = _family_validate_name(
+            data.get("creator_name") or "Я", "ваше имя"
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    if _family_rate_limit(f"create:{_family_client_ip()}", max_requests=10, window=3600):
-        return jsonify({"error": "Слишком много комнат создаётся. Подождите немного."}), 429
+    if _family_rate_limit(
+        f"create:{_family_client_ip()}", max_requests=10, window=3600
+    ):
+        return jsonify(
+            {"error": "Слишком много комнат создаётся. Подождите немного."}
+        ), 429
     try:
         result = _family_create_room(name, creator_name)
         return jsonify(result)
@@ -29042,25 +34388,42 @@ def api_family_rooms_delete(room_id):
         password = _family_validate_password(data.get("password"))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    if _family_rate_limit(f"delete:{_family_client_ip()}", max_requests=10, window=3600):
+    if _family_rate_limit(
+        f"delete:{_family_client_ip()}", max_requests=10, window=3600
+    ):
         return jsonify({"error": "Слишком много запросов. Подождите немного."}), 429
     member = _family_verify_member(room_id, member_name, password)
     if not member:
         return jsonify({"error": "Неверное имя участника или пароль"}), 403
     engine = get_db_engine()
     with engine.connect() as conn:
-        creator = conn.execute(
-            text("SELECT id FROM members WHERE room_id = :rid ORDER BY created_at ASC LIMIT 1"),
-            {"rid": room_id},
-        ).mappings().first()
+        creator = (
+            conn.execute(
+                text(
+                    "SELECT id FROM members WHERE room_id = :rid ORDER BY created_at ASC LIMIT 1"
+                ),
+                {"rid": room_id},
+            )
+            .mappings()
+            .first()
+        )
     if not creator or creator["id"] != member["id"]:
         return jsonify({"error": "Удалить комнату может только её создатель"}), 403
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM final_reports WHERE room_id = :rid"), {"rid": room_id})
+        conn.execute(
+            text("DELETE FROM final_reports WHERE room_id = :rid"), {"rid": room_id}
+        )
         conn.execute(text("DELETE FROM needs WHERE room_id = :rid"), {"rid": room_id})
-        conn.execute(text("DELETE FROM messages WHERE member_id IN (SELECT id FROM members WHERE room_id = :rid)"), {"rid": room_id})
+        conn.execute(
+            text(
+                "DELETE FROM messages WHERE member_id IN (SELECT id FROM members WHERE room_id = :rid)"
+            ),
+            {"rid": room_id},
+        )
         conn.execute(text("DELETE FROM members WHERE room_id = :rid"), {"rid": room_id})
-        result = conn.execute(text("DELETE FROM rooms WHERE id = :rid"), {"rid": room_id})
+        result = conn.execute(
+            text("DELETE FROM rooms WHERE id = :rid"), {"rid": room_id}
+        )
     if result.rowcount == 0:
         return jsonify({"error": "Комната не найдена"}), 404
     return jsonify({"ok": True})
@@ -29094,17 +34457,23 @@ def api_family_chat_send():
 
     needs_text = _family_room_needs_text(room_id)
     member_names = _family_room_members(room_id)
-    system_prompt = _family_build_system_prompt(room["name"], member_names, room["spoke_count"], needs_text)
+    system_prompt = _family_build_system_prompt(
+        room["name"], member_names, room["spoke_count"], needs_text
+    )
 
     # Privacy: history contains only THIS member's own messages.
     history = []
     for msg in _family_room_messages(room_id, member_id=member["id"])[-20:]:
-        history.append({"role": "user", "content": f"{msg['member_name']}: {msg['content']}"})
+        history.append(
+            {"role": "user", "content": f"{msg['member_name']}: {msg['content']}"}
+        )
         if msg["response"]:
             history.append({"role": "assistant", "content": msg["response"]})
 
     current_message = f"{member_name}: {message}"
-    response_text, intent_type, needs_found = _family_chat_dialog(system_prompt, current_message, history)
+    response_text, intent_type, needs_found = _family_chat_dialog(
+        system_prompt, current_message, history
+    )
 
     needs_found = _family_clean_needs({"needs": needs_found})
     if not needs_found:
@@ -29113,7 +34482,8 @@ def api_family_chat_send():
         _family_add_need(room_id, need_text, member["id"])
 
     _family_create_message(
-        member["id"], message,
+        member["id"],
+        message,
         response=response_text,
         intent_type=intent_type,
         needs_extracted=[{"need": n} for n in needs_found] if needs_found else None,
@@ -29141,11 +34511,13 @@ def api_family_chat_finish():
     _family_finish_member(member)
     _family_recount_spoken(room_id)
     room = _family_get_room(room_id)
-    return jsonify({
-        "ok": True,
-        "room": room,
-        "finished_count": _family_count_finished(room_id) if room else None,
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "room": room,
+            "finished_count": _family_count_finished(room_id) if room else None,
+        }
+    )
 
 
 @app.route("/api/family/chat/history", methods=["POST"])
@@ -29159,12 +34531,14 @@ def api_family_chat_history():
         return jsonify({"error": "Неверное имя участника или пароль"}), 403
     messages = _family_room_messages(room_id, member_id=member["id"])
     room = _family_get_room(room_id)
-    return jsonify({
-        "messages": messages,
-        "room": room,
-        "finished": member["finished"],
-        "finished_count": _family_count_finished(room_id) if room else 0,
-    })
+    return jsonify(
+        {
+            "messages": messages,
+            "room": room,
+            "finished": member["finished"],
+            "finished_count": _family_count_finished(room_id) if room else 0,
+        }
+    )
 
 
 @app.route("/api/family/report/generate", methods=["POST"])
@@ -29183,15 +34557,24 @@ def api_family_report_generate():
         return jsonify({"error": "Комната недоступна"}), 400
 
     if _family_rate_limit(f"report:{room_id}", max_requests=2, window=60):
-        return jsonify({"error": "Подождите минуту перед повторной генерацией отчёта"}), 429
+        return jsonify(
+            {"error": "Подождите минуту перед повторной генерацией отчёта"}
+        ), 429
 
     engine = get_db_engine()
     with engine.connect() as conn:
-        unfinished = conn.execute(text(
-            "SELECT COUNT(*) FROM members WHERE room_id = :rid AND finished = FALSE"
-        ), {"rid": room_id}).scalar()
+        unfinished = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM members WHERE room_id = :rid AND finished = FALSE"
+            ),
+            {"rid": room_id},
+        ).scalar()
     if unfinished:
-        return jsonify({"error": f"Подождите завершения всех участников ({unfinished} ещё не завершили)"}), 400
+        return jsonify(
+            {
+                "error": f"Подождите завершения всех участников ({unfinished} ещё не завершили)"
+            }
+        ), 400
 
     existing = _family_get_report(room_id)
     if existing:
@@ -29211,7 +34594,12 @@ def api_family_report_generate():
         log_error("FAMILY", "error", "save report error after generation")
         return jsonify({"error": "Не удалось сохранить отчёт"}), 500
     with get_db_engine().begin() as conn:
-        conn.execute(text("UPDATE rooms SET status = 'finished' WHERE id = :rid AND status = 'active'"), {"rid": room_id})
+        conn.execute(
+            text(
+                "UPDATE rooms SET status = 'finished' WHERE id = :rid AND status = 'active'"
+            ),
+            {"rid": room_id},
+        )
     return jsonify({"report_text": report_text})
 
 
@@ -29826,16 +35214,44 @@ def family_result_page():
 # ── Code Explainer ─────────────────────────────────────────────────────
 
 _CODE_LANGUAGES = {
-    ".gd": {"name": "GDScript", "icon": "🎮", "hint": "Godot GDScript, node system, signals, exports, @onready"},
-    ".tscn": {"name": "Godot Scene", "icon": "🎬", "hint": "Godot scene file, node hierarchy, resources"},
-    ".tres": {"name": "Godot Resource", "icon": "📦", "hint": "Godot resource file, exported properties"},
+    ".gd": {
+        "name": "GDScript",
+        "icon": "🎮",
+        "hint": "Godot GDScript, node system, signals, exports, @onready",
+    },
+    ".tscn": {
+        "name": "Godot Scene",
+        "icon": "🎬",
+        "hint": "Godot scene file, node hierarchy, resources",
+    },
+    ".tres": {
+        "name": "Godot Resource",
+        "icon": "📦",
+        "hint": "Godot resource file, exported properties",
+    },
     ".cs": {"name": "C#", "icon": "🟣", "hint": "C# .NET, Unity or Godot conventions"},
-    ".py": {"name": "Python", "icon": "🐍", "hint": "Python, classes, functions, imports"},
-    ".js": {"name": "JavaScript", "icon": "📜", "hint": "JavaScript, ES6+, modules, functions"},
-    ".ts": {"name": "TypeScript", "icon": "📘", "hint": "TypeScript, interfaces, types, generics"},
+    ".py": {
+        "name": "Python",
+        "icon": "🐍",
+        "hint": "Python, classes, functions, imports",
+    },
+    ".js": {
+        "name": "JavaScript",
+        "icon": "📜",
+        "hint": "JavaScript, ES6+, modules, functions",
+    },
+    ".ts": {
+        "name": "TypeScript",
+        "icon": "📘",
+        "hint": "TypeScript, interfaces, types, generics",
+    },
     ".tsx": {"name": "TSX", "icon": "⚛️", "hint": "TypeScript + React JSX components"},
     ".jsx": {"name": "JSX", "icon": "⚛️", "hint": "JavaScript + React JSX components"},
-    ".html": {"name": "HTML", "icon": "🌐", "hint": "HTML structure, semantic elements"},
+    ".html": {
+        "name": "HTML",
+        "icon": "🌐",
+        "hint": "HTML structure, semantic elements",
+    },
     ".htm": {"name": "HTML", "icon": "🌐", "hint": "HTML structure, semantic elements"},
     ".css": {"name": "CSS", "icon": "🎨", "hint": "CSS, selectors, variables, layout"},
     ".scss": {"name": "SCSS", "icon": "🎨", "hint": "SCSS/Sass stylesheets"},
@@ -29855,7 +35271,11 @@ _CODE_LANGUAGES = {
     ".kt": {"name": "Kotlin", "icon": "🅾️", "hint": "Kotlin, classes, functions"},
     ".swift": {"name": "Swift", "icon": "🦅", "hint": "Swift, classes, functions"},
     ".make": {"name": "Makefile", "icon": "🔨", "hint": "Makefile build rules"},
-    "project.godot": {"name": "Godot Config", "icon": "🕹️", "hint": "Godot project configuration"},
+    "project.godot": {
+        "name": "Godot Config",
+        "icon": "🕹️",
+        "hint": "Godot project configuration",
+    },
 }
 
 # Special files that should always be treated as code, regardless of extension
@@ -29863,29 +35283,90 @@ _CODE_SPECIAL_FILES = {"project.godot", "CMakeLists.txt", "Makefile", "Dockerfil
 
 # Binary / non-code extensions to skip entirely
 _CODE_SKIP_EXT = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".tga",
-    ".mp3", ".wav", ".ogg", ".flac", ".mp4", ".webm", ".avi", ".mov",
-    ".zip", ".rar", ".7z", ".tar", ".gz", ".exe", ".dll", ".so", ".dylib",
-    ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".wasm", ".pck",
-    ".godot", ".godot_local", ".import", ".fbx", ".obj", ".dae", ".glb", ".gltf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".ico",
+    ".bmp",
+    ".tga",
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".flac",
+    ".mp4",
+    ".webm",
+    ".avi",
+    ".mov",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".tar",
+    ".gz",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".eot",
+    ".pdf",
+    ".wasm",
+    ".pck",
+    ".godot",
+    ".godot_local",
+    ".import",
+    ".fbx",
+    ".obj",
+    ".dae",
+    ".glb",
+    ".gltf",
 }
 
-_CODE_MAX_FILES = 35          # max files AI-analyzed per run
-_CODE_GUEST_SCAN_MAX_LINES = 800   # файлы длиннее НЕ сканируются у анонимов («без больших файлов»)
-_CODE_GUEST_SCAN_RATE = 3     # гостевых скан-запросов в час на IP
-_CODE_REANALYZE_RATE_LIMIT = 30    # «Анализировать всё»: серии в час на пользователя
-_CODE_MAX_ANALYZE_LINES = 500 # lines sent to AI per file (single-shot fallback)
-_CODE_CHUNK_LINES = 450       # lines per AI chunk for large files
-_CODE_CHUNKS_PER_RUN = 5      # AI chunk budget per analyze/reanalyze call (fits Vercel 60s limit)
+_CODE_MAX_FILES = 35  # max files AI-analyzed per run
+_CODE_GUEST_SCAN_MAX_LINES = (
+    800  # файлы длиннее НЕ сканируются у анонимов («без больших файлов»)
+)
+_CODE_GUEST_SCAN_RATE = 3  # гостевых скан-запросов в час на IP
+_CODE_REANALYZE_RATE_LIMIT = 30  # «Анализировать всё»: серии в час на пользователя
+_CODE_MAX_ANALYZE_LINES = 500  # lines sent to AI per file (single-shot fallback)
+_CODE_CHUNK_LINES = 450  # lines per AI chunk for large files
+_CODE_CHUNKS_PER_RUN = (
+    5  # AI chunk budget per analyze/reanalyze call (fits Vercel 60s limit)
+)
 _CODE_MAX_STORE_LINES = 60_000  # lines stored in DB per file (covers 29k-line index.py)
 _CODE_MAX_STORE_BYTES = 3_000_000
 _CODE_MAX_PROJECTS = 10
-_CODE_ANALYZE_RATE_LIMIT = 10 # analyses per hour per user
-_CODE_SKIP_DIRS = {".git", "node_modules", ".godot", "lib", "__pycache__", ".venv", "venv",
-                   "dist", "build", "coverage", "htmlcov", ".pytest_cache", ".mypy_cache",
-                   "chat_export", "video_files"}
-_CODE_SKIP_FILE_NAMES = {"package-lock.json", "yarn.lock", "poetry.lock", "Pipfile.lock",
-                         "pnpm-lock.yaml", "composer.lock"}
+_CODE_ANALYZE_RATE_LIMIT = 10  # analyses per hour per user
+_CODE_SKIP_DIRS = {
+    ".git",
+    "node_modules",
+    ".godot",
+    "lib",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    "coverage",
+    "htmlcov",
+    ".pytest_cache",
+    ".mypy_cache",
+    "chat_export",
+    "video_files",
+}
+_CODE_SKIP_FILE_NAMES = {
+    "package-lock.json",
+    "yarn.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "pnpm-lock.yaml",
+    "composer.lock",
+}
 
 # Инструменты для ИИ при анализе кода
 _CODE_TOOLS = {
@@ -29894,6 +35375,7 @@ _CODE_TOOLS = {
     "list_files": "Список файлов в проекте",
     "search": "Найти текст в файлах проекта",
 }
+
 
 def _code_tool_directive(text: str) -> dict | None:
     """Extract {"tool": "...", ...} JSON directive from AI reply; dict or None."""
@@ -29936,7 +35418,7 @@ def _code_iter_json_objects(text: str):
                     end = i
                     break
         if end is not None:
-            yield text[start.start():end + 1]
+            yield text[start.start() : end + 1]
 
 
 def _code_parse_json(text: str) -> dict | None:
@@ -29955,7 +35437,9 @@ def _code_parse_json(text: str) -> dict | None:
     except Exception:
         # Some models return single-quoted or trailing-comma JSON — try to repair lightly
         repaired = re.sub(r",\s*}", "}", cleaned[start : end + 1])
-        repaired = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', repaired)
+        repaired = re.sub(
+            r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', repaired
+        )
         try:
             return json.loads(repaired)
         except Exception:
@@ -29964,15 +35448,23 @@ def _code_parse_json(text: str) -> dict | None:
 
 # ── Code Chat: tool executors ─────────────────────────────────────────
 
+
 def _code_tool_read_file(project_id: int, path: str) -> str:
     """Read file content from DB. Returns first 300 lines."""
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT content, language, line_count FROM code_files "
-                "WHERE project_id = :pid AND file_path = :path AND file_type = 'file'"
-            ), {"pid": project_id, "path": path}).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT content, language, line_count FROM code_files "
+                        "WHERE project_id = :pid AND file_path = :path AND file_type = 'file'"
+                    ),
+                    {"pid": project_id, "path": path},
+                )
+                .mappings()
+                .first()
+            )
         if not row:
             return f"Файл '{path}' не найден."
         content = row["content"] or ""
@@ -29993,10 +35485,17 @@ def _code_tool_list_files(project_id: int) -> str:
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT file_path, language, line_count FROM code_files "
-                "WHERE project_id = :pid AND file_type = 'file' ORDER BY file_path"
-            ), {"pid": project_id}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, language, line_count FROM code_files "
+                        "WHERE project_id = :pid AND file_type = 'file' ORDER BY file_path"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .all()
+            )
         if not rows:
             return "Проект пуст."
         lines = []
@@ -30014,10 +35513,17 @@ def _code_tool_search(project_id: int, query: str) -> str:
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT file_path, content FROM code_files "
-                "WHERE project_id = :pid AND file_type = 'file'"
-            ), {"pid": project_id}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, content FROM code_files "
+                        "WHERE project_id = :pid AND file_type = 'file'"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .all()
+            )
         results = []
         q = query.lower()
         for r in rows:
@@ -30041,10 +35547,13 @@ def _code_tool_add_comment(project_id: int, path: str, line: int, comment: str) 
     engine = get_db_engine()
     try:
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO code_user_comments (project_id, file_path, line_start, line_end, comment) "
-                "VALUES (:pid, :path, :ls, :le, :c)"
-            ), {"pid": project_id, "path": path, "ls": line, "le": line, "c": comment})
+            conn.execute(
+                text(
+                    "INSERT INTO code_user_comments (project_id, file_path, line_start, line_end, comment) "
+                    "VALUES (:pid, :path, :ls, :le, :c)"
+                ),
+                {"pid": project_id, "path": path, "ls": line, "le": line, "c": comment},
+            )
         return f"Комментарий добавлен к {path}:{line}"
     except Exception as exc:
         return f"Ошибка добавления комментария: {exc}"
@@ -30054,7 +35563,9 @@ _CODE_TOOL_EXECUTORS = {
     "read_file": lambda pid, args: _code_tool_read_file(pid, args.get("path", "")),
     "list_files": lambda pid, args: _code_tool_list_files(pid),
     "search": lambda pid, args: _code_tool_search(pid, args.get("query", "")),
-    "add_comment": lambda pid, args: _code_tool_add_comment(pid, args.get("path", ""), int(args.get("line", 0)), args.get("comment", "")),
+    "add_comment": lambda pid, args: _code_tool_add_comment(
+        pid, args.get("path", ""), int(args.get("line", 0)), args.get("comment", "")
+    ),
 }
 
 
@@ -30063,13 +35574,27 @@ def _code_chat_system_prompt(project_id: int) -> str:
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT repo_name, primary_language FROM code_projects WHERE id = :pid"
-            ), {"pid": project_id}).mappings().first()
-            files = conn.execute(text(
-                "SELECT file_path, language, line_count, ai_summary FROM code_files "
-                "WHERE project_id = :pid AND file_type = 'file' ORDER BY file_path"
-            ), {"pid": project_id}).mappings().all()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT repo_name, primary_language FROM code_projects WHERE id = :pid"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .first()
+            )
+            files = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, language, line_count, ai_summary FROM code_files "
+                        "WHERE project_id = :pid AND file_type = 'file' ORDER BY file_path"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .all()
+            )
         repo_name = row["repo_name"] or "проект" if row else "проект"
         lang = row["primary_language"] or "" if row else ""
     except Exception:
@@ -30117,16 +35642,24 @@ def _code_chat_run(project_id: int, user_message: str, history: list[dict]) -> s
             resp = None
         if resp is None or resp.status_code != 200:
             if resp is not None:
-                log_error("CODE", "error", f"chat AI HTTP {resp.status_code}: {resp.text[:300]}")
+                log_error(
+                    "CODE",
+                    "error",
+                    f"chat AI HTTP {resp.status_code}: {resp.text[:300]}",
+                )
             else:
-                log_error("CODE", "error", "chat AI returned None (keys missing or network)")
+                log_error(
+                    "CODE", "error", "chat AI returned None (keys missing or network)"
+                )
             return "ИИ-модель временно недоступна. Попробуйте позже."
         try:
             text = _ai_reply_text(resp).strip()
         except Exception:
             return "Ошибка ответа ИИ."
         if not text:
-            return "Извините, модель не дала ответ. Попробуйте переформулировать вопрос."
+            return (
+                "Извините, модель не дала ответ. Попробуйте переформулировать вопрос."
+            )
 
         directive = _code_tool_directive(text)
         if not directive:
@@ -30137,12 +35670,22 @@ def _code_chat_run(project_id: int, user_message: str, history: list[dict]) -> s
         executor = _CODE_TOOL_EXECUTORS.get(tool_name)
         if not executor:
             messages.append({"role": "assistant", "content": text})
-            messages.append({"role": "user", "content": f"Инструмент '{tool_name}' не найден. Используй другой."})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Инструмент '{tool_name}' не найден. Используй другой.",
+                }
+            )
             continue
 
         tool_result = executor(project_id, tool_args)
         messages.append({"role": "assistant", "content": text})
-        messages.append({"role": "user", "content": f"Результат инструмента {tool_name}:\n{tool_result[:3000]}\nТеперь ответь пользователю на основе этого результата."})
+        messages.append(
+            {
+                "role": "user",
+                "content": f"Результат инструмента {tool_name}:\n{tool_result[:3000]}\nТеперь ответь пользователю на основе этого результата.",
+            }
+        )
 
     return "Не удалось завершить обработку (много шагов). Вот что получилось."
 
@@ -30172,6 +35715,7 @@ def _code_clone_repo(repo_url: str, dest: str, timeout: int = 30) -> bool:
     """Clone repository shallowly via GitHub tarball API (no git needed)."""
     import io
     import tarfile
+
     try:
         m = re.match(r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
         if not m:
@@ -30179,7 +35723,9 @@ def _code_clone_repo(repo_url: str, dest: str, timeout: int = 30) -> bool:
             return False
         owner, repo = m.group(1), m.group(2)
         for branch in ("main", "master"):
-            tarball_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.tar.gz"
+            tarball_url = (
+                f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.tar.gz"
+            )
             try:
                 r = requests.get(tarball_url, timeout=timeout, allow_redirects=True)
                 if r.status_code == 200:
@@ -30192,7 +35738,8 @@ def _code_clone_repo(repo_url: str, dest: str, timeout: int = 30) -> bool:
         with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tf:
             top = tf.getnames()[0].split("/")[0]
             members = [
-                m for m in tf.getmembers()
+                m
+                for m in tf.getmembers()
                 if not m.name.startswith(f"{top}/.git/")
                 and not m.name.startswith(f"{top}/.godot/")
                 and not m.name.startswith(f"{top}/node_modules/")
@@ -30216,13 +35763,17 @@ def _code_collect_files(repo_dir: str) -> list[dict]:
     """Walk a cloned repo and collect code files (path, lang_key, lines, size, content)."""
     collected: list[dict] = []
     for root, dirs, files in os.walk(repo_dir):
-        dirs[:] = [d for d in dirs if d not in _CODE_SKIP_DIRS and not d.startswith(".")]
+        dirs[:] = [
+            d for d in dirs if d not in _CODE_SKIP_DIRS and not d.startswith(".")
+        ]
         for fname in files:
             fpath = os.path.join(root, fname)
             rel = os.path.relpath(fpath, repo_dir).replace("\\", "/")
             if rel.startswith(".git/") or rel.startswith("data/"):
                 continue
-            if fname in _CODE_SKIP_FILE_NAMES or fname.endswith((".min.js", ".min.css", ".map")):
+            if fname in _CODE_SKIP_FILE_NAMES or fname.endswith(
+                (".min.js", ".min.css", ".map")
+            ):
                 continue
             if not _code_is_code_file(fname):
                 continue
@@ -30235,12 +35786,14 @@ def _code_collect_files(repo_dir: str) -> list[dict]:
             except Exception:
                 continue
             lines = content.splitlines()
-            collected.append({
-                "path": rel,
-                "lang_key": _code_file_language(fname),
-                "line_count": len(lines),
-                "content": content,
-            })
+            collected.append(
+                {
+                    "path": rel,
+                    "lang_key": _code_file_language(fname),
+                    "line_count": len(lines),
+                    "content": content,
+                }
+            )
     # Sort: main files first (importance), keeping line count as tie-break.
     collected.sort(key=lambda f: (-_code_file_importance(f), -f["line_count"]))
     return collected
@@ -30257,8 +35810,18 @@ def _code_file_importance(f: dict) -> int:
         score += 40
     elif top_level_dir in ("tests", "test", "spec", "misc", "assets", "static"):
         score -= 30
-    if base in ("index.py", "app.py", "main.py", "run.py", "wsgi.py", "bot.py", "__init__.py",
-                "requirements.txt", "Dockerfile", "README.md"):
+    if base in (
+        "index.py",
+        "app.py",
+        "main.py",
+        "run.py",
+        "wsgi.py",
+        "bot.py",
+        "__init__.py",
+        "requirements.txt",
+        "Dockerfile",
+        "README.md",
+    ):
         score += 30
     if f.get("lang_key") == ".py":
         score += 10
@@ -30285,7 +35848,11 @@ def _code_ai_call(prompt: str, max_tokens: int = 1200) -> str:
     """AI call tuned for code analysis (longer timeout than call_ai_api)."""
     try:
         resp = _ai_chat(
-            {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0.2},
+            {
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": 0.2,
+            },
             timeout=30.0,
         )
         if resp is not None and resp.status_code == 200:
@@ -30307,12 +35874,28 @@ def _code_heuristic_summary(file_info: dict) -> tuple[str, dict]:
     lines = content.splitlines()
     line_count = len(lines)
     # Config-like files: count sections and key-value pairs
-    if lang_key in ("project.godot",) or fname in ("CMakeLists.txt", "Makefile", "Dockerfile"):
-        sections = [l.strip() for l in lines if l.strip().startswith("[") and l.strip().endswith("]")]
-        kv_pairs = [l for l in lines if "=" in l and not l.strip().startswith(";") and not l.strip().startswith("#")]
+    if lang_key in ("project.godot",) or fname in (
+        "CMakeLists.txt",
+        "Makefile",
+        "Dockerfile",
+    ):
+        sections = [
+            l.strip()
+            for l in lines
+            if l.strip().startswith("[") and l.strip().endswith("]")
+        ]
+        kv_pairs = [
+            l
+            for l in lines
+            if "=" in l
+            and not l.strip().startswith(";")
+            and not l.strip().startswith("#")
+        ]
         parts = [f"Конфигурационный файл ({line_count} строк)"]
         if sections:
-            parts.append(f"{len(sections)} секций: {', '.join(s.strip('[]') for s in sections[:5])}")
+            parts.append(
+                f"{len(sections)} секций: {', '.join(s.strip('[]') for s in sections[:5])}"
+            )
         if kv_pairs:
             parts.append(f"{len(kv_pairs)} параметров")
         return " — ".join(parts) + ".", {}
@@ -30342,8 +35925,14 @@ def _code_infer_summary(lines: list[str], lang_key: str) -> tuple[str, list[str]
             parts.append("классы: " + ", ".join(dict.fromkeys(classes[:5])))
         return "", parts
     if lk in (".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"):
-        consts = re.findall(r"^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([a-zA-Z_$]\w*)\s*=", joined, re.M)
-        funcs = re.findall(r"^(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_$]\w*)", joined, re.M)
+        consts = re.findall(
+            r"^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([a-zA-Z_$]\w*)\s*=",
+            joined,
+            re.M,
+        )
+        funcs = re.findall(
+            r"^(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_$]\w*)", joined, re.M
+        )
         classes = re.findall(r"^(?:export\s+)?class\s+([a-zA-Z_$]\w*)", joined, re.M)
         parts = []
         names = list(dict.fromkeys(funcs + consts + classes))
@@ -30351,12 +35940,19 @@ def _code_infer_summary(lines: list[str], lang_key: str) -> tuple[str, list[str]
             parts.append("объявления: " + ", ".join(names[:6]))
         return "", parts
     if lk == ".html":
-        title = re.search(r"<html[^>]*>\s*<head[^>]*>.*?<title[^>]*>(.*?)</title>", joined, re.S | re.I) or \
-            re.search(r"<title[^>]*>(.*?)</title>", joined, re.S | re.I)
+        title = re.search(
+            r"<html[^>]*>\s*<head[^>]*>.*?<title[^>]*>(.*?)</title>",
+            joined,
+            re.S | re.I,
+        ) or re.search(r"<title[^>]*>(.*?)</title>", joined, re.S | re.I)
         if title:
             return title.group(1).strip() or "", []
-        heads = list(dict.fromkeys(h.strip() for h in
-            re.findall(r"<h[1-6][^>]*>(.*?)</h[1-6]>", joined, re.S | re.I)))
+        heads = list(
+            dict.fromkeys(
+                h.strip()
+                for h in re.findall(r"<h[1-6][^>]*>(.*?)</h[1-6]>", joined, re.S | re.I)
+            )
+        )
         parts = []
         if heads:
             parts.append("заголовки: " + ", ".join(heads[:5]))
@@ -30383,8 +35979,11 @@ def _code_infer_summary(lines: list[str], lang_key: str) -> tuple[str, list[str]
         return "", []
     if lk == ".css":
         rules = len(re.findall(r"\}", joined))
-        classes_ = list(dict.fromkeys(
-            m.strip() for m in re.findall(r"\.([a-zA-Z_][\w-]*)\s*\{", joined)[:8]))
+        classes_ = list(
+            dict.fromkeys(
+                m.strip() for m in re.findall(r"\.([a-zA-Z_][\w-]*)\s*\{", joined)[:8]
+            )
+        )
         parts = []
         if rules:
             parts.append(f"правил: {rules}")
@@ -30397,16 +35996,27 @@ def _code_infer_summary(lines: list[str], lang_key: str) -> tuple[str, list[str]
             return "", [f"разделы: {', '.join(dict.fromkeys(heads[:6]))}"]
         return "", []
     if lk in (".yaml", ".yml", ".toml"):
-        tops = list(dict.fromkeys(
-            l.strip().rstrip(":").strip("[]") for l in lines
-            if l.strip() and not l.strip().startswith(("#", ";"))
-            and (l.strip().endswith(":") or l.strip().startswith("["))))
+        tops = list(
+            dict.fromkeys(
+                l.strip().rstrip(":").strip("[]")
+                for l in lines
+                if l.strip()
+                and not l.strip().startswith(("#", ";"))
+                and (l.strip().endswith(":") or l.strip().startswith("["))
+            )
+        )
         if tops:
             return "", [f"разделы: {', '.join(tops[:6])}"]
         return "", []
     # GDScript и прочие языки — структурный разбор
-    classes = [l.split()[-1].split("(")[0] for l in lines if "class " in l and "extends" in l][:5]
-    funcs = [l.strip().replace("func ", "").split("(")[0] for l in lines if l.strip().startswith("func ")][:5]
+    classes = [
+        l.split()[-1].split("(")[0] for l in lines if "class " in l and "extends" in l
+    ][:5]
+    funcs = [
+        l.strip().replace("func ", "").split("(")[0]
+        for l in lines
+        if l.strip().startswith("func ")
+    ][:5]
     signals = [l.strip() for l in lines if l.strip().startswith("signal ")][:5]
     parts = []
     if classes:
@@ -30427,7 +36037,7 @@ def _code_analyze_file_ai(file_info: dict) -> tuple[str, dict]:
     content = file_info["content"]
     lines = content.splitlines()
     if len(lines) > _CODE_MAX_ANALYZE_LINES:
-        content = "\n".join(lines[: _CODE_MAX_ANALYZE_LINES]) + "\n# …(обрезано)"
+        content = "\n".join(lines[:_CODE_MAX_ANALYZE_LINES]) + "\n# …(обрезано)"
     prompt = (
         "Ты — опытный разработчик. Проанализируй этот файл кода и верни ТОЛЬКО JSON "
         "без markdown-разметки и пояснений:\n"
@@ -30475,7 +36085,7 @@ def _code_split_chunks(file_info: dict) -> list[tuple[int, list[str]]]:
     step = _CODE_CHUNK_LINES
     chunks = []
     for i in range(0, len(lines), step):
-        chunks.append((i, lines[i:i + step]))
+        chunks.append((i, lines[i : i + step]))
     return chunks
 
 
@@ -30486,7 +36096,9 @@ def _code_chunks_total(line_count: int) -> int:
     return -(-line_count // _CODE_CHUNK_LINES)  # ceil
 
 
-def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[dict[str, tuple[str, dict]], dict[str, int]]:
+def _code_analyze_batch(
+    files: list[dict], resume: dict | None = None
+) -> tuple[dict[str, tuple[str, dict]], dict[str, int]]:
     """Analyze files in small batches (chunked for large files).
 
     Returns (results, covered):
@@ -30504,29 +36116,35 @@ def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[
             if len(units) >= _CODE_CHUNKS_PER_RUN:
                 break
             start, lines = chunks[idx]
-            units.append({
-                "path": f["path"],
-                "chunk_idx": idx,
-                "total_chunks": len(chunks),
-                "start_line": start,
-                "lines": lines,
-                "lang_key": f.get("lang_key") or "",
-            })
+            units.append(
+                {
+                    "path": f["path"],
+                    "chunk_idx": idx,
+                    "total_chunks": len(chunks),
+                    "start_line": start,
+                    "lines": lines,
+                    "lang_key": f.get("lang_key") or "",
+                }
+            )
         if len(units) >= _CODE_CHUNKS_PER_RUN:
             break
 
     for i in range(0, len(units), _CODE_AI_BATCH_SIZE):
-        batch = units[i:i + _CODE_AI_BATCH_SIZE]
+        batch = units[i : i + _CODE_AI_BATCH_SIZE]
         for u in batch:
             covered[u["path"]] = max(covered.get(u["path"], 0), u["chunk_idx"] + 1)
         sections = []
         for u in batch:
-            lang_name = _CODE_LANGUAGES.get(u["lang_key"], {}).get("name", u["lang_key"] or "code")
+            lang_name = _CODE_LANGUAGES.get(u["lang_key"], {}).get(
+                "name", u["lang_key"] or "code"
+            )
             start = u["start_line"]
             body = "\n".join(u["lines"])
             if u["total_chunks"] > 1:
-                header = (f"Файл: {u['path']} (фрагмент {u['chunk_idx'] + 1}/{u['total_chunks']}, "
-                          f"строки {start + 1}–{start + len(u['lines'])})")
+                header = (
+                    f"Файл: {u['path']} (фрагмент {u['chunk_idx'] + 1}/{u['total_chunks']}, "
+                    f"строки {start + 1}–{start + len(u['lines'])})"
+                )
             else:
                 header = f"Файл: {u['path']}"
             sections.append(f"### FILE: {header}\nЯзык: {lang_name}\n```\n{body}\n```")
@@ -30568,7 +36186,11 @@ def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[
                         line_no = int(k)
                     except (TypeError, ValueError):
                         continue
-                    if u["start_line"] + 1 <= line_no <= file_lines and isinstance(v, str) and v.strip():
+                    if (
+                        u["start_line"] + 1 <= line_no <= file_lines
+                        and isinstance(v, str)
+                        and v.strip()
+                    ):
                         line_comments[str(line_no)] = v.strip()[:300]
             merged_summary, merged_lc = results.get(u["path"], ("", {}))
             if summary and not merged_summary:
@@ -30576,11 +36198,13 @@ def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[
             merged_lc.update(line_comments)
             results[u["path"]] = (merged_summary, merged_lc)
         for u in missing:
-            s, lc = _code_heuristic_summary({
-                "content": "\n".join(u["lines"]),
-                "lang_key": u["lang_key"],
-                "path": u["path"],
-            })
+            s, lc = _code_heuristic_summary(
+                {
+                    "content": "\n".join(u["lines"]),
+                    "lang_key": u["lang_key"],
+                    "path": u["path"],
+                }
+            )
             merged_summary, merged_lc = results.get(u["path"], ("", {}))
             merged_lc.update(lc)
             if u["start_line"] == 0 and not merged_summary:
@@ -30589,28 +36213,45 @@ def _code_analyze_batch(files: list[dict], resume: dict | None = None) -> tuple[
     return results, covered
 
 
-def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True) -> dict:
+def _code_persist_files(
+    project_id: int, files: list[dict], run_ai: bool = True
+) -> dict:
     """Store collected files in DB; optionally AI-analyze them. Returns stats dict."""
     engine = get_db_engine()
     if not files:
         with engine.begin() as conn:
-            conn.execute(text(
-                "UPDATE code_projects SET status = 'ready', file_count = 0 WHERE id = :id"
-            ), {"id": project_id})
-        return {"analyzed_count": 0, "trivial_files_skipped": 0, "primary_language": None, "file_count": 0}
+            conn.execute(
+                text(
+                    "UPDATE code_projects SET status = 'ready', file_count = 0 WHERE id = :id"
+                ),
+                {"id": project_id},
+            )
+        return {
+            "analyzed_count": 0,
+            "trivial_files_skipped": 0,
+            "primary_language": None,
+            "file_count": 0,
+        }
 
     # Resume state: already-covered chunk counts per file (path -> chunk index).
     done_map: dict[str, int] = {}
     try:
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT file_path, ai_chunks_done FROM code_files WHERE project_id = :pid AND file_type = 'file'"
-            ), {"pid": project_id}).mappings().all()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, ai_chunks_done FROM code_files WHERE project_id = :pid AND file_type = 'file'"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .all()
+            )
         done_map = {r["file_path"]: int(r["ai_chunks_done"] or 0) for r in rows}
     except Exception:
         pass
 
-    analyze_pool = files[: _CODE_MAX_FILES]
+    analyze_pool = files[:_CODE_MAX_FILES]
     batch_results = {}
     covered = {}
     if run_ai:
@@ -30634,25 +36275,30 @@ def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True)
             chunks_done = min(chunks_total, covered.get(f["path"], 0))
         try:
             with engine.begin() as conn:
-                conn.execute(text(
-                    "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
-                    "line_count, content, ai_summary, ai_line_comments, ai_chunks_done, ai_chunks_total) "
-                    "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, :comments, :done, :total) "
-                    "ON CONFLICT (project_id, file_path) DO UPDATE SET "
-                    "ai_summary = EXCLUDED.ai_summary, ai_line_comments = EXCLUDED.ai_line_comments, "
-                    "ai_chunks_done = EXCLUDED.ai_chunks_done, ai_chunks_total = EXCLUDED.ai_chunks_total"
-                ), {
-                    "pid": project_id,
-                    "path": f["path"],
-                    "parent": "/".join(f["path"].split("/")[:-1]),
-                    "lang": f["lang_key"],
-                    "lc": f["line_count"],
-                    "content": "\n".join(f["content"].splitlines()[:_CODE_MAX_STORE_LINES]),
-                    "summary": summary,
-                    "comments": json.dumps(line_comments, ensure_ascii=False),
-                    "done": chunks_done,
-                    "total": chunks_total,
-                })
+                conn.execute(
+                    text(
+                        "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
+                        "line_count, content, ai_summary, ai_line_comments, ai_chunks_done, ai_chunks_total) "
+                        "VALUES (:pid, :path, 'file', :parent, :lang, :lc, :content, :summary, :comments, :done, :total) "
+                        "ON CONFLICT (project_id, file_path) DO UPDATE SET "
+                        "ai_summary = EXCLUDED.ai_summary, ai_line_comments = EXCLUDED.ai_line_comments, "
+                        "ai_chunks_done = EXCLUDED.ai_chunks_done, ai_chunks_total = EXCLUDED.ai_chunks_total"
+                    ),
+                    {
+                        "pid": project_id,
+                        "path": f["path"],
+                        "parent": "/".join(f["path"].split("/")[:-1]),
+                        "lang": f["lang_key"],
+                        "lc": f["line_count"],
+                        "content": "\n".join(
+                            f["content"].splitlines()[:_CODE_MAX_STORE_LINES]
+                        ),
+                        "summary": summary,
+                        "comments": json.dumps(line_comments, ensure_ascii=False),
+                        "done": chunks_done,
+                        "total": chunks_total,
+                    },
+                )
         except Exception as exc:
             log_error("CODE", "error", f"file store error: {exc}")
 
@@ -30660,25 +36306,31 @@ def _code_persist_files(project_id: int, files: list[dict], run_ai: bool = True)
         summary = _code_dir_summary_table(dpath, child_summaries)
         try:
             with engine.begin() as conn:
-                conn.execute(text(
-                    "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
-                    "line_count, content, ai_summary) "
-                    "VALUES (:pid, :path, 'dir', :parent, NULL, 0, NULL, :summary) "
-                    "ON CONFLICT (project_id, file_path) DO UPDATE SET ai_summary = EXCLUDED.ai_summary"
-                ), {
-                    "pid": project_id,
-                    "path": dpath,
-                    "parent": "/".join(dpath.split("/")[:-1]),
-                    "summary": summary,
-                })
+                conn.execute(
+                    text(
+                        "INSERT INTO code_files (project_id, file_path, file_type, parent_path, language, "
+                        "line_count, content, ai_summary) "
+                        "VALUES (:pid, :path, 'dir', :parent, NULL, 0, NULL, :summary) "
+                        "ON CONFLICT (project_id, file_path) DO UPDATE SET ai_summary = EXCLUDED.ai_summary"
+                    ),
+                    {
+                        "pid": project_id,
+                        "path": dpath,
+                        "parent": "/".join(dpath.split("/")[:-1]),
+                        "summary": summary,
+                    },
+                )
         except Exception as exc:
             log_error("CODE", "error", f"dir store error: {exc}")
 
     primary_lang = _code_detect_primary_language(files)
     with engine.begin() as conn:
-        conn.execute(text(
-            "UPDATE code_projects SET status = 'ready', file_count = :cnt, primary_language = :lang WHERE id = :id"
-        ), {"cnt": len(files), "lang": primary_lang, "id": project_id})
+        conn.execute(
+            text(
+                "UPDATE code_projects SET status = 'ready', file_count = :cnt, primary_language = :lang WHERE id = :id"
+            ),
+            {"cnt": len(files), "lang": primary_lang, "id": project_id},
+        )
 
     return {
         "analyzed_count": analyzed_count,
@@ -30704,37 +36356,67 @@ def api_code_analyze():
     if not repo_url:
         return jsonify({"ok": False, "error": "Укажите ссылку на репозиторий"}), 400
     if not re.match(r"^https?://.+", repo_url) or len(repo_url) > 500:
-        return jsonify({"ok": False, "error": "Некорректная ссылка на репозиторий"}), 400
+        return jsonify(
+            {"ok": False, "error": "Некорректная ссылка на репозиторий"}
+        ), 400
 
     if uid is None:
         ip = request.remote_addr or "unknown"
-        if _check_db_rate(f"code_anon_{ip}", 3, 3600) or _check_ai_rate(f"code_anon_{ip}"):
-            return jsonify({"ok": False, "error": "Слишком много запросов без аккаунта. Войдите, чтобы продолжить"}), 429
+        if _check_db_rate(f"code_anon_{ip}", 3, 3600) or _check_ai_rate(
+            f"code_anon_{ip}"
+        ):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Слишком много запросов без аккаунта. Войдите, чтобы продолжить",
+                }
+            ), 429
         run_ai = False
     else:
-        if _check_db_rate(f"code_analyze_{uid}", _CODE_ANALYZE_RATE_LIMIT, 3600) or _check_ai_rate(f"code_{uid}"):
-            return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+        if _check_db_rate(
+            f"code_analyze_{uid}", _CODE_ANALYZE_RATE_LIMIT, 3600
+        ) or _check_ai_rate(f"code_{uid}"):
+            return jsonify(
+                {"ok": False, "error": "Слишком много запросов, попробуйте позже"}
+            ), 429
 
     engine = get_db_engine()
     if uid is not None:
         try:
             with engine.connect() as conn:
-                row = conn.execute(text(
-                    "SELECT COUNT(*) as cnt FROM code_projects WHERE user_id = :u"
-                ), {"u": uid}).mappings().first()
+                row = (
+                    conn.execute(
+                        text(
+                            "SELECT COUNT(*) as cnt FROM code_projects WHERE user_id = :u"
+                        ),
+                        {"u": uid},
+                    )
+                    .mappings()
+                    .first()
+                )
                 if int(row["cnt"] or 0) >= _CODE_MAX_PROJECTS:
-                    return jsonify({"ok": False, "error": f"Максимум {_CODE_MAX_PROJECTS} проектов. Удалите старые."}), 400
+                    return jsonify(
+                        {
+                            "ok": False,
+                            "error": f"Максимум {_CODE_MAX_PROJECTS} проектов. Удалите старые.",
+                        }
+                    ), 400
         except Exception as exc:
             log_error("CODE", "error", f"project count error: {exc}")
 
-    repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")[:300] or "репозиторий"
+    repo_name = (
+        repo_url.rstrip("/").split("/")[-1].replace(".git", "")[:300] or "репозиторий"
+    )
 
     try:
         with engine.begin() as conn:
-            res = conn.execute(text(
-                "INSERT INTO code_projects (user_id, repo_url, repo_name, status) "
-                "VALUES (:u, :url, :name, 'analyzing') RETURNING id"
-            ), {"u": uid, "url": repo_url, "name": repo_name})
+            res = conn.execute(
+                text(
+                    "INSERT INTO code_projects (user_id, repo_url, repo_name, status) "
+                    "VALUES (:u, :url, :name, 'analyzing') RETURNING id"
+                ),
+                {"u": uid, "url": repo_url, "name": repo_name},
+            )
             project_id = int(res.scalar() or res.fetchone()[0])
     except Exception as exc:
         log_error("CODE", "error", f"project create error: {exc}")
@@ -30746,31 +36428,44 @@ def api_code_analyze():
         repo_dir = os.path.join(tmp_dir, "repo")
         if not _code_clone_repo(repo_url, repo_dir):
             with engine.begin() as conn:
-                conn.execute(text(
-                    "UPDATE code_projects SET status = 'failed', error_message = 'Не удалось клонировать репозиторий' WHERE id = :id"
-                ), {"id": project_id})
-            return jsonify({"ok": False, "error": "Не удалось клонировать репозиторий. Проверьте ссылку."}), 400
+                conn.execute(
+                    text(
+                        "UPDATE code_projects SET status = 'failed', error_message = 'Не удалось клонировать репозиторий' WHERE id = :id"
+                    ),
+                    {"id": project_id},
+                )
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Не удалось клонировать репозиторий. Проверьте ссылку.",
+                }
+            ), 400
 
         files = _code_collect_files(repo_dir)
         stats = _code_persist_files(project_id, files, run_ai=run_ai)
 
-        return jsonify({
-            "ok": True,
-            "project_id": project_id,
-            "status": "ready",
-            "file_count": stats["file_count"],
-            "analyzed_count": stats["analyzed_count"],
-            "trivial_files_skipped": stats["trivial_files_skipped"],
-            "primary_language": stats["primary_language"],
-            "analyzed": run_ai,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "project_id": project_id,
+                "status": "ready",
+                "file_count": stats["file_count"],
+                "analyzed_count": stats["analyzed_count"],
+                "trivial_files_skipped": stats["trivial_files_skipped"],
+                "primary_language": stats["primary_language"],
+                "analyzed": run_ai,
+            }
+        )
     except Exception as exc:
         log_error("CODE", "error", f"analyze error: {exc}")
         try:
             with engine.begin() as conn:
-                conn.execute(text(
-                    "UPDATE code_projects SET status = 'failed', error_message = :msg WHERE id = :id"
-                ), {"id": project_id, "msg": str(exc)[:500]})
+                conn.execute(
+                    text(
+                        "UPDATE code_projects SET status = 'failed', error_message = :msg WHERE id = :id"
+                    ),
+                    {"id": project_id, "msg": str(exc)[:500]},
+                )
         except Exception:
             pass
         return jsonify({"ok": False, "error": "Ошибка анализа репозитория"}), 500
@@ -30796,31 +36491,48 @@ def api_code_projects():
     try:
         with engine.connect() as conn:
             if uid is None:
-                rows = conn.execute(text(
-                    "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
-                    "created_at FROM code_projects WHERE user_id IS NULL ORDER BY id DESC LIMIT 12"
-                )).mappings().fetchall()
+                rows = (
+                    conn.execute(
+                        text(
+                            "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
+                            "created_at FROM code_projects WHERE user_id IS NULL ORDER BY id DESC LIMIT 12"
+                        )
+                    )
+                    .mappings()
+                    .fetchall()
+                )
             else:
-                rows = conn.execute(text(
-                    "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
-                    "created_at FROM code_projects WHERE user_id = :u ORDER BY id DESC"
-                ), {"u": uid}).mappings().fetchall()
+                rows = (
+                    conn.execute(
+                        text(
+                            "SELECT id, repo_url, repo_name, primary_language, status, file_count, error_message, "
+                            "created_at FROM code_projects WHERE user_id = :u ORDER BY id DESC"
+                        ),
+                        {"u": uid},
+                    )
+                    .mappings()
+                    .fetchall()
+                )
         items = []
         for r in rows:
-            items.append({
-                "id": r["id"],
-                "repo_url": r["repo_url"],
-                "repo_name": r["repo_name"],
-                "primary_language": r["primary_language"],
-                "status": r["status"],
-                "file_count": r["file_count"],
-                "error_message": r["error_message"],
-                "created_at": str(r["created_at"] or ""),
-            })
+            items.append(
+                {
+                    "id": r["id"],
+                    "repo_url": r["repo_url"],
+                    "repo_name": r["repo_name"],
+                    "primary_language": r["primary_language"],
+                    "status": r["status"],
+                    "file_count": r["file_count"],
+                    "error_message": r["error_message"],
+                    "created_at": str(r["created_at"] or ""),
+                }
+            )
         return jsonify({"ok": True, "items": items})
     except Exception as exc:
         log_error("CODE", "error", f"projects list error: {exc}")
-        return jsonify({"ok": False, "error": "Не удалось получить список проектов"}), 500
+        return jsonify(
+            {"ok": False, "error": "Не удалось получить список проектов"}
+        ), 500
 
 
 def _code_project_owned(project_id: int, user_id: int) -> dict | None:
@@ -30828,10 +36540,17 @@ def _code_project_owned(project_id: int, user_id: int) -> dict | None:
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT id, user_id, repo_url, repo_name, primary_language, status, file_count "
-                "FROM code_projects WHERE id = :id"
-            ), {"id": project_id}).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT id, user_id, repo_url, repo_name, primary_language, status, file_count "
+                        "FROM code_projects WHERE id = :id"
+                    ),
+                    {"id": project_id},
+                )
+                .mappings()
+                .first()
+            )
         if not row:
             return None
         rows = dict(row)
@@ -30847,10 +36566,17 @@ def _code_project_visible(project_id: int, user_id: int | None) -> dict | None:
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT id, user_id, repo_url, repo_name, primary_language, status, file_count "
-                "FROM code_projects WHERE id = :id"
-            ), {"id": project_id}).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT id, user_id, repo_url, repo_name, primary_language, status, file_count "
+                        "FROM code_projects WHERE id = :id"
+                    ),
+                    {"id": project_id},
+                )
+                .mappings()
+                .first()
+            )
         if not row:
             return None
         rows = dict(row)
@@ -30873,34 +36599,54 @@ def api_code_project(project_id):
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT file_path, file_type, language, line_count, ai_summary, ai_line_comments, "
-                "ai_chunks_done, ai_chunks_total "
-                "FROM code_files WHERE project_id = :pid ORDER BY file_path"
-            ), {"pid": project_id}).mappings().fetchall()
-            crows = conn.execute(text(
-                "SELECT file_path, COUNT(*) as cnt FROM code_user_comments WHERE project_id = :pid GROUP BY file_path"
-            ), {"pid": project_id}).mappings().fetchall()
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, file_type, language, line_count, ai_summary, ai_line_comments, "
+                        "ai_chunks_done, ai_chunks_total "
+                        "FROM code_files WHERE project_id = :pid ORDER BY file_path"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .fetchall()
+            )
+            crows = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, COUNT(*) as cnt FROM code_user_comments WHERE project_id = :pid GROUP BY file_path"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .fetchall()
+            )
         comment_counts = {str(r["file_path"]): int(r["cnt"]) for r in crows}
         nodes = []
         for r in rows:
-            nodes.append({
-                "path": r["file_path"],
-                "type": r["file_type"],
-                "language": r["language"],
-                "line_count": r["line_count"],
-                "ai_summary": r["ai_summary"],
-                "ai_line_comments": json.loads(r["ai_line_comments"]) if r["ai_line_comments"] else {},
-                "comment_count": comment_counts.get(str(r["file_path"]), 0),
-                "ai_chunks_done": int(r["ai_chunks_done"] or 0),
-                "ai_chunks_total": max(1, int(r["ai_chunks_total"] or 1)),
-            })
-        return jsonify({
-            "ok": True,
-            "project": project,
-            "tree": nodes,
-            "languages": _CODE_LANGUAGES,
-        })
+            nodes.append(
+                {
+                    "path": r["file_path"],
+                    "type": r["file_type"],
+                    "language": r["language"],
+                    "line_count": r["line_count"],
+                    "ai_summary": r["ai_summary"],
+                    "ai_line_comments": json.loads(r["ai_line_comments"])
+                    if r["ai_line_comments"]
+                    else {},
+                    "comment_count": comment_counts.get(str(r["file_path"]), 0),
+                    "ai_chunks_done": int(r["ai_chunks_done"] or 0),
+                    "ai_chunks_total": max(1, int(r["ai_chunks_total"] or 1)),
+                }
+            )
+        return jsonify(
+            {
+                "ok": True,
+                "project": project,
+                "tree": nodes,
+                "languages": _CODE_LANGUAGES,
+            }
+        )
     except Exception as exc:
         log_error("CODE", "error", f"project tree error: {exc}")
         return jsonify({"ok": False, "error": "Не удалось загрузить проект"}), 500
@@ -30921,29 +36667,47 @@ def api_code_file(project_id):
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT file_path, file_type, language, line_count, content, ai_summary, ai_line_comments, "
-                "ai_chunks_done, ai_chunks_total "
-                "FROM code_files WHERE project_id = :pid AND file_path = :path"
-            ), {"pid": project_id, "path": file_path}).mappings().first()
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, file_type, language, line_count, content, ai_summary, ai_line_comments, "
+                        "ai_chunks_done, ai_chunks_total "
+                        "FROM code_files WHERE project_id = :pid AND file_path = :path"
+                    ),
+                    {"pid": project_id, "path": file_path},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 return jsonify({"ok": False, "error": "Файл не найден"}), 404
-            comments = conn.execute(text(
-                "SELECT id, line_start, line_end, comment, created_at "
-                "FROM code_user_comments WHERE project_id = :pid AND file_path = :path ORDER BY line_start"
-            ), {"pid": project_id, "path": file_path}).mappings().fetchall()
-        return jsonify({
-            "ok": True,
-            "path": row["file_path"],
-            "language": row["language"],
-            "line_count": row["line_count"],
-            "content": row["content"],
-            "ai_summary": row["ai_summary"],
-            "ai_line_comments": json.loads(row["ai_line_comments"]) if row["ai_line_comments"] else {},
-            "ai_chunks_done": int(row["ai_chunks_done"] or 0),
-            "ai_chunks_total": max(1, int(row["ai_chunks_total"] or 1)),
-            "user_comments": [dict(c) for c in comments],
-        })
+            comments = (
+                conn.execute(
+                    text(
+                        "SELECT id, line_start, line_end, comment, created_at "
+                        "FROM code_user_comments WHERE project_id = :pid AND file_path = :path ORDER BY line_start"
+                    ),
+                    {"pid": project_id, "path": file_path},
+                )
+                .mappings()
+                .fetchall()
+            )
+        return jsonify(
+            {
+                "ok": True,
+                "path": row["file_path"],
+                "language": row["language"],
+                "line_count": row["line_count"],
+                "content": row["content"],
+                "ai_summary": row["ai_summary"],
+                "ai_line_comments": json.loads(row["ai_line_comments"])
+                if row["ai_line_comments"]
+                else {},
+                "ai_chunks_done": int(row["ai_chunks_done"] or 0),
+                "ai_chunks_total": max(1, int(row["ai_chunks_total"] or 1)),
+                "user_comments": [dict(c) for c in comments],
+            }
+        )
     except Exception as exc:
         log_error("CODE", "error", f"file content error: {exc}")
         return jsonify({"ok": False, "error": "Не удалось загрузить файл"}), 500
@@ -30964,7 +36728,9 @@ def api_code_comment(project_id):
     if not file_path or not comment:
         return jsonify({"ok": False, "error": "Укажите файл и текст комментария"}), 400
     if len(comment) > 2000:
-        return jsonify({"ok": False, "error": "Комментарий слишком длинный (макс. 2000 символов)"}), 400
+        return jsonify(
+            {"ok": False, "error": "Комментарий слишком длинный (макс. 2000 символов)"}
+        ), 400
 
     try:
         line_start = int(data.get("line_start") or 0)
@@ -30979,10 +36745,19 @@ def api_code_comment(project_id):
     engine = get_db_engine()
     try:
         with engine.begin() as conn:
-            res = conn.execute(text(
-                "INSERT INTO code_user_comments (project_id, file_path, line_start, line_end, comment) "
-                "VALUES (:pid, :path, :ls, :le, :c) RETURNING id"
-            ), {"pid": project_id, "path": file_path, "ls": line_start, "le": line_end, "c": comment})
+            res = conn.execute(
+                text(
+                    "INSERT INTO code_user_comments (project_id, file_path, line_start, line_end, comment) "
+                    "VALUES (:pid, :path, :ls, :le, :c) RETURNING id"
+                ),
+                {
+                    "pid": project_id,
+                    "path": file_path,
+                    "ls": line_start,
+                    "le": line_end,
+                    "c": comment,
+                },
+            )
             cid = int(res.scalar() or res.fetchone()[0])
         return jsonify({"ok": True, "id": cid})
     except Exception as exc:
@@ -31001,9 +36776,12 @@ def api_code_comment_delete(project_id, comment_id):
     engine = get_db_engine()
     try:
         with engine.begin() as conn:
-            res = conn.execute(text(
-                "DELETE FROM code_user_comments WHERE id = :cid AND project_id = :pid"
-            ), {"cid": comment_id, "pid": project_id})
+            res = conn.execute(
+                text(
+                    "DELETE FROM code_user_comments WHERE id = :cid AND project_id = :pid"
+                ),
+                {"cid": comment_id, "pid": project_id},
+            )
             if res.rowcount == 0:
                 return jsonify({"ok": False, "error": "Комментарий не найден"}), 404
         return jsonify({"ok": True})
@@ -31023,9 +36801,17 @@ def api_code_project_delete(project_id):
     engine = get_db_engine()
     try:
         with engine.begin() as conn:
-            conn.execute(text("DELETE FROM code_user_comments WHERE project_id = :pid"), {"pid": project_id})
-            conn.execute(text("DELETE FROM code_files WHERE project_id = :pid"), {"pid": project_id})
-            conn.execute(text("DELETE FROM code_projects WHERE id = :pid"), {"pid": project_id})
+            conn.execute(
+                text("DELETE FROM code_user_comments WHERE project_id = :pid"),
+                {"pid": project_id},
+            )
+            conn.execute(
+                text("DELETE FROM code_files WHERE project_id = :pid"),
+                {"pid": project_id},
+            )
+            conn.execute(
+                text("DELETE FROM code_projects WHERE id = :pid"), {"pid": project_id}
+            )
         return jsonify({"ok": True})
     except Exception as exc:
         log_error("CODE", "error", f"project delete error: {exc}")
@@ -31048,30 +36834,51 @@ def api_code_reanalyze(project_id):
         if not project:
             return jsonify({"ok": False, "error": "Проект не найден"}), 404
         ip = request.remote_addr or "unknown"
-        if _check_db_rate(f"code_scan_anon_{ip}", _CODE_GUEST_SCAN_RATE, 3600) or _check_ai_rate(f"code_anon_{ip}"):
-            return jsonify({"ok": False, "error": "Слишком много запросов без аккаунта. Войдите, чтобы продолжить"}), 429
+        if _check_db_rate(
+            f"code_scan_anon_{ip}", _CODE_GUEST_SCAN_RATE, 3600
+        ) or _check_ai_rate(f"code_anon_{ip}"):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Слишком много запросов без аккаунта. Войдите, чтобы продолжить",
+                }
+            ), 429
         guest = True
     else:
         project = _code_project_owned(project_id, uid)
         if not project:
             return jsonify({"ok": False, "error": "Проект не найден"}), 404
-        if _check_ai_rate(f"code_{uid}") or _check_db_rate(f"code_reanalyze_{uid}", _CODE_REANALYZE_RATE_LIMIT, 3600):
-            return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+        if _check_ai_rate(f"code_{uid}") or _check_db_rate(
+            f"code_reanalyze_{uid}", _CODE_REANALYZE_RATE_LIMIT, 3600
+        ):
+            return jsonify(
+                {"ok": False, "error": "Слишком много запросов, попробуйте позже"}
+            ), 429
 
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT file_path, language, line_count, content, ai_chunks_done FROM code_files "
-                "WHERE project_id = :pid AND file_type = 'file'"
-            ), {"pid": project_id}).mappings().all()
-        files = [{
-            "path": r["file_path"],
-            "lang_key": r["language"],
-            "line_count": int(r["line_count"] or 0),
-            "content": r["content"] or "",
-            "ai_chunks_done": int(r["ai_chunks_done"] or 0),
-        } for r in rows]
+            rows = (
+                conn.execute(
+                    text(
+                        "SELECT file_path, language, line_count, content, ai_chunks_done FROM code_files "
+                        "WHERE project_id = :pid AND file_type = 'file'"
+                    ),
+                    {"pid": project_id},
+                )
+                .mappings()
+                .all()
+            )
+        files = [
+            {
+                "path": r["file_path"],
+                "lang_key": r["language"],
+                "line_count": int(r["line_count"] or 0),
+                "content": r["content"] or "",
+                "ai_chunks_done": int(r["ai_chunks_done"] or 0),
+            }
+            for r in rows
+        ]
         skipped_large = 0
         if guest:
             small = []
@@ -31094,11 +36901,14 @@ def api_code_reanalyze(project_id):
         total = _code_chunks_total(f["line_count"])
         if f["ai_chunks_done"] < total:
             pending.append(f)
-    analyze_pool = pending[: _CODE_MAX_FILES]
+    analyze_pool = pending[:_CODE_MAX_FILES]
     batch_results = {}
     covered = {}
     if analyze_pool:
-        done_map = {f["path"]: min(f["ai_chunks_done"], _code_chunks_total(f["line_count"])) for f in analyze_pool}
+        done_map = {
+            f["path"]: min(f["ai_chunks_done"], _code_chunks_total(f["line_count"]))
+            for f in analyze_pool
+        }
         batch_results, covered = _code_analyze_batch(analyze_pool, resume=done_map)
     updated = 0
     for f in analyze_pool:
@@ -31109,27 +36919,50 @@ def api_code_reanalyze(project_id):
         chunks_done = min(chunks_total, covered.get(f["path"], f["ai_chunks_done"]))
         try:
             with engine.begin() as conn:
-                row = conn.execute(text(
-                    "SELECT ai_summary, ai_line_comments FROM code_files "
-                    "WHERE project_id = :pid AND file_path = :path"
-                ), {"pid": project_id, "path": f["path"]}).mappings().first()
+                row = (
+                    conn.execute(
+                        text(
+                            "SELECT ai_summary, ai_line_comments FROM code_files "
+                            "WHERE project_id = :pid AND file_path = :path"
+                        ),
+                        {"pid": project_id, "path": f["path"]},
+                    )
+                    .mappings()
+                    .first()
+                )
                 old_summary = (row["ai_summary"] or "") if row else ""
-                old_comments = json.loads(row["ai_line_comments"]) if row and row["ai_line_comments"] else {}
+                old_comments = (
+                    json.loads(row["ai_line_comments"])
+                    if row and row["ai_line_comments"]
+                    else {}
+                )
                 merged_summary = new_summary or old_summary
                 merged_comments = dict(old_comments)
                 merged_comments.update(new_comments)
-                conn.execute(text(
-                    "UPDATE code_files SET ai_summary = :s, ai_line_comments = :c, "
-                    "ai_chunks_done = :done, ai_chunks_total = :total "
-                    "WHERE project_id = :pid AND file_path = :path"
-                ), {"s": merged_summary, "c": json.dumps(merged_comments, ensure_ascii=False),
-                    "done": chunks_done, "total": chunks_total, "pid": project_id, "path": f["path"]})
+                conn.execute(
+                    text(
+                        "UPDATE code_files SET ai_summary = :s, ai_line_comments = :c, "
+                        "ai_chunks_done = :done, ai_chunks_total = :total "
+                        "WHERE project_id = :pid AND file_path = :path"
+                    ),
+                    {
+                        "s": merged_summary,
+                        "c": json.dumps(merged_comments, ensure_ascii=False),
+                        "done": chunks_done,
+                        "total": chunks_total,
+                        "pid": project_id,
+                        "path": f["path"],
+                    },
+                )
             updated += 1
         except Exception as exc:
             log_error("CODE", "error", f"reanalyze update error: {exc}")
 
     with engine.begin() as conn:
-        conn.execute(text("UPDATE code_projects SET status = 'ready' WHERE id = :id"), {"id": project_id})
+        conn.execute(
+            text("UPDATE code_projects SET status = 'ready' WHERE id = :id"),
+            {"id": project_id},
+        )
     analyzed_total = 0
     for f in files:
         total = _code_chunks_total(f["line_count"])
@@ -31138,12 +36971,14 @@ def api_code_reanalyze(project_id):
             done = max(done, covered.get(f["path"], 0))
         if min(done, total) >= total:
             analyzed_total += 1
-    return jsonify({
-        "ok": True,
-        "analyzed_count": analyzed_total,
-        "file_count": len(files),
-        "skipped_large": skipped_large if guest else 0,
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "analyzed_count": analyzed_total,
+            "file_count": len(files),
+            "skipped_large": skipped_large if guest else 0,
+        }
+    )
 
 
 def api_code_update(project_id):
@@ -31154,8 +36989,12 @@ def api_code_update(project_id):
     project = _code_project_owned(project_id, int(user["id"]))
     if not project:
         return jsonify({"ok": False, "error": "Проект не найден"}), 404
-    if _check_db_rate(f"code_update_{int(user['id'])}", 5, 3600) or _check_ai_rate(f"code_{int(user['id'])}"):
-        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+    if _check_db_rate(f"code_update_{int(user['id'])}", 5, 3600) or _check_ai_rate(
+        f"code_{int(user['id'])}"
+    ):
+        return jsonify(
+            {"ok": False, "error": "Слишком много запросов, попробуйте позже"}
+        ), 429
 
     repo_url = project.get("repo_url") or project.get("repoURL") or ""
     tmp_dir = None
@@ -31163,29 +37002,42 @@ def api_code_update(project_id):
         tmp_dir = tempfile.mkdtemp(prefix="code_")
         repo_dir = os.path.join(tmp_dir, "repo")
         if not _code_clone_repo(repo_url, repo_dir):
-            return jsonify({"ok": False, "error": "Не удалось обновить репозиторий. Проверьте ссылку."}), 400
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Не удалось обновить репозиторий. Проверьте ссылку.",
+                }
+            ), 400
 
         files = _code_collect_files(repo_dir)
         # Keep user comments; they are keyed by file_path in a separate table.
         engine = get_db_engine()
         with engine.begin() as conn:
-            conn.execute(text("DELETE FROM code_files WHERE project_id = :pid"), {"pid": project_id})
+            conn.execute(
+                text("DELETE FROM code_files WHERE project_id = :pid"),
+                {"pid": project_id},
+            )
         stats = _code_persist_files(project_id, files, run_ai=True)
-        return jsonify({
-            "ok": True,
-            "status": "ready",
-            "file_count": stats["file_count"],
-            "analyzed_count": stats["analyzed_count"],
-            "trivial_files_skipped": stats["trivial_files_skipped"],
-            "primary_language": stats["primary_language"],
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "status": "ready",
+                "file_count": stats["file_count"],
+                "analyzed_count": stats["analyzed_count"],
+                "trivial_files_skipped": stats["trivial_files_skipped"],
+                "primary_language": stats["primary_language"],
+            }
+        )
     except Exception as exc:
         log_error("CODE", "error", f"update error: {exc}")
         try:
             with get_db_engine().begin() as conn:
-                conn.execute(text(
-                    "UPDATE code_projects SET status = 'failed', error_message = :msg WHERE id = :id"
-                ), {"id": project_id, "msg": str(exc)[:500]})
+                conn.execute(
+                    text(
+                        "UPDATE code_projects SET status = 'failed', error_message = :msg WHERE id = :id"
+                    ),
+                    {"id": project_id, "msg": str(exc)[:500]},
+                )
         except Exception:
             pass
         return jsonify({"ok": False, "error": "Ошибка обновления репозитория"}), 500
@@ -31203,8 +37055,12 @@ def api_code_chat_route(project_id):
     project = _code_project_owned(project_id, int(user["id"]))
     if not project:
         return jsonify({"ok": False, "error": "Проект не найден"}), 404
-    if _check_db_rate(f"code_chat_{int(user['id'])}", 30, 3600) or _check_ai_rate(f"code_{int(user['id'])}"):
-        return jsonify({"ok": False, "error": "Слишком много запросов, попробуйте позже"}), 429
+    if _check_db_rate(f"code_chat_{int(user['id'])}", 30, 3600) or _check_ai_rate(
+        f"code_{int(user['id'])}"
+    ):
+        return jsonify(
+            {"ok": False, "error": "Слишком много запросов, попробуйте позже"}
+        ), 429
 
     data = request.get_json(silent=True) or {}
     message = (data.get("message") or "").strip()
@@ -31216,24 +37072,37 @@ def api_code_chat_route(project_id):
     engine = get_db_engine()
     try:
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO code_chat_messages (project_id, user_id, role, content) VALUES (:pid, :uid, 'user', :m)"
-            ), {"pid": project_id, "uid": int(user["id"]), "m": message})
+            conn.execute(
+                text(
+                    "INSERT INTO code_chat_messages (project_id, user_id, role, content) VALUES (:pid, :uid, 'user', :m)"
+                ),
+                {"pid": project_id, "uid": int(user["id"]), "m": message},
+            )
         with engine.connect() as conn:
             history = []
-            for r in conn.execute(text(
-                "SELECT role, content FROM code_chat_messages "
-                "WHERE project_id = :pid AND user_id = :uid AND role IN ('user','assistant') "
-                "ORDER BY id DESC LIMIT 20"
-            ), {"pid": project_id, "uid": int(user["id"])}).mappings().all():
+            for r in (
+                conn.execute(
+                    text(
+                        "SELECT role, content FROM code_chat_messages "
+                        "WHERE project_id = :pid AND user_id = :uid AND role IN ('user','assistant') "
+                        "ORDER BY id DESC LIMIT 20"
+                    ),
+                    {"pid": project_id, "uid": int(user["id"])},
+                )
+                .mappings()
+                .all()
+            ):
                 history.append({"role": r["role"], "content": r["content"]})
             history.reverse()
 
         reply = _code_chat_run(project_id, message, history)
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO code_chat_messages (project_id, user_id, role, content) VALUES (:pid, :uid, 'assistant', :m)"
-            ), {"pid": project_id, "uid": int(user["id"]), "m": reply})
+            conn.execute(
+                text(
+                    "INSERT INTO code_chat_messages (project_id, user_id, role, content) VALUES (:pid, :uid, 'assistant', :m)"
+                ),
+                {"pid": project_id, "uid": int(user["id"]), "m": reply},
+            )
         return jsonify({"ok": True, "reply": reply})
     except Exception as exc:
         log_error("CODE", "error", f"chat error: {exc}")
@@ -31265,7 +37134,9 @@ def api_code_comment_route(project_id):
     return api_code_comment(project_id)
 
 
-@app.route("/api/code/project/<int:project_id>/comment/<int:comment_id>", methods=["DELETE"])
+@app.route(
+    "/api/code/project/<int:project_id>/comment/<int:comment_id>", methods=["DELETE"]
+)
 def api_code_comment_delete_route(project_id, comment_id):
     return api_code_comment_delete(project_id, comment_id)
 
@@ -32175,7 +38046,7 @@ def _md_strip_fences(text: str) -> str:
     if s.startswith("```"):
         nl = s.find("\n")
         if nl != -1:
-            s = s[nl + 1:]
+            s = s[nl + 1 :]
         if s.rstrip().endswith("```"):
             s = s.rstrip()[:-3]
     return s.strip()
@@ -32201,7 +38072,11 @@ def api_md2pdf_format():
             return jsonify({"error": "Пустой текст"}), 400
         if len(src) > _MD_FORMAT_MAX_CHARS:
             return (
-                jsonify({"error": f"Текст слишком большой (макс. {_MD_FORMAT_MAX_CHARS} символов)"}),
+                jsonify(
+                    {
+                        "error": f"Текст слишком большой (макс. {_MD_FORMAT_MAX_CHARS} символов)"
+                    }
+                ),
                 400,
             )
         resp = _ai_chat(
@@ -32242,5 +38117,25 @@ _register_lthub_oauth(
     get_db_engine=get_db_engine,
     get_session_user=_get_session_user,
     auth_token=_auth_token_from_request,
+    log_error=log_error,
+)
+
+
+# === GAL OAuth client (registration/login in LTHub via GAL) ===
+from core.gal_oauth import register_gal_oauth as _register_gal_oauth
+
+
+def _award_gal_registration_bonus(user_id: int, amount: int, description: str) -> None:
+    _ensure_web_coin_tables()
+    _award_web_coins(user_id, amount, description)
+
+
+_register_gal_oauth(
+    app,
+    get_db_engine=get_db_engine,
+    create_session=_create_session,
+    hash_password=_hash_password,
+    ensure_columns=_ensure_web_user_columns,
+    award_coins=_award_gal_registration_bonus,
     log_error=log_error,
 )

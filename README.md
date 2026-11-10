@@ -48,6 +48,7 @@ pinned: false
 - админ-панель, начисление/списание монет, рассылка `/broadcast`, списки пользователей и диагностика;
 - `/feedback`, `/suggest`, `/complaint`, `/feedback_list` и защищённый внешний reader `/feedback`;
 - бесплатный локальный AI-lite помощник: `/ai`, `/ask`, `/ai_help`, `/ai_update_knowledge`;
+- веб-аккаунты LTHub: регистрация и вход через GAL (OAuth 2.0 + PKCE); импортируются логин и отображаемое имя;
 - persistent PostgreSQL/Supabase storage в production/Hugging Face, SQLite как local/dev fallback;
 - Hugging Face health/log endpoints: `/health`, `/logs`, `/metrics`.
 

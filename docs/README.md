@@ -202,6 +202,22 @@ LTHub/
 | `school_project/` | Материалы защиты школьного проекта (паспорт, презентация, речь, демо, чек-лист) |
 | `api/index.py` | Vercel serverless entrypoint (вебхуки Telegram + Flask API) |
 
+### Web Accounts & GAL OAuth
+
+Веб-портал LTHub использует собственные аккаунты `web_users` (логин/пароль; токен сессии — `localStorage.web_token`). Для регистрации и входа добавлен OAuth-клиент **GAL** (authorization code + PKCE S256, публичный клиент без `client_secret`).
+
+**Компоненты:**
+- `core/gal_oauth.py` — клиент: `state`/PKCE-verifier/`next` в HttpOnly-cookie, обмен кода, чтение `/oauth/userinfo`, поиск/создание `web_users` по `gal_subject`, суффикс при занятом логине, регистрационный бонус новому аккаунту.
+- `GET /auth/gal` — старт входа, редирект на GAL `/oauth/authorize`.
+- `GET /api/auth/gal/callback` — проверка `state`, обмен кода на токен, импорт `preferred_username` → `login` и `display_name` (только поля, нужные регистрации LTHub), вход/создание аккаунта.
+- `GET /auth/gal/done` + `GET /api/auth/gal/session` — одноразовая передача токена из HttpOnly-cookie в `localStorage.web_token` (callback не может писать localStorage напрямую).
+- Кнопки «Зарегистрироваться через GAL» на `/register` и «Войти через GAL» на `/login`; параметр `redirect` сохраняется через OAuth. Кнопка регистрации добавляет `intent=register`: если пользователь не залогинен в LTHub, `/oauth/authorize` ведёт его на `/register?redirect=<authorize URL>`, а не на `/login`; после регистрации LTHub возвращает на authorize и выдаёт код. `next` в GAL передаётся через OAuth и восстанавливается после callback (только same-origin путь).
+- `web_users`: `gal_subject` (уникальный, привязка identity) и `gal_username` (последний логин GAL). OAuth-only аккаунт получает случайный неиспользуемый хеш пароля; email не импортируется.
+
+**Env:** `GAL_OAUTH_ENABLED` (`true`), `GAL_OAUTH_CLIENT_ID` (`lthub`), `GAL_OAUTH_AUTHORIZE_URL`, `GAL_OAUTH_TOKEN_URL`, `GAL_OAUTH_USERINFO_URL`, `GAL_OAUTH_REDIRECT_URI` (пусто — `request.url_root` + `/api/auth/gal/callback`).
+
+**Тесты:** `tests/unit/test_gal_oauth_client.py`.
+
 ### School / OGE Module (Школа)
 
 Личный учебный портал для подготовки к ОГЭ — раздел «🎓 Школа» в web-портале. Пять предметов
