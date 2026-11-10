@@ -151,7 +151,7 @@ def test_modify_text_and_caption_depend_on_virus():
 
     assert oleg == "привет кхм-кхм мир"
     assert ltl == "привет мир ☕"
-    assert "олеговирус" in universe.caption_for(universe.OLEGOVIRUS)
+    assert universe.caption_for(universe.OLEGOVIRUS) == ""
     assert "LTL" in universe.caption_for(universe.LTL_PARASITE)
     assert len(universe.modify_text("а" * 500, universe.LTL_PARASITE)) == universe.MAX_MODIFIED_LEN
 
@@ -236,7 +236,7 @@ def test_webhook_infected_message_is_replaced_in_group(engine):
     delete.assert_called_once()
     payload = send.call_args.kwargs["json"]
     assert "привет кхм-кхм мир" in payload["text"]
-    assert "заражён олеговирусом" in payload["text"]
+    assert "заражён" not in payload["text"]
 
 
 @pytest.mark.allow_telegram

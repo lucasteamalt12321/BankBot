@@ -254,9 +254,10 @@ def test_webhook_parsing_failure_message(mock_send, mock_db):
     assert "Не удалось распарсить" in text
 
 
+@patch("api.index.universe.load_infection", return_value=None)
 @patch("api.index.get_db_engine")
 @patch("api.index.send_telegram_message")
-def test_webhook_parsing_no_reply_ignored(mock_send, mock_db):
+def test_webhook_parsing_no_reply_ignored(mock_send, mock_db, _no_infection):
     """Message with 'парсинг' but not a reply should be ignored."""
     payload = {
         "update_id": 101,

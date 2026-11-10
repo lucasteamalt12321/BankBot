@@ -34,6 +34,8 @@
 
 **Осталось.** Применить `021_oauth_provider.sql` к Supabase (нужно подтверждение владельца) и прогнать прод-E2E.
 
+**Публикация (2026-11-10).** BankBot запушен `dbb72e5` → Vercel production `lthub-2xwry42yz...` **Ready**; GAL запушен `079d5e9` → `gal-hrdrkvw5y...` **Ready**, CI GAL зелёный. CI BankBot на `dbb72e5` упал: Lint — `for_programmer/fishing_parser.py` (F821, scratch-файл), Test/Coverage — 3 устаревших теста под новое поведение олеговируса (пустая подпись, `кхм-кхм`) и перехват заражённым пользователем (мок `get_db_engine`). Исправлено: `text.splitlines()` + `# noqa: F821` в scratch-файле, тесты приведены к новому поведению, в parsing-тесте изолирован `universe.load_infection`; целевые 3 теста и `ruff check` по tracked-файлам зелёные, полный `tests/unit` — **1536 passed / 11 skipped / 0 failed**.
+
 ## last_checked_commit
 
 **`f1746ed`** — feat(oauth): LTHub OAuth 2.0 provider for GAL (PKCE, code flow) (2026-11-06). Поверх него — незакоммиченная работа 2026-11-10: GAL OAuth-провайдер, LTHub-клиент `core/gal_oauth.py` (+ `tests/unit/test_gal_oauth_client.py`) и parity обратного входа (`next`/`intent=register`).
