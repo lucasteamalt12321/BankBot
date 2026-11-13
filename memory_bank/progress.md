@@ -57,9 +57,11 @@
 
 **Открыто.** UN-TEST (ручное тестирование в живом чате) — по-прежнему pending; B07 остаётся `in_progress`, канонический прогресс проекта без изменений — **77.5 / 100**.
 
+**Публикация (2026-11-13).** Коммит `76ae68e` («feat(universe): подмена сообщений заражённых и автоответ на вопрос о вирусе») запушен в `origin/main` → авто-деплой Vercel (Git-интеграция) `dpl_Gx66eRMFfXTkGXJqzZePvWhyAqvB` / `lthub-biuiwl0zy-…vercel.app` — **READY**, production, алиасы `lthub.vercel.app`, `lthub-git-main-…`. SHA деплоя подтверждён через Vercel API (`meta.githubCommitSha = 76ae68e…`, ref `main`). Смоук: `/health` → 200 `{"platform":"vercel","status":"healthy"}`, `/` → 200 (67 КБ) на деплой-URL и на git-алиасе; apex `lthub.vercel.app` с этой машины не отвечает — известная гео-блокировка (из-за неё сделан `scripts/lthub_tunnel`). Таблица `virus_chat_activity` создаётся на холодном старте (`_ensure_universe_tables`); дополнительно добавлена миграция `database/migrations/010_virus_chat_activity.sql` — на случай, если у runtime-роли Supabase нет прав на DDL (тогда применить её вручную через Supabase SQL Editor). Прод-URL Supabase недоступен локально (значения секретов в Vercel замаскированы), поэтому наличие таблицы проверено по работающему DDL-пути, а не запросом к БД.
+
 ## last_checked_commit
 
-**`6275302`** — test: stabilize mention auto-infect test against random virus. Перед ним: `5cb90f7` — fix(ci): green lint and align infection tests with new behavior; `dbb72e5` — GAL OAuth-клиент. Переработка олеговируса (2026-11-13) пока не закоммичена — см. Changelog выше.
+**`76ae68e`** — feat(universe): подмена сообщений заражённых и автоответ на вопрос о вирусе (2026-11-13), запушен в `origin/main`, задеплоен на Vercel production. Перед ним: `6275302` — test: stabilize mention auto-infect test against random virus; `5cb90f7` — fix(ci): green lint and align infection tests with new behavior; `dbb72e5` — GAL OAuth-клиент.
 
 > ✅ На 2026-10-18 всё закоммичено и **запушено в `origin/main`**: туннель, BUGHUNT (BUG-04…BUG-10), закрытие школьного проекта SCH-03…SCH-05, переписывание истории git (PII удалён, все хеши с 2026-05-23 пересчитаны) и CI-фиксы (`0041376`, `c334e38`). WIP-правка автора в `tests/unit/test_freemium_gates.py` вошла в `0041376` — без неё CI оставался красным. В рабочем дереве остались только файлы автора, которые я не трогал: `AGENTS.md` и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 

@@ -12,7 +12,8 @@
 - **Автоответ:** явный вопрос о вирусе («кто такой олеговирус», «что за вирус», «почему кхм-кхм», «что это за вирус») → канонический ответ в любом чате; общее «что это?» → только в чате с активным вирусом или в реплае на сообщение бота. Проверка вопроса идёт **до** подмены, иначе вопрос заражённого съедался бы тиками.
 - **Код:** `api/universe_runtime.py` (тики, `format_infected_message()`, `display_name()`, `question_strength()`/`is_virus_question()`, `virus_explainer()`, `mark_chat_activity()`/`chat_activity()`), `api/index.py` (блок автоответа, новая подмена, таблица `virus_chat_activity` через `CREATE TABLE IF NOT EXISTS` — миграция не нужна), `tests/unit/test_universe_runtime.py` (30 тестов).
 - **Проверки:** целевые — **30 passed**; полный `tests/unit` — **1547 passed / 11 skipped / 0 failed** (118 с); `ruff check`/`format` чисто. `docs/README.md` — раздел «Universe Module». `projectbrief.md` — добавлен UN-04 (completed), B07 остаётся `in_progress` (UN-TEST manual), прогресс проекта **77.5 %** без изменений.
-- **Открыто:** UN-TEST — ручная проверка в живом чате; изменения не закоммичены.
+- **Публикация:** коммит `76ae68e` → `origin/main` → авто-деплой Vercel production `dpl_Gx66eRMFfXTkGXJqzZePvWhyAqvB` (`lthub-biuiwl0zy-…vercel.app`) **READY**, SHA подтверждён через Vercel API; смоук `/health` 200 и `/` 200 (apex `lthub.vercel.app` с этой машины заблокирован — известная гео-блокировка). Добавлена миграция `database/migrations/010_virus_chat_activity.sql` (fallback, если у runtime-роли Supabase нет прав на DDL).
+- **Открыто:** UN-TEST — ручная проверка в живом чате; при необходимости применить миграцию 010 в Supabase SQL Editor.
 
 ### ✅ Закрыто (2026-11-10): регистрация и вход в LTHub через GAL (OAuth)
 
