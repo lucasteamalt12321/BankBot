@@ -1456,6 +1456,15 @@ def _ensure_universe_tables(engine):
             )
             conn.execute(
                 text("""
+                CREATE TABLE IF NOT EXISTS virus_chat_activity (
+                    chat_id BIGINT PRIMARY KEY,
+                    virus_type VARCHAR(50),
+                    updated_at TIMESTAMPTZ
+                )
+            """)
+            )
+            conn.execute(
+                text("""
                 CREATE TABLE IF NOT EXISTS daily_prayer_log (
                     user_id BIGINT NOT NULL,
                     prayer_date DATE NOT NULL,
@@ -30284,13 +30293,51 @@ def telegram_webhook(secret: str):
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"auto-infect error: {exc}")
 
+        # Universe Module: автоответ на вопрос о вирусе («что это такое?»).
+        # Проверяем ДО подмены сообщений: иначе вопрос самого заражённого
+        # будет «съеден» искажением, и бот не сможет на него ответить.
+        if msg_text and not command and chat_id and not user.get("is_bot"):
+            try:
+                chat_type = (message.get("chat") or {}).get("type", "")
+                strength = universe.question_strength(msg_text)
+                if strength:
+                    activity = None
+                    if strength == "weak":
+                        try:
+                            activity = universe.chat_activity(get_db_engine(), chat_id)
+                        except Exception as exc:
+                            log_error("UNIVERSE", "error", f"chat activity: {exc}")
+                    reply_to_bot = bool(
+                        (message.get("reply_to_message") or {}).get("from", {}).get("is_bot")
+                    )
+                    # Явный вопрос про вирус — отвечаем где угодно. Общее «что это?»
+                    # — только в группе, где вирус уже активен.
+                    allowed = strength == "strong" or (
+                        chat_type in {"group", "supergroup"} and (activity or reply_to_bot)
+                    )
+                    if allowed:
+                        virus = activity[0] if activity else None
+                        extra = {}
+                        if message.get("message_id"):
+                            extra["reply_to_message_id"] = message["message_id"]
+                        send_telegram_message(
+                            chat_id,
+                            universe.virus_explainer(virus),
+                            **extra,
+                        )
+                        return jsonify({"ok": True})
+            except Exception as exc:
+                log_error("UNIVERSE", "error", f"virus question error: {exc}")
+
         # Universe Module: infected user message modification
         if msg_text and not command and chat_id and not message.get("reply_to_message"):
             try:
                 infection = universe.load_infection(get_db_engine(), user_id)
                 if universe.is_symptomatic(infection):
                     msg_id = message.get("message_id")
-                    modified = universe.modify_text(msg_text, infection.virus_type)
+                    modified = universe.format_infected_message(
+                        universe.display_name(user), msg_text, infection.virus_type
+                    )
                     caption = universe.caption_for(infection.virus_type)
                     extra = {}
                     if msg_id and chat_id != user_id:
@@ -30308,10 +30355,15 @@ def telegram_webhook(secret: str):
                         extra["reply_to_message_id"] = msg_id
                     send_telegram_message(
                         chat_id,
-                        f"{modified}\n\n{caption}",
-                        parse_mode="Markdown",
+                        f"{modified}\n\n{caption}" if caption else modified,
                         **extra,
                     )
+                    try:
+                        universe.mark_chat_activity(
+                            get_db_engine(), chat_id, infection.virus_type
+                        )
+                    except Exception as exc:
+                        log_error("UNIVERSE", "error", f"mark chat activity: {exc}")
                     return jsonify({"ok": True})
             except Exception as exc:
                 log_error("UNIVERSE", "error", f"infection message modify error: {exc}")

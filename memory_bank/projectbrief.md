@@ -39,7 +39,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B04 | Emperors Module (EM-01…EM-TEST) | completed | 3 |
 | B05 | GD Module (GD-01…GD-08, GD-TEST) | completed | 6 |
 | B06 | Chess Module (CH-01…CH-06, CH-TEST) | completed | 2 |
-| B07 | Universe Module (UN-01…UN-03; UN-TEST открыт) | in_progress | 2 |
+| B07 | Universe Module (UN-01…UN-04; UN-TEST открыт) | in_progress | 2 |
 | B08 | AI Module (AI-01…AI-05; AI-TEST открыт) | in_progress | 3 |
 | B09 | AI Chat — reply/mention (AIC-01…AIC-08) | completed | 2 |
 | B10 | Mom Module (MOM-01…MOM-05; MOM-TEST открыт) | in_progress | 3 |
@@ -139,9 +139,10 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | UN-01 | Схема и таблицы Supabase (infection_status, daily_prayer_log) | completed | 4 |
 | UN-02 | Команды /infect, /tea, /daily_prayer | completed | 4 |
 | UN-03 | /generate_prayer — генерация молитв через AI (уже реализовано в AI Module) | completed | 4 |
+| UN-04 | Переработка заражения: подмена сообщения заражённого на «Имя:\n<текст с тиками» + автоответ бота на вопрос «что это такое» | completed | 2 |
 | UN-TEST | Тестирование Universe Module (manual) | pending | 2 |
 
-**Universe Module: 12/14 (86%)**
+**Universe Module: 14/16 (87.5%)**
 
 ---
 
