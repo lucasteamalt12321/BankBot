@@ -1,4 +1,5 @@
 # user_manager.py
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from database.database import User, UserAlias
 from typing import Optional
@@ -55,15 +56,16 @@ class UserManager:
         if not normalized:
             return None
 
-        # Прямой поиск по username
-        user = self.db.query(User).filter(User.username.ilike(f"%{normalized}%")).first()
+        # Точное совпадение без подстрок: иначе @john попадал бы в johnny,
+        # и админские операции применялись бы не к тому пользователю.
+        user = self.db.query(User).filter(func.lower(User.username) == normalized).first()
         if user:
             return user
 
         # Поиск по алиасам
         alias = self.db.query(UserAlias).filter(
             UserAlias.alias_type == 'username',
-            UserAlias.alias_value.ilike(f"%{normalized}%")
+            func.lower(UserAlias.alias_value) == normalized
         ).first()
 
         if alias:
@@ -268,8 +270,15 @@ class UserManager:
         if not primary_user or not secondary_user:
             raise ValueError("Один из пользователей не найден")
 
-        # Переносим баланс
-        primary_user.balance += secondary_user.balance
+        # Переносим баланс атомарно одним UPDATE (защита от гонок).
+        self.db.execute(
+            text(
+                "UPDATE users SET balance = balance + "
+                "(SELECT COALESCE(balance, 0) FROM users WHERE id = :sid) "
+                "WHERE id = :pid"
+            ),
+            {"pid": primary_user.id, "sid": secondary_user.id},
+        )
 
         # Переносим алиасы
         for alias in secondary_user.aliases:

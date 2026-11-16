@@ -39,7 +39,8 @@ async def daily_bonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         if result["success"]:
             amount = result.get("amount", 0)
-            streak = result.get("streak", 0) + 1
+            # claim_daily_bonus уже возвращает серию с учётом сегодняшнего дня.
+            streak = result.get("streak", 0)
             text = (
                 "🎁 Ежедневный бонус получен!\n"
                 f"💰 Начислено: +{amount} монет\n"

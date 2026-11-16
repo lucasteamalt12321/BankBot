@@ -72,9 +72,9 @@ def _is_authorized_feedback_request() -> bool:
     auth_header = request.headers.get("Authorization", "")
     bearer_prefix = "Bearer "
     if auth_header.startswith(bearer_prefix):
-        return hmac.compare_digest(auth_header[len(bearer_prefix) :], expected_token)
+        return hmac.compare_digest(auth_header[len(bearer_prefix) :].encode(), expected_token.encode())
 
-    return hmac.compare_digest(request.args.get("token", ""), expected_token)
+    return hmac.compare_digest(request.args.get("token", "").encode(), expected_token.encode())
 
 
 def _get_webhook_secret() -> str:
@@ -83,6 +83,14 @@ def _get_webhook_secret() -> str:
     from src.webhook_secret import resolve_webhook_secret
 
     return resolve_webhook_secret(settings.BOT_TOKEN, os.environ.get("WEBHOOK_SECRET"))
+
+
+def _redact_webhook_secret(text: str) -> str:
+    """Скрыть секрет вебхука: его знание даёт право слать боту апдейты от любого user_id."""
+    secret = _get_webhook_secret()
+    if secret and secret in text:
+        return text.replace(secret, "***")
+    return text
 
 
 def _get_public_webhook_base_url() -> str:
@@ -151,7 +159,7 @@ def _start_telegram_webhook_runtime() -> None:
 
         telegram_bot = TelegramBot()
         await telegram_bot.initialize_for_webhook(webhook_url, webhook_secret)
-        print(f"[WEBHOOK] BankBot webhook runtime ready: {webhook_url}")
+        print(f"[WEBHOOK] BankBot webhook runtime ready: {webhook_url.replace(webhook_secret, '***')}")
 
     try:
         telegram_loop.run_until_complete(startup())
@@ -162,8 +170,8 @@ def _start_telegram_webhook_runtime() -> None:
         import traceback
         telegram_startup_error = f"{exc}\n{traceback.format_exc()}"
         telegram_ready.set()
-        print(f"[WEBHOOK] Startup failed: {exc}")
-        print(f"[WEBHOOK] Startup traceback: {traceback.format_exc()}")
+        print(f"[WEBHOOK] Startup failed: {_redact_webhook_secret(str(exc))}")
+        print(f"[WEBHOOK] Startup traceback: {_redact_webhook_secret(traceback.format_exc())}")
     finally:
         if telegram_bot is not None:
             try:
@@ -180,7 +188,9 @@ def create_app() -> Flask:
 
 @app.route("/logs")
 def get_logs() -> Response:
-    """Endpoint to view recent logs."""
+    """Endpoint to view recent logs (token-gated: логи могут содержать секреты)."""
+    if not _is_authorized_feedback_request():
+        return jsonify({"error": "unauthorized"}), 401
     return Response("<pre>" + "\n".join(log_buffer) + "</pre>", mimetype="text/html")
 
 
@@ -235,7 +245,7 @@ def index() -> str:
 def health_check():
     """Health check endpoint with DB and webhook runtime state."""
     if telegram_startup_error:
-        return jsonify({"status": "unhealthy", "service": "BankBot", "error": telegram_startup_error}), 500
+        return jsonify({"status": "unhealthy", "service": "BankBot", "error": _redact_webhook_secret(telegram_startup_error)}), 500
 
     try:
         from database.connection import get_database_backend
@@ -250,9 +260,9 @@ def health_check():
             try:
                 info = _run_coro(telegram_bot.application.bot.get_webhook_info(), timeout=10)
                 webhook_info = {
-                    "url": info.url,
+                    "url": _redact_webhook_secret(info.url),
                     "pending_updates": info.pending_update_count,
-                    "last_error": info.last_error_message,
+                    "last_error": _redact_webhook_secret(info.last_error_message or ""),
                 }
             except Exception as exc:
                 webhook_info = {"error": str(exc)}
@@ -276,12 +286,14 @@ def metrics() -> Response:
     """Prometheus-compatible metrics endpoint."""
     from database.database import Transaction, User, get_db
 
-    import time
+    from datetime import datetime, timedelta
 
     db = next(get_db())
     try:
         total_users = db.query(User).count()
-        today = time.time() - 86400
+        # created_at — naive UTC DateTime; сравнение с float ломается на Postgres
+        # и всегда истинно на SQLite.
+        today = datetime.utcnow() - timedelta(days=1)
         today_transactions = db.query(Transaction).filter(Transaction.created_at >= today).count()
 
         metrics_text = f"""# HELP bot_users_total Total number of users
@@ -517,12 +529,12 @@ def reading_generate():
 def telegram_webhook(secret: str):
     """Receive Telegram updates and pass them into PTB without polling."""
     expected_secret = _get_webhook_secret()
-    if not hmac.compare_digest(secret, expected_secret):
+    if not hmac.compare_digest(secret.encode(), expected_secret.encode()):
         print("[WEBHOOK] Secret validation failed")
         return jsonify({"error": "not_found"}), 404
 
     header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if not hmac.compare_digest(header_secret, expected_secret):
+    if not hmac.compare_digest(header_secret.encode(), expected_secret.encode()):
         print("[WEBHOOK] Header secret validation failed")
         return jsonify({"error": "unauthorized"}), 401
 

@@ -37,6 +37,25 @@ def _budget_verify(user_id: str, sig: str) -> bool:
     return hmac.compare_digest(expected, str(sig))
 
 
+def _vk_launch_verified() -> bool:
+    """Проверка подписи запуска VK Mini App защищённым ключом приложения.
+
+    VK передаёт параметры запуска в query string; sign — HMAC-SHA256
+    строки параметров (без sign), отсортированных по ключу, на секрете
+    приложения. Без валидной подписи выдавать наш HMAC нельзя (IDOR).
+    """
+    secret = os.getenv("VK_APP_SECRET", "")
+    if not secret:
+        return False
+    sign = request.args.get("sign", "")
+    if not sign or not request.args.get("vk_user_id", ""):
+        return False
+    params = {k: v for k, v in request.args.items() if k != "sign"}
+    check = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    expected = hmac.new(secret.encode(), check.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sign)
+
+
 def _get_user_id() -> str:
     """Extract user_id with session-first auth.
 
@@ -1199,6 +1218,9 @@ def api_vk_status():
     """GET /api/budget/vk/status?vk_user_id= — check if VK user is linked to a TG account."""
     from database.database import LinkedVKAccount, get_db
 
+    if not _vk_launch_verified():
+        return jsonify({"error": "Недействительная подпись запуска VK"}), 403
+
     vk_user_id = request.args.get("vk_user_id", "")
     if not vk_user_id:
         return jsonify({"error": "vk_user_id required"}), 400
@@ -1221,12 +1243,17 @@ def api_vk_link():
     """POST /api/budget/vk/link — link VK user to TG account via 6-digit code."""
     from database.database import LinkedVKAccount, get_db
 
+    if not _vk_launch_verified():
+        return jsonify({"error": "Недействительная подпись запуска VK"}), 403
+
     data = request.get_json(silent=True) or {}
     vk_user_id = data.get("vk_user_id", "")
     code = data.get("code", "")
 
     if not vk_user_id or not code:
         return jsonify({"error": "vk_user_id and code required"}), 400
+    if str(vk_user_id) != request.args.get("vk_user_id", ""):
+        return jsonify({"error": "vk_user_id не совпадает с подписанным"}), 403
 
     db = next(get_db())
     try:

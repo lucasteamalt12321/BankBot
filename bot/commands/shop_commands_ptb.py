@@ -87,7 +87,9 @@ async def buy_contact_command(
             )
             return
 
-        new_balance = admin_system.update_balance(user.id, -required_amount)
+        new_balance = admin_system.update_balance(
+            user.id, -required_amount, allow_negative=False
+        )
         if new_balance is None:
             await update.message.reply_text("❌ Не удалось обновить баланс")
             return
@@ -325,8 +327,16 @@ async def inventory_command(
 
     db = next(get_db())
     try:
+        from database.database import User
+
+        # UserPurchase.user_id — внутренний users.id, не telegram_id.
+        db_user = db.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await update.message.reply_text("Vash inventar pust")
+            return
+
         shop = EnhancedShopSystem(db)
-        inventory = shop.get_user_inventory(user.id)
+        inventory = shop.get_user_inventory(db_user.id)
 
         if not inventory:
             await update.message.reply_text("Vash inventar pust")

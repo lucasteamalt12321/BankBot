@@ -1,4 +1,6 @@
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from database.database import GameSession, GamePlayer, User, Transaction
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
@@ -227,6 +229,9 @@ class GamesSystem:
         used_cities.append(city)
         session.last_city = city
         session.used_cities = used_cities
+        # JSON-колонка мутируется in-place — без flag_modified SQLAlchemy не
+        # заметит изменение и город не сохранится (повторные ходы тем же городом).
+        flag_modified(session, "used_cities")
         session.updated_at = datetime.utcnow()
 
         # Переходим к следующему игроку
@@ -334,14 +339,18 @@ class GamesSystem:
         }
 
     def _award_points(self, user_id: int, amount: int, description: str):
-        """Начисление очков пользователю"""
+        """Начисление очков пользователю (user_id — telegram_id)."""
 
-        user = self.db.query(User).filter(User.id == user_id).first()
+        user = self.db.query(User).filter(User.telegram_id == user_id).first()
         if user:
-            user.balance += amount
+            # Атомарное относительное начисление — защита от гонок.
+            self.db.execute(
+                text("UPDATE users SET balance = balance + :amount WHERE id = :uid"),
+                {"amount": amount, "uid": user.id},
+            )
 
             transaction = Transaction(
-                user_id=user_id,
+                user_id=user.id,
                 amount=amount,
                 transaction_type='game_reward',
                 source_game='mini_games',

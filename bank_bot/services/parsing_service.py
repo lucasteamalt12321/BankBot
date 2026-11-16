@@ -247,6 +247,7 @@ class ParsingService:
                 UserResource.bot_name == bot_name,
                 UserResource.resource_type == resource_type,
             )
+            .with_for_update()
             .first()
         )
 

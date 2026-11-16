@@ -21,3 +21,6 @@ data/chat_export/*.html
 *.db-shm
 *.db-wal
 data/bot.db
+.env*
+scripts/lthub_tunnel/sources.local.json
+scripts/lthub_tunnel/_bundled.py

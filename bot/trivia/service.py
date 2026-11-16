@@ -3,6 +3,7 @@
 
 import structlog
 from datetime import datetime
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from database.database import User, Transaction
 
@@ -54,12 +55,26 @@ class TriviaService:
             self.db.flush()
             logger.info("Auto-registered trivia winner", telegram_id=telegram_user_id, user_id=user.id)
         else:
-            user.balance += coins
-            user.total_earned += coins
-            user.username = username
-            user.first_name = first_name
-            user.last_name = last_name
-            user.last_activity = datetime.utcnow()
+            # Атомарное относительное начисление (защита от гонок);
+            # total_earned может быть NULL у старых записей — COALESCE.
+            self.db.execute(
+                text(
+                    "UPDATE users SET balance = balance + :coins, "
+                    "total_earned = COALESCE(total_earned, 0) + :coins, "
+                    "username = :username, first_name = :first_name, "
+                    "last_name = :last_name, last_activity = :now "
+                    "WHERE id = :uid"
+                ),
+                {
+                    "coins": coins,
+                    "username": username,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "now": datetime.utcnow(),
+                    "uid": user.id,
+                },
+            )
+            self.db.refresh(user)
 
         # Log transaction
         tx = Transaction(

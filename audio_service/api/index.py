@@ -130,6 +130,8 @@ def api_music_change_key():
         else:
             return jsonify({"error": "нужен semitones или target_key"}), 400
         return _music_send(out)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -142,6 +144,7 @@ def api_music_overlay():
     if len(files) > 8:
         return jsonify({"error": "максимум 8 файлов для наложения"}), 400
     d = tempfile.mkdtemp(prefix="music_ov_")
+    _cleanup_after(d)
     paths = []
     for i, f in enumerate(files):
         fn = (f.filename or "f").strip()
@@ -157,7 +160,6 @@ def api_music_overlay():
         with open(p, "wb") as fp:
             fp.write(data)
         paths.append(p)
-    _cleanup_after(d)
     try:
         out = overlay(paths)
         return _music_send(out)

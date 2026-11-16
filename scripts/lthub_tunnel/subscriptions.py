@@ -108,7 +108,7 @@ def fetch(
             if "://" in decode_body(text):
                 return text
             last_error = SubscriptionError("ответ не похож на подписку")
-        if attempt + 1 < RETRIES:
+        if attempt + 1 < attempts:
             time.sleep(RETRY_PAUSE * (attempt + 1))
     raise SubscriptionError(f"{url}: {last_error}") from last_error
 

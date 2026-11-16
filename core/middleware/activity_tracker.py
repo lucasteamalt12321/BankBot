@@ -21,6 +21,7 @@ async def track_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     user_id = update.effective_user.id
 
+    db = None
     try:
         db = next(get_db())
         user = db.query(User).filter(User.telegram_id == user_id).first()
@@ -45,4 +46,5 @@ async def track_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error tracking user activity for {user_id}: {e}")
     finally:
-        db.close()
+        if db is not None:
+            db.close()

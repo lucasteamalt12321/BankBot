@@ -83,6 +83,9 @@ def _safe_next(value: str | None) -> str:
     target = (value or "").strip()
     if not target.startswith("/") or target.startswith("//"):
         return "/"
+    # Браузеры трактуют "\" как "/", поэтому "/\evil.com" — внешний редирект.
+    if "\\" in target or any(c in target for c in ("\r", "\n", "\t")):
+        return "/"
     if target.startswith(("/auth/gal", "/api/auth/gal")):
         return "/"
     return target

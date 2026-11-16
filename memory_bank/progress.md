@@ -1,5 +1,9 @@
 # Progress
 
+**Текущая фаза:** 2026-11-16 — новый бета-модуль «Читалка истории репозиториев» (`/repo_history`, блок B23): ссылка на GitHub + период → сводка ИИ «что добавилось» по коммитам и memory_bank. `tests/unit` — **1597 passed / 11 skipped / 0 failed** (включая незакоммиченный багхант 2026-11-14). Изменения не закоммичены.
+
+**Текущая фаза:** 2026-11-14 — багхант по всем модулям сайта и бота LTHub (4 параллельных субагента-разведчика, фиксы по мере находок). `tests/unit` — **1567 passed / 11 skipped / 0 failed**; `ruff` чисто по изменённым `.py`; `tsc --noEmit` VK — exit 0. Изменения **не закоммичены** (коммит/деплой предложен пользователю). Вне скоупа: незакоммиченная фича `/repo_history` (вероятно параллельный сеанс) — не трогал.
+
 **Текущая фаза:** 2026-11-13 — переработка системы олеговируса (UN-04): сообщение заражённого подменяется на `Имя:\n<текст с тиками>`, бот отвечает на вопросы о вирусе каноническим текстом. `tests/unit` — **1547 passed / 11 skipped / 0 failed**. Изменения не закоммичены.
 
 **Текущая фаза:** 2026-11-10 — регистрация и вход в LTHub через GAL (OAuth 2.0 + PKCE). GAL стал OAuth-провайдером (`app/routers/oauth.py`, `app/services/oauth_provider.py`), LTHub — клиентом (`core/gal_oauth.py`, кнопки на `/register` и `/login`). Миграция GAL `021_oauth_provider.sql` к проду **не применена**.
@@ -9,6 +13,58 @@
 **Текущая фаза:** Phase 6 OGE Center — подготовка к ОГЭ по 5 предметам. Школьный проект (SCH-01…SCH-05) закрыт 2026-10-18: база, README/docs и `school_project/` готовы; канонический прогресс **77.5 / 100**. Туннель: `up`/`runner` больше не верят «порт отвечает» — проверяют живость своего sing-box (`57b0d9d`).
 
 **Deep bug-hunt session 2026-10-28:** «посмотри все разделы бота», «еще похимичь», «з задеплой» → deep bug-hunt по всем поддиректориям (бот, api, relay, ai, chess, gd, handlers, admin, tests, utils, core, scripts, audio_service, bridge_bot) через параллельные субагенты; фиксы олеговируса (`/cure`, `/spread`, `/infect` по reply, автозаражение по упоминанию, команды работают заражённым); deep bug-hunt по боту/сайту/туннелю — субагенты в работе.
+
+## Changelog 2026-11-16 (бета-модуль «Читалка истории репозиториев», B23 / RH)
+
+**Задача пользователя:** «добавь новый бета-модуль - читалку истории репозиториев. человек кидает в него ссылку на репозиторий (например, https://github.com/lucasteamalt12321/GAL). система читает git log (и похожие команды), memory_bank/progress.md и memory_bank/projectbrief.md (при наличии), загружает это в ИИ и ИИ выдаёт что добавилось за выбранный период». План утверждён пользователем.
+
+**Ключевое решение.** История читается через GitHub REST API `GET /repos/{owner}/{repo}/commits?since=&until=` (эквивалент `git log --since --until`), а не через `git clone`: на Vercel нет git-бинарника, клонирование не укладывается в maxDuration 60 с (прецедент Code Explainer — клон BankBot ~51 с). Только публичные github.com-репозитории; опциональный `GITHUB_TOKEN` из env снимает лимит 60 запросов/час.
+
+**Код.**
+- Новый `api/repo_history.py`: `parse_repo_url()` (regex только github.com — SSRF-защита), `resolve_period()` (пресет 1–365 дней или свои даты since/until до года), `fetch_commits()` (пагинация по 100, кап `MAX_COMMITS=300`, флаг truncated; 404 → «репо не найден», 403/429 → «лимит GitHub API»), `fetch_memory_bank()` (`memory_bank/progress.md` + `projectbrief.md` с raw.githubusercontent.com/HEAD, 404 → пропуск, кап 100 КБ), `build_prompt()` (бюджет коммитов 30 КБ — новейшие сохраняются, старые отбрасываются с пометкой; mb-файлы по 15 КБ), `page_html()`.
+- `api/index.py`: `GET /repo_history` (страница: ссылка + период 7/30/90/свой, результат через marked + DOMPurify fail-closed в plain text) и `POST /api/repo_history/analyze` (аноним 3/час на IP через `_check_db_rate` + `_check_ai_rate`, вошедший 10/час; пустая история → ответ без вызова ИИ; ошибки ИИ → 502). Бета-карточка «📜 История репозитория» в хабе + `HUB_KEY['/repo_history']`.
+- Stateless: новых таблиц БД и миграций нет.
+
+**Тесты.** `tests/unit/test_repo_history.py` — **30 тестов**: валидация URL (вкл. gitlab/javascript:/IP/поддомен-обманку), периоды (вкл. `days=0` — пойман и исправлен баг `or 7`), парсинг/пагинация/обрезка коммитов, ошибки GitHub, пропуск отсутствующих mb-файлов, бюджет промпта, e2e analyze (успех анонима, 400, 429 после 3 запросов, вошедший сверх анонимного лимита, 502 при недоступном ИИ, «коммитов не найдено» без вызова ИИ), маркеры страницы/хаба, `node --check` inline-JS.
+
+**Проверки.** Целевой+регресс набор (`test_repo_history` + `test_code_explainer` + `test_md2pdf` + `test_web_portal_e2e`) — **89 passed**; полный `tests/unit` — **1597 passed / 11 skipped / 0 failed** (105 с; в дереве также незакоммиченный багхант 2026-11-14); `ruff check`/`format` по изменённым путям чисты.
+
+**Память.** `projectbrief.md` — блок B23 (RH-01…RH-04 completed, RH-TEST pending), ребаланс весов B12 `1.5→1`, B16 `3.5→3`, B21 `3.5→3` под сумму 100; канонический прогресс **77.5 / 100** без изменений. `docs/README.md` — раздел «Repo History Reader». `activeContext.md` — запись задачи.
+
+**Открыто.** Коммит модуля (отдельно от багханта 2026-11-14) → деплой → RH-TEST прод-смоук на живом репозитории.
+
+## Changelog 2026-11-14 (багхант по всем модулям сайта и бота LTHub)
+
+**Задача пользователя:** «сделай багхант по всем модулям сайта и бота LThub. по мере нахождения багов сразу их фикси». Метод: 4 параллельных субагента-разведчика (веб-бэкенд `api/`; бот/домен; фронтенд inline-JS + `vk_mini_app/`; инфраструктура), фиксы по мере подтверждения, целевые регрессы + полный `tests/unit` + `ruff`. Старт: дерево чистое, HEAD `c5010f7`.
+
+**Веб-бэкенд (`api/index.py`).**
+- AST-песочница `_run_python_sandbox` усилена (расширен `_BLOCKED_MODULES`, +83 строки), tar-slip в клонере кода закрыт. Регресс — `tests/unit/test_python_sandbox.py` (exploit-строки `__class__`/`__subclasses__`/`builtins.open` и др.).
+- Утечка ответа квиза: `/api/quiz/generate` больше не отдаёт `correct_idx` клиенту — только серверная сессия; `/api/quiz/check` возвращает `answer` после ответа. Фронтенд использует ответ check, не утечку. Тест `test_quiz_generate_and_check` обновлён: assert «correct_idx не утекает» + проверка через серверную сессию.
+- `_canon_url_ok` — allowlist URL канона; атомарные деньги `_award_web_coins`/`purchase_item`/`add_user_balance`.
+- **F5:** `X-Auth-Token` добавлен в inline-JS авторизованных эндпоинтов — dnd (post/refreshStatus), chess (`authHdr`: loadStats/link/force-link/puzzle/check), trivia answer, verbs submit. Music НЕ тронут: фронт ходит во внешний `AUDIO_SERVICE_URL`, токен туда утёк бы cross-origin. Уже корректные (gd token, family room/password, study curAuth, exam/ai-record, endings, md2pdf) не менялись.
+
+**Бот/домен — канон атомарного относительного UPDATE.**
+- `utils/admin/admin_system.py::update_balance`: read-modify-write → атомарный `UPDATE users SET balance = balance + :amount` + rowcount. Овердрафт-guard **opt-in** (`allow_negative: bool = True`): покупки передают `allow_negative=False` (`bot/commands/shop_commands.py`, `shop_commands_ptb.py`), админ-корректировки допускают минус. Безусловный guard первой итерации ломал `test_purchase_with_negative_balance` — исправлено opt-in параметром.
+- `bot/commands/admin_commands_ptb.py`: F823 (локальная `text` затеняла `sqlalchemy.text`) → импорт `text as sql_text`; атомарные `admin_adjust`/`admin_addcoins`/`admin_removecoins` (guard на списание); мёртвый импорт `shop.enhanced_shop` → `core.systems.shop_system`; убран двойной `db.commit()`.
+- Инвентарь магазина (`shop_commands_ptb.py`): `UserPurchase.user_id` — внутренний `users.id`, а не `telegram_id`; резолв через `User.telegram_id`.
+- `core/systems/games_system.py`: `flag_modified(session, "used_cities")` (JSON-мутация in-place не сохранялась → повторные ходы тем же городом); `_award_points` ищет по `telegram_id` (был `User.id`), атомарное начисление, корректный `transaction.user_id`.
+- `core/systems/social_system.py`: `accept_friend_request` принимает username (резолв через `UserManager.identify_user`); подарок coins — атомарное списание с `balance >= :v` guard + атомарное начисление получателю + единый commit (были гонка/овердрафт/частичный commit).
+- `utils/core/user_manager.py::identify_user`: точное `func.lower(...) == normalized` вместо `ilike(f"%{normalized}%")` — подстрока могла выбрать не того пользователя (@john → johnny).
+- `bot/commands/motivation_commands_ptb.py`: ежедневный бонус — `streak` без `+1` (`claim_daily_bonus` уже возвращает серию с учётом сегодня).
+- `bot/trivia/service.py`: атомарное начисление + `total_earned = COALESCE(total_earned,0) + :coins` (NULL у старых записей) + `db.refresh`.
+- `bot/bot.py`: `get_db_session()` возвращает `SessionLocal()` (не `next(get_db())` — генератор закрывался); admin amount `float`→`int`; лог префикса `BOT_TOKEN` убран (секрет-гигиена).
+- `bot/web/family_budget.py`: `_vk_launch_verified()` — HMAC-SHA256 подписи запуска VK Mini App (`VK_APP_SECRET`, fail-closed), гейт на `api_vk_status`/`api_vk_link` (IDOR без подписи).
+- `bank_bot/services/parsing_service.py`: `with_for_update()` на запросе ресурса; ошибочный `b=1` для кармы **откачен** (давал `int(1*0.5)=0` очков → каждое начисление падало + ломал тест).
+
+**VK mini-app.** `src/api/budget.ts`, `src/App.tsx`, `src/pages/LinkPage.tsx` — parity подписи запуска VK; `tsc --noEmit` — exit 0.
+
+**Инфраструктура.** Правки `scripts/lthub_tunnel/` (clash/gui/subscriptions/tunnel), `relay/app.py`, `run_bot.py`, `audio_service/`, `.github/workflows/hf-watchdog.yml`, `.dockerignore`, `core/gal_oauth.py`, `core/middleware/activity_tracker.py`, `database/database.py` по находкам инфра-разведки.
+
+**Проверки.** Целевые: `test_shop_edge_cases_unit.py` + `test_parsing_service.py` — 44 passed; `test_study_progress.py` — 16 passed. Полный `tests/unit` — **1567 passed / 11 skipped / 0 failed** (110 с). `ruff check` по всем изменённым `.py` — All checks passed. `tsc --noEmit` VK — exit 0.
+
+**Вне скоупа багханта (НЕ трогал).** Незакоммиченная фича `/repo_history`: `api/repo_history.py` (читалка истории GitHub-репо через REST API), `tests/unit/test_repo_history.py`, проводка в `api/index.py` (карточка хаба «История репозитория Бета», страница `/repo_history`, `/api/repo_history/analyze`). Новая функциональность, не багфикс — вероятно параллельный сеанс. Коммит/судьба — за пользователем.
+
+**Открыто / предложено пользователю.** Коммит+деплой блока багханта (не делал unilateral — пуш в `main` триггерит Vercel-деплой); `WEBHOOK_SECRET` в GitHub Actions secrets; `VK_APP_SECRET` env в деплое (без него VK mini-app fail-closed); ротация subscription UUID `sources.local.json` (в git/exe); B23 dead-code (`_w`-обёртки `admin_commands_ptb.py` и пр.); фронт-предложения (расширить `test_web_portal_e2e` на все маршруты, evil-data render-тесты, единый quote-safe escaper, VK contract-тесты). Канонический прогресс **77.5 %** без изменений (багхант не добавляет weighted deliverable — прецедент 2026-10-28).
 
 ## Changelog 2026-11-10 (регистрация/вход в LTHub через GAL)
 
@@ -61,7 +117,7 @@
 
 ## last_checked_commit
 
-**`76ae68e`** — feat(universe): подмена сообщений заражённых и автоответ на вопрос о вирусе (2026-11-13), запушен в `origin/main`, задеплоен на Vercel production. Перед ним: `6275302` — test: stabilize mention auto-infect test against random virus; `5cb90f7` — fix(ci): green lint and align infection tests with new behavior; `dbb72e5` — GAL OAuth-клиент.
+**`c5010f7`** — chore(db): миграция 010 — таблица virus_chat_activity и запись о публикации (текущий HEAD `origin/main`). Поверх него в рабочем дереве — **незакоммиченный блок багханта 2026-11-14** (33 изменённых файла + новые `tests/unit/test_python_sandbox.py`; отдельно — вне скоупа — незакоммиченная фича `/repo_history`: `api/repo_history.py`, `tests/unit/test_repo_history.py`). `tests/unit` на рабочем дереве — 1567 passed / 11 skipped / 0 failed (багхант); после добавления модуля `/repo_history` (2026-11-16, +30 тестов) — **1597 passed / 11 skipped / 0 failed**. Перед `c5010f7`: `76ae68e` — feat(universe): подмена сообщений заражённых и автоответ на вопрос о вирусе; `6275302` — test: stabilize mention auto-infect; `5cb90f7` — fix(ci): green lint and align infection tests; `dbb72e5` — GAL OAuth-клиент.
 
 > ✅ На 2026-10-18 всё закоммичено и **запушено в `origin/main`**: туннель, BUGHUNT (BUG-04…BUG-10), закрытие школьного проекта SCH-03…SCH-05, переписывание истории git (PII удалён, все хеши с 2026-05-23 пересчитаны) и CI-фиксы (`0041376`, `c334e38`). WIP-правка автора в `tests/unit/test_freemium_gates.py` вошла в `0041376` — без неё CI оставался красным. В рабочем дереве остались только файлы автора, которые я не трогал: `AGENTS.md` и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 

@@ -1,4 +1,5 @@
 # social_system.py
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from database.database import Friendship, Gift, Clan, ClanMember, User, UserNotification
 from typing import List, Dict, Optional
@@ -64,8 +65,15 @@ class SocialSystem:
 
         return {"success": True, "friend_id": friend.id}
 
-    def accept_friend_request(self, user_id: int, friend_id: int) -> Dict:
-        """Принятие запроса в друзья"""
+    def accept_friend_request(self, user_id: int, friend_id) -> Dict:
+        """Принятие запроса в друзья (friend_id — внутренний id или username)."""
+        if isinstance(friend_id, str):
+            from utils.core.user_manager import UserManager
+            friend = UserManager(self.db).identify_user(friend_id)
+            if not friend:
+                return {"success": False, "reason": "Пользователь не найден"}
+            friend_id = friend.id
+
         friendship = self.db.query(Friendship).filter(
             Friendship.user_id == friend_id,
             Friendship.friend_id == user_id,
@@ -157,17 +165,20 @@ class SocialSystem:
         if sender_id == receiver.id:
             return {"success": False, "reason": "Нельзя отправить подарок самому себе"}
 
-        sender = self.db.query(User).filter(User.id == sender_id).first()
-
         if gift_type == 'coins':
-            if sender.balance < gift_value:
-                return {"success": False, "reason": "Недостаточно средств"}
-
             if gift_value <= 0:
                 return {"success": False, "reason": "Сумма должна быть положительной"}
 
-            # Списываем у отправителя
-            sender.balance -= gift_value
+            # Атомарное списание с guard: защита от гонок и ухода в минус.
+            res = self.db.execute(
+                text(
+                    "UPDATE users SET balance = balance - :v "
+                    "WHERE id = :sid AND balance >= :v"
+                ),
+                {"v": gift_value, "sid": sender_id},
+            )
+            if res.rowcount != 1:
+                return {"success": False, "reason": "Недостаточно средств"}
 
             # Создаем подарок
             gift = Gift(
@@ -176,12 +187,13 @@ class SocialSystem:
                 amount=gift_value,
                 message=message
             )
-
             self.db.add(gift)
-            self.db.commit()
 
-            # Начисляем получателю
-            receiver.balance += gift_value
+            # Начисляем получателю атомарно; единый коммит ниже.
+            self.db.execute(
+                text("UPDATE users SET balance = balance + :v WHERE id = :rid"),
+                {"v": gift_value, "rid": receiver.id},
+            )
 
             # Проверяем достижение "Щедрый"
             self._check_generous_achievement(sender_id)

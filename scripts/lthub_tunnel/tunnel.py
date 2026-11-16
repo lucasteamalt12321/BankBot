@@ -620,7 +620,7 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     home = state_dir(args.state_dir)
     config_path = home / "config.json"
-    _, _, port = load_sources(None)
+    _, _, port = load_sources(args.source)
     log_path = home / "sing-box.log"
     log_file = log_path.open("w", encoding="utf-8")
     process = subprocess.Popen(

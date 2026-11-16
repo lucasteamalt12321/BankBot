@@ -85,7 +85,9 @@ def _vless_outbound(uri: str, *, tag: str = "proxy") -> dict[str, Any]:
     }
 
     flow = _single_value(query, "flow")
-    if flow:
+    # flow в Xray работает только поверх TCP; на ws/grpc sing-box отвергает
+    # весь конфиг (как в nodes.convert туннеля).
+    if flow and transport_type == "tcp":
         outbound["flow"] = flow
 
     if security in {"tls", "reality"}:

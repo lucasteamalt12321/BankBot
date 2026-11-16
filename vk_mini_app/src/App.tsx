@@ -76,7 +76,7 @@ const App: React.FC = () => {
         }
       })
       .catch(() => {
-        setState((s) => ({ ...s, screen: 'link', vkUserId: 'test_user' }));
+        setState((s) => ({ ...s, screen: 'link', vkUserId: '' }));
       });
   }, []);
 

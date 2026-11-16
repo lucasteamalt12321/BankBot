@@ -57,7 +57,9 @@ async def get_user_info(username: str) -> Optional[Dict[str, Any]]:
     }
     
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10)
+        ) as session:
             async with session.post(GD_USER_ENDPOINT, data=params) as response:
                 if response.status != 200:
                     logger.error(f"GD API returned status {response.status} for user {username}")
@@ -117,7 +119,9 @@ async def get_level_info(level_id: int) -> Optional[Dict[str, Any]]:
     }
     
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10)
+        ) as session:
             async with session.post(GD_LEVEL_ENDPOINT, data=params) as response:
                 if response.status != 200:
                     logger.error(f"GD API returned status {response.status} for level {level_id}")

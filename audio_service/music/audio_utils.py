@@ -192,12 +192,17 @@ def _key_shift(target_key: str, current_key: Optional[str]) -> int:
 
 
 def _parse_key(name: str) -> int:
-    s = name.strip()
+    s = (name or "").strip()
+    if not s:
+        raise ValueError("пустая тональность")
     minor = bool(re.search(r'(minor|min|m)$', s, re.I)) and not s.lower().endswith('maj')
     if minor:
         s = re.sub(r'(minor|min|m)$', '', s, flags=re.I).strip()
-    base_map = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+    # H — немецкая нотация для B (си).
+    base_map = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11, 'H': 11}
     letter = s[0].upper()
+    if letter not in base_map:
+        raise ValueError(f"неизвестная тональность: {name}")
     acc = s[1] if len(s) > 1 and s[1] in '#b' else ''
     idx = base_map[letter]
     idx += 1 if acc == '#' else (-1 if acc == 'b' else 0)

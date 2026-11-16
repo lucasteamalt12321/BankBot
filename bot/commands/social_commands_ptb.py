@@ -1,13 +1,13 @@
 """Social commands for python-telegram-bot."""
 
-import logging
+import structlog
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.database import get_db
 from core.systems.social_system import SocialSystem
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 async def friends_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,12 +90,12 @@ async def gift_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = next(get_db())
     try:
         social = SocialSystem(db)
-        result = social.gift_coins(user.id, username, amount)
+        result = social.send_gift(user.id, username, "coins", amount)
         if result["success"]:
             await update.message.reply_text(f"Podareno {amount} monet @{username}")
         else:
             await update.message.reply_text(
-                f"Ne udalos: {result.get('error', ' Oshibka')}"
+                f"Ne udalos: {result.get('reason', ' Oshibka')}"
             )
     except Exception as e:
         logger.error("Error in gift command", error=str(e))

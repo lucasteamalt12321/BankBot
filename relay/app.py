@@ -213,7 +213,7 @@ def health() -> Response:
 @app.route("/api/music", defaults={"path": ""}, methods=RELAY_METHODS)
 @app.route("/api/music/<path:path>", methods=RELAY_METHODS)
 def relay_audio(path: str) -> Response:
-    return _relay(AUDIO_UPSTREAM, f"api/music/{path}" if path else "")
+    return _relay(AUDIO_UPSTREAM, f"api/music/{path}" if path else "api/music")
 
 
 @app.route("/", defaults={"path": ""}, methods=RELAY_METHODS)

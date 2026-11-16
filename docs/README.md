@@ -294,6 +294,23 @@ LTHub/
 
 **Тесты:** `tests/unit/test_universe_runtime.py`.
 
+### Repo History Reader (История репозитория, бета)
+
+Читалка истории репозиториев: пользователь вставляет ссылку на публичный GitHub-репозиторий и выбирает период (7/30/90 дней или свои даты) — ИИ выдаёт сводку «что добавилось за период».
+
+**Компоненты:**
+- `api/repo_history.py` — чистые функции: `parse_repo_url()` (только github.com, защита от SSRF), `resolve_period()` (дни или since/until, до года), `fetch_commits()` (GitHub REST API `GET /repos/{owner}/{repo}/commits?since=&until=` — эквивалент `git log`, пагинация до 300 коммитов), `fetch_memory_bank()` (`memory_bank/progress.md` и `projectbrief.md` с raw.githubusercontent.com, 404 → пропуск), `build_prompt()`, `page_html()`.
+- `api/index.py` — `GET /repo_history` (страница) и `POST /api/repo_history/analyze` (сводка через `_ai_chat`); бета-карточка в хабе, `HUB_KEY['/repo_history']`.
+
+**Особенности:**
+- Git-бинарник и клонирование не используются — всё через HTTP API, укладывается в лимиты Vercel. Только публичные репозитории github.com.
+- Опциональный `GITHUB_TOKEN` из env повышает лимит GitHub API (без него 60 запросов/час на IP).
+- Rate-limit: анонимам 3 анализа/час на IP (`_check_db_rate`), вошедшим — 10/час. Новых таблиц БД нет.
+- Длинная история обрезается до 300 новейших коммитов (флаг `truncated` в ответе и пометка в промпте); бюджет текста коммитов в промпте — 30 КБ, memory_bank-файлов — по 15 КБ.
+- Ответ ИИ рендерится через marked + DOMPurify (fail-closed в plain text).
+
+**Тесты:** `tests/unit/test_repo_history.py` (30 тестов, вкл. `node --check` inline-JS страницы).
+
 ### Music Module (Музыка)
 
 Анализ и трансформация аудио/MIDI: измерение и изменение тональности и темпа (BPM), наложение (микширование) нескольких дорожек.

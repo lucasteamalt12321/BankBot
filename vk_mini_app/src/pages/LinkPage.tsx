@@ -24,6 +24,10 @@ export const LinkPage: React.FC<Props> = ({ vkUserId, onLinked }) => {
   const [error, setError] = useState('');
 
   const handleLink = async () => {
+    if (!vkUserId) {
+      setError('Не удалось определить пользователя VK. Перезапустите приложение.');
+      return;
+    }
     if (code.length !== 6) {
       setError('Код должен содержать 6 цифр');
       return;
@@ -87,7 +91,7 @@ export const LinkPage: React.FC<Props> = ({ vkUserId, onLinked }) => {
               size="l"
               stretched
               onClick={handleLink}
-              disabled={loading || code.length !== 6}
+              disabled={loading || code.length !== 6 || !vkUserId}
               loading={loading}
             >
               Привязать

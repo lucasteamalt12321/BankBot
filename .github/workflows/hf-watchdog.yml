@@ -47,6 +47,7 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           RENDER_WEBHOOK_URL: ${{ secrets.RENDER_WEBHOOK_URL }}
           RENDER_RELAY_URL: ${{ secrets.RENDER_RELAY_URL }}
           FORCE_RESTART: ${{ github.event.inputs.force_restart || 'false' }}
@@ -68,6 +69,7 @@ jobs:
           # ── Configuration ──────────────────────────────────────────────
           HF_TOKEN = os.environ["HF_TOKEN"].strip()
           BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
+          WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip()
           RENDER_WEBHOOK_URL = os.environ.get("RENDER_WEBHOOK_URL", "").strip().rstrip("/")
           RENDER_RELAY_URL = os.environ.get("RENDER_RELAY_URL", "").strip().rstrip("/")
           HF_WEBHOOK_URL = os.environ["HF_WEBHOOK_URL"].strip().rstrip("/")
@@ -128,19 +130,30 @@ jobs:
               return (url.split(marker)[0] + marker + "***") if marker in url else url
 
 
+          def resolve_secret() -> str:
+              """Явный WEBHOOK_SECRET, иначе производный от BOT_TOKEN.
+
+              Повторяет src/webhook_secret.resolve_webhook_secret: run_bot.py
+              проверяет именно этот секрет, иначе все апдейты получают 404.
+              """
+              if WEBHOOK_SECRET:
+                  return WEBHOOK_SECRET
+              return hmac.new(
+                  BOT_TOKEN.encode(), b"bankbot-hf-webhook", hashlib.sha256
+              ).hexdigest()
+
+
           def tg_set_webhook(target_url: str) -> tuple[bool, str]:
               """Set Telegram webhook to target_url via Bot API."""
-              # Derive secret the same way as src/webhook_secret.py
-              # (HMAC-SHA256(BOT_TOKEN, b"bankbot-hf-webhook")).
-              secret = hmac.new(
-                  BOT_TOKEN.encode(),
-                  b"bankbot-hf-webhook",
-                  hashlib.sha256,
-              ).hexdigest()
+              secret = resolve_secret()
               full_url = f"{target_url}/{secret}"
+              # secret_token обязателен: run_bot.py сверяет заголовок
+              # X-Telegram-Bot-Api-Secret-Token, без него все апдейты → 401.
               api_url = (
                   f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-                  f"?url={urllib.request.quote(full_url, safe='')}&drop_pending_updates=true"
+                  f"?url={urllib.request.quote(full_url, safe='')}"
+                  f"&secret_token={urllib.request.quote(secret, safe='')}"
+                  f"&drop_pending_updates=true"
               )
               try:
                   with urllib.request.urlopen(api_url, timeout=30) as resp:
@@ -235,7 +248,7 @@ jobs:
               target_url = HF_WEBHOOK_URL
 
           # Switch webhook if needed
-          secret = hmac.new(BOT_TOKEN.encode(), b"bankbot-hf-webhook", hashlib.sha256).hexdigest()
+          secret = resolve_secret()
           expected_current = f"{target_url}/{secret}"
 
           if current_url != expected_current:

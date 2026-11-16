@@ -46,6 +46,7 @@ class TunnelApp:
         self.queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy = False
         self.pending = ""
+        self._closing = threading.Event()
         self.session = TunnelSession(
             state_root=state_root, site=DEFAULT_SITE, log=self._log
         )
@@ -138,10 +139,15 @@ class TunnelApp:
         self._work(target)
 
     def _connect(self) -> None:
+        if self._closing.is_set():
+            return
         if not self.session.sing_box_installed:
             self._set_status("Устанавливаю sing-box...", bg=BG_BUSY)
             self.session.install()
         self.session.build()
+        # Окно могли закрыть, пока шла сборка: не поднимаем осиротевший sing-box.
+        if self._closing.is_set():
+            return
         self._set_status("Поднимаю прокси...", bg=BG_BUSY)
         self.session.start()
         ok, detail = self.session.check_site()
@@ -215,6 +221,7 @@ class TunnelApp:
         self.log_box.config(state="disabled")
 
     def _on_close(self) -> None:
+        self._closing.set()
         self.session.stop()
         self.root.destroy()
 

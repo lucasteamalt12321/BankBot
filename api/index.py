@@ -542,7 +542,7 @@ def _award_web_coins(user_id: int, amount: int, description: str = "") -> bool:
             else:
                 conn.execute(
                     text(
-                        "INSERT INTO user_coins (user_id, balance, last_puzzle_at) VALUES (:user_id, :delta, NOW())"
+                        "INSERT INTO user_coins (user_id, balance, last_puzzle_at) VALUES (:user_id, :delta, CURRENT_TIMESTAMP)"
                     ),
                     {"user_id": uid, "delta": amount},
                 )
@@ -813,6 +813,9 @@ WEBHOOK_SECRET = (
     resolve_webhook_secret(BOT_TOKEN, _raw_webhook_secret)
     or "webhook-secret-not-configured"
 )
+# Без BOT_TOKEN/WEBHOOK_SECRET фолбэк — публичная константа: вебхук обязан
+# отказать, иначе любой сможет слать апдейты от имени любого пользователя.
+_WEBHOOK_SECRET_CONFIGURED = bool(resolve_webhook_secret(BOT_TOKEN, _raw_webhook_secret))
 
 
 def _redact_webhook_url(url: str | None) -> str | None:
@@ -1229,7 +1232,7 @@ def _ensure_user_preferences_table(engine):
 def _ensure_chess_games_table(engine):
     """Create chess_games table if it doesn't exist."""
     try:
-        with engine.connect() as conn:
+        with _ddl_session(engine) as conn:
             conn.execute(
                 text("""
                 CREATE TABLE IF NOT EXISTS chess_games (
@@ -1259,7 +1262,7 @@ def _ensure_chess_games_table(engine):
 def _ensure_chess_accounts_and_coins(engine):
     """Create chess_accounts and user_coins tables if they don't exist."""
     try:
-        with engine.connect() as conn:
+        with _ddl_session(engine) as conn:
             conn.execute(
                 text("""
                 CREATE TABLE IF NOT EXISTS chess_accounts (
@@ -2048,6 +2051,21 @@ def _html_escape(s: str) -> str:
     return html.escape(s or "", quote=True)
 
 
+def _canon_url_ok(url: str) -> bool:
+    """Только http/https/tg-ссылки (защита от javascript: и data: в href)."""
+    if not url:
+        return True
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https", "tg"):
+        return False
+    return parsed.scheme == "tg" or bool(parsed.netloc)
+
+
 def format_bytes(size) -> str:
     """Human-readable размер в байтах."""
     try:
@@ -2085,7 +2103,7 @@ def _canon_work_to_dict(work) -> dict:
 
 def _ensure_canon_tables(engine):
     """Create canon DB tables (works, requests, doc overlay) and seed metadata."""
-    with engine.connect() as conn:
+    with _ddl_session(engine) as conn:
         conn.execute(
             text("""
             CREATE TABLE IF NOT EXISTS canon_works (
@@ -2216,7 +2234,7 @@ def _ensure_canon_tables(engine):
 def _ensure_textbook_tables(engine):
     """Create textbook tracker tables if they don't exist."""
     try:
-        with engine.connect() as conn:
+        with _ddl_session(engine) as conn:
             conn.execute(
                 text("""
                 CREATE TABLE IF NOT EXISTS textbooks (
@@ -2243,7 +2261,7 @@ def _ensure_textbook_tables(engine):
 def _ensure_code_tables(engine):
     """Create Code Explainer tables if they don't exist."""
     try:
-        with engine.begin() as conn:
+        with _ddl_session(engine) as conn:
             conn.execute(
                 text("""
                 CREATE TABLE IF NOT EXISTS code_projects (
@@ -2338,6 +2356,7 @@ def _ensure_code_tables(engine):
                     "CREATE INDEX IF NOT EXISTS ix_code_chat_project ON code_chat_messages(project_id, user_id)"
                 )
             )
+            conn.commit()
         log_error("CODE", "info", "Table ensured")
     except Exception as exc:
         log_error("CODE", "error", f"Table init error: {exc}")
@@ -2346,7 +2365,7 @@ def _ensure_code_tables(engine):
 def _ensure_parsing_tables(engine):
     """Create parsing tracking tables if they don't exist."""
     try:
-        with engine.connect() as conn:
+        with _ddl_session(engine) as conn:
             conn.execute(
                 text("""
                 CREATE TABLE IF NOT EXISTS parsed_transactions (
@@ -6216,20 +6235,23 @@ def purchase_item(user_id: int, item_id: int) -> tuple[bool, str]:
             if balance < price:
                 return False, f"❌ Недостаточно средств (нужно {price}, есть {balance})"
 
-            # Deduct balance
-            conn.execute(
+            # Deduct balance atomically: guard prevents negative balance under races
+            result = conn.execute(
                 text(
-                    "UPDATE users SET balance = balance - :price WHERE telegram_id = :user_id"
+                    "UPDATE users SET balance = balance - :price "
+                    "WHERE telegram_id = :user_id AND balance >= :price"
                 ),
                 {"price": price, "user_id": user_id},
             )
+            if result.rowcount != 1:
+                return False, "❌ Недостаточно средств"
 
             # Create purchase record
             conn.execute(
                 text(
                     """
                     INSERT INTO user_purchases (user_id, item_id, purchase_price, purchased_at, is_active)
-                    VALUES (:user_id, :item_id, :price, NOW(), true)
+                    VALUES (:user_id, :item_id, :price, CURRENT_TIMESTAMP, true)
                     """
                 ),
                 {"user_id": internal_user_id, "item_id": item_id, "price": price},
@@ -6240,7 +6262,7 @@ def purchase_item(user_id: int, item_id: int) -> tuple[bool, str]:
                 text(
                     """
                     INSERT INTO transactions (user_id, amount, transaction_type, description, created_at)
-                    VALUES (:user_id, :amount, 'purchase', :description, NOW())
+                    VALUES (:user_id, :amount, 'purchase', :description, CURRENT_TIMESTAMP)
                     """
                 ),
                 {
@@ -6393,7 +6415,7 @@ def add_user_balance(user_id: int, amount: int, description: str = "") -> bool:
                 text(
                     """
                     INSERT INTO transactions (user_id, amount, transaction_type, description, created_at)
-                    VALUES (:user_id, :amount, 'admin_add', :description, NOW())
+                    VALUES (:user_id, :amount, 'admin_add', :description, CURRENT_TIMESTAMP)
                     """
                 ),
                 {
@@ -7431,7 +7453,7 @@ def approve_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
             # Approve
             conn.execute(
                 text(
-                    "UPDATE submissions SET status='approved', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid"
+                    "UPDATE submissions SET status='approved', reviewed_at=CURRENT_TIMESTAMP, reviewed_by=:rid WHERE id=:sid"
                 ),
                 {"sid": submission_id, "rid": reviewer_id},
             )
@@ -7483,7 +7505,7 @@ def reject_gd_submission_db(submission_id: int, reviewer_id: int) -> bool:
         with get_db_engine().connect() as conn:
             result = conn.execute(
                 text(
-                    "UPDATE submissions SET status='rejected', reviewed_at=NOW(), reviewed_by=:rid WHERE id=:sid AND status='pending'"
+                    "UPDATE submissions SET status='rejected', reviewed_at=CURRENT_TIMESTAMP, reviewed_by=:rid WHERE id=:sid AND status='pending'"
                 ),
                 {"sid": submission_id, "rid": reviewer_id},
             )
@@ -9919,6 +9941,13 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                         <p>Вставьте Markdown слева — справа живое превью в виде листа PDF A4, кнопка скачать</p>
                     </div>
                 </a>
+                <a class="card" href="/repo_history">
+                    <div class="card-icon">📜</div>
+                    <div class="card-content">
+                        <h2>История репозитория <span class="beta-tag">Бета</span></h2>
+                        <p>Ссылка на GitHub + период — ИИ расскажет, что добавилось (git log и memory_bank)</p>
+                    </div>
+                </a>
                 <a class="card" href="/suggest">
                     <div class="card-icon">💡</div>
                     <div class="card-content">
@@ -10378,7 +10407,7 @@ h1, .card-content h2, .beta-toggle-content h2 { margin-top: 0; }
                     '/informatics': 'informatics', '/math': 'math', '/russian': 'russian',
                     '/physics': 'physics', '/exam': 'exam', '/family': 'family_circle',
                     '/admin': 'admin', '/music': 'music', '/textbooks': 'textbooks',
-                    '/code': 'code', '/suggest': 'suggest'
+                    '/code': 'code', '/repo_history': 'repo_history', '/suggest': 'suggest'
                 };
                 function score(card) {
                     if (!HUB_SORT_OK) return 0;
@@ -10609,7 +10638,8 @@ var IS_ADMIN = false;
             loader();
         }
 
-        function _gdEsc(s) { var d = document.createElement('div'); d.appendChild(document.createTextNode(s != null ? String(s) : '')); return d.innerHTML; }
+        function _gdEsc(s) { return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+        function _gdSafeHref(u) { var s = String(u == null ? '' : u).trim(); return (/^https?:\\/\\//i.test(s) || /^data:(image|video)\\//i.test(s)) ? s : ''; }
         function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
         function searchUser() {
             var nick = document.getElementById('gd-nick').value.trim();
@@ -11032,8 +11062,9 @@ var IS_ADMIN = false;
             var isData = low.indexOf('data:') === 0;
             var isImg = isData ? /^data:image\\//.test(low) : /\\.(png|jpe?g|gif|webp)([?#]|$)/.test(low);
             var isVid = isData ? /^data:video\\//.test(low) : /\\.(mp4|webm|mov|mkv)([?#]|$)/.test(low);
+            var href = _gdSafeHref(mediaId);
             var html = '<div class="hint" style="margin-top:0">'
-                + '<a href="' + _gdEsc(mediaId) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>'
+                + (href ? '<a href="' + _gdEsc(href) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>' : '🎬 Медиа приложено')
                 + (mediaType === 'link' ? ' · 🔗 внешняя ссылка' : '')
                 + '</div>';
             if (isImg) html += '<img src="' + _gdEsc(mediaId) + '" alt="Скриншот прохождения" loading="lazy" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block">';
@@ -11221,15 +11252,17 @@ def gd_level_page(level_id: int):
 </div>
 <script>
     var LEV_ID = parseInt((window.location.pathname.split('/').pop() || ''), 10);
-    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function esc(s) { return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    function safeHref(u) { var s = String(u == null ? '' : u).trim(); return (/^https?:\/\//i.test(s) || /^data:(image|video)\//i.test(s)) ? s : ''; }
     function gdMediaHtml(mediaId, mediaType) {
         if (!mediaId) return '';
         var low = mediaId.toLowerCase();
         var isData = low.indexOf('data:') === 0;
         var isImg = isData ? low.indexOf('data:image/') === 0 : /\.(png|jpe?g|gif|webp)([?#]|$)/.test(low);
         var isVid = isData ? low.indexOf('data:video/') === 0 : /\.(mp4|webm|mov|mkv)([?#]|$)/.test(low);
+        var href = safeHref(mediaId);
         var html = '<div class="hint" style="margin-top:6px;margin-bottom:0">'
-            + '<a href="' + esc(mediaId) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>'
+            + (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">🎬 Открыть медиа</a>' : '🎬 Медиа приложено')
             + (mediaType === 'link' ? ' · 🔗 внешняя ссылка' : '')
             + '</div>';
         if (isImg) html += '<img src="' + esc(mediaId) + '" alt="Медиа прохождения" loading="lazy" style="max-width:100%;max-height:320px;border-radius:10px;margin-top:8px;display:block">';
@@ -12790,6 +12823,7 @@ def dnd_page():
             var xhr = new XMLHttpRequest();
             xhr.open('POST', url);
             xhr.setRequestHeader('Content-Type', 'application/json');
+            if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
             xhr.timeout = 60000;
             xhr.ontimeout = function() { cb({error: 'Сервер не ответил. Попробуйте ещё раз.'}); };
             xhr.onload = function() { try { cb(JSON.parse(xhr.responseText)); } catch(e) { cb({error: 'Ошибка ответа сервера.'}); } };
@@ -12837,6 +12871,7 @@ def dnd_page():
         function refreshStatus() {
             var xhr = new XMLHttpRequest();
             xhr.open('GET', '/api/dnd/status?user_id=' + encodeURIComponent(USER_ID));
+            if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
             xhr.timeout = 30000;
             xhr.ontimeout = function() { showStart('Сервер не ответил. Попробуйте ещё раз.'); };
             xhr.onload = function() {
@@ -13988,8 +14023,83 @@ _BLOCKED_MODULES = {
     "timeit",
     "zipimport",
     "pkgutil",
+    "io",
+    "_io",
+    "builtins",
+    "importlib",
+    "gc",
+    "marshal",
+    "types",
+    "code",
+    "tempfile",
+    "http",
+    "urllib",
+    "requests",
+    "operator",
+    "string",
+    "posix",
+    "nt",
+    "glob",
+    "resource",
+    "ssl",
+    "select",
+    "pipes",
+    "pty",
+    "fcntl",
+    "msvcrt",
+    "winreg",
+    "_winreg",
+    "pwd",
+    "grp",
+    "spwd",
+    "crypt",
+    "termios",
+    "tty",
 }
-_BLOCKED_KEYWORDS = {"__import__", "eval", "exec", "open", "__builtins__"}
+_BLOCKED_KEYWORDS = {
+    "__import__",
+    "eval",
+    "exec",
+    "open",
+    "__builtins__",
+    "getattr",
+    "setattr",
+    "delattr",
+    "vars",
+    "dir",
+    "globals",
+    "locals",
+    "compile",
+    "input",
+    "breakpoint",
+    "help",
+}
+# Атрибуты, через которые без dunder добираются до кадров/глобалов/builtins
+# (generator.gi_frame.f_builtins['open'] и т.п.).
+_BLOCKED_ATTRS = {
+    "gi_frame",
+    "gi_code",
+    "gi_yieldfrom",
+    "f_globals",
+    "f_builtins",
+    "f_locals",
+    "f_back",
+    "f_code",
+    "f_trace",
+    "tb_frame",
+    "tb_next",
+    "cr_frame",
+    "cr_code",
+    "ag_frame",
+    "ag_code",
+    "func_globals",
+    "func_code",
+    "im_func",
+    "im_self",
+}
+# Dunder-ссылки в строках: '{0.__class__}'.format(x) и operator.attrgetter
+# обходят AST-проверку атрибутов, поэтому режем и строковые литералы.
+_DUNDER_ESCAPE_RE = re.compile(r"__[a-z_]+__")
 
 
 def _sandbox_preexec(cpu_seconds: int, memory_mb: int, max_filesize_mb: int = 8):
@@ -14068,6 +14178,21 @@ def _run_python_sandbox(
                     and node.func.id in _BLOCKED_KEYWORDS
                 ):
                     result["error"] = f"Blocked: {node.func.id}() is not allowed"
+                    return result
+            elif isinstance(node, ast.Attribute):
+                if node.attr.startswith("__") and node.attr.endswith("__"):
+                    result["error"] = f"Blocked: dunder attribute {node.attr} is not allowed"
+                    return result
+                if node.attr in _BLOCKED_KEYWORDS or node.attr in _BLOCKED_ATTRS:
+                    result["error"] = f"Blocked: attribute {node.attr} is not allowed"
+                    return result
+            elif isinstance(node, ast.Name):
+                if node.id in _BLOCKED_KEYWORDS:
+                    result["error"] = f"Blocked: {node.id} is not allowed"
+                    return result
+            elif isinstance(node, ast.Constant):
+                if isinstance(node.value, str) and _DUNDER_ESCAPE_RE.search(node.value):
+                    result["error"] = "Blocked: dunder reference in string is not allowed"
                     return result
     except SyntaxError:
         result["error"] = "Syntax error in code"
@@ -15121,13 +15246,16 @@ def api_ai_chat():
         if not char_data:
             return jsonify({"error": "Персонаж не найден"}), 400
 
-        user_id = str(data.get("user_id") or "anon")
         token = _auth_token_from_request()
         session_user = None
         if token:
             session_user = _get_session_user(token)
-            if session_user:
-                user_id = str(session_user["id"])
+        if session_user:
+            user_id = str(session_user["id"])
+        else:
+            # Анонимный ключ в отдельном неймспейсе: клиентский user_id
+            # не должен попадать в ПК авторизованного пользователя (IDOR).
+            user_id = "anon:" + str(data.get("user_id") or "anon")[:64]
 
         ctx = data.get("context") or {}
         tool_groups = []
@@ -15303,10 +15431,16 @@ def chess_page():
         return String(s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
     }
 
+    function authHdr(x) {
+        var t = localStorage.getItem('web_token');
+        if (t) x.setRequestHeader('X-Auth-Token', t);
+    }
+
     function loadStats() {
         panels.stats.innerHTML = '<div class="spinner">Загрузка статистики...</div>';
         var xhr = new XMLHttpRequest();
         xhr.open('GET', '/api/chess/stats');
+        authHdr(xhr);
         xhr.onload = function() {
             if (xhr.status === 200) {
                 var d = JSON.parse(xhr.responseText);
@@ -15378,6 +15512,7 @@ def chess_page():
                 var x = new XMLHttpRequest();
                 x.open('POST', '/api/chess/link');
                 x.setRequestHeader('Content-Type', 'application/json');
+                authHdr(x);
                 x.onload = function() {
                     linkBtn.disabled = false;
                     var r;
@@ -15396,6 +15531,7 @@ def chess_page():
                             var x2 = new XMLHttpRequest();
                             x2.open('POST', '/api/chess/link');
                             x2.setRequestHeader('Content-Type', 'application/json');
+                            authHdr(x2);
                             x2.onload = function() {
                                 var r2;
                                 try { r2 = JSON.parse(x2.responseText); } catch(e) { r2 = {}; }
@@ -15458,6 +15594,7 @@ def chess_page():
         var xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/chess/puzzle');
         xhr.setRequestHeader('Content-Type', 'application/json');
+        authHdr(xhr);
         xhr.onload = function() {
             if (xhr.status === 200) {
                 var d = JSON.parse(xhr.responseText);
@@ -15491,6 +15628,7 @@ def chess_page():
             var x = new XMLHttpRequest();
             x.open('POST', '/api/chess/puzzle/check');
             x.setRequestHeader('Content-Type', 'application/json');
+            authHdr(x);
             x.onload = function() {
                 checkBtn.disabled = false;
                 var r;
@@ -15911,6 +16049,7 @@ def register_page():
                 var urlParams = new URLSearchParams(location.search);
                 var dest = urlParams.get('redirect') || '/';
                 if (dest.charAt(0) !== '/' || dest.charAt(1) === '/') { dest = '/'; }
+                try { if (new URL(dest, window.location.origin).origin !== window.location.origin) { dest = '/'; } } catch(e) { dest = '/'; }
                 setTimeout(function() { window.location.href = dest; }, 800);
             }
         }).catch(function() { document.querySelector('.btn').disabled = false; showToast('Ошибка сети', true); });
@@ -16011,6 +16150,7 @@ def login_page():
                 setTimeout(function() {
                     var dest = new URLSearchParams(location.search).get('redirect') || '/';
                     if (dest.charAt(0) !== '/' || dest.charAt(1) === '/') { dest = '/'; }
+                    try { if (new URL(dest, window.location.origin).origin !== window.location.origin) { dest = '/'; } } catch(e) { dest = '/'; }
                     window.location.href = dest;
                 }, 800);
             }
@@ -18466,6 +18606,7 @@ def trivia_page():
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/trivia/answer');
                 xhr.setRequestHeader('Content-Type', 'application/json');
+                if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
                 xhr.onload = function() {
                     try {
                         var r = JSON.parse(xhr.responseText);
@@ -22714,7 +22855,7 @@ def api_quiz_generate():
             random.shuffle(options)
             correct_idx = options.index(correct)
             q["options"] = options
-            q["correct_idx"] = correct_idx
+            # correct_idx хранится только в серверной сессии — клиенту не отдаём.
             it["correct_idx"] = correct_idx
         safe_items.append(q)
 
@@ -22855,8 +22996,14 @@ def _exam_student_context(uid, now):
 def api_exam_ai_batch():
     """Pick a batch of questions for the exam. Weak items first, then random."""
     data = request.get_json(silent=True) or {}
-    n = max(1, min(10, int(data.get("n") or 3)))
-    seen = set(data.get("seen") or [])
+    try:
+        n = max(1, min(10, int(data.get("n") or 3)))
+    except (TypeError, ValueError):
+        n = 3
+    seen_raw = data.get("seen") or []
+    if not isinstance(seen_raw, list):
+        seen_raw = []
+    seen = {s for s in seen_raw if isinstance(s, (str, int))}
     user = _get_session_user(_auth_token_from_request())
     uid = _web_user_id("u" + str(user["id"])) if user else None
     now = time.time()
@@ -25119,6 +25266,8 @@ def api_study_ai_plan():
     user, auth_resp = _auth_user_or_401()
     if auth_resp:
         return auth_resp
+    if _check_db_rate("study_ai_plan:" + str(user["id"]), 6, 60):
+        return jsonify({"ok": False, "error": "Слишком много запросов. Подождите минуту."}), 429
     uid = _web_user_id("u" + str(user["id"]))
     today = time.strftime("%Y-%m-%d")
     force = request.args.get("force") == "1"
@@ -25616,6 +25765,8 @@ def api_study_plan_regenerate():
     user, auth_resp = _auth_user_or_401()
     if auth_resp:
         return auth_resp
+    if _check_db_rate("study_plan_regen:" + str(user["id"]), 6, 60):
+        return jsonify({"ok": False, "error": "Слишком много запросов. Подождите минуту."}), 429
     uid = _web_user_id("u" + str(user["id"]))
     data = request.get_json(silent=True) or {}
     today = time.strftime("%Y-%m-%d")
@@ -27244,9 +27395,15 @@ def _prayer_for_day(user_key, day: str) -> str:
 
 @app.route("/api/daily_prayer", methods=["POST"])
 def api_daily_prayer():
+    if _check_db_rate("daily_prayer:" + (request.remote_addr or ""), 10, 60):
+        return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     data = request.get_json(silent=True) or {}
-    user_id_raw = data.get("user_id", "")
-    uid = _web_user_id(user_id_raw)
+    user = _get_session_user(_auth_token_from_request())
+    if user:
+        uid = _web_user_id("u" + str(user["id"]))
+    else:
+        # Анонимный ключ не должен совпадать с uid авторизованного пользователя.
+        uid = _web_user_id("anon:" + str(data.get("user_id") or "")[:64])
     today = date.today().isoformat()
     already = False
     unlocked_detail = []
@@ -27958,6 +28115,10 @@ def api_canon_request_submit():
         return jsonify({"error": "Автор слишком длинный (макс. 100 символов)"}), 400
     if len(url) > 500:
         return jsonify({"error": "Ссылка слишком длинная (макс. 500 символов)"}), 400
+    if not _canon_url_ok(url):
+        return jsonify(
+            {"error": "Ссылка должна начинаться с http://, https:// или tg://"}
+        ), 400
     if len(content) > 5000:
         return jsonify({"error": "Текст слишком длинный (макс. 5000 символов)"}), 400
     if canon_level not in ("high", "medium", "low", "archive"):
@@ -28168,7 +28329,7 @@ def api_admin_canon_request_approve(req_id):
             conn.execute(
                 text("""
                     UPDATE canon_requests
-                    SET status = 'approved', reviewer_id = :rv, review_note = :note, reviewed_at = NOW()
+                    SET status = 'approved', reviewer_id = :rv, review_note = :note, reviewed_at = CURRENT_TIMESTAMP
                     WHERE id = :id
                 """),
                 {
@@ -28195,7 +28356,7 @@ def api_admin_canon_request_reject(req_id):
             conn.execute(
                 text("""
                     UPDATE canon_requests
-                    SET status = 'rejected', reviewer_id = :rv, review_note = :note, reviewed_at = NOW()
+                    SET status = 'rejected', reviewer_id = :rv, review_note = :note, reviewed_at = CURRENT_TIMESTAMP
                     WHERE id = :id AND status = 'pending'
                 """),
                 {
@@ -28226,13 +28387,17 @@ def api_admin_canon_work_update(work_id):
         return jsonify({"error": "Автор слишком длинный (макс. 100 символов)"}), 400
     if len(url := (data.get("url") or "").strip()) > 500:
         return jsonify({"error": "Ссылка слишком длинная (макс. 500 символов)"}), 400
+    if not _canon_url_ok(url):
+        return jsonify(
+            {"error": "Ссылка должна начинаться с http://, https:// или tg://"}
+        ), 400
     try:
         with get_db_engine().connect() as conn:
             result = conn.execute(
                 text("""
                     UPDATE canon_works
                     SET title = :t, kind = :k, author = :a, date = :d, canon_level = :l,
-                        url = :u, content = :c, updated_at = NOW()
+                        url = :u, content = :c, updated_at = CURRENT_TIMESTAMP
                     WHERE id = :id
                 """),
                 {
@@ -28306,7 +28471,7 @@ def api_admin_canon_work_audio_upload(work_id):
             result = conn.execute(
                 text("""
                     UPDATE canon_works
-                    SET audio_data = :a, audio_name = :n, audio_mime = :m, audio_size = :s, updated_at = NOW()
+                    SET audio_data = :a, audio_name = :n, audio_mime = :m, audio_size = :s, updated_at = CURRENT_TIMESTAMP
                     WHERE id = :id
                 """),
                 {
@@ -28343,7 +28508,7 @@ def api_admin_canon_work_audio_delete(work_id):
             result = conn.execute(
                 text("""
                     UPDATE canon_works
-                    SET audio_data = NULL, audio_name = NULL, audio_mime = NULL, audio_size = NULL, updated_at = NOW()
+                    SET audio_data = NULL, audio_name = NULL, audio_mime = NULL, audio_size = NULL, updated_at = CURRENT_TIMESTAMP
                     WHERE id = :id
                 """),
                 {"id": work_id},
@@ -28466,7 +28631,7 @@ def api_admin_canon_doc_put():
             if existing:
                 conn.execute(
                     text(
-                        "UPDATE canon_doc SET content = :c, updated_by = :u, updated_at = NOW() WHERE id = :id"
+                        "UPDATE canon_doc SET content = :c, updated_by = :u, updated_at = CURRENT_TIMESTAMP WHERE id = :id"
                     ),
                     {"c": content, "u": user.get("id"), "id": existing["id"]},
                 )
@@ -29099,14 +29264,14 @@ def canon_work_page(work_id):
             <a href="/canon">← Канон</a>
         </div>
         <div class="meta">
-            {kind_label} · {meta or "Автор неизвестен"}
+            {_html_escape(kind_label)} · {_html_escape(meta) if meta else "Автор неизвестен"}
             <span class="badge badge-{work["canon_level"]}">{level_label[1]}</span>
             {('<span style="color:var(--gh-muted);">👁 ' + str(work.get("view_count") or 0) + "</span>") if (work.get("view_count") or 0) > 0 else ""}
         </div>
         {audio_html}
         {('<div class="section-title">📜 Текст</div>' if work["kind"] == "article" and not has_audio else "")}
         <div class="content">{content_html}</div>
-{"<a class='source-link' href='" + _html_escape(work["url"]) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") else ""}
+{"<a class='source-link' href='" + _html_escape(work["url"]) + "' target='_blank' rel='noopener noreferrer'>↗ Открыть оригинал в Telegram</a>" if work.get("url") and _canon_url_ok(work["url"]) else ""}
         <div class="nav">{nav_html}</div>
     </div>
 </body>
@@ -29949,6 +30114,7 @@ def irregular_verbs_page():
                     var xhr = new XMLHttpRequest();
                     xhr.open('POST', '/api/verbs/submit');
                     xhr.setRequestHeader('Content-Type', 'application/json');
+                    if (localStorage.getItem('web_token')) { xhr.setRequestHeader('X-Auth-Token', localStorage.getItem('web_token')); }
                     xhr.timeout = 20000;
                     xhr.ontimeout = function() { render('<div class="card error-text">\\u0421\\u0435\\u0440\\u0432\\u0435\\u0440 \\u043d\\u0435 \\u043e\\u0442\\u0432\\u0435\\u0442\\u0438\\u043b.</div>'); };
                     xhr.onload = function() {
@@ -30245,7 +30411,9 @@ def telegram_webhook(secret: str):
     """Receive Telegram webhook and forward to processing."""
 
     # Verify secret
-    if not hmac.compare_digest(secret, WEBHOOK_SECRET):
+    if not _WEBHOOK_SECRET_CONFIGURED:
+        return jsonify({"error": "webhook_not_configured"}), 503
+    if not hmac.compare_digest(secret.encode(), WEBHOOK_SECRET.encode()):
         return jsonify({"error": "invalid_secret"}), 404
 
     # Get update
@@ -31238,13 +31406,22 @@ def telegram_webhook(secret: str):
                 f"🎯 **Викторина по канону**\n\n{question_text}\n\nВыберите правильный ответ:",
                 parse_mode="Markdown",
             )
+            # Правильный ответ хранится только на сервере; в callback_data — токен.
+            trivia_token = secrets.token_hex(6)
+            _TRIVIA_SESSIONS[trivia_token] = {
+                "correct_index": correct_index,
+                "explanation": explanation,
+                "answered": set(),
+                "_created_at": time.time(),
+            }
+            _trivia_prune_expired()
             inline_keyboard = []
             for i, opt in enumerate(options):
                 inline_keyboard.append(
                     [
                         {
                             "text": f"✅ {opt}",
-                            "callback_data": f"trivia_{i}_{correct_index}",
+                            "callback_data": f"trivia_{trivia_token}_{i}",
                         }
                     ]
                 )
@@ -32509,6 +32686,17 @@ def gd_moderate_callback(callback_query: dict, callback_data: str) -> None:
             return
         action = parts[2]
         if action == "page":
+            if not check_admin(user_id):
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+                    json={
+                        "callback_query_id": cq_id,
+                        "text": "🔒 Нет прав администратора",
+                        "show_alert": True,
+                    },
+                    timeout=5,
+                )
+                return jsonify({"ok": True})
             page = int(parts[3])
             _gd_moderate_show_page(callback_query, chat_id, page)
         elif action == "approve":
@@ -32676,21 +32864,35 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
             print("trivia_callback: no user_id in callback_query")
             return
 
-        # Parse callback_data: trivia_{index}_{correct_index}
+        # Parse callback_data: trivia_{session_token}_{selected_index}
         parts = callback_data.split("_")
         if len(parts) < 3:
             print(f"trivia_callback: invalid format {callback_data}")
             send_telegram_message(chat_id, "❌ Неверный формат ответа")
             return
 
+        token = parts[1]
         try:
-            selected_index = int(parts[1])
-            correct_index = int(parts[2])
+            selected_index = int(parts[2])
         except ValueError as e:
             print(f"trivia_callback: parse error {e}")
             send_telegram_message(chat_id, "❌ Ошибка парсинга ответа")
             return
 
+        # Правильный ответ — на сервере, не в callback_data (защита от подглядывания).
+        session = _TRIVIA_SESSIONS.get(token)
+        if not session:
+            send_telegram_message(chat_id, "⌛ Вопрос устарел. Запустите /trivia заново.")
+            return
+
+        # Дедуп: один ответ на пользователя за вопрос (защита от накрутки кликами).
+        answered = session.setdefault("answered", set())
+        if user_id in answered:
+            send_telegram_message(chat_id, "ℹ️ Вы уже ответили на этот вопрос.")
+            return
+        answered.add(user_id)
+
+        correct_index = session["correct_index"]
         print(
             f"trivia_callback: user_id={user_id}, selected={selected_index}, correct={correct_index}"
         )
@@ -32702,7 +32904,7 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
                     row = (
                         conn.execute(
                             text(
-                                "SELECT id, balance FROM users WHERE telegram_id = :user_id"
+                                "SELECT id FROM users WHERE telegram_id = :user_id"
                             ),
                             {"user_id": user_id},
                         )
@@ -32712,12 +32914,18 @@ def trivia_answer_callback(callback_query: dict, callback_data: str) -> None:
 
                     if row:
                         user_db_id = row["id"]
-                        new_balance = int(row["balance"]) + 10
+                        # Атомарное относительное начисление (защита от гонок).
                         conn.execute(
                             text(
-                                "UPDATE users SET balance = :new_balance WHERE id = :user_db_id"
+                                "UPDATE users SET balance = balance + 10 WHERE id = :user_db_id"
                             ),
-                            {"new_balance": new_balance, "user_db_id": user_db_id},
+                            {"user_db_id": user_db_id},
+                        )
+                        new_balance = int(
+                            conn.execute(
+                                text("SELECT balance FROM users WHERE id = :user_db_id"),
+                                {"user_db_id": user_db_id},
+                            ).scalar()
                         )
                         conn.execute(
                             text("""
@@ -32873,7 +33081,9 @@ def test_telegram():
 
 @app.route("/api/debug_hf", methods=["GET"])
 def debug_hf():
-    """Debug endpoint to check HF API configuration and connectivity."""
+    """Debug endpoint to check HF API configuration and connectivity (admin only)."""
+    if not _admin_require():
+        return jsonify({"error": "Нет доступа"}), 403
     if _check_ai_rate("hf:" + request.remote_addr):
         return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
     import requests  # Use requests instead of httpx
@@ -32882,9 +33092,6 @@ def debug_hf():
         "timestamp": "2026-05-31T18:04:00Z",
         "hf_token_exists": bool(
             os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN")
-        ),
-        "hf_token_length": len(
-            os.getenv("HF_INFERENCE_TOKEN") or os.getenv("HF_TOKEN") or ""
         ),
         "models_to_try": [
             "mistralai/Mistral-7B-Instruct-v0.2",
@@ -35795,8 +36002,11 @@ def _code_clone_repo(repo_url: str, dest: str, timeout: int = 30) -> bool:
                 if not m.name.startswith(f"{top}/.git/")
                 and not m.name.startswith(f"{top}/.godot/")
                 and not m.name.startswith(f"{top}/node_modules/")
+                # Симлинки/хардлинки из чужого репозитория — вектор tar-slip
+                # (запись за пределы dest); анализатору кода они не нужны.
+                and not (m.issym() or m.islnk())
             ]
-            tf.extractall(dest, members=members)
+            tf.extractall(dest, members=members, filter="data")
         # Move contents out of the top-level dir
         src_dir = os.path.join(dest, top)
         if os.path.isdir(src_dir):
@@ -38149,6 +38359,97 @@ def api_md2pdf_format():
         return jsonify({"markdown": markdown})
     except Exception as exc:
         log_error("MD2PDF", "error", f"format error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+# ── Repo History Reader (beta) ──
+
+
+@app.route("/repo_history")
+def repo_history_page():
+    from api.repo_history import page_html
+
+    return page_html(), 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/repo_history/analyze", methods=["POST"])
+def api_repo_history_analyze():
+    """Сводка «что добавилось за период» по GitHub-репозиторию.
+
+    Анонимам 3 анализа/час на IP, вошедшим — 10/час (freemium-база всем).
+    """
+    from api import repo_history as rh
+
+    try:
+        user, _ = _auth_user_or_401()
+        ip = request.remote_addr or "unknown"
+        if user:
+            if _check_db_rate(
+                f"repohist_{user['id']}", 10, 3600
+            ) or _check_ai_rate(f"repohist:{user['id']}", 5, 60):
+                return (
+                    jsonify({"error": "Слишком много запросов. Подождите немного."}),
+                    429,
+                )
+        else:
+            if _check_db_rate(
+                f"repohist_anon_{ip}", 3, 3600
+            ) or _check_ai_rate("repohist_anon:" + ip, 3, 60):
+                return (
+                    jsonify(
+                        {
+                            "error": "Слишком много запросов. Войдите, чтобы увеличить лимит."
+                        }
+                    ),
+                    429,
+                )
+        data = request.get_json(silent=True) or {}
+        owner, repo = rh.parse_repo_url(data.get("url"))
+        since, until, label = rh.resolve_period(data)
+        commits, truncated = rh.fetch_commits(owner, repo, since, until)
+        repo_slug = f"{owner}/{repo}"
+        if not commits:
+            return jsonify(
+                {
+                    "summary": f"За период «{label}» коммитов в {repo_slug} не найдено.",
+                    "commit_count": 0,
+                    "truncated": False,
+                    "period": label,
+                    "repo": repo_slug,
+                    "memory_bank_files": [],
+                }
+            )
+        mb_files = rh.fetch_memory_bank(owner, repo)
+        prompt = rh.build_prompt(owner, repo, commits, mb_files, label, truncated)
+        resp = _ai_chat(
+            {
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1600,
+                "temperature": 0.3,
+            },
+            timeout=30.0,
+        )
+        if resp is None or resp.status_code != 200:
+            status = resp.status_code if resp is not None else 0
+            log_error("REPOHIST", "error", f"AI summary failed, status={status}")
+            return jsonify({"error": "ИИ недоступен, попробуйте позже"}), 502
+        summary = _ai_reply_text(resp).strip()
+        if not summary:
+            return jsonify({"error": "ИИ вернул пустой ответ"}), 502
+        return jsonify(
+            {
+                "summary": summary,
+                "commit_count": len(commits),
+                "truncated": truncated,
+                "period": label,
+                "repo": repo_slug,
+                "memory_bank_files": sorted(mb_files),
+            }
+        )
+    except rh.RepoHistoryError as exc:
+        return jsonify({"error": str(exc)}), exc.status
+    except Exception as exc:
+        log_error("REPOHIST", "error", f"analyze error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 

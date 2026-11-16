@@ -2,6 +2,7 @@
 
 import structlog
 import html
+from sqlalchemy import text as sql_text
 from telegram import Update
 from telegram.ext import ContextTypes
 from database.database import get_db
@@ -546,7 +547,13 @@ async def admin_adjust_command(
             await update.message.reply_text("❌ Пользователь не найден")
             return
 
-        user_obj.balance += amount
+        # Атомарное относительное обновление (защита от гонок);
+        # админская корректировка может уводить баланс в минус.
+        db.execute(
+            sql_text("UPDATE users SET balance = balance + :amount WHERE id = :uid"),
+            {"amount": amount, "uid": user_obj.id},
+        )
+        db.refresh(user_obj)
 
         transaction = Transaction(
             user_id=user_obj.id,
@@ -627,7 +634,16 @@ async def admin_addcoins_command(
             await update.message.reply_text("Пользователь не найден")
             return
 
-        user_obj.balance += amount
+        sql = "UPDATE users SET balance = balance + :amount WHERE id = :uid"
+        params = {"amount": amount, "uid": user_obj.id}
+        if amount < 0:
+            sql += " AND balance >= :required"
+            params["required"] = -amount
+        result = db.execute(sql_text(sql), params)
+        if result.rowcount == 0:
+            await update.message.reply_text("❌ Недостаточно средств у пользователя")
+            return
+        db.refresh(user_obj)
 
         transaction = Transaction(
             user_id=user_obj.id,
@@ -712,7 +728,17 @@ async def admin_removecoins_command(
             await update.message.reply_text("Пользователь не найден")
             return
 
-        user_obj.balance += amount
+        result = db.execute(
+            sql_text(
+                "UPDATE users SET balance = balance + :amount "
+                "WHERE id = :uid AND balance >= :required"
+            ),
+            {"amount": amount, "uid": user_obj.id, "required": -amount},
+        )
+        if result.rowcount == 0:
+            await update.message.reply_text("❌ Недостаточно средств у пользователя")
+            return
+        db.refresh(user_obj)
 
         transaction = Transaction(
             user_id=user_obj.id,
@@ -1020,7 +1046,7 @@ async def admin_cleanup_command(
 
     db = get_db()
     try:
-        from shop.enhanced_shop import EnhancedShopSystem
+        from core.systems.shop_system import EnhancedShopSystem
 
         shop = EnhancedShopSystem(db)
         expired_count = shop.check_expired_items()
@@ -1034,8 +1060,6 @@ async def admin_cleanup_command(
             .filter(UserNotification.created_at < month_ago)
             .delete()
         )
-        db.commit()
-
         db.commit()
 
         await update.message.reply_text(

@@ -52,7 +52,9 @@ async def buy_contact_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        new_balance = svc.admin_service.update_balance(user.id, -required_amount)
+        new_balance = svc.admin_service.update_balance(
+            user.id, -required_amount, allow_negative=False
+        )
         if new_balance is None:
             await update.message.reply_text("❌ Не удалось обновить баланс")
             return

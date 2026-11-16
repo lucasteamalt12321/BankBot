@@ -333,8 +333,11 @@ def test_quiz_generate_and_check():
         first = d["items"][0]
         if first["type"] == "mcq":
             assert "options" in first
-            assert "correct_idx" in first
-            check_resp = c.post("/api/quiz/check", json={"sid": sid, "idx": 0, "value": first["correct_idx"]})
+            # correct_idx не утекает клиенту — хранится только в серверной сессии.
+            assert "correct_idx" not in first
+            from api.index import _QUIZ_SESSIONS
+            correct_idx = _QUIZ_SESSIONS[sid]["items"][0]["correct_idx"]
+            check_resp = c.post("/api/quiz/check", json={"sid": sid, "idx": 0, "value": correct_idx})
         else:
             check_resp = c.post("/api/quiz/check", json={"sid": sid, "idx": 0, "value": first["answer"] if "answer" in first else "wrong"})
         assert check_resp.status_code == 200

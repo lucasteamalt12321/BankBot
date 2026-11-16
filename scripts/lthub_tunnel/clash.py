@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.lthub_tunnel.nodes import Node, unsupported_reason
+from scripts.lthub_tunnel.nodes import _NETWORK_ALIASES, Node, unsupported_reason
 from scripts.lthub_tunnel.sbconfig import DEFAULT_PROBE_URL
 
 
@@ -22,6 +22,10 @@ def node_to_clash(node: Node) -> dict | None:
     """Proxy-словарь Clash для ноды либо None, если её sing-box тоже не берёт."""
     if unsupported_reason(node):
         return None
+
+    # Алиасы транспорта ("raw"/"websocket"/"gun"/"h2") нормализуем так же,
+    # как nodes.convert для sing-box, иначе flow/ws-opts теряются.
+    network = _NETWORK_ALIASES.get(node.network, node.network)
 
     proxy: dict = {
         "name": f"{node.tag} {node.label}"[:80],
@@ -50,25 +54,25 @@ def node_to_clash(node: Node) -> dict | None:
                 "public-key": node.public_key,
                 "short-id": node.short_id or "",
             }
-    if node.flow and node.network == "tcp":
+    if node.flow and network == "tcp":
         proxy["flow"] = node.flow
 
-    if node.network == "ws":
+    if network == "ws":
         proxy["network"] = "ws"
         proxy["ws-opts"] = {
             "path": node.path or "/",
             **({"headers": {"Host": node.host}} if node.host else {}),
         }
-    elif node.network == "grpc":
+    elif network == "grpc":
         proxy["network"] = "grpc"
         proxy["grpc-opts"] = {"grpc-service-name": node.service_name}
-    elif node.network == "http":
+    elif network == "http":
         proxy["network"] = "http"
         proxy["http-opts"] = {
             "path": [node.path or "/"],
             **({"headers": {"Host": [node.host]}} if node.host else {}),
         }
-    elif node.network == "httpupgrade":
+    elif network == "httpupgrade":
         proxy["network"] = "ws"
         proxy["ws-opts"] = {
             "path": node.path or "/",

@@ -44,22 +44,25 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B09 | AI Chat — reply/mention (AIC-01…AIC-08) | completed | 2 |
 | B10 | Mom Module (MOM-01…MOM-05; MOM-TEST открыт) | in_progress | 3 |
 | B11 | Family Budget Module (BGT-01…BGT-10; BGT-TEST открыт) | in_progress | 6 |
-| B12 | VK Mini App — Budget UI (альтернатива Vercel) | in_progress | 1.5 |
+| B12 | VK Mini App — Budget UI (альтернатива Vercel) | in_progress | 1 |
 | B13 | School Project (SCH-01…SCH-05) | completed | 1.5 |
 | B14 | OGE Center — подготовка к ОГЭ по 5 предметам (OGE-00…OGE-12, OGE-FULL) | completed | 11 |
 | B15 | General Statistics Module (STAT-01…STAT-04) | completed | 3.5 |
-| B16 | Code Explainer (CODE-01…CODE-TEST) | in_progress | 3.5 |
+| B16 | Code Explainer (CODE-01…CODE-TEST) | in_progress | 3 |
 | B17 | Bug Hunt & Hardening (BH-01…BH-08) | completed | 3 |
 | B18 | Profiles & Friends (FND-01…FND-03) | completed | 3 |
 | B19 | Freemium-гейтинг 67/33 (FRE-01…FRE-09) | completed | 3 |
 | B20 | BUGHUNT Phase 11 — баг-хант + закрытие долгов (BUG-01…BUG-12) | completed | 3.5 |
-| B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 3.5 |
+| B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 3 |
 | B22 | Post-Review Cleanup (T01…T07) | completed | 1 |
+| B23 | Repo History Reader — читалка истории репозиториев (RH-01…RH-04; RH-TEST открыт) | in_progress | 1.5 |
 | — | **Итого** | | **100** |
 
 **Канонический прогресс проекта: 77.5 / 100 (77.5%).**
 
-Остальные `22.5` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, VK Mini App). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
+Остальные `22.5` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, VK Mini App, RH-TEST). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
+
+> Ребаланс 2026-11-16: под новый блок B23 (вес `1.5`) уменьшены веса `in_progress`-блоков B12 (`1.5→1`), B16 (`3.5→3`), B21 (`3.5→3`); сумма осталась `100`, канонический прогресс не изменился.
 
 ---
 
@@ -1039,3 +1042,19 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 - Все edge cases должны быть покрыты
 - UI/UX проверяется на корректность отображения, форматирования, кнопок
 - После завершения тестирования модуля — обновить статус в `projectbrief.md`
+
+---
+
+### Phase 13: Repo History Reader (историческая детализация; блок B23)
+
+> Запрос пользователя (2026-11-16): «добавь новый бета-модуль — читалку истории репозиториев. человек кидает в него ссылку на репозиторий (например, https://github.com/lucasteamalt12321/GAL). система читает git log (и похожие команды), memory_bank/progress.md и memory_bank/projectbrief.md (при наличии), загружает это в ИИ и ИИ выдаёт что добавилось за выбранный период».
+
+| ID | Deliverable | Status |
+|----|-------------|--------|
+| RH-01 | `api/repo_history.py`: парсинг GitHub-URL, период (дни/свои даты), коммиты через GitHub REST API (кап 300), memory_bank-файлы с raw.githubusercontent.com, сборка промпта | completed |
+| RH-02 | Роуты `GET /repo_history` + `POST /api/repo_history/analyze` в `api/index.py`, rate-limit (аноним 3/час, вошедший 10/час), сводка от ИИ | completed |
+| RH-03 | Бета-карточка в хабе + `HUB_KEY['/repo_history']` | completed |
+| RH-04 | Тесты `tests/unit/test_repo_history.py` (30 шт., вкл. `node --check`) | completed |
+| RH-TEST | Прод-смоук после деплоя (ручная проверка на живом репозитории) | pending |
+
+Ключевое решение: история читается через GitHub REST API `GET /repos/{owner}/{repo}/commits?since=&until=` (эквивалент `git log`), а не через `git clone` — на Vercel нет git-бинарника, клонирование не укладывается в maxDuration 60 с. Только публичные github.com-репозитории; опциональный `GITHUB_TOKEN` из env снимает лимит 60 запросов/час. Новых таблиц БД нет — модуль stateless.

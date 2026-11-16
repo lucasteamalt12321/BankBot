@@ -285,35 +285,43 @@ class AdminSystem:
             logger.error(f"Error finding user by ID {user_id}: {e}")
             return None
 
-    def update_balance(self, user_id: int, amount: float) -> Optional[float]:
+    def update_balance(
+        self, user_id: int, amount: float, allow_negative: bool = True
+    ) -> Optional[float]:
         """
         Обновление баланса пользователя
-        
+
         Args:
             user_id: ID пользователя
             amount: Сумма для добавления (может быть отрицательной)
-            
+            allow_negative: если False, списание не уводит баланс ниже нуля
+                (защита покупок от овердрафта); админ-корректировки допускают минус
+
         Returns:
             float: Новый баланс или None при ошибке
         """
         try:
             db = self._SessionLocal()
             try:
-                result = db.execute(
+                sql = (
+                    "UPDATE users SET balance = balance + :amount "
+                    "WHERE telegram_id = :telegram_id"
+                )
+                params = {"amount": amount, "telegram_id": user_id}
+                # Списание только при достаточном балансе (защита от TOCTOU).
+                if amount < 0 and not allow_negative:
+                    sql += " AND balance >= :required"
+                    params["required"] = -amount
+                result = db.execute(text(sql), params)
+                if result.rowcount == 0:
+                    return None
+
+                row = db.execute(
                     text("SELECT balance FROM users WHERE telegram_id = :telegram_id"),
                     {"telegram_id": user_id},
                 ).mappings().first()
-
-                if not result:
-                    return None
-
-                new_balance = result['balance'] + amount
-
-                db.execute(
-                    text("UPDATE users SET balance = :balance WHERE telegram_id = :telegram_id"),
-                    {"balance": new_balance, "telegram_id": user_id},
-                )
                 db.commit()
+                new_balance = row["balance"] if row else None
             finally:
                 db.close()
 

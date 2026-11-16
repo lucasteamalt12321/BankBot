@@ -773,4 +773,6 @@ def get_db():
 
 def get_db_session():
     """Return one SQLAlchemy session for legacy command handlers that expect get_db()."""
-    return next(get_db())
+    # SessionLocal() напрямую: next(get_db()) закрывает сессию при финализации
+    # генератора сразу после возврата.
+    return SessionLocal()

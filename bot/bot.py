@@ -17,7 +17,7 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
-from database.database import User, get_db, engine
+from database.database import User, get_db, engine, SessionLocal
 from database.schema import ensure_schema_up_to_date
 from core.systems.motivation_system import MotivationSystem
 from utils.monitoring.notification_system import NotificationSystem
@@ -193,7 +193,7 @@ def is_hf_webhook_runtime() -> bool:
 
 def get_db_session():
     """Return one SQLAlchemy session for legacy command handlers that expect get_db()."""
-    return next(get_db())
+    return SessionLocal()
 
 
 class TelegramBot:
@@ -1171,7 +1171,7 @@ class TelegramBot:
         username = context.args[0]
         comment = " ".join(context.args[2:]).strip()
         try:
-            amount = float(context.args[1])
+            amount = int(context.args[1])
             if amount <= 0:
                 await update.message.reply_text(
                     "❌ Количество очков должно быть положительным числом"
@@ -1703,7 +1703,7 @@ class TelegramBot:
             while not self._shutdown_requested:
                 try:
                     logger.info("Starting run_polling with HF-safe timeouts...")
-                    logger.info(f"Bot token configured: {settings.BOT_TOKEN[:15]}...")
+                    logger.info("Bot token configured")
 
                     logger.info("Starting polling loop...")
 
