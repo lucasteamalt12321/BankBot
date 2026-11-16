@@ -1,6 +1,6 @@
 # Progress
 
-**Текущая фаза:** 2026-11-16 — новый бета-модуль «Читалка истории репозиториев» (`/repo_history`, блок B23): ссылка на GitHub + период → сводка ИИ «что добавилось» по коммитам и memory_bank. `tests/unit` — **1597 passed / 11 skipped / 0 failed** (включая незакоммиченный багхант 2026-11-14). Изменения не закоммичены.
+**Текущая фаза:** 2026-11-16 — фикс отказа ИИ в `/repo_history` (прод-скриншот «ИИ недоступен» + логи `status=429`): graceful-fallback-сводка по коммитам (200, `ai:false`) вместо 502, retry 429 для OpenRouter, уменьшенный промпт, кэш готовой AI-сводки (TTL 10 мин). Поверх незакоммиченного расширения RH параллельного сеанса («Короче» + Q&A). `tests/unit` — **1617 passed / 11 skipped / 0 failed**; ruff чист. Изменения не закоммичены; прод `38da01d` фикса не содержит.
 
 **Текущая фаза:** 2026-11-14 — багхант по всем модулям сайта и бота LTHub (4 параллельных субагента-разведчика, фиксы по мере находок). `tests/unit` — **1567 passed / 11 skipped / 0 failed**; `ruff` чисто по изменённым `.py`; `tsc --noEmit` VK — exit 0. Изменения **не закоммичены** (коммит/деплой предложен пользователю). Вне скоупа: незакоммиченная фича `/repo_history` (вероятно параллельный сеанс) — не трогал.
 
@@ -13,6 +13,38 @@
 **Текущая фаза:** Phase 6 OGE Center — подготовка к ОГЭ по 5 предметам. Школьный проект (SCH-01…SCH-05) закрыт 2026-10-18: база, README/docs и `school_project/` готовы; канонический прогресс **77.5 / 100**. Туннель: `up`/`runner` больше не верят «порт отвечает» — проверяют живость своего sing-box (`57b0d9d`).
 
 **Deep bug-hunt session 2026-10-28:** «посмотри все разделы бота», «еще похимичь», «з задеплой» → deep bug-hunt по всем поддиректориям (бот, api, relay, ai, chess, gd, handlers, admin, tests, utils, core, scripts, audio_service, bridge_bot) через параллельные субагенты; фиксы олеговируса (`/cure`, `/spread`, `/infect` по reply, автозаражение по упоминанию, команды работают заражённым); deep bug-hunt по боту/сайту/туннелю — субагенты в работе.
+
+## Changelog 2026-11-16 (фикс отказа ИИ 429 в /repo_history — graceful-fallback + кэш сводки)
+
+**Задача пользователя:** скриншот прода `lthub.vercel.app/repo_history` (репо GAL, «Последние 30 дней») с красной ошибкой «ИИ недоступен, попробуйте позже» + «исправь». Затем пользователь приложил логи бота: `[REPOHIST] AI summary failed, status=429` (многократно за 18:16–18:29) — подтверждение рейт-лимита провайдеров.
+
+**Причина.** `_ai_chat` возвращает не-200/None (все провайдеры Gemini/Groq/OpenRouter на 429). Базовый analyze в HEAD `38da01d` в этом случае отдавал 502 «ИИ недоступен». Усилители: (1) у OpenRouter не было retry на 429 (у Groq/Gemini был); (2) промпт ~36 КБ; (3) повторные запросы того же репо/периода снова били по провайдерам (кэшировался только контекст GitHub, не AI-сводка); (4) `log_error` при отказе ИИ сам вызывает `_get_ai_recommendation`→`_ai_chat` (те самые «💡 …» в боте) — в проде уже ограничен `_check_ai_rate(log_error:REPOHIST, 1/300с)`, поэтому НЕ трогал (вне scope).
+
+**Код (незакоммичен, поверх WIP параллельного сеанса).**
+- `api/repo_history.py`: `build_fallback_summary(commits, label, truncated, brief)` — детерминированная сводка по префиксам коммитов (feat/fix/refactor/test/docs/chore + «Прочее»), с пометкой «ИИ сейчас недоступен…»; бюджеты промпта снижены `_PROMPT_COMMITS_BUDGET 30000→12000`, `_MB_PROMPT_CAP 15000→6000` (~36 КБ→~13 КБ); кэш готовой сводки `_SUMMARY_CACHE`/`get_cached_summary()`/`put_cached_summary()` (ключ owner/repo/since/until/brief, TTL 600 с, кап 200, вытеснение старой) — кэшируется **только успешный** ответ ИИ (после восстановления провайдера пользователь получит полноценный анализ).
+- `api/index.py`: analyze — проверка кэша сводки до `get_context`; при отказе/пустом ответе ИИ `ai_ok=False` → `build_fallback_summary` (HTTP **200**, поле `ai:false`) вместо 502; успешный payload кладётся в кэш. `_ai_chat`: цикл OpenRouter обёрнут в `for retry in range(3)` с `time.sleep(2*(retry+1))` на 429 (добавлен отсутствовавший backoff). Q&A-эндпоинт `ask` НЕ тронут (WIP параллельного сеанса, не на проде).
+- Фронтенд не менялся: `renderMarkdown` = `DOMPurify.sanitize(marked.parse(md))` (fail-closed в `textContent`) — fallback-текст безопасен (XSS нет); красная ошибка больше не показывается, т.к. analyze отвечает 200.
+
+**Тесты.** Новый `tests/unit/test_repo_history_fallback.py` — 6 тестов (группировка fallback, brief/truncated, пустой ответ ИИ→200 fallback, retry 429 OpenRouter, кэш успешной сводки (1 вызов ИИ на 2 запроса), отказ не кэшируется (2 вызова)). `test_repo_history.py::test_analyze_ai_unavailable` приведён к новому контракту (200/`ai:false` вместо 502); autouse-фикстура дополнена очисткой `_SUMMARY_CACHE`. Целевые — **50 passed**; полный `tests/unit` — **1617 passed / 11 skipped / 0 failed** (105 с); `ruff check` чист.
+
+**Открыто / предложено.** Коммит+деплой (мой фикс смешан с незакоммиченным WIP параллельного сеанса brief/ask — нужно решение пользователя, unilateral push не делал). Прод `38da01d` бага ещё содержит. Прочие предложения см. конец отчёта багханта 2026-11-14.
+
+## Changelog 2026-11-16 (расширение RH: кнопка «Короче» + вопрос ИИ про конкретный момент)
+
+**Задача пользователя:** «добавь возможность спросить у ИИ конкретный момент, а также краткую кнопку "Короче"».
+
+**Код.**
+- `api/repo_history.py`: in-memory TTL-кэш контекста `get_context()` (`_CONTEXT_CACHE`, TTL 600 с, кап 200 записей, вытеснение самой старой) — коммиты и memory_bank-файлы переиспользуются между analyze/brief/ask без повторных походов в GitHub (best-effort: на Vercel cold start кэш пуст → повторный fetch). Общие хелперы `_commit_lines()`/`_context_block()`; `build_prompt(..., brief=True)` — задача «1–3 предложения, ≤60 слов»; `build_ask_prompt(..., question)` — ответ только по приведённым коммитам, без выдумывания; `MAX_QUESTION_CHARS=500`.
+- `api/index.py`: `POST /api/repo_history/analyze` принимает `brief` (max_tokens 250 вместо 1600, ответ содержит `brief`); новый `POST /api/repo_history/ask` (вошедший 20/час + 6/мин, аноним 5/час + 5/мин; пустой/слишком длинный вопрос → 400; нет коммитов → готовый ответ без ИИ; max_tokens 800; ошибки ИИ → 502).
+- Фронтенд страницы: кнопка «⚡ Короче» (`rhBrief`, шлёт `brief:true`), панель Q&A (`rhQuestion`/`rhAskBtn`/`rhAnswer`) появляется после успешного анализа, ответ рендерится через marked + DOMPurify (fail-closed в plain text); в мете — пометка «кратко».
+
+**Тесты.** `tests/unit/test_repo_history.py` — **44 теста** (+14: brief-промпт, ask-промпт, кэш контекста, `brief` в analyze (max_tokens 250), ask успех/повторное использование кэша/пустой вопрос/длинный вопрос/нет коммитов/ИИ недоступен/анонимный лимит 5→429, маркеры страницы). Полный `tests/unit` — **1611 passed / 11 skipped / 0 failed** (105 с); `ruff check`/`format` чисты; `node --check` inline-JS — ок.
+
+**Смоук.** Локальный сервер (порт 5018, sqlite): реальные 400 на пустой/длинный вопрос и не-GitHub URL, 429 «лимит GitHub API» на живом GAL (исчерпан анонимный лимит 60/час — ожидаемое graceful-поведение). Фронтенд через подмену fetch (локальных AI-ключей нет): «Короче» шлёт `brief:true` и рендерит markdown + мету «кратко», полный анализ — `brief:false`; Q&A шлёт вопрос и рендерит ответ. Временная БД `rh_smoke2.db` удалена, сервер остановлен.
+
+**Память.** `docs/README.md` — раздел Repo History Reader дополнен (get_context/brief/ask); `projectbrief.md` — RH-05/RH-06 completed; `activeContext.md` — запись задачи. Канонический прогресс **77.5 / 100** без изменений.
+
+**Открыто.** Коммит модуля (отдельно от багханта 2026-11-14) → деплой → RH-TEST прод-смоук.
 
 ## Changelog 2026-11-16 (бета-модуль «Читалка истории репозиториев», B23 / RH)
 
@@ -117,7 +149,7 @@
 
 ## last_checked_commit
 
-**`c5010f7`** — chore(db): миграция 010 — таблица virus_chat_activity и запись о публикации (текущий HEAD `origin/main`). Поверх него в рабочем дереве — **незакоммиченный блок багханта 2026-11-14** (33 изменённых файла + новые `tests/unit/test_python_sandbox.py`; отдельно — вне скоупа — незакоммиченная фича `/repo_history`: `api/repo_history.py`, `tests/unit/test_repo_history.py`). `tests/unit` на рабочем дереве — 1567 passed / 11 skipped / 0 failed (багхант); после добавления модуля `/repo_history` (2026-11-16, +30 тестов) — **1597 passed / 11 skipped / 0 failed**. Перед `c5010f7`: `76ae68e` — feat(universe): подмена сообщений заражённых и автоответ на вопрос о вирусе; `6275302` — test: stabilize mention auto-infect; `5cb90f7` — fix(ci): green lint and align infection tests; `dbb72e5` — GAL OAuth-клиент.
+**`38da01d`** — feat: add repo history API, sandbox tests, and VK budget improvements (текущий HEAD `origin/main`, закоммичен параллельным сеансом). В HEAD — **базовый** модуль `/repo_history` (analyze без brief/ask, 20 тестов; при отказе ИИ → 502). Поверх него в рабочем дереве **незакоммичены**: (а) расширение RH параллельного сеанса — «Короче» (`brief`), Q&A (`/api/repo_history/ask`), TTL-кэш контекста `get_context()` (+12 тестов, всего 32 в `test_repo_history.py`); (б) **мой фикс отказа ИИ 429 (2026-11-16)** — graceful-fallback `build_fallback_summary()` (200, `ai:false` вместо 502), retry 429 для OpenRouter, уменьшенные бюджеты промпта (`_PROMPT_COMMITS_BUDGET=12000`, `_MB_PROMPT_CAP=6000`), кэш готовой AI-сводки `get_cached_summary()`/`put_cached_summary()` (TTL 600 с, кап 200), новый `tests/unit/test_repo_history_fallback.py` (6 тестов). `tests/unit` на рабочем дереве — **1617 passed / 11 skipped / 0 failed** (105 с); `ruff` чист. **Прод (`38da01d`) фикса НЕ содержит** — нужен коммит+деплой (смешивает мой фикс с WIP параллельного сеанса → решение за пользователем). Перед `38da01d`: `c5010f7` — миграция 010 virus_chat_activity; `76ae68e` — feat(universe): подмена сообщений заражённых; `6275302` — test: stabilize mention auto-infect; `5cb90f7` — fix(ci): green lint; `dbb72e5` — GAL OAuth-клиент.
 
 > ✅ На 2026-10-18 всё закоммичено и **запушено в `origin/main`**: туннель, BUGHUNT (BUG-04…BUG-10), закрытие школьного проекта SCH-03…SCH-05, переписывание истории git (PII удалён, все хеши с 2026-05-23 пересчитаны) и CI-фиксы (`0041376`, `c334e38`). WIP-правка автора в `tests/unit/test_freemium_gates.py` вошла в `0041376` — без неё CI оставался красным. В рабочем дереве остались только файлы автора, которые я не трогал: `AGENTS.md` и отладочные `*.py` в корне (`dbg*.py`, `fchat*.py`, `t*.py`, `f2.py`, `f3.py`, `fix*.py`, `dchat.py`).
 

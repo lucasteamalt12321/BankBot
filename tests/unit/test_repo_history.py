@@ -18,8 +18,12 @@ from api.index import _AI_RATE_LIMITS, app
 @pytest.fixture(autouse=True)
 def _reset_ai_rate():
     _AI_RATE_LIMITS.clear()
+    rh._CONTEXT_CACHE.clear()
+    rh._SUMMARY_CACHE.clear()
     yield
     _AI_RATE_LIMITS.clear()
+    rh._CONTEXT_CACHE.clear()
+    rh._SUMMARY_CACHE.clear()
 
 
 def _make_engine():
@@ -347,7 +351,12 @@ def test_analyze_ai_unavailable():
             "/api/repo_history/analyze",
             json={"url": "https://github.com/u/r", "days": 7},
         )
-    assert r.status_code == 502
+    # ИИ отказал — страница не падает с 502, а отдаёт fallback-сводку по коммитам.
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ai"] is False
+    assert d["summary"]
+    assert d["commit_count"] == 1
 
 
 def test_analyze_anon_rate_limit_and_user_higher():
@@ -404,3 +413,250 @@ def test_page_js_syntax():
                 ["node", "--check", path], capture_output=True, text=True
             )
             assert proc.returncode == 0, proc.stderr
+
+
+# ── «Короче» (brief) и уточняющие вопросы (ask) ──
+
+
+def test_build_prompt_brief():
+    commits = [
+        {
+            "sha": "abc1234",
+            "author": "Dev",
+            "date": "2026-11-10T12:00:00Z",
+            "message": "feat: X",
+        }
+    ]
+    full = rh.build_prompt("u", "r", commits, {}, "7 дн.", False)
+    brief = rh.build_prompt("u", "r", commits, {}, "7 дн.", False, brief=True)
+    assert "Сгруппируй по темам" in full
+    assert "краткую выжимку" in brief
+    assert "feat: X" in brief
+
+
+def test_build_ask_prompt_contains_question_and_commits():
+    commits = [
+        {
+            "sha": "abc1234",
+            "author": "Dev",
+            "date": "2026-11-10T12:00:00Z",
+            "message": "feat: OAuth",
+        }
+    ]
+    prompt = rh.build_ask_prompt(
+        "u",
+        "r",
+        commits,
+        {"memory_bank/progress.md": "STATUS"},
+        "7 дн.",
+        False,
+        "что изменилось в авторизации?",
+    )
+    assert "что изменилось в авторизации?" in prompt
+    assert "feat: OAuth" in prompt
+    assert "STATUS" in prompt
+    assert "не выдумывай" in prompt
+
+
+def test_get_context_caches_github_calls():
+    pages = [[_commit(message="feat: A")]]
+    mock_get = _github_get_factory(pages, mb_status={"memory_bank/progress.md": 200})
+    with patch("api.repo_history.requests.get", side_effect=mock_get) as m:
+        c1, t1, mb1 = rh.get_context("u", "r", "s", "t")
+        calls_after_first = m.call_count
+        c2, t2, mb2 = rh.get_context("u", "r", "s", "t")
+    assert c1 == c2 and t1 == t2 and mb1 == mb2
+    assert m.call_count == calls_after_first  # второй вызов — из кэша, без сети
+    assert len(c1) == 1
+
+
+def test_analyze_brief_flag():
+    engine = _make_engine()
+    with (
+        patch("api.index.get_db_engine", return_value=engine),
+        patch(
+            "api.repo_history.requests.get",
+            side_effect=_github_get_factory([[_commit()]]),
+        ),
+        patch(
+            "api.index._ai_chat", return_value=_ai_resp("Коротко: добавлено X.")
+        ) as mock_ai,
+    ):
+        r = app.test_client().post(
+            "/api/repo_history/analyze",
+            json={"url": "https://github.com/u/r", "days": 7, "brief": True},
+        )
+    assert r.status_code == 200
+    assert r.get_json()["brief"] is True
+    payload = mock_ai.call_args[0][0]
+    assert payload["max_tokens"] == 250
+    assert "краткую выжимку" in payload["messages"][0]["content"]
+
+
+def test_ask_success():
+    engine = _make_engine()
+    with (
+        patch("api.index.get_db_engine", return_value=engine),
+        patch(
+            "api.repo_history.requests.get",
+            side_effect=_github_get_factory([[_commit(message="feat: OAuth")]]),
+        ),
+        patch(
+            "api.index._ai_chat", return_value=_ai_resp("Авторизация: добавлен OAuth.")
+        ) as mock_ai,
+    ):
+        r = app.test_client().post(
+            "/api/repo_history/ask",
+            json={
+                "url": "https://github.com/u/r",
+                "days": 7,
+                "question": "что изменилось в авторизации?",
+            },
+        )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "OAuth" in body["answer"]
+    assert body["repo"] == "u/r"
+    prompt = mock_ai.call_args[0][0]["messages"][0]["content"]
+    assert "что изменилось в авторизации?" in prompt
+    assert "feat: OAuth" in prompt
+
+
+def test_ask_reuses_cached_context():
+    engine = _make_engine()
+    factory = _github_get_factory([[_commit(message="feat: A")]])
+    with (
+        patch("api.index.get_db_engine", return_value=engine),
+        patch("api.repo_history.requests.get", side_effect=factory) as m,
+        patch("api.index._ai_chat", return_value=_ai_resp()),
+    ):
+        client = app.test_client()
+        client.post(
+            "/api/repo_history/analyze",
+            json={"url": "https://github.com/u/r", "days": 7},
+        )
+        calls_after_analyze = m.call_count
+        r = client.post(
+            "/api/repo_history/ask",
+            json={
+                "url": "https://github.com/u/r",
+                "days": 7,
+                "question": "что добавлено?",
+            },
+        )
+    assert r.status_code == 200
+    assert m.call_count == calls_after_analyze  # ask не дёргал GitHub повторно
+
+
+@pytest.mark.parametrize("question", ["", "   ", None])
+def test_ask_empty_question(question):
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        r = app.test_client().post(
+            "/api/repo_history/ask",
+            json={"url": "https://github.com/u/r", "days": 7, "question": question},
+        )
+    assert r.status_code == 400
+
+
+def test_ask_question_too_long():
+    engine = _make_engine()
+    with patch("api.index.get_db_engine", return_value=engine):
+        r = app.test_client().post(
+            "/api/repo_history/ask",
+            json={
+                "url": "https://github.com/u/r",
+                "days": 7,
+                "question": "я" * (rh.MAX_QUESTION_CHARS + 1),
+            },
+        )
+    assert r.status_code == 400
+    assert "длинный" in r.get_json()["error"]
+
+
+def test_ask_no_commits_skips_ai():
+    engine = _make_engine()
+    with (
+        patch("api.index.get_db_engine", return_value=engine),
+        patch(
+            "api.repo_history.requests.get",
+            side_effect=_github_get_factory([[]]),
+        ),
+        patch("api.index._ai_chat") as mock_ai,
+    ):
+        r = app.test_client().post(
+            "/api/repo_history/ask",
+            json={
+                "url": "https://github.com/u/r",
+                "days": 7,
+                "question": "что добавлено?",
+            },
+        )
+    assert r.status_code == 200
+    assert "не найдено" in r.get_json()["answer"]
+    mock_ai.assert_not_called()
+
+
+def test_ask_ai_unavailable():
+    engine = _make_engine()
+    with (
+        patch("api.index.get_db_engine", return_value=engine),
+        patch(
+            "api.repo_history.requests.get",
+            side_effect=_github_get_factory([[_commit()]]),
+        ),
+        patch("api.index._ai_chat", return_value=None),
+    ):
+        r = app.test_client().post(
+            "/api/repo_history/ask",
+            json={
+                "url": "https://github.com/u/r",
+                "days": 7,
+                "question": "что добавлено?",
+            },
+        )
+    assert r.status_code == 502
+
+
+def test_ask_anon_rate_limit():
+    engine = _make_engine()
+    with (
+        patch("api.index.get_db_engine", return_value=engine),
+        patch(
+            "api.repo_history.requests.get",
+            side_effect=_github_get_factory([[_commit()]]),
+        ),
+        patch("api.index._ai_chat", return_value=_ai_resp()),
+    ):
+        client = app.test_client()
+        for _ in range(5):
+            r = client.post(
+                "/api/repo_history/ask",
+                json={
+                    "url": "https://github.com/u/r",
+                    "days": 7,
+                    "question": "что добавлено?",
+                },
+            )
+            assert r.status_code == 200
+        r = client.post(
+            "/api/repo_history/ask",
+            json={
+                "url": "https://github.com/u/r",
+                "days": 7,
+                "question": "что добавлено?",
+            },
+        )
+    assert r.status_code == 429
+
+
+def test_page_has_brief_and_ask_markers():
+    html = app.test_client().get("/repo_history").get_data(as_text=True)
+    for marker in (
+        "rhBrief",
+        "Короче",
+        "rhQuestion",
+        "rhAskBtn",
+        "/api/repo_history/ask",
+    ):
+        assert marker in html

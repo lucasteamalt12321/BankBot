@@ -1055,6 +1055,8 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | RH-02 | Роуты `GET /repo_history` + `POST /api/repo_history/analyze` в `api/index.py`, rate-limit (аноним 3/час, вошедший 10/час), сводка от ИИ | completed |
 | RH-03 | Бета-карточка в хабе + `HUB_KEY['/repo_history']` | completed |
 | RH-04 | Тесты `tests/unit/test_repo_history.py` (30 шт., вкл. `node --check`) | completed |
+| RH-05 | Кнопка «⚡ Короче» — краткая выжимка (1–3 предложения), `brief`-флаг в analyze | completed |
+| RH-06 | Уточняющий вопрос ИИ о конкретном моменте: `POST /api/repo_history/ask`, TTL-кэш контекста, панель вопроса на странице | completed |
 | RH-TEST | Прод-смоук после деплоя (ручная проверка на живом репозитории) | pending |
 
 Ключевое решение: история читается через GitHub REST API `GET /repos/{owner}/{repo}/commits?since=&until=` (эквивалент `git log`), а не через `git clone` — на Vercel нет git-бинарника, клонирование не укладывается в maxDuration 60 с. Только публичные github.com-репозитории; опциональный `GITHUB_TOKEN` из env снимает лимит 60 запросов/час. Новых таблиц БД нет — модуль stateless.

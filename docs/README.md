@@ -299,17 +299,19 @@ LTHub/
 Читалка истории репозиториев: пользователь вставляет ссылку на публичный GitHub-репозиторий и выбирает период (7/30/90 дней или свои даты) — ИИ выдаёт сводку «что добавилось за период».
 
 **Компоненты:**
-- `api/repo_history.py` — чистые функции: `parse_repo_url()` (только github.com, защита от SSRF), `resolve_period()` (дни или since/until, до года), `fetch_commits()` (GitHub REST API `GET /repos/{owner}/{repo}/commits?since=&until=` — эквивалент `git log`, пагинация до 300 коммитов), `fetch_memory_bank()` (`memory_bank/progress.md` и `projectbrief.md` с raw.githubusercontent.com, 404 → пропуск), `build_prompt()`, `page_html()`.
-- `api/index.py` — `GET /repo_history` (страница) и `POST /api/repo_history/analyze` (сводка через `_ai_chat`); бета-карточка в хабе, `HUB_KEY['/repo_history']`.
+- `api/repo_history.py` — чистые функции: `parse_repo_url()` (только github.com, защита от SSRF), `resolve_period()` (дни или since/until, до года), `fetch_commits()` (GitHub REST API `GET /repos/{owner}/{repo}/commits?since=&until=` — эквивалент `git log`, пагинация до 300 коммитов), `fetch_memory_bank()` (`memory_bank/progress.md` и `projectbrief.md` с raw.githubusercontent.com, 404 → пропуск), `get_context()` (best-effort TTL-кэш коммитов+memory_bank на 10 мин, чтобы уточняющие вопросы и «Короче» не дёргали GitHub повторно), `get_cached_summary()`/`put_cached_summary()` (TTL-кэш готовой AI-сводки на 10 мин, ключ repo+период+brief — повторный analyze не дёргает провайдеров; кэшируется только успешный ответ), `build_fallback_summary()` (детерминированная сводка по префиксам коммитов при отказе ИИ), `build_prompt(brief=)` (полная сводка или выжимка 1–3 предложения), `build_ask_prompt()` (ответ на конкретный вопрос), `page_html()`.
+- `api/index.py` — `GET /repo_history` (страница), `POST /api/repo_history/analyze` (сводка через `_ai_chat`, флаг `brief` для кнопки «Короче»; при отказе/рейт-лимите ИИ — graceful-fallback: HTTP 200 с `ai:false` и сводкой по коммитам вместо 502) и `POST /api/repo_history/ask` (уточняющий вопрос по истории); бета-карточка в хабе, `HUB_KEY['/repo_history']`.
 
 **Особенности:**
 - Git-бинарник и клонирование не используются — всё через HTTP API, укладывается в лимиты Vercel. Только публичные репозитории github.com.
 - Опциональный `GITHUB_TOKEN` из env повышает лимит GitHub API (без него 60 запросов/час на IP).
-- Rate-limit: анонимам 3 анализа/час на IP (`_check_db_rate`), вошедшим — 10/час. Новых таблиц БД нет.
-- Длинная история обрезается до 300 новейших коммитов (флаг `truncated` в ответе и пометка в промпте); бюджет текста коммитов в промпте — 30 КБ, memory_bank-файлов — по 15 КБ.
+- Rate-limit: analyze — анонимам 3/час на IP (`_check_db_rate`), вошедшим 10/час; ask — анонимам 5/час, вошедшим 20/час. Новых таблиц БД нет; контекст кэшируется в памяти (на холодном старте Vercel перечитывается).
+- Кнопка **«⚡ Короче»** — краткая выжимка (1–3 предложения) того, что добавилось; поле **«Спросить у ИИ о конкретном моменте»** — уточняющий вопрос по истории (ответ опирается только на коммиты и memory_bank, до 500 символов вопрос).
+- Длинная история обрезается до 300 новейших коммитов (флаг `truncated` в ответе и пометка в промпте); бюджет текста коммитов в промпте — 12 КБ, memory_bank-файлов — по 6 КБ.
+- **Устойчивость к отказу ИИ (429/недоступность):** analyze не падает с 502 — отдаёт детерминированную сводку по коммитам (HTTP 200, `ai:false`, пометка «ИИ сейчас недоступен»). OpenRouter повторяет 429 с экспоненциальной паузой (до 3 попыток); готовая успешная сводка кэшируется на 10 мин, снижая частоту обращений к провайдерам.
 - Ответ ИИ рендерится через marked + DOMPurify (fail-closed в plain text).
 
-**Тесты:** `tests/unit/test_repo_history.py` (30 тестов, вкл. `node --check` inline-JS страницы).
+**Тесты:** `tests/unit/test_repo_history.py` (вкл. brief/ask/кэш и `node --check` inline-JS страницы), `tests/unit/test_repo_history_fallback.py` (graceful-fallback, retry 429, кэш сводки).
 
 ### Music Module (Музыка)
 

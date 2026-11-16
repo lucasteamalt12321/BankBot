@@ -5998,21 +5998,30 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
         for model in or_models:
             base_body = {"model": model, **payload}
             resp = None
-            # reasoning-модели жгут max_tokens на «мысли» и отдают пустой/обрезанный
-            # content — сначала пробуем отключить reasoning; часть моделей параметр
-            # не принимает (400) — повторяем без него.
-            for attempt, body in enumerate(
-                ({"reasoning": {"enabled": False}, **base_body}, base_body)
-            ):
-                try:
-                    resp = requests.post(
-                        or_url, headers=or_headers, json=body, timeout=timeout
-                    )
-                except Exception as exc:
-                    print(f"OpenRouter API error ({model}): {exc}")
-                    resp = None
+            # Бесплатные пулы :free регулярно отдают 429 — повторяем с паузой,
+            # иначе один рейт-лимит роняет всю сводку в «ИИ недоступен».
+            for retry in range(3):
+                for attempt, body in enumerate(
+                    ({"reasoning": {"enabled": False}, **base_body}, base_body)
+                ):
+                    try:
+                        resp = requests.post(
+                            or_url, headers=or_headers, json=body, timeout=timeout
+                        )
+                    except Exception as exc:
+                        print(f"OpenRouter API error ({model}): {exc}")
+                        resp = None
+                        break
+                    if resp.status_code == 400 and attempt == 0:
+                        continue
                     break
-                if resp.status_code == 400 and attempt == 0:
+                if resp is None:
+                    break
+                if resp.status_code == 429 and retry < 2:
+                    print(
+                        f"OpenRouter 429 ({model}), retrying in {2 * (retry + 1)}s"
+                    )
+                    time.sleep(2 * (retry + 1))
                     continue
                 break
             if resp is None:
@@ -38404,10 +38413,14 @@ def api_repo_history_analyze():
                     429,
                 )
         data = request.get_json(silent=True) or {}
+        brief = bool(data.get("brief"))
         owner, repo = rh.parse_repo_url(data.get("url"))
         since, until, label = rh.resolve_period(data)
-        commits, truncated = rh.fetch_commits(owner, repo, since, until)
         repo_slug = f"{owner}/{repo}"
+        cached = rh.get_cached_summary(owner, repo, since, until, brief)
+        if cached is not None:
+            return jsonify(cached)
+        commits, truncated, mb_files = rh.get_context(owner, repo, since, until)
         if not commits:
             return jsonify(
                 {
@@ -38417,39 +38430,134 @@ def api_repo_history_analyze():
                     "period": label,
                     "repo": repo_slug,
                     "memory_bank_files": [],
+                    "brief": brief,
                 }
             )
-        mb_files = rh.fetch_memory_bank(owner, repo)
-        prompt = rh.build_prompt(owner, repo, commits, mb_files, label, truncated)
+        prompt = rh.build_prompt(
+            owner, repo, commits, mb_files, label, truncated, brief=brief
+        )
         resp = _ai_chat(
             {
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1600,
+                "max_tokens": 250 if brief else 1600,
+                "temperature": 0.3,
+            },
+            timeout=30.0,
+        )
+        ai_ok = True
+        summary = ""
+        if resp is None or resp.status_code != 200:
+            status = resp.status_code if resp is not None else 0
+            log_error("REPOHIST", "error", f"AI summary failed, status={status}")
+            ai_ok = False
+        else:
+            summary = _ai_reply_text(resp).strip()
+            if not summary:
+                ai_ok = False
+        if not ai_ok:
+            # ИИ отказал/рейт-лимит/пустой ответ — отдаём детерминированную
+            # сводку по коммитам, чтобы страница не падала с 502.
+            summary = rh.build_fallback_summary(commits, label, truncated, brief=brief)
+        payload = {
+            "summary": summary,
+            "commit_count": len(commits),
+            "truncated": truncated,
+            "period": label,
+            "repo": repo_slug,
+            "memory_bank_files": sorted(mb_files),
+            "brief": brief,
+            "ai": ai_ok,
+        }
+        if ai_ok:
+            rh.put_cached_summary(owner, repo, since, until, brief, payload)
+        return jsonify(payload)
+    except rh.RepoHistoryError as exc:
+        return jsonify({"error": str(exc)}), exc.status
+    except Exception as exc:
+        log_error("REPOHIST", "error", f"analyze error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/repo_history/ask", methods=["POST"])
+def api_repo_history_ask():
+    """Ответ ИИ на уточняющий вопрос по истории репозитория (контекст из кэша).
+
+    Анонимам 5 вопросов/час на IP, вошедшим — 20/час.
+    """
+    from api import repo_history as rh
+
+    try:
+        user, _ = _auth_user_or_401()
+        ip = request.remote_addr or "unknown"
+        if user:
+            if _check_db_rate(
+                f"repohist_ask_{user['id']}", 20, 3600
+            ) or _check_ai_rate(f"repohist_ask:{user['id']}", 6, 60):
+                return (
+                    jsonify({"error": "Слишком много вопросов. Подождите немного."}),
+                    429,
+                )
+        else:
+            if _check_db_rate(
+                f"repohist_ask_anon_{ip}", 5, 3600
+            ) or _check_ai_rate("repohist_ask_anon:" + ip, 5, 60):
+                return (
+                    jsonify(
+                        {
+                            "error": "Слишком много вопросов. Войдите, чтобы увеличить лимит."
+                        }
+                    ),
+                    429,
+                )
+        data = request.get_json(silent=True) or {}
+        question = str(data.get("question") or "").strip()
+        if not question:
+            return jsonify({"error": "Введите вопрос"}), 400
+        if len(question) > rh.MAX_QUESTION_CHARS:
+            return (
+                jsonify(
+                    {
+                        "error": f"Вопрос слишком длинный (макс. {rh.MAX_QUESTION_CHARS} символов)"
+                    }
+                ),
+                400,
+            )
+        owner, repo = rh.parse_repo_url(data.get("url"))
+        since, until, label = rh.resolve_period(data)
+        commits, truncated, mb_files = rh.get_context(owner, repo, since, until)
+        if not commits:
+            return jsonify(
+                {
+                    "answer": f"За период «{label}» коммитов в {owner}/{repo} не найдено — отвечать не на чем.",
+                    "repo": f"{owner}/{repo}",
+                    "period": label,
+                }
+            )
+        prompt = rh.build_ask_prompt(
+            owner, repo, commits, mb_files, label, truncated, question
+        )
+        resp = _ai_chat(
+            {
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 800,
                 "temperature": 0.3,
             },
             timeout=30.0,
         )
         if resp is None or resp.status_code != 200:
             status = resp.status_code if resp is not None else 0
-            log_error("REPOHIST", "error", f"AI summary failed, status={status}")
+            log_error("REPOHIST", "error", f"AI ask failed, status={status}")
             return jsonify({"error": "ИИ недоступен, попробуйте позже"}), 502
-        summary = _ai_reply_text(resp).strip()
-        if not summary:
+        answer = _ai_reply_text(resp).strip()
+        if not answer:
             return jsonify({"error": "ИИ вернул пустой ответ"}), 502
         return jsonify(
-            {
-                "summary": summary,
-                "commit_count": len(commits),
-                "truncated": truncated,
-                "period": label,
-                "repo": repo_slug,
-                "memory_bank_files": sorted(mb_files),
-            }
+            {"answer": answer, "repo": f"{owner}/{repo}", "period": label}
         )
     except rh.RepoHistoryError as exc:
         return jsonify({"error": str(exc)}), exc.status
     except Exception as exc:
-        log_error("REPOHIST", "error", f"analyze error: {exc}")
+        log_error("REPOHIST", "error", f"ask error: {exc}")
         return jsonify({"error": "Ошибка сервера"}), 500
 
 
