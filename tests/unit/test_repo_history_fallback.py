@@ -18,10 +18,12 @@ def _reset_caches():
     _AI_RATE_LIMITS.clear()
     rh._CONTEXT_CACHE.clear()
     rh._SUMMARY_CACHE.clear()
+    rh._FALLBACK_CACHE.clear()
     yield
     _AI_RATE_LIMITS.clear()
     rh._CONTEXT_CACHE.clear()
     rh._SUMMARY_CACHE.clear()
+    rh._FALLBACK_CACHE.clear()
 
 
 class _Resp:
@@ -123,7 +125,7 @@ def test_analyze_caches_successful_summary():
     assert ai.call_count == 1
 
 
-def test_analyze_failure_not_cached():
+def test_analyze_fallback_negative_cached():
     with (
         patch("api.index._ai_chat", return_value=_Resp(429)) as ai,
         patch("api.index._get_ai_recommendation", return_value="—"),
@@ -133,8 +135,54 @@ def test_analyze_failure_not_cached():
         patch("api.index._check_ai_rate", return_value=False),
     ):
         c = app.test_client()
-        body = {"url": "https://github.com/u/uncached", "days": 7}
+        body = {"url": "https://github.com/u/storm", "days": 7}
         r1 = c.post("/api/repo_history/analyze", json=body)
         r2 = c.post("/api/repo_history/analyze", json=body)
     assert r1.get_json()["ai"] is False and r2.get_json()["ai"] is False
-    assert ai.call_count == 2
+    # повтор во время отказа ИИ отдан из negative-кэша — провайдер не дёрнут снова
+    assert ai.call_count == 1
+
+
+def test_fallback_cache_bypasses_rate_limit():
+    since, until, _ = rh.resolve_period({"days": 7})
+    rh.put_cached_fallback(
+        "u", "r", since, until, False, {"summary": "fb", "ai": False}
+    )
+    with (
+        patch("api.index._ai_chat") as ai,
+        patch("api.index._check_db_rate", return_value=True),
+        patch("api.index._check_ai_rate", return_value=True),
+    ):
+        r = app.test_client().post(
+            "/api/repo_history/analyze",
+            json={"url": "https://github.com/u/r", "days": 7},
+        )
+    assert r.status_code == 200
+    assert r.get_json()["summary"] == "fb"
+    assert ai.call_count == 0
+
+
+def test_analyze_hourly_limit_message():
+    with (
+        patch("api.index._check_db_rate", return_value=True),
+        patch("api.index._check_ai_rate", return_value=False),
+    ):
+        r = app.test_client().post(
+            "/api/repo_history/analyze",
+            json={"url": "https://github.com/u/r", "days": 7},
+        )
+    assert r.status_code == 429
+    assert "3 в час" in r.get_json()["error"]
+
+
+def test_analyze_per_minute_limit_message():
+    with (
+        patch("api.index._check_db_rate", return_value=False),
+        patch("api.index._check_ai_rate", return_value=True),
+    ):
+        r = app.test_client().post(
+            "/api/repo_history/analyze",
+            json={"url": "https://github.com/u/r", "days": 7},
+        )
+    assert r.status_code == 429
+    assert "3 анализов в минуту" in r.get_json()["error"]

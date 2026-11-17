@@ -20,10 +20,12 @@ def _reset_ai_rate():
     _AI_RATE_LIMITS.clear()
     rh._CONTEXT_CACHE.clear()
     rh._SUMMARY_CACHE.clear()
+    rh._FALLBACK_CACHE.clear()
     yield
     _AI_RATE_LIMITS.clear()
     rh._CONTEXT_CACHE.clear()
     rh._SUMMARY_CACHE.clear()
+    rh._FALLBACK_CACHE.clear()
 
 
 def _make_engine():

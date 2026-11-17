@@ -43,7 +43,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B08 | AI Module (AI-01…AI-05; AI-TEST открыт) | in_progress | 3 |
 | B09 | AI Chat — reply/mention (AIC-01…AIC-08) | completed | 2 |
 | B10 | Mom Module (MOM-01…MOM-05; MOM-TEST открыт) | in_progress | 3 |
-| B11 | Family Budget Module (BGT-01…BGT-10; BGT-TEST открыт) | in_progress | 6 |
+| B11 | Family Budget Module (BGT-01…BGT-10; BGT-TEST открыт) | in_progress | 5.5 |
 | B12 | VK Mini App — Budget UI (альтернатива Vercel) | in_progress | 1 |
 | B13 | School Project (SCH-01…SCH-05) | completed | 1.5 |
 | B14 | OGE Center — подготовка к ОГЭ по 5 предметам (OGE-00…OGE-12, OGE-FULL) | completed | 11 |
@@ -53,9 +53,10 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B18 | Profiles & Friends (FND-01…FND-03) | completed | 3 |
 | B19 | Freemium-гейтинг 67/33 (FRE-01…FRE-09) | completed | 3 |
 | B20 | BUGHUNT Phase 11 — баг-хант + закрытие долгов (BUG-01…BUG-12) | completed | 3.5 |
-| B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 3 |
+| B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 2.5 |
 | B22 | Post-Review Cleanup (T01…T07) | completed | 1 |
 | B23 | Repo History Reader — читалка истории репозиториев (RH-01…RH-04; RH-TEST открыт) | in_progress | 1.5 |
+| B24 | Personal AI Key — личный API-ключ нейросети (AIKEY-01…AIKEY-04; AIKEY-TEST открыт) | in_progress | 1 |
 | — | **Итого** | | **100** |
 
 **Канонический прогресс проекта: 77.5 / 100 (77.5%).**
@@ -63,6 +64,8 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 Остальные `22.5` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, VK Mini App, RH-TEST). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
 
 > Ребаланс 2026-11-16: под новый блок B23 (вес `1.5`) уменьшены веса `in_progress`-блоков B12 (`1.5→1`), B16 (`3.5→3`), B21 (`3.5→3`); сумма осталась `100`, канонический прогресс не изменился.
+>
+> Ребаланс 2026-11-17: под новый блок B24 (вес `1`) уменьшены веса `in_progress`-блоков B11 (`6→5.5`), B21 (`3→2.5`); сумма осталась `100`, канонический прогресс не изменился.
 
 ---
 
@@ -1060,3 +1063,19 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | RH-TEST | Прод-смоук после деплоя (ручная проверка на живом репозитории) | pending |
 
 Ключевое решение: история читается через GitHub REST API `GET /repos/{owner}/{repo}/commits?since=&until=` (эквивалент `git log`), а не через `git clone` — на Vercel нет git-бинарника, клонирование не укладывается в maxDuration 60 с. Только публичные github.com-репозитории; опциональный `GITHUB_TOKEN` из env снимает лимит 60 запросов/час. Новых таблиц БД нет — модуль stateless.
+
+---
+
+### Phase 14: Personal AI Key (историческая детализация; блок B24)
+
+> Запрос пользователя (2026-11-17): «В LThub добавь возможность зарегистрированному пользователю добавить свой API нейронки. этот ключ сохраняется в БД (незашифровано — шифрование добавим как будет время) и приоритетно используется для этого пользователя».
+
+| ID | Deliverable | Status |
+|----|-------------|--------|
+| AIKEY-01 | Колонки `web_users.ai_provider/ai_api_key/ai_model` (бутстрап `_ensure_web_user_columns` + миграция `011_user_ai_key.sql`); API `GET/POST/DELETE /api/account/ai-key` (auth, валидация, ключ наружу только превью) | completed |
+| AIKEY-02 | Приоритет в `_ai_chat`: личный ключ пользователя пробуется первым (`_ai_chat_with_user_key`, резолв в `before_request` + кэш в `flask.g`), при отказе/пустом ответе — серверная цепочка Gemini→Groq→OpenRouter; гейты `_pc_ai_chat`/`/api/test_ai` учитывают личный ключ | completed |
+| AIKEY-03 | UI «🔑 Мой AI-ключ» в `/account`: провайдер (OpenRouter/Gemini/Groq), ключ, модель (опц.), сохранить/удалить | completed |
+| AIKEY-04 | Тесты `tests/unit/test_user_ai_key.py` (10 шт.: auth, CRUD, валидация, приоритет, fallback, бутстрап колонок, UI) | completed |
+| AIKEY-TEST | Прод-смоук после деплоя (сохранить ключ → запрос к ИИ идёт через него) | pending |
+
+Ключевое решение: ключ хранится в БД в открытом виде (явное решение пользователя, шифрование — отдельная будущая задача). Приоритет реализован внутри `_ai_chat` через резолв сессии из заголовков запроса — все веб-вызовы ИИ (чат, куратор, code explainer, repo history и т.д.) получают поведение автоматически, без правки call-sites. Вне Flask-контекста (бот/скрипты) поведение не меняется.

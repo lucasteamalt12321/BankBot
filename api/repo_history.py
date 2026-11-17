@@ -219,6 +219,34 @@ def put_cached_summary(
     _SUMMARY_CACHE[key] = (time.time(), payload)
 
 
+# Negative-кэш fallback: во время отказа ИИ (429/недоступность) повторные
+# одинаковые запросы отдаются из кэша БЕЗ обращения к провайдерам и без расхода
+# квоты — «уменьшаем частоту запросов» к AI, пока он рейт-лимитит. Короткий TTL,
+# чтобы после восстановления провайдера быстро вернуться к полноценному анализу.
+_FALLBACK_TTL = 60
+_FALLBACK_MAX = 200
+_FALLBACK_CACHE: dict[tuple, tuple[float, dict]] = {}
+
+
+def get_cached_fallback(
+    owner: str, repo: str, since: str, until: str, brief: bool
+) -> dict | None:
+    hit = _FALLBACK_CACHE.get((owner, repo, since, until, brief))
+    if hit and time.time() - hit[0] < _FALLBACK_TTL:
+        return hit[1]
+    return None
+
+
+def put_cached_fallback(
+    owner: str, repo: str, since: str, until: str, brief: bool, payload: dict
+) -> None:
+    key = (owner, repo, since, until, brief)
+    if len(_FALLBACK_CACHE) >= _FALLBACK_MAX:
+        oldest = min(_FALLBACK_CACHE, key=lambda k: _FALLBACK_CACHE[k][0])
+        _FALLBACK_CACHE.pop(oldest, None)
+    _FALLBACK_CACHE[key] = (time.time(), payload)
+
+
 def _commit_lines(commits: list[dict]) -> tuple[list[str], int]:
     lines: list[str] = []
     budget = _PROMPT_COMMITS_BUDGET

@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 
 import requests
-from flask import Flask, jsonify, redirect, request, send_file
+from flask import Flask, g, has_request_context, jsonify, redirect, request, send_file
 from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.exc import IntegrityError
 
@@ -443,6 +443,9 @@ _WEB_USER_OPTIONAL_COLUMNS = (
     "created_via VARCHAR(32)",
     "gal_subject VARCHAR(64)",
     "gal_username VARCHAR(64)",
+    "ai_provider VARCHAR(32)",
+    "ai_api_key VARCHAR(255)",
+    "ai_model VARCHAR(128)",
 )
 
 
@@ -5831,13 +5834,108 @@ def _ai_reply_text(resp: requests.Response) -> str:
     return text
 
 
+def _ai_chat_with_user_key(
+    cfg: dict, payload: dict, timeout: float
+) -> requests.Response | None:
+    """Пробуем личный ключ пользователя; при отказе вызывающий идёт в серверную цепочку."""
+    provider = cfg["provider"]
+    url = _AI_KEY_PROVIDERS.get(provider)
+    if not url:
+        return None
+    if cfg["model"]:
+        models = [cfg["model"]]
+    elif provider == "openrouter":
+        models_env = os.getenv("OPENROUTER_MODEL", "")
+        models = [m.strip() for m in models_env.split(",") if m.strip()] or [
+            "nvidia/nemotron-3-super-120b-a12b:free",
+            "minimax/minimax-m2.7:free",
+            "dots-studio/dots-3-note-preview:free",
+        ]
+    elif provider == "gemini":
+        models = [os.getenv("GEMINI_MODEL", "gemini-2.5-flash")]
+    else:
+        models = [_groq_active_model["name"] or "openai/gpt-oss-120b"]
+    headers = {
+        "Authorization": f"Bearer {cfg['api_key']}",
+        "Content-Type": "application/json",
+    }
+    last: requests.Response | None = None
+    for model in models:
+        base_body = {"model": model, **payload}
+        if provider == "groq":
+            base_body.setdefault("tools", [])
+        resp = None
+        for retry in range(3):
+            for attempt, body in enumerate(
+                ({"reasoning": {"enabled": False}, **base_body}, base_body)
+            ):
+                try:
+                    resp = requests.post(
+                        url, headers=headers, json=body, timeout=timeout
+                    )
+                except Exception as exc:
+                    print(f"UserKey {provider} API error ({model}): {exc}")
+                    resp = None
+                    break
+                if resp.status_code == 400 and attempt == 0:
+                    continue
+                break
+            if resp is None:
+                break
+            if resp.status_code == 429 and retry < 2:
+                print(
+                    f"UserKey {provider} 429 ({model}), retrying in {2 * (retry + 1)}s"
+                )
+                time.sleep(2 * (retry + 1))
+                continue
+            break
+        if resp is None:
+            continue
+        last = resp
+        if resp.status_code != 200:
+            print(
+                f"UserKey {provider} API error ({model}) {resp.status_code}: {resp.text[:200]}"
+            )
+            continue
+        try:
+            msg = resp.json()["choices"][0].get("message") or {}
+        except Exception:
+            msg = {}
+        content = str(msg.get("content") or "").strip()
+        if not content and msg.get("reasoning_content"):
+            content = str(msg.get("reasoning_content")).strip()
+        if not msg.get("tool_calls") and not content:
+            print(f"UserKey {provider} empty reply ({model}), trying next")
+            continue
+        return resp
+    return last
+
+
 def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
     """Call AI via OpenAI-compatible chat/completions endpoints.
 
-    Provider order: Gemini (primary) -> Groq (fallback) -> OpenRouter free models (fallback).
+    Provider order: личный ключ пользователя (если сохранён) ->
+    Gemini (primary) -> Groq (fallback) -> OpenRouter free models (fallback).
     Returns the first successful Response, the last failed Response,
     or None when no API key is set / network failed everywhere.
     """
+    last_resp: requests.Response | None = None
+    user_cfg = _request_user_ai_config()
+    if user_cfg:
+        user_resp = _ai_chat_with_user_key(user_cfg, payload, timeout)
+        if user_resp is not None:
+            if user_resp.status_code == 200:
+                try:
+                    msg = user_resp.json()["choices"][0].get("message") or {}
+                except Exception:
+                    msg = {}
+                if (
+                    msg.get("tool_calls")
+                    or str(msg.get("content") or "").strip()
+                    or str(msg.get("reasoning_content") or "").strip()
+                ):
+                    return user_resp
+            last_resp = user_resp
     providers = [
         (
             "Gemini",
@@ -5855,7 +5953,6 @@ def _ai_chat(payload: dict, timeout: float = 15.0) -> requests.Response | None:
                 "https://api.groq.com/openai/v1/chat/completions",
             )
         )
-    last_resp: requests.Response | None = None
     for name, api_key, model, url in providers:
         if not api_key:
             continue
@@ -14754,7 +14851,11 @@ def _pc_ai_chat(
             ai_messages.append({"role": m["role"], "content": content})
 
     images: list[str] = []
-    if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
+    if not (
+        os.getenv("GEMINI_API_KEY")
+        or os.getenv("GROQ_API_KEY")
+        or _request_user_ai_config()
+    ):
         return {
             "reply": "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)",
             "images": [],
@@ -16226,6 +16327,8 @@ def account_page():
         .form-group label .opt { color: var(--bb-muted); font-weight: 400; }
         .form-group input { width: 100%; padding: 12px 14px; background: var(--gh-bg2); border: 1px solid var(--bb-link); border-radius: 10px; font-size: 15px; color: var(--bb-text); }
         .form-group input:focus { outline: none; border-color: var(--bb-accent); }
+        .form-group select { width: 100%; padding: 12px 14px; background: var(--gh-bg2); border: 1px solid var(--bb-link); border-radius: 10px; font-size: 15px; color: var(--bb-text); }
+        .form-group select:focus { outline: none; border-color: var(--bb-accent); }
         .btn { width: 100%; padding: 14px; background: var(--bb-accent); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; text-align: center; text-decoration: none; display: block; }
         .btn:hover { background: var(--bb-accent2); }
         .btn:disabled { background: #555; cursor: not-allowed; }
@@ -16276,6 +16379,7 @@ def account_page():
             '<div class="ach-box" id="ach-box"><div class="spinner">Загружаю достижения...</div></div>' +
             '<div class="stats-box" id="stats-box"><div class="spinner">Загружаю статистику...</div></div>' +
             '<div class="stats-box" id="friends-box" style="display:none"><div class="spinner">Загружаю друзей...</div></div>' +
+            '<div class="stats-box" id="ai-key-box" style="display:none"></div>' +
             '<div id="missing-box"></div>' +
             '<div class="form-group"><label>Логин</label><input type="text" id="set-login" disabled style="opacity:0.6"></div>' +
             '<div class="form-group"><label>Имя <span class="opt">(если пусто — будет логин)</span></label><input type="text" id="set-name" placeholder="ваше имя"></div>' +
@@ -16290,6 +16394,7 @@ def account_page():
         loadAchievements();
         loadStats();
         loadFriends();
+        loadAiKey();
     }
     function loadAchievements() {
         var box = document.getElementById('ach-box');
@@ -16362,6 +16467,63 @@ def account_page():
                 box.innerHTML = html;
             })
             .catch(function() { box.style.display = 'none'; });
+    }
+    function loadAiKey() {
+        var box = document.getElementById('ai-key-box');
+        if (!box) return;
+        fetch('/api/account/ai-key', { headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) { box.style.display = 'none'; return; }
+                box.style.display = 'block';
+                var status = d.has_key
+                    ? '<div class="hint">Сохранён ключ <b>' + esc(d.key_preview || '') + '</b> · провайдер: <b>' + esc(d.provider || '') + '</b>' + (d.model ? ' · модель: <b>' + esc(d.model) + '</b>' : '') + '</div>'
+                    : '<div class="hint">Ключ не сохранён — используется общий серверный.</div>';
+                box.innerHTML = '<div class="ach-head"><div class="stats-title">🔑 Мой AI-ключ</div></div>' +
+                    '<div class="hint" style="margin-bottom:10px">Свой ключ нейросети используется приоритетно для ваших запросов к ИИ. Хранится в БД в открытом виде.</div>' +
+                    status +
+                    '<div class="form-group" style="margin-top:12px"><label>Провайдер</label><select id="ai-provider">' +
+                    '<option value="openrouter">OpenRouter</option><option value="gemini">Gemini</option><option value="groq">Groq</option></select></div>' +
+                    '<div class="form-group"><label>API-ключ</label><input type="password" id="ai-key" placeholder="sk-..." autocomplete="off"></div>' +
+                    '<div class="form-group"><label>Модель <span class="opt">(необязательно)</span></label><input type="text" id="ai-model" placeholder="например: openai/gpt-4o-mini"></div>' +
+                    '<button class="btn" id="ai-save-btn" onclick="saveAiKey()">Сохранить ключ</button>' +
+                    (d.has_key ? '<button class="btn btn-gray" onclick="deleteAiKey()">Удалить ключ</button>' : '');
+                if (d.has_key) {
+                    document.getElementById('ai-provider').value = d.provider || 'openrouter';
+                    document.getElementById('ai-model').value = d.model || '';
+                }
+            })
+            .catch(function() { box.style.display = 'none'; });
+    }
+    function saveAiKey() {
+        var keyVal = document.getElementById('ai-key').value.trim();
+        var modelVal = document.getElementById('ai-model').value.trim();
+        if (!keyVal) { showToast('Введите API-ключ', true); return; }
+        if (keyVal.length > 255) { showToast('Ключ слишком длинный (макс. 255 символов)', true); return; }
+        if (modelVal.length > 128) { showToast('Название модели слишком длинное (макс. 128)', true); return; }
+        document.getElementById('ai-save-btn').disabled = true;
+        fetch('/api/account/ai-key', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-Auth-Token': token},
+            body: JSON.stringify({
+                provider: document.getElementById('ai-provider').value,
+                api_key: keyVal,
+                model: modelVal
+            })
+        }).then(function(r) { return r.json(); }).then(function(r) {
+            document.getElementById('ai-save-btn').disabled = false;
+            if (r.error) { showToast(r.error, true); }
+            else { showToast('Ключ сохранён!'); loadAiKey(); }
+        }).catch(function() { document.getElementById('ai-save-btn').disabled = false; showToast('Ошибка сети', true); });
+    }
+    function deleteAiKey() {
+        fetch('/api/account/ai-key', { method: 'DELETE', headers: { 'X-Auth-Token': token } })
+            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (r.error) { showToast(r.error, true); }
+                else { showToast('Ключ удалён'); loadAiKey(); }
+            })
+            .catch(function() { showToast('Ошибка сети', true); });
     }
     function fillForm(p) {
         document.getElementById('set-login').value = p.login || '';
@@ -17205,6 +17367,149 @@ def api_auth_logout():
     except Exception as exc:
         log_error("AUTH", "error", f"logout error: {exc}")
     return jsonify({"success": True})
+
+
+# ===== Personal AI key =====
+
+_AI_KEY_PROVIDERS = {
+    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "groq": "https://api.groq.com/openai/v1/chat/completions",
+}
+
+
+def _get_user_ai_config(user_id: int) -> dict | None:
+    """Сохранённый личный AI-ключ пользователя (provider/api_key/model) или None.
+
+    Ошибки (в т.ч. ещё не мигрированная схема) гасятся молча: личный ключ —
+    best-effort приоритет, при его недоступности работает серверная цепочка.
+    log_error здесь звать нельзя — он сам вызывает ИИ и может уйти в рекурсию.
+    """
+    try:
+        with get_db_engine().connect() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT ai_provider, ai_api_key, ai_model FROM web_users WHERE id = :uid"
+                    ),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .first()
+            )
+    except Exception:
+        return None
+    if not row or not row["ai_api_key"] or not row["ai_provider"]:
+        return None
+    return {
+        "provider": row["ai_provider"],
+        "api_key": row["ai_api_key"],
+        "model": row["ai_model"] or "",
+    }
+
+
+def _request_user_ai_config() -> dict | None:
+    """Личный AI-ключ пользователя текущего запроса (кэш в flask.g)."""
+    if not has_request_context():
+        return None
+    if "user_ai_cfg" in g:
+        return g.user_ai_cfg
+    cfg = None
+    try:
+        user = _get_session_user(_auth_token_from_request())
+        if user:
+            cfg = _get_user_ai_config(user["id"])
+    except Exception:
+        cfg = None
+    g.user_ai_cfg = cfg
+    return cfg
+
+
+@app.before_request
+def _resolve_user_ai_key():
+    """Резолвим личный AI-ключ ДО хендлера.
+
+    Иначе резолв внутри `_ai_chat` может открыться вложенным соединением в
+    момент открытой транзакции хендлера (например, log_error внутри
+    `_study_tally_daily`): на общем соединении (SQLite/StaticPool) его
+    cleanup откатывает внешнюю транзакцию и теряются записи.
+    """
+    _request_user_ai_config()
+
+
+@app.route("/api/account/ai-key", methods=["GET"])
+def api_account_ai_key_get():
+    """Статус личного AI-ключа (сам ключ наружу не отдаём, только превью)."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    cfg = _get_user_ai_config(user["id"])
+    if not cfg:
+        return jsonify({"has_key": False})
+    key = cfg["api_key"]
+    preview = f"{key[:4]}…{key[-4:]}" if len(key) > 12 else "…"
+    return jsonify(
+        {
+            "has_key": True,
+            "provider": cfg["provider"],
+            "model": cfg["model"],
+            "key_preview": preview,
+        }
+    )
+
+
+@app.route("/api/account/ai-key", methods=["POST"])
+def api_account_ai_key_save():
+    """Сохранить личный AI-ключ (хранится в БД в открытом виде)."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.get_json(silent=True) or {}
+    provider = str(data.get("provider") or "").strip().lower()
+    api_key = str(data.get("api_key") or "").strip()
+    model = str(data.get("model") or "").strip()
+    if provider not in _AI_KEY_PROVIDERS:
+        return jsonify({"error": "Неизвестный провайдер (openrouter/gemini/groq)"}), 400
+    if not api_key:
+        return jsonify({"error": "Пустой API-ключ"}), 400
+    if len(api_key) > 255:
+        return jsonify({"error": "Ключ слишком длинный (макс. 255 символов)"}), 400
+    if len(model) > 128:
+        return jsonify({"error": "Название модели слишком длинное (макс. 128)"}), 400
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text(
+                    "UPDATE web_users SET ai_provider = :p, ai_api_key = :k, ai_model = :m WHERE id = :uid"
+                ),
+                {"p": provider, "k": api_key, "m": model or None, "uid": user["id"]},
+            )
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as exc:
+        log_error("AIKEY", "error", f"save user ai key error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
+
+
+@app.route("/api/account/ai-key", methods=["DELETE"])
+def api_account_ai_key_delete():
+    """Удалить личный AI-ключ — запросы снова идут через серверные ключи."""
+    user = _get_session_user(_auth_token_from_request())
+    if not user:
+        return jsonify({"error": "Не авторизован"}), 401
+    try:
+        with get_db_engine().connect() as conn:
+            conn.execute(
+                text(
+                    "UPDATE web_users SET ai_provider = NULL, ai_api_key = NULL, ai_model = NULL WHERE id = :uid"
+                ),
+                {"uid": user["id"]},
+            )
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as exc:
+        log_error("AIKEY", "error", f"delete user ai key error: {exc}")
+        return jsonify({"error": "Ошибка сервера"}), 500
 
 
 # ===== Social: profiles & friends =====
@@ -33032,7 +33337,11 @@ def test_ai():
     try:
         if _check_ai_rate("test_ai:" + request.remote_addr):
             return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
-        if not (os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY")):
+        if not (
+            os.getenv("GEMINI_API_KEY")
+            or os.getenv("GROQ_API_KEY")
+            or _request_user_ai_config()
+        ):
             return jsonify(
                 {"status": "error", "message": "GEMINI_API_KEY/GROQ_API_KEY not set"}
             )
@@ -38392,31 +38701,58 @@ def api_repo_history_analyze():
     try:
         user, _ = _auth_user_or_401()
         ip = request.remote_addr or "unknown"
-        if user:
-            if _check_db_rate(
-                f"repohist_{user['id']}", 10, 3600
-            ) or _check_ai_rate(f"repohist:{user['id']}", 5, 60):
-                return (
-                    jsonify({"error": "Слишком много запросов. Подождите немного."}),
-                    429,
-                )
-        else:
-            if _check_db_rate(
-                f"repohist_anon_{ip}", 3, 3600
-            ) or _check_ai_rate("repohist_anon:" + ip, 3, 60):
-                return (
-                    jsonify(
-                        {
-                            "error": "Слишком много запросов. Войдите, чтобы увеличить лимит."
-                        }
-                    ),
-                    429,
-                )
         data = request.get_json(silent=True) or {}
         brief = bool(data.get("brief"))
         owner, repo = rh.parse_repo_url(data.get("url"))
         since, until, label = rh.resolve_period(data)
         repo_slug = f"{owner}/{repo}"
+        # Negative-кэш fallback отдаём до лимитов: во время отказа ИИ повторные
+        # одинаковые запросы не дёргают провайдеров и не тратят квоту.
+        fb = rh.get_cached_fallback(owner, repo, since, until, brief)
+        if fb is not None:
+            return jsonify(fb)
+        if user:
+            if _check_db_rate(f"repohist_{user['id']}", 10, 3600):
+                return (
+                    jsonify(
+                        {
+                            "error": "Лимит анализов исчерпан: 10 в час. "
+                            "Попробуйте позже — лимит обновляется в течение часа."
+                        }
+                    ),
+                    429,
+                )
+            if _check_ai_rate(f"repohist:{user['id']}", 5, 60):
+                return (
+                    jsonify(
+                        {
+                            "error": "Слишком часто: не более 5 анализов в минуту. "
+                            "Подождите немного."
+                        }
+                    ),
+                    429,
+                )
+        else:
+            if _check_db_rate(f"repohist_anon_{ip}", 3, 3600):
+                return (
+                    jsonify(
+                        {
+                            "error": "Лимит анализов исчерпан: 3 в час. "
+                            "Войдите, чтобы получить 10 в час."
+                        }
+                    ),
+                    429,
+                )
+            if _check_ai_rate("repohist_anon:" + ip, 3, 60):
+                return (
+                    jsonify(
+                        {
+                            "error": "Слишком часто: не более 3 анализов в минуту. "
+                            "Подождите немного."
+                        }
+                    ),
+                    429,
+                )
         cached = rh.get_cached_summary(owner, repo, since, until, brief)
         if cached is not None:
             return jsonify(cached)
@@ -38470,6 +38806,8 @@ def api_repo_history_analyze():
         }
         if ai_ok:
             rh.put_cached_summary(owner, repo, since, until, brief, payload)
+        else:
+            rh.put_cached_fallback(owner, repo, since, until, brief, payload)
         return jsonify(payload)
     except rh.RepoHistoryError as exc:
         return jsonify({"error": str(exc)}), exc.status
