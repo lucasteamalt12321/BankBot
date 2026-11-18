@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from bot.ai.knowledge import CANON_DOC_URL, CANON_KNOWLEDGE, PROHIBITED_CANON_KEYWORDS, KnowledgeEntry
 from bot.ai.knowledge_updater import load_dynamic_knowledge, load_local_canon_knowledge
+from core.ai_errors import ai_key_hint
 
 
 MAX_QUESTION_LENGTH = 700
@@ -329,14 +330,16 @@ class AiLiteService:
                 "• /shop — магазин.\n"
                 "• /games — игры.\n"
                 "• /feedback <текст> — отправить проблему или идею.\n\n"
-                "Спросите конкретнее, например: /ai как купить товар"
+                "Спросите конкретнее, например: /ai как купить товар\n\n"
+                + ai_key_hint()
             )
 
         return (
             "🤖 Я не настоящий большой ИИ, а бесплатный локальный помощник-справочник по LTHub.\n"
             "На такой вопрос могу ответить только примерно. Лучше спросите про команды бота: "
             "магазин, игры, D&D, feedback, профиль, режимы или канон Олеговируса/LTL.\n"
-            "Примеры: /ai как посмотреть баланс или /ai что такое Олеговирус"
+            "Примеры: /ai как посмотреть баланс или /ai что такое Олеговирус\n\n"
+            + ai_key_hint()
         )
 
     @staticmethod

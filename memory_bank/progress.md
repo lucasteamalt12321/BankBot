@@ -1,5 +1,7 @@
 # Progress
 
+**Текущая фаза:** 2026-11-18 — единые подсказки «добавьте свой ключ» при ошибках ИИ (B24 / AIKEY-05): новый `core/ai_errors.py` (текст ошибки + ссылка на `/account#ai-key`), подключение во всех веб-модулях, D&D и Telegram-боте, общий JS-хелпер `LTHubAI` на всех страницах (`inject_theme`), переход по `/account#ai-key` с фокусом в поле ключа. Попутно: D&D теперь уважает личный ключ (`_call_ai_with_user_key`) — иначе подсказка была бы обещанием на пустом месте. `tests/unit` — **1662 passed / 11 skipped / 0 failed**; ruff чист.
+
 **Текущая фаза:** 2026-11-18 — вход через Google в LTHub (B25 / GOOG): `core/google_oauth.py` (code + PKCE, userinfo без JWT-зависимостей), колонки `google_subject/google_email` + миграция 012, кнопки на `/login` и `/register` (видны только при настроенных env). `tests/unit` — **1651 passed / 11 skipped / 0 failed**; ruff чист; браузерный смоук полного цикла с мок-Google прошёл. **Закоммичено `35d93f9`, запушено, задеплоено** (прод-смоук 200/404 — кнопка скрыта до появления env). Открыт GOOG-TEST: нужны OAuth-креды Google (Cloud Console → Vercel env) и миграция 012 в Supabase.
 
 **Текущая фаза:** 2026-11-17 — личный AI-ключ пользователя LTHub (B24 / AIKEY): колонки `web_users.ai_provider/ai_api_key/ai_model` + миграция 011, API `GET/POST/DELETE /api/account/ai-key`, приоритет ключа в `_ai_chat` (резолв в `before_request`, fallback на серверную цепочку), UI «🔑 Мой AI-ключ» в `/account`. Ключ хранится в открытом виде (решение пользователя). Попутно пойман и исправлен баг вложенного соединения: резолв ключа внутри `_ai_chat` мог откатить транзакцию хендлера на SQLite/StaticPool (падал `test_exam_center`) — резолв вынесен в `before_request`. `tests/unit` — **1629 passed / 11 skipped / 0 failed**; ruff чист; браузерный смоук UI + приоритета на локальном сервере прошёл. Изменения не закоммичены (в дереве также WIP параллельного сеанса).
@@ -33,6 +35,24 @@
 **Публикация (по «продолжай»).** Коммит `35d93f9` → `origin/main` (`523c73c..35d93f9`, вместе с mb-коммитом параллельного сеанса `23455ca`) → Vercel production `dpl_Bzy8U9Ga6N2xC1GxuE5apecgZ9A6` ● **Ready**, alias `lthub.vercel.app` обновлён. Прод-смоук через deployment-URL: `/login`, `/register` → 200 (`GOOGLE_OAUTH_ON = false` — кнопка скрыта, env не заданы; GAL не тронут), `/auth/google` → 404 (ожидаемо). `vercel env ls production`: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` отсутствуют — до их добавления вход через Google на проде выключен (безопасное состояние). `last_checked_commit` → `35d93f9`.
 
 **Открыто (нужен пользователь).** GOOG-TEST: (1) Google Cloud Console → OAuth consent screen + OAuth client ID (Web) с authorized redirect URI `https://lthub.vercel.app/api/auth/google/callback`; (2) `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` в Vercel env проекта lthub; (3) миграция 012 в Supabase SQL Editor (креды-блокер тот же, что у 011; колонки авто-добавляются при регистрации, но для существующей БД лучше применить); (4) коммит+деплой и живой прод-вход.
+
+## Changelog 2026-11-18 (единые подсказки «добавьте свой ключ» при ошибках ИИ)
+
+**Задача пользователя:** «сделай, чтобы во всех модулях при ошибках ИИ предлагалось добавить свой ключ и даёт ссылку на вставление ключа в профиле».
+
+**Карта мест отказа ИИ.** Собрана разведчиком (explore): веб-портал (`/api/ai_chat`, `_pc_ai_chat`, code explainer, md2pdf, repo history, family chat/report, тренажёр окончаний, план/куратор ОГЭ, `/api/test_ai`), D&D (`api/dnd_runtime.py`), Telegram-бот (`bot/commands/ai_commands_ptb.py`, `bot/ai/service.py`, `core/systems/dnd_ai_master.py`) и inline-JS страниц. Ни в одном месте раньше не было ни ссылки на `/account`, ни фразы про свой ключ.
+
+**Код.**
+- `core/ai_errors.py` (новый, только stdlib) — единый источник текстов: `ai_error(reason, prefix=…, with_hint=True)`, `ai_error_payload()`, `ai_key_hint()`, `ai_key_url()`, `ai_key_js()`. Адрес сайта — из `SITE_URL`/`PUBLIC_URL`/`LTHUB_SITE_URL`, иначе `https://lthub.vercel.app`; якорь `/account#ai-key`.
+- **Legacy-контракт:** `call_ai_api`/`call_ai_with_memory` возвращают строку, отказ в которой определяется по префиксу «❌» (`reply.startswith("❌")` в кураторе, family chat, OGE-плане и др.). Поэтому в этих местах `ai_error(..., prefix="❌")` — без префикса вызывающий код принял бы текст ошибки за ответ ИИ.
+- Подключено: `api/index.py` (все точки отказа + JS), `api/repo_history.py` (fallback-заметка и JS), `api/dnd_runtime.py`, `bot/commands/ai_commands_ptb.py`, `bot/ai/service.py`, `core/systems/dnd_ai_master.py`.
+- **JS-хелпер на всех страницах:** `inject_theme()` (`core/theme.py`) вставляет `<script id="app-ai-key-hint">` с `LTHubAI.hint()` (текст), `hintMd()` (markdown-ссылка — для `mdLite`), `hintHtml()` (кликабельный `<a>`). Страница `/repo_history` вне темы — вставляет скрипт сама (`api/repo_history.py`). В JSON-ошибках приходит готовый текст со ссылкой.
+- **Переход по ссылке:** `/account#ai-key` → блок «🔑 Мой AI-ключ» подсвечивается, фокус в поле ввода.
+- **Правдивость подсказки в D&D:** `api/dnd_runtime.py` использовал отдельную цепочку Gemini→Groq→OpenRouter→HF и личный ключ игнорировал — подсказка «добавьте свой ключ» была бы пустым обещанием. Добавлена первая попытка `_call_ai_with_user_key()` (ленивый импорт `api.index`; вне Flask-контекста ключа нет → серверная цепочка как раньше).
+
+**Проверки.** `tests/unit/test_ai_error_hints.py` — **12 passed** (хелпер, legacy-префикс, env-override, внедрение в страницы, `call_ai_api`/`_pc_ai_chat` при отказе, AI-lite бота, D&D-ключ). Полный `tests/unit` — **1662 passed / 11 skipped / 0 failed** (140 с). `ruff check` по `core/`, `api/`, `bot/`, новым тестам — чисто.
+
+**Память.** `projectbrief.md` — AIKEY-05 (completed), B24 остаётся `in_progress` (AIKEY-TEST — прод-смоук личного ключа), канонический прогресс **77.5 %** без изменений. `docs/README.md` — раздел «Единые подсказки при ошибках ИИ».
 
 ## Changelog 2026-11-18 (пуш + деплой B24/RH; миграция 011 — блокер на прод-кредах)
 

@@ -16,6 +16,8 @@ from typing import Optional
 import requests
 from sqlalchemy import text
 
+from core.ai_errors import ai_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,8 +67,47 @@ def parse_dice(text: str) -> Optional[dict]:
 
 # ── AI call (Gemini primary, Groq + OpenRouter + HF fallback) ─────
 
+def _call_ai_with_user_key(prompt: str, max_tokens: int) -> str | None:
+    """Личный API-ключ пользователя (веб-портал). None — ключа нет или отказ.
+
+    D&D раньше шёл по собственной цепочке провайдеров и игнорировал личный
+    ключ, из-за чего подсказка «добавьте свой ключ» была бы обещанием на
+    пустом месте. Теперь ключ пробуется первым (если запрос из веб-портала).
+    """
+
+    try:
+        from api.index import _ai_chat_with_user_key, _request_user_ai_config
+
+        cfg = _request_user_ai_config()
+        if not cfg:
+            return None
+        resp = _ai_chat_with_user_key(
+            cfg,
+            {
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": 0.8,
+            },
+            15.0,
+        )
+    except Exception as exc:  # noqa: BLE001 — внешний ИИ не должен ломать сессию
+        print(f"[DND] user key error: {exc}")
+        return None
+    if resp is None or resp.status_code != 200:
+        return None
+    try:
+        content = resp.json()["choices"][0]["message"].get("content") or ""
+    except (ValueError, KeyError, IndexError):
+        return None
+    return content.strip() or None
+
+
 def call_ai(prompt: str, max_tokens: int = 800) -> str:
-    fallback = "🌌 Мастер задумался... Попробуйте ещё раз."
+    fallback = ai_error("Мастер задумался... Попробуйте ещё раз.", prefix="🌌")
+
+    user_answer = _call_ai_with_user_key(prompt, max_tokens)
+    if user_answer:
+        return user_answer
 
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:

@@ -15,6 +15,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 
 from bot.ai.model_manager import AIModelManager
+from core.ai_errors import ai_error, ai_key_hint
 from core.canon import load_canon_text
 
 
@@ -85,7 +86,9 @@ class AICommandsHandler:
         # Check if AI is available
         if not self.ai_manager.is_available():
             await update.message.reply_text(
-                "❌ AI недоступен. Настройте HF_TOKEN или другие провайдеры в переменных окружения."
+                ai_error(
+                    "ИИ недоступен: не настроены ключи провайдеров", prefix="❌"
+                )
             )
             return
         
@@ -139,12 +142,12 @@ class AICommandsHandler:
         except RuntimeError as e:
             logger.error(f"AI chat error: {e}")
             await update.message.reply_text(
-                "❌ Все AI-провайдеры недоступны. Попробуйте позже."
+                ai_error("Все ИИ-провайдеры недоступны. Попробуйте позже.", prefix="❌")
             )
         except Exception as e:
             logger.error(f"Unexpected error in chat command: {e}", exc_info=True)
             await update.message.reply_text(
-                "❌ Произошла ошибка при обработке запроса."
+                ai_error("Произошла ошибка при обработке запроса.", prefix="❌")
             )
     
     async def generate_prayer_command(
@@ -161,7 +164,9 @@ class AICommandsHandler:
         # Check if AI is available
         if not self.ai_manager.is_available():
             await update.message.reply_text(
-                "❌ AI недоступен. Настройте HF_TOKEN или другие провайдеры в переменных окружения."
+                ai_error(
+                    "ИИ недоступен: не настроены ключи провайдеров", prefix="❌"
+                )
             )
             return
         
@@ -189,12 +194,12 @@ class AICommandsHandler:
         except RuntimeError as e:
             logger.error(f"AI prayer generation error: {e}")
             await update.message.reply_text(
-                "❌ Все AI-провайдеры недоступны. Попробуйте позже."
+                ai_error("Все ИИ-провайдеры недоступны. Попробуйте позже.", prefix="❌")
             )
         except Exception as e:
             logger.error(f"Unexpected error in generate_prayer: {e}", exc_info=True)
             await update.message.reply_text(
-                "❌ Произошла ошибка при генерации молитвы."
+                ai_error("Произошла ошибка при генерации молитвы.", prefix="❌")
             )
     
     async def ask_canon_command(
@@ -272,7 +277,7 @@ class AICommandsHandler:
         """Fallback: simple keyword search in canon knowledge."""
         if not self.canon_knowledge:
             await update.message.reply_text(
-                "❌ База знаний недоступна и AI не настроен."
+                ai_error("База знаний недоступна и ИИ не настроен.", prefix="❌")
             )
             return
         
@@ -289,7 +294,8 @@ class AICommandsHandler:
             answer = "\n".join(relevant_lines[:5])  # Max 5 lines
             await update.message.reply_text(
                 f"📚 **Найдено в каноне:**\n\n{answer}\n\n"
-                f"_[простой поиск, AI недоступен]_"
+                f"_[простой поиск, ИИ недоступен]_"
+                f"\n{ai_key_hint()}"
             )
         else:
             await update.message.reply_text(

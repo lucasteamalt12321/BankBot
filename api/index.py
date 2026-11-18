@@ -31,6 +31,9 @@ from sqlalchemy.exc import IntegrityError
 from api import universe_runtime as universe
 from src.webhook_secret import resolve_webhook_secret
 
+# Единые тексты ошибок ИИ + подсказка «добавьте свой ключ» (см. core/ai_errors.py)
+from core.ai_errors import ai_error, ai_error_payload, ai_key_hint
+
 
 def _build_tag():
     try:
@@ -6168,7 +6171,9 @@ def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str
         timeout=10.0,
     )
     if response is None:
-        return "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)"
+        return ai_error(
+            "ИИ недоступен: не настроены ключи провайдеров", prefix="❌"
+        )
     try:
         if response.status_code == 200:
             result = response.json()
@@ -6179,7 +6184,7 @@ def call_ai_with_memory(user_id: int, prompt: str, max_tokens: int = 150) -> str
             return answer
         error_detail = response.text[:200] if response.text else "No details"
         print(f"AI API error {response.status_code}: {error_detail}")
-        return f"❌ Ошибка AI: {response.status_code}"
+        return ai_error(f"Ошибка ИИ: {response.status_code}", prefix="❌")
     except Exception as exc:
         print(f"Error calling AI API: {exc}")
         return f"❌ Ошибка AI: {str(exc)}"
@@ -6424,7 +6429,7 @@ def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) ->
     # Фоллбэк: перебор актуальных моделей Groq по всем ключам
     keys_to_try = _groq_api_keys()
     if not keys_to_try:
-        return "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)"
+        return ai_error("ИИ недоступен: не настроены ключи провайдеров", prefix="❌")
 
     try:
         preferred = os.getenv("GROQ_MODEL")
@@ -6467,10 +6472,10 @@ def call_ai_api(prompt: str, max_tokens: int = 150, temperature: float = 0.8) ->
                 if response.status_code in (404, 429):
                     continue
                 break
-        return f"❌ Ошибка AI: {last_status}"
+        return ai_error(f"Ошибка ИИ: {last_status}", prefix="❌")
     except Exception as exc:
         print(f"Error calling AI API: {exc}")
-        return f"❌ Ошибка AI: {str(exc)}"
+        return ai_error(f"Ошибка ИИ: {exc}", prefix="❌")
 
 
 def check_admin(user_id: int) -> bool:
@@ -13666,7 +13671,7 @@ def endings_trainer():
                 originalText = data.original;
                 renderExercise();
                 if (data.fallback) {
-                    showNotice(data.notice || 'AI временно недоступен — упражнение создано автоматически.');
+                    showNotice(data.notice || LTHubAI.hint('ИИ временно недоступен — упражнение создано автоматически.'));
                 } else {
                     hideNotice();
                 }
@@ -13675,7 +13680,7 @@ def endings_trainer():
                 hideNotice();
                 document.getElementById('exercise-content').innerHTML = '<div style="color:var(--gh-red);text-align:center;padding:20px;">' +
                     '<div style="font-size:18px;font-weight:600;margin-bottom:10px;">Не удалось создать упражнение</div>' +
-                    '<div style="margin-bottom:16px;color:#555;">' + escapeHtml(err.message) + '</div>' +
+                    '<div style="margin-bottom:16px;color:#555;">' + LTHubAI.hintHtml(err.message) + '</div>' +
                     '<button class="btn btn-primary" onclick="generateExercise()">Повторить</button></div>';
             });
         }
@@ -14859,7 +14864,9 @@ def _pc_ai_chat(
         or _request_user_ai_config()
     ):
         return {
-            "reply": "❌ AI недоступен (нет GEMINI_API_KEY/GROQ_API_KEY)",
+            "reply": ai_error(
+                "ИИ недоступен: не настроены ключи провайдеров", prefix="❌"
+            ),
             "images": [],
         }
 
@@ -14886,7 +14893,7 @@ def _pc_ai_chat(
     for _ in range(6):
         resp = _ai_call(use_tools=True)
         if resp is None:
-            return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
+            return {"reply": ai_error("Ошибка ИИ: сетевой сбой", prefix="❌"), "images": images}
         if (
             resp.status_code == 400
             and "tool_use_failed" in resp.text
@@ -14895,35 +14902,51 @@ def _pc_ai_chat(
             fallback_done = True
             resp = _ai_call(use_tools=False)
         if resp is None:
-            return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
+            return {"reply": ai_error("Ошибка ИИ: сетевой сбой", prefix="❌"), "images": images}
         if resp.status_code != 200:
             print(f"AI tool API error {resp.status_code}: {resp.text[:300]}")
             if resp.status_code == 400 and not fallback_done:
                 fallback_done = True
                 resp = _ai_call(use_tools=False)
                 if resp is None:
-                    return {"reply": "❌ Ошибка AI: сетевой сбой", "images": images}
+                    return {
+                        "reply": ai_error("Ошибка ИИ: сетевой сбой", prefix="❌"),
+                        "images": images,
+                    }
                 if resp.status_code == 200:
                     content = _pc_extract_reply(resp)
                     if not content:
                         return {
-                            "reply": "❌ Ошибка AI: пустой ответ модели",
+                            "reply": ai_error(
+                            "Ошибка ИИ: пустой ответ модели", prefix="❌"
+                        ),
                             "images": images,
                         }
                     return {"reply": content, "images": images}
-            return {"reply": f"❌ Ошибка AI: {resp.status_code}", "images": images}
+            return {
+                "reply": ai_error(f"Ошибка ИИ: {resp.status_code}", prefix="❌"),
+                "images": images,
+            }
         try:
             data = resp.json()
         except Exception:
             return {
-                "reply": "❌ Ошибка AI: не удалось прочитать ответ модели",
+                "reply": ai_error(
+                    "Ошибка ИИ: не удалось прочитать ответ модели", prefix="❌"
+                ),
                 "images": images,
             }
         if not isinstance(data, dict) or not data.get("choices"):
-            return {"reply": "❌ Ошибка AI: пустой ответ модели", "images": images}
+            return {
+                "reply": ai_error("Ошибка ИИ: пустой ответ модели", prefix="❌"),
+                "images": images,
+            }
         msg = data["choices"][0].get("message")
         if not isinstance(msg, dict):
-            return {"reply": "❌ Ошибка AI: пустой ответ модели", "images": images}
+            return {
+                "reply": ai_error("Ошибка ИИ: пустой ответ модели", prefix="❌"),
+                "images": images,
+            }
         tool_calls = msg.get("tool_calls")
         content = msg.get("content")
         if isinstance(content, list):
@@ -15348,7 +15371,9 @@ def api_ai_chat():
         if _check_ai_rate("ai_chat:" + request.remote_addr) or _check_db_rate(
             "ai_chat:" + (request.remote_addr or ""), 15, 60
         ):
-            return jsonify({"error": "Слишком много запросов. Подождите минуту."}), 429
+            return jsonify(
+                ai_error_payload("Слишком много запросов к ИИ. Подождите минуту.")
+            ), 429
         data = request.get_json(silent=True) or {}
         character = data.get("character", "olegov")
         message = (data.get("message") or "").strip()[:4000]
@@ -16523,6 +16548,13 @@ def account_page():
                 if (d.has_key) {
                     document.getElementById('ai-provider').value = d.provider || 'openrouter';
                     document.getElementById('ai-model').value = d.model || '';
+                }
+                // Приход по ссылке «/account#ai-key» (из подсказки об ошибке ИИ):
+                // показываем блок ключа и ставим фокус в поле ввода.
+                if (location.hash && location.hash.indexOf('ai-key') !== -1) {
+                    box.scrollIntoView({behavior: 'smooth', block: 'center'});
+                    var keyInput = document.getElementById('ai-key');
+                    if (keyInput) { try { keyInput.focus(); } catch (e) {} }
                 }
             })
             .catch(function() { box.style.display = 'none'; });
@@ -19246,7 +19278,7 @@ function sendChat(){
       if (res.st === 401) { bubble('assistant', '🔑 Войдите на сайте — куратор ведёт переписку в аккаунте.'); return; }
       if (res.j && res.j.actions && res.j.actions.length) bubble('sys', '🔎 Куратор: ' + res.j.actions.join(', ') + '.');
       if (res.j && res.j.reply) bubble('assistant', res.j.reply);
-      else bubble('assistant', '❌ Куратор временно недоступен.');
+      else bubble('assistant', LTHubAI.hintMd('❌ Куратор временно недоступен.'));
     })
     .catch(function () {
       btn.disabled = false;
@@ -19281,8 +19313,8 @@ function loadPlanAndRender(){
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (p) {
       if (p && p.ok) { PLAN = p; renderCurPlan(p); }
-      else if (l) l.innerHTML = '<div class="oge-plan-empty">План временно недоступен</div>';
-    }).catch(function () { if (l) l.innerHTML = '<div class="oge-plan-empty">План временно недоступен</div>'; });
+      else if (l) l.innerHTML = '<div class="oge-plan-empty">' + LTHubAI.hintHtml('План временно недоступен') + '</div>';
+    }).catch(function () { if (l) l.innerHTML = '<div class="oge-plan-empty">' + LTHubAI.hintHtml('План временно недоступен') + '</div>'; });
 }
 function openCurator(){
   var ov = document.getElementById('cur-overlay'); if (!ov) return;
@@ -25646,7 +25678,14 @@ def api_study_ai_plan():
     if plan and not plan.startswith("❌"):
         _OGE_AI_PLAN_CACHE[uid] = {"date": today, "plan": plan}
         return jsonify({"ok": True, "source": "ai", "plan": plan})
-    return jsonify({"ok": False, "source": "fallback", "plan": ""})
+    return jsonify(
+        {
+            "ok": False,
+            "source": "fallback",
+            "plan": "",
+            "hint": ai_key_hint(),
+        }
+    )
 
 
 # ---------------- OGE curator: persistent daily plan + chat (OGE-08/09) ----------------
@@ -26328,7 +26367,10 @@ def _curator_fallback_reply(subjects, plan_lines):
     if plan_lines:
         reply_parts.append(plan_lines[0])
     reply_parts.append(
-        "⚠️ ИИ временно недоступен — это автоподсказка; напишите ещё раз чуть позже."
+        ai_error(
+            "ИИ временно недоступен — это автоподсказка; напишите ещё раз чуть позже.",
+            prefix="⚠️",
+        )
     )
     return " ".join(reply_parts)
 
@@ -33375,7 +33417,10 @@ def test_ai():
             or _request_user_ai_config()
         ):
             return jsonify(
-                {"status": "error", "message": "GEMINI_API_KEY/GROQ_API_KEY not set"}
+                {
+                    "status": "error",
+                    "message": ai_error("ИИ недоступен: не настроены ключи провайдеров"),
+                }
             )
 
         response = _ai_chat(
@@ -33387,7 +33432,10 @@ def test_ai():
         )
         if response is None:
             return jsonify(
-                {"status": "error", "message": "AI request failed (network)"}
+                {
+                    "status": "error",
+                    "message": ai_error("Ошибка ИИ: сетевой сбой"),
+                }
             )
 
         return jsonify(
@@ -34208,14 +34256,18 @@ Text: {text}"""
                     "segments": fallback,
                     "original": text,
                     "fallback": True,
-                    "notice": "AI временно недоступен — упражнение создано автоматически.",
+                    "notice": ai_error(
+                        "ИИ временно недоступен — упражнение создано автоматически."
+                    ),
                 }
             )
 
         return jsonify(
             {
                 "ok": False,
-                "error": "Не удалось создать упражнение. Попробуйте другой текст или повторите ещё раз.",
+                "error": ai_error(
+                    "Не удалось создать упражнение. Попробуйте другой текст или повторите ещё раз."
+                ),
             }
         )
 
@@ -34224,7 +34276,9 @@ Text: {text}"""
         return jsonify(
             {
                 "ok": False,
-                "error": "Внутренняя ошибка при создании упражнения. Попробуйте ещё раз.",
+                "error": ai_error(
+                    "Внутренняя ошибка при создании упражнения. Попробуйте ещё раз."
+                ),
             }
         )
 
@@ -34892,7 +34946,9 @@ def _family_chat_dialog(
         or len(ai_text.strip()) < 2
     ):
         return (
-            "AI временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут.",
+            ai_error(
+                "ИИ временно недоступен. Пожалуйста, попробуйте ещё раз через несколько минут."
+            ),
             None,
             [],
         )
@@ -34912,7 +34968,7 @@ def _family_generate_synthesis(system_prompt: str) -> str:
         max_tokens=1024,
     )
     if ai_text.startswith("❌"):
-        return "Не удалось сгенерировать отчёт. Попробуйте позже."
+        return ai_error("Не удалось сгенерировать отчёт. Попробуйте позже.")
     return ai_text
 
 
@@ -36260,13 +36316,13 @@ def _code_chat_run(project_id: int, user_message: str, history: list[dict]) -> s
                 log_error(
                     "CODE", "error", "chat AI returned None (keys missing or network)"
                 )
-            return "ИИ-модель временно недоступна. Попробуйте позже."
+            return ai_error("ИИ-модель временно недоступна. Попробуйте позже.")
         try:
             text = _ai_reply_text(resp).strip()
         except Exception:
-            return "Ошибка ответа ИИ."
+            return ai_error("Ошибка ответа ИИ.")
         if not text:
-            return (
+            return ai_error(
                 "Извините, модель не дала ответ. Попробуйте переформулировать вопрос."
             )
 
@@ -38021,7 +38077,7 @@ async function analyzeAll() {{
                 break;
             }}
             if (prevCount >= 0 && d.analyzed_count <= prevCount) {{
-                prog.fail(); showErr('Прогресс не растёт (лимит ИИ?). Попробуйте позже.'); break;
+                prog.fail(); showErr(LTHubAI.hint('Прогресс не растёт (лимит ИИ?). Попробуйте позже.')); break;
             }}
             prevCount = d.analyzed_count;
             setMsg('Сделано серий: ' + series + '. Проанализировано файлов: ' + d.analyzed_count + ' из ' + d.file_count + ' — продолжаю…');
@@ -38617,8 +38673,8 @@ function improveMd(){
             return;
         }
         var msg = (res.body && res.body.error) ||
-            (res.status === 429 ? 'Слишком много запросов, подождите минуту' :
-             'ИИ временно недоступен, попробуйте позже');
+            (res.status === 429 ? LTHubAI.hint('Слишком много запросов, подождите минуту') :
+             LTHubAI.hint('ИИ временно недоступен, попробуйте позже'));
         alert('Ошибка: ' + msg);
     }).catch(function(){
         alert('Ошибка: сервис недоступен (проверьте сеть)');
@@ -38702,10 +38758,10 @@ def api_md2pdf_format():
         if resp is None or resp.status_code != 200:
             status = resp.status_code if resp is not None else 0
             log_error("MD2PDF", "error", f"AI format failed, status={status}")
-            return jsonify({"error": "ИИ недоступен, попробуйте позже"}), 502
+            return jsonify(ai_error_payload("ИИ недоступен, попробуйте позже")), 502
         markdown = _md_strip_fences(_ai_reply_text(resp))
         if not markdown:
-            return jsonify({"error": "ИИ вернул пустой ответ"}), 502
+            return jsonify(ai_error_payload("ИИ вернул пустой ответ")), 502
         return jsonify({"markdown": markdown})
     except Exception as exc:
         log_error("MD2PDF", "error", f"format error: {exc}")
@@ -38839,6 +38895,8 @@ def api_repo_history_analyze():
         if ai_ok:
             rh.put_cached_summary(owner, repo, since, until, brief, payload)
         else:
+            # Подсказка про личный ключ: ИИ молчал — сводка детерминированная.
+            payload["ai_hint"] = ai_key_hint()
             rh.put_cached_fallback(owner, repo, since, until, brief, payload)
         return jsonify(payload)
     except rh.RepoHistoryError as exc:
@@ -38917,10 +38975,10 @@ def api_repo_history_ask():
         if resp is None or resp.status_code != 200:
             status = resp.status_code if resp is not None else 0
             log_error("REPOHIST", "error", f"AI ask failed, status={status}")
-            return jsonify({"error": "ИИ недоступен, попробуйте позже"}), 502
+            return jsonify(ai_error_payload("ИИ недоступен, попробуйте позже")), 502
         answer = _ai_reply_text(resp).strip()
         if not answer:
-            return jsonify({"error": "ИИ вернул пустой ответ"}), 502
+            return jsonify(ai_error_payload("ИИ вернул пустой ответ")), 502
         return jsonify(
             {"answer": answer, "repo": f"{owner}/{repo}", "period": label}
         )

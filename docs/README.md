@@ -251,6 +251,26 @@ LTHub/
 
 **Тесты:** `tests/unit/test_user_ai_key.py`.
 
+### Единые подсказки при ошибках ИИ (свой API-ключ)
+
+При любом отказе ИИ пользователь получает не «ИИ недоступен, попробуйте позже», а подсказку: можно подключить свой ключ нейросети, и сразу ссылку на блок «🔑 Мой AI-ключ» в профиле.
+
+**Модуль:** `core/ai_errors.py` — единственный источник текстов ошибок ИИ:
+- `ai_error(reason, prefix=…, with_hint=True)` — текст ошибки + подсказка про ключ и ссылка (`/account#ai-key`);
+- `ai_error_payload(reason)` — JSON-ответ `{"error": …}`;
+- `ai_key_hint()` / `ai_key_url()` — сама подсказка и ссылка (адрес сайта берётся из `SITE_URL`/`PUBLIC_URL`, иначе `https://lthub.vercel.app`);
+- `ai_key_js()` — JS-хелпер `LTHubAI.hint()/hintMd()/hintHtml()`.
+
+**Где подключено:** веб-портал (`/api/ai_chat`, `_pc_ai_chat`, code explainer, md2pdf, repo history, family chat, тренажёр окончаний, план/куратор ОГЭ, `/api/test_ai`), D&D (`api/dnd_runtime.py`), Telegram-бот (`bot/commands/ai_commands_ptb.py`, `bot/ai/service.py`, `core/systems/dnd_ai_master.py`) и веб-обработчики команд бота в `api/index.py` (`/ask_canon`, `/generate_prayer`).
+
+**Особенности:**
+- `prefix="❌"` сохраняет legacy-контракт: строковые функции (`call_ai_api`) определяют отказ по префиксу «❌» — без него вызывающий код принял бы ошибку за ответ ИИ;
+- в JSON-ошибках приходит готовый текст с ссылкой, в inline-JS страниц — `LTHubAI.hintHtml()` (кликабельная ссылка) или `hintMd()` (markdown-ссылка для `mdLite`);
+- JS-хелпер внедряется на все страницы портала автоматически — `inject_theme()` (`core/theme.py`) добавляет `<script id="app-ai-key-hint">`; страница `/repo_history` (вне темы) вставляет его сама;
+- переход по `/account#ai-key` подсвечивает блок ключа и ставит фокус в поле ввода.
+
+**Тесты:** `tests/unit/test_ai_error_hints.py`.
+
 ### School / OGE Module (Школа)
 
 Личный учебный портал для подготовки к ОГЭ — раздел «🎓 Школа» в web-портале. Пять предметов

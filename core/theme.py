@@ -13,6 +13,8 @@ HTML через ``inject_theme``. Цвета в стилях страниц сс
 
 from __future__ import annotations
 
+from core.ai_errors import ai_key_js
+
 # Определения переменных: тёмная тема — значения по умолчанию в :root,
 # светлая — в [data-theme="light"].
 THEME_CSS = """<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
@@ -125,4 +127,7 @@ def inject_theme(html: str) -> str:
             html = html.replace("<head>", "<head>\n" + THEME_CSS, 1)
     if "app-theme-toggle" not in html and "</body>" in html:
         html = html.replace("</body>", THEME_TOGGLE + "\n</body>", 1)
+    if "app-ai-key-hint" not in html and "</body>" in html:
+        # Общий хелпер подсказки «добавьте свой API-ключ ИИ» (см. core/ai_errors.py).
+        html = html.replace("</body>", ai_key_js() + "\n</body>", 1)
     return html

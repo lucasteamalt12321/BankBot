@@ -14,6 +14,8 @@ import time
 
 import requests
 
+from core.ai_errors import ai_key_hint, ai_key_js
+
 _REPO_URL_RE = re.compile(
     r"^https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$"
 )
@@ -375,7 +377,7 @@ def build_fallback_summary(
 
     note = (
         "_ИИ сейчас недоступен — ниже автоматическая сводка по сообщениям "
-        "коммитов (без анализа содержимого)._"
+        "коммитов (без анализа содержимого)._ " + ai_key_hint()
     )
     if brief:
         counts = ", ".join(
@@ -398,7 +400,7 @@ def build_fallback_summary(
 
 
 def page_html() -> str:
-    return """<!DOCTYPE html>
+    html = """<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -595,11 +597,11 @@ def page_html() -> str:
                 } else if (res.body && res.body.error) {
                     fail(res.body.error);
                 } else if (res.status === 429) {
-                    fail('Слишком много запросов, подождите немного.');
+                    fail(LTHubAI.hint('Слишком много запросов к ИИ, подождите немного.'));
                 } else if (res.status === 502 || res.status === 504) {
-                    fail('ИИ временно недоступен, попробуйте позже.');
+                    fail(LTHubAI.hint('ИИ временно недоступен, попробуйте позже.'));
                 } else {
-                    fail('Не удалось получить сводку (код ' + res.status + ').');
+                    fail(LTHubAI.hint('Не удалось получить сводку (код ' + res.status + ').'));
                 }
             })
             .catch(function () { fail('Сервис недоступен, проверьте сеть.'); })
@@ -623,11 +625,11 @@ def page_html() -> str:
                 } else if (res.body && res.body.error) {
                     fail(res.body.error);
                 } else if (res.status === 429) {
-                    fail('Слишком много вопросов, подождите немного.');
+                    fail(LTHubAI.hint('Слишком много вопросов к ИИ, подождите немного.'));
                 } else if (res.status === 502 || res.status === 504) {
-                    fail('ИИ временно недоступен, попробуйте позже.');
+                    fail(LTHubAI.hint('ИИ временно недоступен, попробуйте позже.'));
                 } else {
-                    fail('Не удалось получить ответ (код ' + res.status + ').');
+                    fail(LTHubAI.hint('Не удалось получить ответ (код ' + res.status + ').'));
                 }
             })
             .catch(function () { fail('Сервис недоступен, проверьте сеть.'); })
@@ -644,5 +646,7 @@ def page_html() -> str:
     urlEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') runAnalyze(false); });
 })();
 </script>
+__AI_KEY_JS__
 </body>
 </html>"""
+    return html.replace("__AI_KEY_JS__", ai_key_js())

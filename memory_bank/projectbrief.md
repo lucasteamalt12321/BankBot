@@ -56,7 +56,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 2 |
 | B22 | Post-Review Cleanup (T01…T07) | completed | 1 |
 | B23 | Repo History Reader — читалка истории репозиториев (RH-01…RH-04; RH-TEST открыт) | in_progress | 1.5 |
-| B24 | Personal AI Key — личный API-ключ нейросети (AIKEY-01…AIKEY-04; AIKEY-TEST открыт) | in_progress | 1 |
+| B24 | Personal AI Key — личный API-ключ нейросети (AIKEY-01…AIKEY-05; AIKEY-TEST открыт) | in_progress | 1 |
 | B25 | Google OAuth — вход/регистрация через Google (GOOG-01…GOOG-03; GOOG-TEST открыт) | in_progress | 1 |
 | — | **Итого** | | **100** |
 
@@ -1079,6 +1079,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | AIKEY-02 | Приоритет в `_ai_chat`: личный ключ пользователя пробуется первым (`_ai_chat_with_user_key`, резолв в `before_request` + кэш в `flask.g`), при отказе/пустом ответе — серверная цепочка Gemini→Groq→OpenRouter; гейты `_pc_ai_chat`/`/api/test_ai` учитывают личный ключ | completed |
 | AIKEY-03 | UI «🔑 Мой AI-ключ» в `/account`: провайдер (OpenRouter/Gemini/Groq), ключ, модель (опц.), сохранить/удалить | completed |
 | AIKEY-04 | Тесты `tests/unit/test_user_ai_key.py` (10 шт.: auth, CRUD, валидация, приоритет, fallback, бутстрап колонок, UI) | completed |
+| AIKEY-05 | Единые подсказки при ошибках ИИ во всех модулях: `core/ai_errors.py` (текст + ссылка на профиль), подключение в веб-модулях, D&D и Telegram-боте, JS-хелпер `LTHubAI` на всех страницах; тесты `tests/unit/test_ai_error_hints.py` | completed |
 | AIKEY-TEST | Прод-смоук после деплоя (сохранить ключ → запрос к ИИ идёт через него) | pending |
 
 Ключевое решение: ключ хранится в БД в открытом виде (явное решение пользователя, шифрование — отдельная будущая задача). Приоритет реализован внутри `_ai_chat` через резолв сессии из заголовков запроса — все веб-вызовы ИИ (чат, куратор, code explainer, repo history и т.д.) получают поведение автоматически, без правки call-sites. Вне Flask-контекста (бот/скрипты) поведение не меняется.

@@ -4,6 +4,18 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### ✅ Закрыто (2026-11-18): единые подсказки «добавьте свой ключ» при ошибках ИИ (B24 / AIKEY-05)
+
+> Запрос: «сделай, чтобы во всех модулях при ошибках ИИ предлагалось добавить свой ключ и даёт ссылку на вставление ключа в профиле».
+
+- **Единый источник текстов:** новый `core/ai_errors.py` — `ai_error(reason, prefix=…, with_hint=True)`, `ai_error_payload()`, `ai_key_hint()`, `ai_key_url()` (адрес сайта из `SITE_URL`/`PUBLIC_URL`, иначе `https://lthub.vercel.app`), `ai_key_js()`. Подсказка: «🔑 Можно подключить свой API-ключ ИИ — тогда запросы пойдут через него: <сайт>/account#ai-key».
+- **Legacy-контракт сохранён:** строковые функции (`call_ai_api`, `call_ai_with_memory`) определяют отказ по префиксу «❌» — поэтому `ai_error(..., prefix="❌")`; иначе вызывающий код принял бы ошибку за ответ ИИ.
+- **Подключено во всех модулях:** веб (`/api/ai_chat` 429, `_pc_ai_chat`, code explainer, md2pdf, repo history ask, family chat/report, тренажёр окончаний, план и куратор ОГЭ, `/api/test_ai`), D&D (`api/dnd_runtime.py`), Telegram-бот (`bot/commands/ai_commands_ptb.py`, `bot/ai/service.py` AI-lite, `core/systems/dnd_ai_master.py`) и веб-обработчики команд бота (`/ask_canon`, `/generate_prayer` — покрыты через `call_ai_api`).
+- **JS-хелпер на всех страницах:** `inject_theme()` (`core/theme.py`) добавляет `<script id="app-ai-key-hint">` с `LTHubAI.hint()/hintMd()/hintHtml()`; страница `/repo_history` (вне темы) вставляет его сама. В JSON-ошибках приходит готовый текст со ссылкой, в inline-JS — кликабельная ссылка (`hintHtml`) или markdown-ссылка (`hintMd` для `mdLite`).
+- **Правдивость подсказки в D&D:** `api/dnd_runtime.py` шёл по собственной цепочке провайдеров и игнорировал личный ключ — добавлена первая попытка `_call_ai_with_user_key()` (ленивый импорт `api.index`; вне Flask-контекста ключа нет → серверная цепочка). Без этого обещание «добавьте свой ключ» было бы пустым.
+- **Переход по ссылке:** `/account#ai-key` подсвечивает блок «🔑 Мой AI-ключ» и ставит фокус в поле ввода.
+- **Проверки:** `tests/unit/test_ai_error_hints.py` — **12 passed**; полный `tests/unit` — **1662 passed / 11 skipped / 0 failed** (140 с); `ruff check` по `core/`, `api/`, `bot/` — чисто. `docs/README.md` — раздел «Единые подсказки при ошибках ИИ». `projectbrief.md` — AIKEY-05 completed; B24 остаётся `in_progress` (AIKEY-TEST — прод-смоук личного ключа), прогресс проекта **77.5 %** без изменений.
+
 ### 🔍 В работе (2026-11-18): вход через Google (B25 / GOOG)
 
 > Запрос: «добавь сюда вход через google». Реализовано по образцу утверждённого GAL OAuth-клиента.

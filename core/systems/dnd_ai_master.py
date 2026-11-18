@@ -6,6 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from core.ai_errors import ai_error
 from database.database import DndSession, DndCharacter, DndSessionLog, DndFix
 from src.config import settings
 
@@ -126,7 +127,10 @@ class DndAiMaster:
             answer = response.text[:800] if response.text else "Мастер погрузился в раздумья..."
         except Exception as e:
             logger.error(f"D&D AI Master error: {e}")
-            answer = "🌌 Мастер задумался... Попробуйте ещё раз или опишите своё действие иначе."
+            answer = ai_error(
+                "Мастер задумался... Попробуйте ещё раз или опишите своё действие иначе.",
+                prefix="🌌",
+            )
 
         session.last_ai_response = answer
         self.db.add(DndSessionLog(
