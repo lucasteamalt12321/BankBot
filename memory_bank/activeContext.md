@@ -4,6 +4,17 @@
 
 > Стоящее указание пользователя: **«все задания, которые я тебе пишу, записывай в mb»**. Каждая новая задача из чата ДОПИСЫВАЕТСЯ сюда. Перед деплоем собрать все незакоммиченные правки и прогнать `ruff` + `pytest`.
 
+### 🔍 В работе (2026-11-18): вход через Google (B25 / GOOG)
+
+> Запрос: «добавь сюда вход через google». Реализовано по образцу утверждённого GAL OAuth-клиента.
+
+- **Код:** новый `core/google_oauth.py` (OAuth code + PKCE S256, `prompt=select_account`, scope `openid email profile`; обмен кода с `client_secret` server-side, профиль через Google userinfo — без JWT-библиотек и новых зависимостей). Роуты `GET /auth/google`, `GET /api/auth/google/callback`, `GET /auth/google/done`, `GET /api/auth/google/session` (одноразовая передача токена в `localStorage.web_token`, как у GAL). Проводка в конце `api/index.py`.
+- **БД:** колонки `web_users.google_subject` (уникальный индекс) / `google_email` через `_WEB_USER_OPTIONAL_COLUMNS` + миграция `database/migrations/012_google_oauth.sql`. `web_users.email` НЕ затрагивается, авто-привязки по email нет (email при обычной регистрации не верифицируется → вектор захвата аккаунта). Логин из local-part email/имени, суффиксы при занятости, `created_via='google_oauth'`, бонус +100.
+- **UI:** кнопки «Войти через Google» (`/login`) и «Зарегистрироваться через Google» (`/register`) — белый фирменный стиль с SVG-логотипом G; видны только при заданных `GOOGLE_CLIENT_ID`+`GOOGLE_CLIENT_SECRET` (плейсхолдер `__GOOGLE_OAUTH_ON__` → true/false в inline-JS); `redirect` сохраняется. Без env `/auth/google` → 404, прод не ломается.
+- **Проверки:** `tests/unit/test_google_oauth_client.py` — 21 тест; целевые Google+GAL — **28 passed**; полный `tests/unit` — **1651 passed / 11 skipped / 0 failed** (87 с); ruff check/format чист. Браузерный смоук на локальном сервере + мок-Google (отдельный Flask на 5098): кнопки рендерятся, href с redirect, 302 на Google с PKCE/state/HttpOnly-cookie; полный цикл клик→мок→callback→done→`/account` (токен в localStorage, аккаунт `smoke_user`/`Smoke User`, +100 монет); повторный вход переиспользует аккаунт (1 user, 1 бонус); консоль без ошибок. Смоук-БД и мок удалены, серверы остановлены.
+- **Память:** `projectbrief.md` — B25 (GOOG-01…03 completed, GOOG-TEST pending), ребаланс B11 `5.5→5` / B21 `2.5→2`, прогресс **77.5 %** без изменений; `docs/README.md` — раздел «Google OAuth».
+- **Открыто (нужен пользователь):** GOOG-TEST — создать OAuth-клиент в Google Cloud Console (redirect URI `https://lthub.vercel.app/api/auth/google/callback`), задать `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` в Vercel env, применить миграцию 012 в Supabase (креды-блокер тот же, что у 011), прод-смоук. Коммит не сделан — по решению пользователя.
+
 ### 🔍 В работе (2026-11-18): пуш + деплой B24/RH; миграция 011 — блокер на прод-кредах
 
 > Запрос: «делай это» — подтверждение двух ранее предложенных действий: запушить `0c47920`+`523c73c` в `main` (→ Vercel-деплой) и применить миграцию `011_user_ai_key.sql` к проду Supabase.

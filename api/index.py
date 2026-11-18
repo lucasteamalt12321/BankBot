@@ -443,6 +443,8 @@ _WEB_USER_OPTIONAL_COLUMNS = (
     "created_via VARCHAR(32)",
     "gal_subject VARCHAR(64)",
     "gal_username VARCHAR(64)",
+    "google_subject VARCHAR(64)",
+    "google_email VARCHAR(255)",
     "ai_provider VARCHAR(32)",
     "ai_api_key VARCHAR(255)",
     "ai_model VARCHAR(128)",
@@ -16048,6 +16050,8 @@ def register_page():
         .btn-secondary:hover { background: var(--bb-link); }
         .btn-gal { display: block; text-align: center; text-decoration: none; background: var(--bb-primary); color: var(--bb-text); margin-top: 12px; padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 600; }
         .btn-gal:hover { background: var(--bb-link); }
+        .btn-google { display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; background: #fff; color: #1f1f1f; border: 1px solid #dadce0; margin-top: 12px; padding: 13px; border-radius: 10px; font-size: 15px; font-weight: 600; }
+        .btn-google:hover { background: #f5f8ff; box-shadow: 0 1px 6px rgba(66,133,244,.35); }
         .info-box { background: var(--gh-bg2); border: 1px solid var(--bb-link); border-radius: 10px; padding: 14px; margin-top: 16px; font-size: 13px; color: var(--bb-muted); line-height: 1.5; }
         .info-box strong { color: var(--bb-accent); }
         .link { color: var(--bb-accent); text-decoration: none; }
@@ -16098,6 +16102,10 @@ def register_page():
         <button class="btn" onclick="doRegister()">Зарегистрироваться</button>
         <div class="divider"></div>
         <a class="btn btn-gal" id="gal-register" href="/auth/gal">Зарегистрироваться через GAL</a>
+        <a class="btn btn-google" id="google-register" href="/auth/google" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            Зарегистрироваться через Google
+        </a>
         <div class="info-box">
             <strong>Уже есть аккаунт?</strong>
             <a class="link" href="/login">Войти</a>
@@ -16114,6 +16122,13 @@ def register_page():
 <script>
     document.getElementById('gal-register').href = '/auth/gal?redirect=' +
         encodeURIComponent(new URLSearchParams(location.search).get('redirect') || '/');
+    var GOOGLE_OAUTH_ON = __GOOGLE_OAUTH_ON__;
+    if (GOOGLE_OAUTH_ON) {
+        var gbtn = document.getElementById('google-register');
+        gbtn.style.display = 'flex';
+        gbtn.href = '/auth/google?redirect=' +
+            encodeURIComponent(new URLSearchParams(location.search).get('redirect') || '/');
+    }
     function showToast(msg, error) {
         var t = document.getElementById('toast');
         t.textContent = msg;
@@ -16167,7 +16182,9 @@ def register_page():
 </script>
 </body>
 </html>"""
-    return html
+    return html.replace(
+        "__GOOGLE_OAUTH_ON__", "true" if _google_oauth_available() else "false"
+    )
 
 
 @app.route("/login")
@@ -16197,6 +16214,8 @@ def login_page():
         .btn-secondary:hover { background: var(--bb-link); }
         .btn-gal { display: block; text-align: center; text-decoration: none; background: var(--bb-primary); color: var(--bb-text); margin-top: 12px; padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 600; }
         .btn-gal:hover { background: var(--bb-link); }
+        .btn-google { display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; background: #fff; color: #1f1f1f; border: 1px solid #dadce0; margin-top: 12px; padding: 13px; border-radius: 10px; font-size: 15px; font-weight: 600; }
+        .btn-google:hover { background: #f5f8ff; box-shadow: 0 1px 6px rgba(66,133,244,.35); }
         .divider { height: 1px; background: var(--bb-link); margin: 20px 0; }
         .link { color: var(--bb-accent); text-decoration: none; }
         .link:hover { text-decoration: underline; }
@@ -16226,6 +16245,10 @@ def login_page():
         <div class="divider"></div>
         <a class="btn btn-gal" href="/auth/gal"
            onclick="this.href='/auth/gal?redirect='+encodeURIComponent(new URLSearchParams(location.search).get('redirect')||'/');">Войти через GAL</a>
+        <a class="btn btn-google" id="google-login" href="/auth/google" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            Войти через Google
+        </a>
         <div class="info-box" style="margin-top:16px">
             Нет аккаунта? <a class="link" href="/register">Зарегистрироваться</a>
         </div>
@@ -16234,6 +16257,13 @@ def login_page():
 </div>
 <div class="toast" id="toast"></div>
 <script>
+    var GOOGLE_OAUTH_ON = __GOOGLE_OAUTH_ON__;
+    if (GOOGLE_OAUTH_ON) {
+        var gbtn = document.getElementById('google-login');
+        gbtn.style.display = 'flex';
+        gbtn.href = '/auth/google?redirect=' +
+            encodeURIComponent(new URLSearchParams(location.search).get('redirect') || '/');
+    }
     function showToast(msg, error) {
         var t = document.getElementById('toast');
         t.textContent = msg;
@@ -16270,7 +16300,9 @@ def login_page():
 </script>
 </body>
 </html>"""
-    return html
+    return html.replace(
+        "__GOOGLE_OAUTH_ON__", "true" if _google_oauth_available() else "false"
+    )
 
 
 @app.route("/account")
@@ -38936,5 +38968,26 @@ _register_gal_oauth(
     hash_password=_hash_password,
     ensure_columns=_ensure_web_user_columns,
     award_coins=_award_gal_registration_bonus,
+    log_error=log_error,
+)
+
+
+# === Google OAuth client (registration/login in LTHub via Google) ===
+from core.google_oauth import google_oauth_available as _google_oauth_available
+from core.google_oauth import register_google_oauth as _register_google_oauth
+
+
+def _award_google_registration_bonus(user_id: int, amount: int, description: str) -> None:
+    _ensure_web_coin_tables()
+    _award_web_coins(user_id, amount, description)
+
+
+_register_google_oauth(
+    app,
+    get_db_engine=get_db_engine,
+    create_session=_create_session,
+    hash_password=_hash_password,
+    ensure_columns=_ensure_web_user_columns,
+    award_coins=_award_google_registration_bonus,
     log_error=log_error,
 )

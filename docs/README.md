@@ -218,6 +218,24 @@ LTHub/
 
 **Тесты:** `tests/unit/test_gal_oauth_client.py`.
 
+### Google OAuth (вход через Google)
+
+Регистрация и вход LTHub через Google — OAuth 2.0 authorization code + PKCE S256, конфиденциальный клиент (`client_secret` используется только server-side). Реализован по образцу GAL-клиента.
+
+**Компоненты:**
+- `core/google_oauth.py` — клиент: `state`/PKCE-verifier/`next` в HttpOnly-cookie, обмен кода на `oauth2.googleapis.com/token`, профиль с `openidconnect.googleapis.com/v1/userinfo` (scope `openid email profile`), поиск/создание `web_users` по `google_subject`, суффикс при занятом логине, бонус +100 новому аккаунту.
+- `GET /auth/google` — старт входа, редирект на `accounts.google.com/o/oauth2/v2/auth` (`prompt=select_account`).
+- `GET /api/auth/google/callback` — проверка `state`, обмен кода, чтение userinfo, вход/создание аккаунта. Логин derives из local-part email (или имени); `display_name` — имя профиля Google.
+- `GET /auth/google/done` + `GET /api/auth/google/session` — одноразовая передача токена из HttpOnly-cookie в `localStorage.web_token`.
+- Кнопки «Войти через Google» на `/login` и «Зарегистрироваться через Google» на `/register` (белый фирменный стиль с логотипом G); параметр `redirect` сохраняется через OAuth. Кнопки рендерятся только если заданы `GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET` (флаг `__GOOGLE_OAUTH_ON__` подставляется в страницу); иначе скрыты, а `/auth/google` отдаёт 404.
+- `web_users`: `google_subject` (уникальный индекс, привязка identity) и `google_email`. Колонка `web_users.email` не затрагивается; авто-привязки по email нет (email при обычной регистрации не верифицируется — привязка дала бы вектор захвата аккаунта). OAuth-only аккаунт получает случайный неиспользуемый хеш пароля.
+
+**Env:** `GOOGLE_OAUTH_ENABLED` (`true`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (обязательны для включения), `GOOGLE_OAUTH_REDIRECT_URI` (пусто — `request.url_root` + `/api/auth/google/callback`), опциональные переопределения `GOOGLE_OAUTH_AUTHORIZE_URL`/`GOOGLE_OAUTH_TOKEN_URL`/`GOOGLE_OAUTH_USERINFO_URL` (тесты/мок).
+
+**Настройка прода:** Google Cloud Console → OAuth consent screen + OAuth client ID (Web application) → authorized redirect URI `https://lthub.vercel.app/api/auth/google/callback` → значения в Vercel env. Миграция `database/migrations/012_google_oauth.sql` (колонки также авто-добавляются `_ensure_web_user_columns`).
+
+**Тесты:** `tests/unit/test_google_oauth_client.py`.
+
 ### Personal AI Key (личный API-ключ нейросети)
 
 Зарегистрированный пользователь может сохранить свой API-ключ ИИ-провайдера в личном кабинете `/account` (блок «🔑 Мой AI-ключ»). Ключ **приоритетно** используется для всех веб-запросов этого пользователя к ИИ; при отказе ключа — автоматический fallback на серверную цепочку провайдеров.

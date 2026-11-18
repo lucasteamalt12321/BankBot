@@ -43,7 +43,7 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B08 | AI Module (AI-01…AI-05; AI-TEST открыт) | in_progress | 3 |
 | B09 | AI Chat — reply/mention (AIC-01…AIC-08) | completed | 2 |
 | B10 | Mom Module (MOM-01…MOM-05; MOM-TEST открыт) | in_progress | 3 |
-| B11 | Family Budget Module (BGT-01…BGT-10; BGT-TEST открыт) | in_progress | 5.5 |
+| B11 | Family Budget Module (BGT-01…BGT-10; BGT-TEST открыт) | in_progress | 5 |
 | B12 | VK Mini App — Budget UI (альтернатива Vercel) | in_progress | 1 |
 | B13 | School Project (SCH-01…SCH-05) | completed | 1.5 |
 | B14 | OGE Center — подготовка к ОГЭ по 5 предметам (OGE-00…OGE-12, OGE-FULL) | completed | 11 |
@@ -53,19 +53,22 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | B18 | Profiles & Friends (FND-01…FND-03) | completed | 3 |
 | B19 | Freemium-гейтинг 67/33 (FRE-01…FRE-09) | completed | 3 |
 | B20 | BUGHUNT Phase 11 — баг-хант + закрытие долгов (BUG-01…BUG-12) | completed | 3.5 |
-| B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 2.5 |
+| B21 | LTHUB Tunnel — обход блокировки Vercel (TUN-01…TUN-08) | in_progress | 2 |
 | B22 | Post-Review Cleanup (T01…T07) | completed | 1 |
 | B23 | Repo History Reader — читалка истории репозиториев (RH-01…RH-04; RH-TEST открыт) | in_progress | 1.5 |
 | B24 | Personal AI Key — личный API-ключ нейросети (AIKEY-01…AIKEY-04; AIKEY-TEST открыт) | in_progress | 1 |
+| B25 | Google OAuth — вход/регистрация через Google (GOOG-01…GOOG-03; GOOG-TEST открыт) | in_progress | 1 |
 | — | **Итого** | | **100** |
 
 **Канонический прогресс проекта: 77.5 / 100 (77.5%).**
 
-Остальные `22.5` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, VK Mini App, RH-TEST). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
+Остальные `22.5` веса — блоки `in_progress`: код в них реализован, но открыты manual-тестирование, полировка или отдельные пункты (UN-TEST, AI-TEST, MOM-TEST, BGT-TEST, TUN-08, Code Explainer 90/100, VK Mini App, RH-TEST, GOOG-TEST). Модуль «Редактор Python» (Phase 10) удалён из проекта и в расчёт не входит.
 
 > Ребаланс 2026-11-16: под новый блок B23 (вес `1.5`) уменьшены веса `in_progress`-блоков B12 (`1.5→1`), B16 (`3.5→3`), B21 (`3.5→3`); сумма осталась `100`, канонический прогресс не изменился.
 >
 > Ребаланс 2026-11-17: под новый блок B24 (вес `1`) уменьшены веса `in_progress`-блоков B11 (`6→5.5`), B21 (`3→2.5`); сумма осталась `100`, канонический прогресс не изменился.
+>
+> Ребаланс 2026-11-18: под новый блок B25 (вес `1`) уменьшены веса `in_progress`-блоков B11 (`5.5→5`), B21 (`2.5→2`); сумма осталась `100`, канонический прогресс не изменился.
 
 ---
 
@@ -1079,3 +1082,18 @@ Local/dev polling fallback: `bot/main.py` → `TelegramBot.run()`.
 | AIKEY-TEST | Прод-смоук после деплоя (сохранить ключ → запрос к ИИ идёт через него) | pending |
 
 Ключевое решение: ключ хранится в БД в открытом виде (явное решение пользователя, шифрование — отдельная будущая задача). Приоритет реализован внутри `_ai_chat` через резолв сессии из заголовков запроса — все веб-вызовы ИИ (чат, куратор, code explainer, repo history и т.д.) получают поведение автоматически, без правки call-sites. Вне Flask-контекста (бот/скрипты) поведение не меняется.
+
+---
+
+### Phase 15: Google OAuth (историческая детализация; блок B25)
+
+> Запрос пользователя (2026-11-18): «добавь сюда вход через google».
+
+| ID | Deliverable | Status |
+|----|-------------|--------|
+| GOOG-01 | `core/google_oauth.py`: OAuth 2.0 code + PKCE S256 через Google (`accounts.google.com` → `oauth2.googleapis.com/token` → userinfo), state/verifier/next в HttpOnly-cookie, поиск/создание `web_users` по `google_subject`, суффикс при занятом логине, бонус +100 новому аккаунту, одноразовая передача токена (`/auth/google/done` + `/api/auth/google/session`) | completed |
+| GOOG-02 | Колонки `web_users.google_subject/google_email` (бутстрап `_ensure_web_user_columns` + миграция `012_google_oauth.sql`); кнопки «Войти через Google» / «Зарегистрироваться через Google» на `/login` и `/register` (фирменный белый стиль с логотипом G, видны только при настроенных `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`); параметр `redirect` сохраняется | completed |
+| GOOG-03 | Тесты `tests/unit/test_google_oauth_client.py` (21 шт.: PKCE/state, создание/повторный вход, суффиксы, fallback логина, 502/400/404, санитайзер redirect, интеграция страниц + `node --check`) | completed |
+| GOOG-TEST | Прод-настройка и смоук: создать OAuth-клиент в Google Cloud Console (authorized redirect URI `https://lthub.vercel.app/api/auth/google/callback`), задать `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` в Vercel env, применить миграцию 012, живой вход | pending |
+
+Ключевое решение: профиль берётся с Google userinfo endpoint по access-токену, полученному server-side обменом кода с `client_secret` (TLS-канал доверенный — JWT-библиотека не нужна, новых зависимостей нет). Email Google хранится в отдельной колонке `google_email`; колонка `web_users.email` НЕ затрагивается и авто-привязки по email нет (защита от захвата аккаунта через неверифицированный email при обычной регистрации). Без настроенных env кнопки скрыты, `/auth/google` отдаёт 404 — прод не ломается.
